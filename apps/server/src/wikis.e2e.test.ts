@@ -3,10 +3,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { StorageInput } from "@legalwork/types/file-storage";
+import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
 import { TokenService } from "./tokens.js";
-import { StorageStore } from "./file-storage/store.js";
+import { WikiStore } from "./wiki/store.js";
+import { registerLocalProject } from "./routes/workspaces.js";
+import { runtimeDbPath } from "./runtime-db.js";
+import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
 import type { ServerConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [], roots: string[] = [];
@@ -38,6 +42,104 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+  test("hides personal wiki schedules and inbox entries while retaining ordinary project results", async () => {
+    const { request, config, root } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private schedules" })).json());
+    const project = (await registerLocalProject(config, { folderPath: join(root, "Project"), name: "Ordinary project", preset: "starter" })).workspace;
+    const input = { title: "Review", prompt: "Review this folder", sessionId: null,
+      schedule: { kind: "once", startAt: new Date(Date.now() + 86400000).toISOString(), timeZone: "Europe/Berlin" } };
+    const scheduled = z.object({ task: z.object({ id: z.string(), revision: z.number() }) });
+    const privateTask = scheduled.parse(await (await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "owner", "POST", input)).json()).task;
+    const projectTask = scheduled.parse(await (await request(`/workspace/${project.id}/scheduled-tasks`, "collaborator", "POST", input)).json()).task;
+    const db = new Database(join(root, "inbox-fixture.sqlite"));
+    db.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);");
+    db.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run("private-chat", wiki.root, Date.now());
+    db.query("INSERT INTO session VALUES (?, ?, ?, NULL)").run("project-chat", project.path, Date.now());
+    const previousDb = process.env.OPENCODE_DB;
+    process.env.OPENCODE_DB = join(root, "inbox-fixture.sqlite");
+    const tasks = z.object({ tasks: z.array(z.object({ id: z.string(), workspaceId: z.string() })) });
+    const projects = z.object({ projects: z.array(z.object({ id: z.string() })) });
+    const inbox = z.object({ sessions: z.array(z.object({ sessionId: z.string(), workspaceId: z.string() })) });
+    try {
+      expect(tasks.parse(await (await request("/scheduled-tasks", "owner")).json()).tasks.map(item => item.id)).toContain(privateTask.id);
+      expect(projects.parse(await (await request("/scheduled-tasks/projects", "owner")).json()).projects.map(item => item.id)).toContain(wiki.workspaceId);
+      expect(inbox.parse(await (await request("/session-inbox", "owner")).json()).sessions.map(item => item.sessionId)).toContain("private-chat");
+      const actors: Array<"collaborator" | "viewer"> = ["collaborator", "viewer"];
+      for (const actor of actors) {
+        expect(tasks.parse(await (await request("/scheduled-tasks", actor)).json()).tasks.map(item => item.id)).toEqual([projectTask.id]);
+        expect(projects.parse(await (await request("/scheduled-tasks/projects", actor)).json()).projects.map(item => item.id)).toEqual([project.id]);
+        expect(inbox.parse(await (await request("/session-inbox", actor)).json()).sessions.map(item => item.sessionId)).toEqual(["project-chat"]);
+        expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, actor)).status).toBe(404);
+      }
+      expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "collaborator", "POST", input)).status).toBe(404);
+      expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, "collaborator", "PATCH", { revision: privateTask.revision, status: "paused" })).status).toBe(404);
+      expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, "collaborator", "DELETE", { revision: privateTask.revision })).status).toBe(404);
+    } finally {
+      if (previousDb === undefined) delete process.env.OPENCODE_DB; else process.env.OPENCODE_DB = previousDb;
+      db.close();
+    }
+  });
+
+  test("keeps wiki sharing separate from project sync and guards programmatic project registration", async () => {
+    const { request, config, root } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Independent wiki" })).json());
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const response = await request(`/workspace/${wiki.workspaceId}/project/sync`, "owner", method, method === "PUT" ? {} : undefined);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "wiki_project_sync" });
+    }
+    for (const folderPath of [wiki.root, join(wiki.root, "Nested project")]) {
+      await expect(registerLocalProject(config, { folderPath, name: "Cannot expose the wiki", preset: "starter" })).rejects.toMatchObject({ code: "wiki_workspace_overlap" });
+    }
+    expect(config.workspaces.find(item => item.id === wiki.workspaceId)?.preset).toBe("wiki");
+    const project = (await registerLocalProject(config, { folderPath: join(root, "Project"), name: "Separate project", preset: "starter" })).workspace;
+    expect((await request(`/workspace/${project.id}/project/sync`, "collaborator")).status).toBe(200);
+    expect((await request(`/workspace/${wiki.workspaceId}/project`, "owner")).status).toBe(200);
+  });
+
+  test("a scheduled run replaces a prior owner origin with collaborator scope before prompting", async () => {
+    const { request, config, root, base } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private scheduled knowledge" })).json());
+    expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
+    const project = (await registerLocalProject(config, { folderPath: join(root, "Project"), name: "Scheduled project", preset: "starter" })).workspace;
+    const token = await ensureWikiAgentToken(config), sessionId = "existing-owner-chat";
+    await grantWikiAgentSession(config, { sessionId, directory: project.path, scope: "owner" });
+    const headers = { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(project.path) };
+    expect((await fetch(`${base}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status).toBe(200);
+    let restartedBase = "", privateReadStatus: number | undefined;
+    let ready = () => {};
+    const serverReady = new Promise<void>(resolve => { ready = resolve; });
+    const engine = Bun.serve({ port: 0, fetch: async req => {
+      const path = new URL(req.url).pathname;
+      if (path === "/agent") return Response.json([{ name: "legalwork-scheduled-project", permission: [{ permission: "*", pattern: "*", action: "deny" }] }]);
+      if (path === "/session/status") return Response.json({});
+      if (path === `/session/${sessionId}`) return Response.json({ id: sessionId, directory: project.path, time: {} });
+      if (path === `/session/${sessionId}/prompt_async`) {
+        await serverReady;
+        privateReadStatus = (await fetch(`${restartedBase}/wikis/${wiki.id}/page?path=Instructions.md`, { headers })).status;
+        return new Response(null, { status: 204 });
+      }
+      return Response.json({});
+    } });
+    try {
+      project.baseUrl = `http://127.0.0.1:${engine.port}`;
+      const stopInitial = stops.pop();
+      if (!stopInitial) throw new Error("Expected the initial fixture server");
+      await stopInitial();
+      const store = await ScheduledTaskStore.open(runtimeDbPath(config));
+      const due = Date.now() - 60000;
+      const task = store.create(project.id, { title: "Scheduled review", prompt: "Read available knowledge", sessionId,
+        schedule: { kind: "once", startAt: new Date(due).toISOString(), timeZone: "Europe/Berlin" } }, due - 60000);
+      const server = await startServer(config);
+      stops.push(() => server.stop());
+      restartedBase = `http://127.0.0.1:${server.port}`;
+      ready();
+      for (let attempt = 0; attempt < 200 && store.runs(task.id)[0]?.status !== "sent"; attempt++) await Bun.sleep(10);
+      expect(store.runs(task.id)[0]?.status).toBe("sent");
+      expect(privateReadStatus).toBe(404);
+    } finally { ready(); engine.stop(true); }
+  });
+
   test("enforces authentication, owner-only registration and personal wiki access through both API surfaces", async () => {
     const { request, config, base } = await fixture();
     expect((await request("/wikis", "anonymous")).status).toBe(401);
@@ -90,23 +192,29 @@ describe("Wiki HTTP API", () => {
     expect(search.items.some((item) => item.path === path)).toBe(true);
   });
 
-  test("shared wiki readers, collaborator edits and revoked storage access follow the server policy", async () => {
+  test("legacy bindings remain local and cannot expose wiki contents through project storage", async () => {
     const { request, config } = await fixture();
-    const storage = new StorageStore(config);
-    const input: StorageInput = { name: "Wiki sync", config: { kind: "webdav", endpoint: "http://127.0.0.1:1", username: "" }, enabled: true, readOnly: false, secrets: {} };
-    const connection = await storage.save("origin-project", input);
-    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Shared", attach: true, sync: { workspaceId: "origin-project", connectionId: connection.id, path: "Shared knowledge" } })).json());
+    const store = new WikiStore(config);
+    const wiki = await store.create({ name: "Legacy", attach: true, sync: { workspaceId: "origin-project", connectionId: "old-connection", path: "Shared knowledge" } });
+    await store.write(wiki.id, "Shared.md", "# Retained local knowledge", "");
+    await store.close();
     const base = `/wikis/${wiki.id}`;
-    expect((await request(base, "viewer")).status).toBe(200);
-    expect((await request(`${base}/page`, "viewer", "PUT", { path: "Denied.md", content: "# Denied", baseRevision: null })).status).toBe(403);
-    expect((await request(`${base}/page`, "collaborator", "PUT", { path: "Shared.md", content: "# Shared", baseRevision: null })).status).toBe(200);
-    await storage.save("origin-project", { ...input, readOnly: true }, connection.id);
-    expect((await request(`${base}/page`, "collaborator", "PUT", { path: "Readonly.md", content: "# Denied", baseRevision: null })).status).toBe(403);
-    expect((await request(`${base}/page?path=Shared.md`, "viewer")).status).toBe(200);
-    await storage.save("origin-project", { ...input, enabled: false }, connection.id);
-    expect((await request(`${base}/page?path=Shared.md`, "viewer")).status).toBe(403);
+    expect((await request(base, "viewer")).ok).toBe(false);
+    expect((await request(`${base}/page`, "collaborator", "PUT", { path: "Denied.md", content: "# Denied", baseRevision: null })).ok).toBe(false);
     expect((await request(`${base}/page?path=Shared.md`, "owner")).status).toBe(200);
     expect(await (await request("/wikis", "viewer")).json()).toEqual({ items: [] });
+    expect((await request("/wikis", "owner", "POST", { name: "No project bindings", sync: { workspaceId: "project", connectionId: "storage", path: "Knowledge" } })).status).toBe(400);
+    expect((await request(base, "owner", "PATCH", { sync: null })).status).toBe(400);
+  });
+
+  test("team sharing has global endpoints and requires a firm account, without selecting a project", async () => {
+    const { request, config } = await fixture();
+    expect(config.workspaces).toHaveLength(0);
+    expect((await request("/wikis/team", "viewer")).status).toBe(403);
+    expect((await request("/wikis/team", "owner")).ok).toBe(false);
+    expect((await request("/wikis", "owner", "POST", { name: "Firm Wiki", sharing: { access: "org", memberIds: [] } })).ok).toBe(false);
+    expect(await (await request("/wikis", "owner")).json()).toEqual({ items: [] });
+    expect((await request("/wikis/join", "collaborator", "POST", { wikiId: "cbb04c84-15f4-4a2b-a9f7-a5bd00d4a919" })).status).toBe(403);
   });
 
   test("server read-only mode blocks registration even for the owner", async () => {

@@ -19,7 +19,6 @@ import {
   WandSparkles,
   TableProperties,
   Archive,
-  BookOpen,
   ArchiveRestore,
   FlaskConical,
   ChevronRight,

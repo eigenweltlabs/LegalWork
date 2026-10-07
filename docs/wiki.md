@@ -1,10 +1,10 @@
 # Markdown wikis
 
-A LegalWork wiki is a local folder of Markdown pages and supporting files. Personal wikis stay local. A wiki connected to existing team or personal storage automatically syncs its saved files. There is no separate publication or approval state for wiki content.
+A LegalWork wiki is a local folder of Markdown pages and supporting files. Personal wikis stay local. A wiki shared through the signed-in firm account automatically syncs its saved files. There is no separate publication or approval state for wiki content.
 
 ## Start and adapt a wiki
 
-Open **Wiki** in LegalWork and create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join a wiki already shared from another computer, attach a folder to that existing remote location; attachment skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
+Open **Wiki** in LegalWork and create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join an existing firm wiki, choose it from the shared wiki list and select a local folder. Joining skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
 
 The folder itself describes its organization:
 
@@ -82,11 +82,17 @@ For the first extraction, select one question and a bounded set of source matter
 
 ## Sharing and recovery
 
-Choose an existing storage connection and a dedicated remote folder in the wiki settings. Computers sharing a wiki use the same remote storage folder; local registrations can have different IDs. Versioned storage is required for conditional updates; supported provider families are S3, Azure, Google Cloud, WebDAV, Dropbox, and Box. SMB, FTP, and SFTP remain source connections and cannot host this sync protocol.
+Sign in with your firm, then choose **Share with firm** in the wiki settings. Choose the whole firm or named members. Wikis have their own shared identity; sharing does not require a project or a storage connection. Only the wiki owner can change the audience or stop sharing. Members can edit the shared knowledge. Other signed-in members discover available wikis in **Join shared wiki**, choose a local folder, and receive the existing files without starter pages being added.
 
-Saved changes sync automatically, including changes made by agents or an external editor. Failed transfers retain local files and surface an error. Independent text changes can merge. Overlapping edits preserve both versions with a `.conflict-...` copy for reconciliation. Revisions recorded on this computer can be inspected and restored in History. Local history is not a shared audit log, and restoring a revision is a new automatically synced save.
+The firm's server must advertise support for independent wiki sharing. If it needs an update, the wiki remains local and LegalWork reports that requirement. An interrupted sharing request retains its selected audience and a pending remote identity, so retrying does not create duplicate wikis or publish local files before sharing is confirmed.
 
-Sharing reuses the existing storage/team access model. Prepare confidential matter material, filenames, frontmatter, attachments, and source references for the destination audience before saving. There is no draft publication gate.
+Saved changes sync automatically, including changes made by agents or an external editor. Markdown, structure, instructions, views, templates, and supporting files all use the same synchronization path. Files transfer in chunks over short-lived storage links and each file update names the SHA revision it replaces. Independent text changes can merge. Overlapping edits preserve both versions with a `.conflict-...` copy for reconciliation. A transfer failure retains local files; a partially completed multi-file transfer continues on the next sync.
+
+The server checks the current firm and access before publishing. Shared cached reads use a bounded authorization lease. A previously authorized owner may keep local edits during a service outage; those edits publish only after a fresh permission check. Sign-out, another firm, and revoked access stop shared access. Stopping sharing tombstones the remote wiki and keeps the local Markdown folder; sharing it again creates a fresh shared identity.
+
+Older connector-based registrations remain readable locally to their host and report that sharing needs migration. They never upload automatically. Choose **Move sharing to firm** to explicitly create an independent shared wiki with a chosen audience; the local content stays in place.
+
+Revisions recorded on this computer can be inspected and restored in History. Local history is not a shared audit log, and restoring a revision is a new automatically synced save. Prepare confidential matter material, filenames, frontmatter, attachments, and source references for the destination audience before saving. There is no draft publication gate.
 
 ## Implementation and current bounds
 
@@ -94,4 +100,4 @@ The LegalWork server owns the wiki API. SQLite stores an incremental page cache,
 
 Pages are limited to 2 MB; individual attachments to 100 MB. Hidden files and symlinks are excluded. Supporting files sync eagerly; there is no attachment streaming or storage quota UI. The graph is a bounded exploration view rather than an unbounded graph renderer. Initial extraction depends on the source connectors and document tools already configured for the user. Wiki access checks govern the API and bundled wiki tools; they are not an operating-system sandbox for the engine's existing local filesystem tools. These bounds keep the first implementation small without changing the portable Markdown format.
 
-The remote sync folder contains a conditional Markdown manifest and immutable file objects. Current readable pages live in each local wiki folder. Keep the server's state directory backed up too if local history or saved registrations must survive a machine replacement.
+The firm service holds an independent wiki registry and revision-checked file references; signed chunk transfers carry the bytes. Current readable pages live in each local wiki folder. Keep the server's state directory backed up too if local history or saved registrations must survive a machine replacement.

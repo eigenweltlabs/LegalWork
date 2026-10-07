@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { WikiRegistration, WikiSnapshot, WikiSyncStatus, WikiVault } from "@legalwork/types/wiki";
+import type { WikiRegistration, WikiSharingInput, WikiSnapshot, WikiSyncStatus, WikiTeamOverview, WikiTeamRecord, WikiVault } from "@legalwork/types/wiki";
 import { ApiError } from "../errors.js";
 import type { ApprovalRequest, ServerConfig, TokenScope } from "../types.js";
-import { WikiStore, wikiAssetContentType, WIKI_MAX_ASSET_BYTES, WIKI_MAX_PAGE_BYTES, wikiSyncSchema } from "../wiki/store.js";
+import { WikiStore, wikiAssetContentType, WIKI_MAX_ASSET_BYTES, WIKI_MAX_PAGE_BYTES } from "../wiki/store.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
 type Options = {
@@ -20,14 +20,23 @@ type Options = {
   onWorkspacesChanged?: () => void;
   getSyncStatus?: (id: string) => WikiSyncStatus | Promise<WikiSyncStatus>;
   syncWiki?: (id: string) => Promise<WikiSyncStatus>;
+  team?: () => Promise<WikiTeamOverview>;
+  sharing?: (id: string) => Promise<WikiTeamRecord | null>;
+  pendingSharing?: (id: string) => Promise<WikiSharingInput | null>;
+  share?: (id: string, input: WikiSharingInput) => Promise<WikiTeamRecord>;
+  updateSharing?: (id: string, input: WikiSharingInput) => Promise<WikiTeamRecord>;
+  stopSharing?: (id: string) => Promise<void>;
+  join?: (input: { wikiId: string; root?: string }) => Promise<WikiRegistration>;
+  rename?: (id: string, name: string) => Promise<void>;
 };
+const sharingSchema = z.object({ access: z.enum(["org", "members"]), memberIds: z.array(z.string().min(1).max(200)).max(500) });
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200), root: z.string().trim().min(1).max(4096).optional(),
-  template: z.enum(["firm", "blank"]).optional(), sync: wikiSyncSchema.nullable().optional(), attach: z.boolean().optional(),
-});
+  template: z.enum(["firm", "blank"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+}).strict();
 const updateSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(), sync: wikiSyncSchema.nullable().optional(),
-});
+  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
+}).strict();
 const writeSchema = z.object({ path: z.string().min(1), content: z.string(), baseRevision: z.string().max(100).nullable().optional() });
 const deleteSchema = z.object({ path: z.string().min(1), baseRevision: z.string().min(1).max(100) });
 const restoreSchema = z.object({ path: z.string().min(1), revisionId: z.string().uuid(), baseRevision: z.string().max(100).nullable().optional() });
@@ -55,7 +64,9 @@ export function registerWikiRoutes(options: Options): WikiStore {
     if (writable && options.ensureWikiWritable) {
       try { await options.ensureWikiWritable(ctx, snapshot.wiki); } catch { writable = false; }
     }
-    return { ...snapshot.wiki, writable, syncStatus: options.getSyncStatus ? await options.getSyncStatus(snapshot.wiki.id) : snapshot.wiki.syncStatus };
+    const sharing = options.sharing ? await options.sharing(snapshot.wiki.id).catch(() => null) : null;
+    const pendingSharing = owner(ctx) && options.pendingSharing ? await options.pendingSharing(snapshot.wiki.id).catch(() => null) : null;
+    return { ...snapshot.wiki, writable, sharing, pendingSharing, syncStatus: options.getSyncStatus ? await options.getSyncStatus(snapshot.wiki.id) : snapshot.wiki.syncStatus };
   };
   const change = (id: string) => { options.onChanged?.(id); };
   const authorize = async (ctx: RequestContext, wiki: WikiRegistration, action: string, paths: string[]) => {
@@ -68,6 +79,24 @@ export function registerWikiRoutes(options: Options): WikiStore {
     if (!path) throw new ApiError(400, "invalid_wiki_path", "Provide a wiki file path.");
     return path;
   };
+  const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+
+  addRoute(routes, "GET", "/wikis/team", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    if (!options.team) throw sharingUnavailable();
+    return jsonResponse(await options.team());
+  });
+  addRoute(routes, "POST", "/wikis/join", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    if (!options.join) throw sharingUnavailable();
+    const parsed = z.object({ wikiId: z.string().uuid(), root: z.string().trim().min(1).max(4096).optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_configuration", "Choose a shared wiki and an optional local folder.");
+    const wiki = await options.join(parsed.data);
+    options.onWorkspacesChanged?.();
+    change(wiki.id);
+    return jsonResponse({ wiki: await vault(ctx, await store.snapshot(wiki.id)) }, 201);
+  });
 
   addRoute(routes, "GET", "/wikis", "client", async (ctx) => {
     const items: WikiVault[] = [];
@@ -86,11 +115,60 @@ export function registerWikiRoutes(options: Options): WikiStore {
     requireClientScope(ctx, "owner");
     ensureWritable(config);
     const parsed = createSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
-    if (!parsed.success) throw new ApiError(400, "invalid_wiki_configuration", "Provide a name, optional folder, and valid sync settings.");
-    const wiki = await store.create(parsed.data);
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_configuration", "Provide a name, optional folder, and wiki sharing settings.");
+    if (parsed.data.sharing) {
+      if (!options.team || !options.share) throw sharingUnavailable();
+      await options.team();
+    }
+    let wiki = await store.create(parsed.data);
+    let sharingError: string | undefined;
+    if (parsed.data.sharing && options.share) {
+      try { await options.share(wiki.id, parsed.data.sharing); wiki = await store.get(wiki.id); }
+      catch (error) {
+        // Keep the local ID and pending remote ID so an unknown POST outcome can be retried once.
+        wiki = await store.get(wiki.id);
+        sharingError = error instanceof Error ? error.message : "The wiki was created locally. Sharing could not be completed.";
+      }
+    }
     options.onWorkspacesChanged?.();
     change(wiki.id);
-    return jsonResponse({ wiki: await vault(ctx, await store.snapshot(wiki.id)) }, 201);
+    return jsonResponse({ wiki: await vault(ctx, await store.snapshot(wiki.id)), ...(sharingError ? { sharingError } : {}) }, 201);
+  });
+  const sharingBody = async (ctx: RequestContext) => {
+    const parsed = sharingSchema.strict().safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_sharing", "Choose everyone in the firm or selected members.");
+    return parsed.data;
+  };
+  const sharedResult = async (ctx: RequestContext, wikiId: string) => {
+    options.onWorkspacesChanged?.();
+    change(wikiId);
+    return jsonResponse({ wiki: await vault(ctx, await store.snapshot(wikiId)) });
+  };
+  addRoute(routes, "POST", "/wikis/:wikiId/share", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    await selected(ctx);
+    if (!options.share) throw sharingUnavailable();
+    await options.share(ctx.params.wikiId, await sharingBody(ctx));
+    return sharedResult(ctx, ctx.params.wikiId);
+  });
+  addRoute(routes, "PATCH", "/wikis/:wikiId/share", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    await selected(ctx);
+    if (!options.updateSharing) throw sharingUnavailable();
+    await options.updateSharing(ctx.params.wikiId, await sharingBody(ctx));
+    return sharedResult(ctx, ctx.params.wikiId);
+  });
+  addRoute(routes, "DELETE", "/wikis/:wikiId/share", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    // An unknown DELETE outcome may already have tombstoned the remote record.
+    // The remote DELETE still checks ownership and is safe to retry without a read.
+    await store.get(ctx.params.wikiId);
+    if (!options.stopSharing) throw sharingUnavailable();
+    await options.stopSharing(ctx.params.wikiId);
+    return sharedResult(ctx, ctx.params.wikiId);
   });
   addRoute(routes, "GET", "/wikis/:wikiId", "client", async (ctx) => {
     await selected(ctx);
@@ -102,7 +180,8 @@ export function registerWikiRoutes(options: Options): WikiStore {
     ensureWritable(config);
     await selected(ctx);
     const parsed = updateSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
-    if (!parsed.success) throw new ApiError(400, "invalid_wiki_configuration", "Check the wiki name and sync settings.");
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_configuration", "Check the wiki name and project access settings.");
+    if (parsed.data.name) await options.rename?.(ctx.params.wikiId, parsed.data.name);
     const wiki = await store.update(ctx.params.wikiId, parsed.data);
     options.onWorkspacesChanged?.();
     change(wiki.id);
@@ -111,7 +190,8 @@ export function registerWikiRoutes(options: Options): WikiStore {
   addRoute(routes, "DELETE", "/wikis/:wikiId", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
     ensureWritable(config);
-    await selected(ctx);
+    // Removing a local registration remains possible after firm access is revoked.
+    await store.get(ctx.params.wikiId);
     await store.forget(ctx.params.wikiId);
     options.onWorkspacesChanged?.();
     change(ctx.params.wikiId);

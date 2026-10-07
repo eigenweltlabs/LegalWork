@@ -637,13 +637,12 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
-  // Templates workspaces (created by workflow generation) are utility plumbing:
-  // they stay out of the sidebar; their session is reached via the Workflows
-  // progress banner. Route resolution keeps using the unfiltered list so that
-  // navigation still works.
+  // Templates and wiki workspaces have their own navigation surfaces. Keep the
+  // full list for resolving their agent sessions, while project navigation
+  // shows only project folders.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(

@@ -932,7 +932,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
     const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
     assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki && !ownsWikis(actor)) await wikiSync.ensureReadable(wiki);
+    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
   };
   const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
@@ -940,7 +940,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     if (!directory) return;
     const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
     assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki && !ownsWikis(actor)) await wikiSync.ensureReadable(wiki);
+    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
   };
 
@@ -1112,7 +1112,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           for (const wiki of wikis) {
             if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
             else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
-            else if (!ownsWikis(actor)) { try { await wikiSync.ensureReadable(wiki); } catch { hidden.add(wiki.workspaceId); } }
+            else { try { await wikiSync.ensureReadable(wiki, ownsWikis(actor)); } catch { hidden.add(wiki.workspaceId); } }
           }
           const payload: unknown = await response.json();
           if (isRecord(payload)) {
@@ -1843,10 +1843,13 @@ function createRoutes(
     ensureWikiReadable: async (ctx, wiki) => {
       const agent = await authenticateWikiAgentRequest(config, ctx.request);
       if (agent && !await wikiAgentCanAccess(config, await wikiStore.list(), wiki, agent.directory)) throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project.");
-      if (!ownsWikis(ctx.actor)) await wikiSync.ensureReadable(wiki);
+      await wikiSync.ensureReadable(wiki, ownsWikis(ctx.actor));
     },
     ensureWikiWritable: (ctx, wiki) => wikiSync.ensureWritable(wiki, ownsWikis(ctx.actor)),
-    onChanged: (id) => wikiSync.changed(id), onWorkspacesChanged, getSyncStatus: (id) => wikiSync.status(id), syncWiki: (id) => wikiSync.sync(id) });
+    onChanged: (id) => wikiSync.changed(id), onWorkspacesChanged, getSyncStatus: (id) => wikiSync.status(id), syncWiki: (id) => wikiSync.sync(id),
+    team: () => wikiSync.team(), sharing: (id) => wikiSync.sharing(id), pendingSharing: (id) => wikiSync.pendingSharing(id), share: (id, input) => wikiSync.share(id, input),
+    updateSharing: (id, input) => wikiSync.updateSharing(id, input), stopSharing: (id) => wikiSync.stopSharing(id),
+    join: (input) => wikiSync.join(input), rename: (id, name) => wikiSync.rename(id, name) });
 
   registerCoreRoutes({
     routes,

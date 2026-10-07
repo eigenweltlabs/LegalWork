@@ -27,7 +27,7 @@ import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
-import type { WikiCreateInput, WikiDocument, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiUpdateInput, WikiVault } from "@legalwork/types/wiki";
+import type { WikiCreateInput, WikiDocument, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1704,7 +1704,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     baseUrl,
     token,
     listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
-    createWiki: (input: WikiCreateInput) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis", { token, hostToken, method: "POST", body: input }),
+    wikiTeam: () => requestJson<WikiTeamOverview>(baseUrl, "/wikis/team", { token, hostToken, timeoutMs: 30_000 }),
+    joinWiki: (input: { wikiId: string; root?: string }) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis/join", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
+    shareWiki: (id: string, input: WikiSharingInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
+    updateWikiSharing: (id: string, input: WikiSharingInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "PATCH", body: input, timeoutMs: 30_000 }),
+    stopWikiSharing: (id: string) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
+    createWiki: (input: WikiCreateInput) => requestJson<{ wiki: WikiVault; sharingError?: string }>(baseUrl, "/wikis", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     wikiSnapshot: (id: string) => requestJson<WikiSnapshot>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, timeoutMs: 30_000 }),
     updateWiki: (id: string, input: WikiUpdateInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: input }),
     forgetWiki: (id: string) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),

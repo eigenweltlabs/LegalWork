@@ -78,6 +78,8 @@ test("runtime auth permits only the page tool endpoints and refuses broader mana
     ["/wikis/wiki-id/page?path=Note.md", "GET"], ["/wikis/wiki-id/page", "PUT"], ["/wikis/wiki-id/page", "DELETE"]])
     expect((await authenticateWikiAgentRequest(config, request(path, { method })))?.actor.scope).toBe("owner");
   for (const [path, method] of [["/wikis", "POST"], ["/wikis/wiki-id", "PATCH"], ["/workspaces", "POST"],
-    ["/workspace/project/opencode/session", "POST"], ["/tokens", "GET"], ["/wikis/wiki-id/restore", "POST"]])
+    ["/workspace/project/opencode/session", "POST"], ["/tokens", "GET"], ["/wikis/wiki-id/restore", "POST"],
+    ["/wikis/team", "GET"], ["/wikis/join", "POST"], ["/wikis/wiki-id/share", "POST"],
+    ["/wikis/wiki-id/share", "PATCH"], ["/wikis/wiki-id/share", "DELETE"]])
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });

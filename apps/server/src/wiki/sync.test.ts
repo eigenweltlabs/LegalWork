@@ -1,224 +1,115 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ServerConfig } from "../types.js";
-import { ApiError } from "../errors.js";
-import { buildFrontmatter, parseFrontmatter } from "../frontmatter.js";
-import { checkCondition, type FileData, type DownloadedFile, type StorageAdapter, type WriteCondition } from "../file-storage/common.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { parseFrontmatter } from "../frontmatter.js";
 import { WikiStore } from "./store.js";
 import { WikiSync } from "./sync.js";
-
-class MemoryStorage implements StorageAdapter {
-  files = new Map<string, FileData>();
-  revision = 0;
-  failManifest = false;
-  beforeRead?: (path: string) => Promise<void>;
-  afterWrite?: (path: string) => Promise<void>;
-  async list() { return { entries: [] }; }
-  async stat(path: string) { return this.files.get(path) ?? null; }
-  async read(path: string) {
-    await this.beforeRead?.(path);
-    const file = this.files.get(path);
-    if (!file) throw new ApiError(404, "missing", "Missing remote object");
-    return { ...file, data: Buffer.from(file.data) };
+import { wikiTeamFixture } from "./team-test-helper.js";
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => { while (cleanups.length) await cleanups.pop()?.(); });
+async function setup() {
+  const fixture = await wikiTeamFixture(); cleanups.push(() => fixture.close());
+  async function computer(userId = "owner") {
+    const account = await fixture.account(userId), store = new WikiStore(account.config), sync = new WikiSync(account.config, store, { intervalMs: 30 });
+    cleanups.push(async () => { await sync.stop(); await store.close(); });
+    return { ...account, store, sync };
   }
-  async write(path: string, data: Buffer, contentType: string, condition: WriteCondition) {
-    if (this.failManifest && path.endsWith("Manifest.md")) throw new ApiError(409, "conflict", "Concurrent publication");
-    checkCondition(this.files.get(path) ?? null, condition);
-    this.files.set(path, { data: Buffer.from(data), size: data.length, version: String(++this.revision), contentType });
-    await this.afterWrite?.(path);
-  }
-  async mkdir() {}
-  async upload() { throw new Error("Unused streaming operation"); }
-  async download(): Promise<DownloadedFile> { throw new Error("Unused streaming operation"); }
-}
-const roots: string[] = [], stores: WikiStore[] = [], syncers: WikiSync[] = [];
-afterEach(async () => {
-  await Promise.all(syncers.splice(0).map((sync) => sync.stop()));
-  for (const store of stores.splice(0)) await store.close();
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
-});
-async function copy(remote: MemoryStorage) {
-  const root = await mkdtemp(join(tmpdir(), "wiki-sync-")); roots.push(root);
-  const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"),
-    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [], readOnly: false,
-    startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
-  };
-  const store = new WikiStore(config); stores.push(store);
-  const wiki = await store.create({ name: "Shared", root: join(root, "content"), attach: true,
-    sync: { workspaceId: "project", connectionId: "shared", path: "Knowledge" } });
-  const access = { readOnly: false, denied: false, offline: false };
-  const sync = new WikiSync(config, store, { intervalMs: 30, storage: async () => {
-    if (access.denied) throw new ApiError(403, "revoked", "Access revoked");
-    if (access.offline) throw new ApiError(503, "offline", "Offline");
-    return { readOnly: access.readOnly, run: (fn) => fn(remote) };
-  } }); syncers.push(sync);
-  return { root, config, store, wiki, sync, access,
-    save: async (path: string, content: string) => {
-      const previous = await store.read(wiki.id, path).catch(() => null);
-      return store.write(wiki.id, path, content, previous?.revision ?? "");
-    },
-    read: async (path: string) => (await store.read(wiki.id, path)).content,
-  };
-}
-const manifestPath = "Knowledge/.legalwork-wiki/Manifest.md";
-async function exchange(a: Awaited<ReturnType<typeof copy>>, b: Awaited<ReturnType<typeof copy>>) {
-  expect((await a.sync.sync(a.wiki.id)).state).toBe("idle");
-  expect((await b.sync.sync(b.wiki.id)).state).toBe("idle");
+  const a = await computer(), b = await computer("member");
+  const wiki = await a.store.create({ name: "Knowledge", root: join(a.directory, "content"), attach: true });
+  const remote = await a.sync.share(wiki.id, { access: "members", memberIds: ["member"] });
+  const joined = await b.sync.join({ wikiId: remote.id, root: join(b.directory, "content") });
+  async function save(machine: typeof a, id: string, path: string, content: string) { const previous = await machine.store.read(id, path).catch(() => null); return machine.store.write(id, path, content, previous?.revision ?? ""); }
+  async function exchange() { expect((await a.sync.sync(wiki.id)).state).toBe("idle"); expect((await b.sync.sync(joined.id)).state).toBe("idle"); }
+  return { fixture, computer, a, b, wiki, joined, remote, save, exchange, readA: async (path: string) => (await a.store.read(wiki.id, path)).content, readB: async (path: string) => (await b.store.read(joined.id, path)).content };
 }
 
-describe("Wiki sync across two local folders", () => {
-  test("publishes Markdown and binary attachments, merges separate edits, deletes and restores", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Process\n\nFirst paragraph.\n\nLast paragraph.\n");
-    await a.store.writeAsset(a.wiki.id, "Sources/example.pdf", Buffer.from([0, 1, 255]), "");
-    await exchange(a, b);
-    expect(await b.store.readAsset(b.wiki.id, "Sources/example.pdf")).toEqual(Buffer.from([0, 1, 255]));
-    await a.save("Page.md", "# Process\n\nFirst paragraph updated.\n\nLast paragraph.\n");
-    await b.save("Page.md", "# Process\n\nFirst paragraph.\n\nLast paragraph expanded.\n");
-    await exchange(a, b);
-    await a.sync.sync(a.wiki.id);
-    expect(await a.read("Page.md")).toContain("First paragraph updated.");
-    expect(await a.read("Page.md")).toContain("Last paragraph expanded.");
-    expect(await b.read("Page.md")).toBe(await a.read("Page.md"));
-    const current = await a.store.read(a.wiki.id, "Page.md");
-    const history = await a.store.history(a.wiki.id, "Page.md");
-    await a.store.remove(a.wiki.id, "Page.md", current.revision);
-    await exchange(a, b);
-    await expect(b.read("Page.md")).rejects.toMatchObject({ status: 404 });
-    await a.store.restore(a.wiki.id, "Page.md", history[0].id, "");
-    await exchange(a, b);
-    expect(await b.read("Page.md")).toBe(await a.read("Page.md"));
+describe("Automatic independent wiki sync across local folders", () => {
+  test("all Markdown, views, templates and supporting files share without starter contamination; deletes propagate", async () => {
+    const { a, b, wiki, joined, save, exchange, readB } = await setup();
+    expect(await b.store.files(joined.id)).toEqual([]);
+    await save(a, wiki.id, "Page.md", "# Knowledge\n"); await save(a, wiki.id, "Structure.md", "# Structure\n");
+    await save(a, wiki.id, "Views.md", "# Views\n"); await save(a, wiki.id, "Templates/Example.md", "# Example\n");
+    await a.store.writeAsset(wiki.id, "Attachments/image.png", Buffer.from([0, 1, 255]), "");
+    await exchange(); expect(await readB("Page.md")).toBe("# Knowledge\n"); expect(await b.store.readAsset(joined.id, "Attachments/image.png")).toEqual(Buffer.from([0, 1, 255]));
+    await a.store.remove(wiki.id, "Page.md", (await a.store.read(wiki.id, "Page.md")).revision); await exchange();
+    await expect(b.store.read(joined.id, "Page.md")).rejects.toMatchObject({ status: 404 });
   });
-
-  test("preserves overlapping edits as synchronized conflict copies", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Policy\n\nThe fee is 10.\n"); await exchange(a, b);
-    await a.save("Page.md", "# Policy\n\nThe fee is 20.\n");
-    await b.save("Page.md", "# Policy\n\nThe fee is 30.\n");
-    await a.sync.sync(a.wiki.id);
-    const result = await b.sync.sync(b.wiki.id);
-    expect(result.conflicts).toContain("Page.md");
-    const file = (await b.store.files(b.wiki.id)).find((file) => file.path.includes(".conflict-"));
-    expect(file).toBeDefined();
-    expect(await b.read(file!.path)).toContain("30");
-    expect(await b.read("Page.md")).toContain("20");
-    await a.sync.sync(a.wiki.id);
-    expect(await a.read(file!.path)).toContain("30");
+  test("independent text edits merge while overlapping edits preserve both versions", async () => {
+    const { a, b, wiki, joined, save, exchange, readA, readB } = await setup();
+    await save(a, wiki.id, "Page.md", "# Page\n\nfirst\n\nlast\n"); await exchange();
+    await save(a, wiki.id, "Page.md", "# Page\n\nfirst changed\n\nlast\n"); await save(b, joined.id, "Page.md", "# Page\n\nfirst\n\nlast changed\n");
+    await exchange(); await exchange(); expect(await readA("Page.md")).toContain("last changed"); expect(await readB("Page.md")).toContain("first changed");
+    await save(a, wiki.id, "Page.md", "# Owner\n"); await save(b, joined.id, "Page.md", "# Member\n"); await a.sync.sync(wiki.id);
+    const result = await b.sync.sync(joined.id); expect(result.state).toBe("idle"); expect(result.conflicts).toContain("Page.md");
+    expect(await readB("Page.md")).toBe("# Owner\n");
+    const copy = (await b.store.files(joined.id)).find(file => file.path.includes(".conflict-")); expect(copy).toBeDefined();
+    if (!copy) throw new Error("Conflict copy missing"); expect(await readB(copy.path)).toBe("# Member\n");
+    await exchange(); expect(await readA(copy.path)).toBe("# Member\n");
   });
-
-  test("keeps an edit concurrent with deletion", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Original\n"); await exchange(a, b);
-    const current = await a.store.read(a.wiki.id, "Page.md");
-    await a.store.remove(a.wiki.id, "Page.md", current.revision);
-    await b.save("Page.md", "# New knowledge\n");
-    await a.sync.sync(a.wiki.id);
-    expect((await b.sync.sync(b.wiki.id)).conflicts).toContain("Page.md");
-    await a.sync.sync(a.wiki.id);
-    expect(await a.read("Page.md")).toBe("# New knowledge\n");
+  test("owner offline edits remain local, sign-out/wrong firm/member denial never publishes", async () => {
+    const { fixture, a, b, wiki, joined, save, exchange, remote } = await setup();
+    await save(a, wiki.id, "Page.md", "# Initial\n"); await exchange();
+    fixture.control.failure = 503;
+    await a.sync.ensureWritable(await a.store.get(wiki.id), true);
+    await expect(b.sync.ensureWritable(await b.store.get(joined.id), true)).rejects.toMatchObject({ status: 503 });
+    await save(a, wiki.id, "Page.md", "# Offline edit\n"); expect((await a.sync.sync(wiki.id)).state).toBe("error");
+    expect(fixture.wikis.get(remote.id)?.files.get("Page.md")?.data.toString()).toBe("# Initial\n");
+    fixture.control.failure = 0; await exchange();
+    fixture.revoked.add("member"); await expect(b.sync.ensureWritable(await b.store.get(joined.id), true)).rejects.toMatchObject({ status: 404 });
+    await writeEigenweltConnection(a.config, { account: { userId: "owner", userName: "Owner", userEmail: null, orgId: "other", orgName: "Other" } });
+    await expect(a.sync.ensureWritable(await a.store.get(wiki.id), true)).rejects.toMatchObject({ status: 403 });
+    await writeEigenweltConnection(a.config, { account: null, platformToken: null, refreshToken: null });
+    await expect(a.sync.ensureReadable(await a.store.get(wiki.id), true)).rejects.toMatchObject({ code: "wiki_team_sign_in" });
   });
-
-  test("failed conditional publication retains local text and retries without advancing its base", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Original\n"); await exchange(a, b);
-    const manifest = Buffer.from((await remote.read(manifestPath)).data);
-    await a.save("Page.md", "# Unsynced\n"); remote.failManifest = true;
-    expect((await a.sync.sync(a.wiki.id)).state).toBe("error");
-    expect(await a.read("Page.md")).toBe("# Unsynced\n");
-    expect((await remote.read(manifestPath)).data).toEqual(manifest);
-    remote.failManifest = false; await exchange(a, b);
-    expect(await b.read("Page.md")).toBe("# Unsynced\n");
-  });
-
-  test("a local save made during a remote download survives and merges next round", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Shared\n\nFirst.\n\nLast.\n"); await exchange(a, b);
-    await a.save("Page.md", "# Shared\n\nFirst updated.\n\nLast.\n"); await a.sync.sync(a.wiki.id);
-    let once = false;
-    remote.beforeRead = async (path) => {
-      if (path.endsWith("/Page.md") && !once) { once = true; await b.save("Page.md", "# Shared\n\nFirst.\n\nLast updated.\n"); }
+  test("CAS failure preserves local edits and another save made during download survives", async () => {
+    const { fixture, a, b, wiki, joined, remote, save, exchange, readA, readB } = await setup();
+    await save(a, wiki.id, "Page.md", "# Initial\n"); await exchange();
+    await save(a, wiki.id, "Page.md", "# Owner edit\n");
+    fixture.control.beforeCommit = async (id, path) => {
+      fixture.control.beforeCommit = null;
+      await save(b, joined.id, path, "# Concurrent remote edit\n");
+      await b.sync.sync(joined.id);
     };
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("idle");
-    expect(await b.read("Page.md")).toContain("Last updated.");
-    remote.beforeRead = undefined;
-    await b.sync.sync(b.wiki.id); await a.sync.sync(a.wiki.id);
-    expect(await b.read("Page.md")).toContain("First updated.");
-    expect(await a.read("Page.md")).toContain("Last updated.");
+    expect((await a.sync.sync(wiki.id)).state).toBe("error"); expect(await readA("Page.md")).toBe("# Owner edit\n");
+    await a.sync.sync(wiki.id);
+    fixture.control.beforeDownload = async () => { fixture.control.beforeDownload = null; await save(b, joined.id, "Page.md", "# New local save during download\n"); };
+    await b.sync.sync(joined.id); expect(await readB("Page.md")).toBe("# New local save during download\n");
+    expect(fixture.wikis.get(remote.id)?.files.get("Page.md")).toBeDefined();
   });
-
-  test("read-only clients download; disabled/offline access never publishes; owner can queue offline edits", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Original\n"); await a.sync.sync(a.wiki.id);
-    b.access.readOnly = true;
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("idle");
-    expect(await b.read("Page.md")).toBe("# Original\n");
-    await expect(b.sync.ensureWritable(b.wiki, true)).rejects.toMatchObject({ status: 403 });
-    b.access.readOnly = false; b.access.offline = true;
-    await b.sync.ensureWritable(b.wiki, true);
-    await expect(b.sync.ensureWritable(b.wiki)).rejects.toMatchObject({ status: 503 });
-    await b.save("Page.md", "# Queued\n");
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("error");
-    b.access.offline = false; b.access.denied = true;
-    await expect(b.sync.ensureWritable(b.wiki, true)).rejects.toMatchObject({ status: 403 });
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("error");
-    b.access.denied = false; await exchange(b, a);
-    expect(await a.read("Page.md")).toBe("# Queued\n");
+  test("unknown create outcome retries same independent ID; stopping preserves files and re-sharing uses fresh ID", async () => {
+    const { fixture, a, computer } = await setup();
+    const local = await a.store.create({ name: "Second", root: join(a.directory, "second"), attach: true });
+    await a.store.write(local.id, "Private.md", "# Waiting for sharing\n", "");
+    fixture.control.unknownCreate = true;
+    await expect(a.sync.share(local.id, { access: "members", memberIds: [] })).rejects.toMatchObject({ status: 503 });
+    expect(await a.sync.pendingSharing(local.id)).toEqual({ access: "members", memberIds: [] });
+    expect((await a.store.get(local.id)).sync).toBeNull();
+    const count = fixture.wikis.size;
+    const [one, two] = await Promise.all([a.sync.share(local.id, { access: "members", memberIds: [] }), a.sync.share(local.id, { access: "members", memberIds: [] })]);
+    expect(one.id).toBe(two.id); expect(fixture.wikis.size).toBe(count); expect(one.id).not.toBe(local.id);
+    await a.sync.sync(local.id); const member = await computer("member");
+    await expect(member.sync.join({ wikiId: one.id })).rejects.toMatchObject({ status: 404 });
+    await a.sync.stopSharing(local.id); expect((await a.store.read(local.id, "Private.md")).content).toBe("# Waiting for sharing\n");
+    expect((await a.store.get(local.id)).sync).toBeNull(); const again = await a.sync.share(local.id, { access: "org", memberIds: [] }); expect(again.id).not.toBe(one.id);
   });
-
-  test("revocation during upload prevents manifest publication", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote);
-    await a.save("Page.md", "# Private draft\n");
-    remote.afterWrite = async (path) => { if (path.includes("/objects/")) a.access.denied = true; };
-    expect((await a.sync.sync(a.wiki.id)).state).toBe("error");
-    expect(await remote.stat(manifestPath)).toBeNull();
-    expect(await a.read("Page.md")).toBe("# Private draft\n");
+  test("legacy registrations never auto-upload and explicit migration preserves content", async () => {
+    const { fixture, a } = await setup();
+    const local = await a.store.create({ name: "Legacy", root: join(a.directory, "legacy"), attach: true, sync: { workspaceId: "old-project", connectionId: "old-storage", path: "Old" } });
+    await a.store.write(local.id, "Legacy.md", "# Old local files\n", "");
+    const requests = fixture.requests.length;
+    expect((await a.sync.sync(local.id)).error).toContain("retired connector sharing"); expect(fixture.requests.length).toBe(requests);
+    await a.sync.ensureReadable(local, true); await expect(a.sync.ensureReadable(local)).rejects.toMatchObject({ code: "wiki_sharing_migration_required" });
+    const remote = await a.sync.share(local.id, { access: "members", memberIds: [] }); await a.sync.sync(local.id);
+    expect(fixture.wikis.get(remote.id)?.files.get("Legacy.md")?.data.toString()).toBe("# Old local files\n");
   });
-
-  test("invalid manifests, unsafe paths, and corrupt remote objects never replace local pages", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote), b = await copy(remote);
-    await a.save("Page.md", "# Original\n"); await exchange(a, b);
-    const originalManifest = await remote.read(manifestPath);
-    await remote.write(manifestPath, Buffer.from("---\nversion: broken\n---\n"), "text/markdown", { version: originalManifest.version });
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("error");
-    expect(await b.read("Page.md")).toBe("# Original\n");
-    const unsafe = buildFrontmatter({ version: 1, files: [{ path: "../outside.md", hash: "a".repeat(64), size: 5 }] });
-    await remote.write(manifestPath, Buffer.from(unsafe), "text/markdown", {});
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("error");
-    await remote.write(manifestPath, originalManifest.data, "text/markdown", {});
-    await a.save("Page.md", "# Remote update\n"); await a.sync.sync(a.wiki.id);
-    const pointer = [...remote.files.keys()].find((path) => path.includes("/objects/") && remote.files.get(path)?.data.toString() === "# Remote update\n");
-    expect(pointer).toBeDefined();
-    await remote.write(pointer!, Buffer.from("Unverified"), "text/markdown", {});
-    expect((await b.sync.sync(b.wiki.id)).state).toBe("error");
-    expect(await b.read("Page.md")).toBe("# Original\n");
-  });
-
-  test("an oversized external Markdown page fails before publishing a partial collection", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote);
-    await a.save("Valid.md", "# Valid\n");
-    await writeFile(join(a.wiki.root, "Oversized.md"), "x".repeat(2 * 1024 * 1024 + 1));
-    expect((await a.sync.sync(a.wiki.id)).state).toBe("error");
-    expect(await remote.stat(manifestPath)).toBeNull();
-    expect(await a.read("Valid.md")).toBe("# Valid\n");
-  });
-
-  test("automatic polling captures external file saves, and corrupted local state fails safely", async () => {
-    const remote = new MemoryStorage(), a = await copy(remote);
-    a.sync.start();
-    await writeFile(join(a.wiki.root, "External.md"), "# External editor\n");
-    for (let i = 0; i < 50 && !remote.files.has(manifestPath); i++) await new Promise((done) => setTimeout(done, 20));
-    expect(remote.files.has(manifestPath)).toBe(true);
-    const b = await copy(remote); await b.sync.sync(b.wiki.id);
-    expect(await b.read("External.md")).toBe("# External editor\n");
-    await a.sync.stop();
-    const state = join(a.root, "wiki-sync", `${a.wiki.id}.md`);
-    expect(parseFrontmatter(await readFile(state, "utf8")).data).toHaveProperty("binding");
-    await writeFile(state, "broken: local sync state");
-    await a.save("External.md", "# Retained\n");
-    expect((await a.sync.sync(a.wiki.id)).state).toBe("error");
-    expect(await a.read("External.md")).toBe("# Retained\n");
+  test("external saves poll automatically; oversized pages and damaged state retain files", async () => {
+    const { fixture, a, wiki, remote, save } = await setup();
+    a.sync.start(); await writeFile(join(wiki.root, "External.md"), "# External editor\n");
+    for (let i = 0; i < 50 && !fixture.wikis.get(remote.id)?.files.has("External.md"); i++) await new Promise(done => setTimeout(done, 20));
+    expect(fixture.wikis.get(remote.id)?.files.has("External.md")).toBe(true); await a.sync.stop();
+    const statePath = join(a.directory, "wiki-sync", `${wiki.id}.md`); expect(parseFrontmatter(await readFile(statePath, "utf8")).data).toHaveProperty("binding");
+    await writeFile(statePath, "broken state"); await save(a, wiki.id, "External.md", "# Retained\n"); expect((await a.sync.sync(wiki.id)).state).toBe("error");
+    expect((await a.store.read(wiki.id, "External.md")).content).toBe("# Retained\n");
   });
 });

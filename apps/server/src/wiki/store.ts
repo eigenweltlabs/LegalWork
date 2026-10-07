@@ -14,11 +14,13 @@ import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-s
 
 export const WIKI_MAX_PAGE_BYTES = 2 * 1024 * 1024;
 export const WIKI_MAX_ASSET_BYTES = 100 * 1024 * 1024;
-export const wikiSyncSchema = z.object({
+const legacySyncSchema = z.object({
   workspaceId: z.string().min(1).max(200),
   connectionId: z.string().min(1).max(200),
   path: z.string().min(1).max(4096).refine(isWikiPath, "Use a dedicated relative folder path."),
 });
+export const wikiTeamSyncSchema = z.object({ kind: z.literal("team"), wikiId: z.string().uuid(), orgId: z.string().min(1).max(200) });
+export const wikiSyncSchema = z.union([wikiTeamSyncSchema, legacySyncSchema]);
 const registrationSchema = z.object({
   id: z.string().uuid(), name: z.string().min(1).max(200), root: z.string().min(1),
   workspaceId: z.string().min(1), allowInProjects: z.boolean(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(), sync: wikiSyncSchema.nullable(),
