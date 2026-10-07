@@ -1,18 +1,21 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Check, ChevronDown, ChevronRight, Code2, Download, Eye, FileText, Folder, GitFork, History, Loader2, Paperclip, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Download, Eye, FileText, Folder, GitFork, History, LayoutList, ListFilter, Loader2, LockKeyhole, MoreHorizontal, PanelLeft, Paperclip, Pencil, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Trash2, Users, X } from "lucide-react";
 import type { WikiAsset, WikiPage, WikiSnapshot, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArtifactTextEditor } from "../session/artifacts/artifact-text-editor";
 import { importViewerFile } from "../session/panel/import-viewer-file";
 import { requestPanelTab } from "../session/panel/panel-tab-request";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, wikiSelectClass, type WikiWorkspaceOption } from "./wiki-dialogs";
-import { canRichEditWiki, resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
+import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, type WikiWorkspaceOption } from "./wiki-dialogs";
+import { canRichEditWiki, updateWikiProperty, wikiBacklinks, wikiNavigationPages, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
 import { useWikiDrafts } from "./wiki-drafts";
 import { WikiPreview } from "./wiki-preview";
 import { WikiGraphPane, WikiPropertyValue, WikiViewPane } from "./wiki-views";
@@ -37,6 +40,7 @@ export function WikiPane(props: WikiPaneProps) {
   const queryClient = useQueryClient();
   const [wikiId, setWikiId] = useState("");
   const [path, setPath] = useState("");
+  const [pageAnchor, setPageAnchor] = useState("");
   const [mode, setMode] = useState<"preview" | "source" | "rich">("preview");
   const [surface, setSurface] = useState("page");
   const [assetLimit, setAssetLimit] = useState(100);
@@ -45,6 +49,8 @@ export function WikiPane(props: WikiPaneProps) {
   const [newWiki, setNewWiki] = useState(false);
   const [newPage, setNewPage] = useState<string | null>(null);
   const [settings, setSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"general" | "sharing" | "agents">("general");
+  const [navigationOpen, setNavigationOpen] = useState(true);
   const [history, setHistory] = useState(false);
   const [historyPath, setHistoryPath] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -53,6 +59,7 @@ export function WikiPane(props: WikiPaneProps) {
   const [sharingActionError, setSharingActionError] = useState<{ wikiId: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const workbenchBody = useRef<HTMLDivElement>(null);
   const assetUrls = useRef(new Map<string, string>());
   const wikiKey = ["wikis", props.serverUrl];
   const snapshotKey = ["wiki-snapshot", props.serverUrl, wikiId];
@@ -88,7 +95,8 @@ export function WikiPane(props: WikiPaneProps) {
   const dirty = Boolean(draft && draft.content !== draft.baseline);
   const backlinks = useMemo(() => wikiBacklinks(pages, path), [pages, path]);
   const richAllowed = draft ? canRichEditWiki(draft.content) : false;
-  const visiblePages = debouncedSearch.trim() ? searchResult.data?.items ?? [] : pages.filter((page) => !controlFiles.includes(page.path));
+  const setupPages = pages.filter((page) => controlFiles.includes(page.path) || page.type === "skill" || page.type === "template");
+  const visiblePages = debouncedSearch.trim() ? searchResult.data?.items ?? [] : pages.filter((page) => !setupPages.includes(page));
   const selectedView = snapshot.data?.views.find((view) => `view:${view.name}` === surface);
   const sharingError = sharingActionError?.wikiId === wikiId ? sharingActionError.message : wiki?.pendingSharing ? wiki.syncStatus.error ?? t("wiki.sharing_pending") : null;
 
@@ -114,8 +122,19 @@ export function WikiPane(props: WikiPaneProps) {
   }, [mode, richAllowed]);
   useEffect(() => () => { for (const url of assetUrls.current.values()) URL.revokeObjectURL(url); assetUrls.current.clear(); }, []);
 
-  const openPage = (nextPath: string) => { setPath(nextPath); setSurface("page"); setDeleteConfirm(false); setPageError(null); };
-  const chooseWiki = (id: string) => { setWikiId(id); setPath(""); setSurface("page"); setSearch(""); setDebouncedSearch(""); setDeleteConfirm(false); setPageError(null); };
+  useEffect(() => {
+    const body = workbenchBody.current;
+    if (!body) return;
+    const observer = new ResizeObserver(() => { if (body.clientWidth <= 680) setNavigationOpen(false); });
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [wikiId]);
+
+  const closeNarrowNavigation = () => { if (workbenchBody.current && workbenchBody.current.clientWidth <= 680) setNavigationOpen(false); };
+  const openSurface = (next: string) => { setSurface(next); closeNarrowNavigation(); };
+  const openPage = (nextPath: string, anchor = "") => { closeNarrowNavigation(); setPath(nextPath); setPageAnchor(anchor); setSurface("page"); setDeleteConfirm(false); setPageError(null); };
+  const chooseWiki = (id: string) => { setWikiId(id); setPath(""); setPageAnchor(""); setSurface("page"); setSearch(""); setDebouncedSearch(""); setDeleteConfirm(false); setPageError(null); };
+  const openSettings = (tab: "general" | "sharing" | "agents" = "general") => { setSettingsTab(tab); setSettings(true); };
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
     try { await operation(); }
@@ -185,25 +204,72 @@ export function WikiPane(props: WikiPaneProps) {
     await props.onOpenWikiSession(wiki, prompt);
   };
 
-  return <div className="flex h-full min-h-0 w-full flex-col bg-background">
-    <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-3"><BookOpen size={21} strokeWidth={1.5} className="text-primary" /><h1 className="text-lg font-semibold tracking-tight">{t("wiki.title")}</h1>{list.data?.items.length ? <select className={`${wikiSelectClass} max-w-60`} value={wikiId} onChange={(event) => chooseWiki(event.target.value)} aria-label={t("wiki.select_wiki")}>{list.data.items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}<div className="ml-auto flex items-center gap-1"><Button size="sm" variant="ghost" aria-label={t("wiki.refresh")} disabled={busy || !props.client} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={15} className={busy ? "animate-spin" : ""} /></Button>{wiki ? <Button size="sm" variant="ghost" aria-label={t("wiki.settings")} onClick={() => setSettings(true)}><Settings2 size={15} /></Button> : null}<Button size="sm" variant="outline" disabled={!props.client} onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</Button></div></header>
-    {!props.client ? <EmptyWiki message={t("wiki.offline")} /> : list.error ? <EmptyWiki message={wikiError(list.error)} action={<Button variant="outline" onClick={() => void list.refetch()}>{t("wiki.retry")}</Button>} /> : list.isLoading ? <EmptyWiki message={t("wiki.loading")} /> : !wikiId ? <EmptyWiki message={t("wiki.empty_hint")} action={<Button onClick={() => setNewWiki(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button>} /> : <>
-      {sharingError ? <div role="alert" className="flex flex-wrap items-center gap-2 border-b bg-amber-500/5 px-5 py-2 text-xs text-amber-700 dark:text-amber-400"><span>{t("wiki.sharing_pending")} {sharingError === t("wiki.sharing_pending") ? null : sharingError}</span><Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSettings(true)}>{t("wiki.retry_sharing")}</Button></div> : null}
-      {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div className="flex flex-wrap items-center gap-2 border-b bg-amber-500/5 px-5 py-2 text-xs text-amber-700 dark:text-amber-400"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })}</span><span>{t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/15 max-md:w-44"><div className="space-y-2 border-b p-3"><div className="relative"><Search size={14} className="pointer-events-none absolute left-2.5 top-2.5 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="h-8 pl-8 text-xs" placeholder={t("wiki.search")} aria-label={t("wiki.search")} /></div><Button size="sm" variant="outline" className="w-full" disabled={!wiki?.writable} onClick={() => setNewPage("")}><Plus size={14} />{t("wiki.new_page")}</Button></div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {!debouncedSearch.trim() ? <><p className="mb-1 px-2 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t("wiki.structure")}</p>{controlFiles.map((file) => {
-              const page = pages.find((entry) => entry.path === file);
-              return page ? <PageRow key={file} page={page} active={surface === "page" && path === file} onOpen={openPage} /> : null;
-            })}<button className={cn("mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-accent", surface === "graph" && "bg-accent font-medium")} onClick={() => setSurface("graph")}><GitFork size={14} />{t("wiki.graph")}</button>{snapshot.data?.views.map((view) => <button key={view.name} className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-accent", surface === `view:${view.name}` && "bg-accent font-medium")} onClick={() => setSurface(`view:${view.name}`)}><FileText size={14} className="shrink-0" /><span className="truncate">{view.name}</span></button>)}<p className="mb-1 mt-4 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t("wiki.pages")}</p></> : null}
-            {searchResult.isFetching && debouncedSearch.trim() ? <Loader2 size={14} className="m-2 animate-spin" /> : null}{searchResult.error && debouncedSearch.trim() ? <p className="p-2 text-xs text-destructive">{wikiError(searchResult.error)}</p> : null}
+  return <div className="wiki-workbench">
+    {!props.client || list.error || list.isLoading || !wikiId ? <>
+      <header className="wiki-empty-header"><span><BookOpen size={18} />{t("wiki.title")}</span><Button size="sm" variant="outline" disabled={!props.client} onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</Button></header>
+      {!props.client ? <EmptyWiki message={t("wiki.offline")} /> : list.error ? <EmptyWiki message={wikiError(list.error)} action={<Button variant="outline" onClick={() => void list.refetch()}>{t("wiki.retry")}</Button>} /> : list.isLoading ? <WikiLoading /> : <EmptyWiki title={t("wiki.empty_title")} message={t("wiki.empty_hint")} action={<Button onClick={() => setNewWiki(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button>} />}
+    </> : <>
+      {sharingError ? <div role="alert" className="wiki-notice"><span>{t("wiki.sharing_pending")} {sharingError === t("wiki.sharing_pending") ? null : sharingError}</span><Button size="sm" variant="ghost" onClick={() => openSettings("sharing")}>{t("wiki.retry_sharing")}</Button></div> : null}
+      {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div role="alert" className="wiki-notice"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })} {t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
+      <div ref={workbenchBody} className="wiki-workbench-body">
+        {navigationOpen ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
+          <div className="wiki-sidebar-header">
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} />}>
+                <BookOpen size={18} strokeWidth={1.6} /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={14} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-2rem)]">
+                {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>
+                  {item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}
+                </DropdownMenuItem>)}
+                <DropdownMenuSeparator /><DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <div className="wiki-search"><Search size={15} /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("wiki.search")} aria-label={t("wiki.search")} />{search ? <button aria-label={t("wiki.clear_search")} onClick={() => setSearch("")}><X size={13} /></button> : null}</div>
+            <Button className="wiki-create-page" size="sm" variant="outline" disabled={!wiki?.writable} onClick={() => setNewPage("")}><Plus size={15} />{t("wiki.new_page")}</Button>
+          </div>
+          <nav className="wiki-sidebar-content" aria-label={t("wiki.pages")}>
+            <div className="wiki-section-label"><span>{t(debouncedSearch.trim() ? "wiki.search_results" : "wiki.pages")}</span><span>{visiblePages.length}</span></div>
+            {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
+            {searchResult.error && debouncedSearch.trim() ? <p role="alert" className="wiki-search-status text-destructive">{wikiError(searchResult.error)}</p> : null}
+            {!visiblePages.length && !searchResult.isFetching ? <p className="wiki-search-status">{t(debouncedSearch.trim() ? "wiki.no_search_results" : "wiki.empty_pages")}</p> : null}
             <PageTree key={`${wikiId}:${debouncedSearch}`} pages={visiblePages} active={surface === "page" ? path : ""} onOpen={openPage} searching={Boolean(debouncedSearch.trim())} />
-            {assets.length && !debouncedSearch.trim() ? <details className="mt-4"><summary className="cursor-pointer px-2 py-1.5 text-xs text-muted-foreground">{t("wiki.attachments")} · {assets.length}</summary>{assets.slice(0, assetLimit).map((asset) => <div key={asset.path} className="flex items-center rounded-lg hover:bg-accent"><button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-xs" onClick={() => void run(() => openAsset(asset.path))}><Paperclip size={12} className="shrink-0" /><span className="truncate">{asset.path.split("/").at(-1)}</span></button><Button size="icon" variant="ghost" className="size-6 shrink-0" aria-label={t("wiki.download", { name: asset.path.split("/").at(-1) ?? asset.path })} onClick={() => void run(() => downloadAsset(asset.path))}><Download size={12} /></Button></div>)}{assets.length > assetLimit ? <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setAssetLimit((current) => current + 100)}>{t("wiki.show_more", { remaining: assets.length - assetLimit })}</Button> : null}</details> : null}
-          </div><div className="border-t p-2"><Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={14} />{t("wiki.all_history")}</Button><p className="px-2 pb-1 text-[10px] text-muted-foreground">{wiki?.sync ? t("wiki.automatic_sync") : t("wiki.local_wiki")}</p></div>
-        </aside>
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <EmptyWiki message={t("wiki.loading")} /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {
+            {!debouncedSearch.trim() ? <>
+              <div className="wiki-section-label wiki-section-spaced"><span>{t("wiki.views")}</span></div>
+              {snapshot.data?.views.map((view) => <button key={view.name} className={cn("wiki-nav-row", surface === `view:${view.name}` && "is-active")} aria-current={surface === `view:${view.name}` ? "page" : undefined} onClick={() => openSurface(`view:${view.name}`)}><LayoutList size={15} /><span>{view.name}</span></button>)}
+              <button className={cn("wiki-nav-row", surface === "graph" && "is-active")} aria-current={surface === "graph" ? "page" : undefined} onClick={() => openSurface("graph")}><GitFork size={15} /><span>{t("wiki.graph")}</span></button>
+              {assets.length ? <details className="wiki-sidebar-disclosure"><summary><Paperclip size={14} /><span>{t("wiki.attachments")}</span><span className="wiki-count">{assets.length}</span></summary>{assets.slice(0, assetLimit).map((asset) => <div key={asset.path} className="wiki-asset-row"><button className="wiki-nav-row" onClick={() => void run(() => openAsset(asset.path))}><FileText size={14} /><span>{asset.path.split("/").at(-1)}</span></button><WikiIconButton label={t("wiki.download", { name: asset.path.split("/").at(-1) ?? asset.path })} onClick={() => void run(() => downloadAsset(asset.path))}><Download size={13} /></WikiIconButton></div>)}{assets.length > assetLimit ? <Button size="sm" variant="ghost" className="w-full" onClick={() => setAssetLimit((current) => current + 100)}>{t("wiki.show_more", { remaining: assets.length - assetLimit })}</Button> : null}</details> : null}
+              {setupPages.length ? <details className="wiki-sidebar-disclosure wiki-setup" open={setupPages.some((page) => page.path === path) && surface === "page" ? true : undefined}><summary><Settings2 size={14} /><span>{t("wiki.setup")}</span></summary><PageTree pages={setupPages} active={surface === "page" ? path : ""} onOpen={openPage} searching={false} /></details> : null}
+            </> : null}
+          </nav>
+          <div className="wiki-sidebar-footer">
+            <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.all_history")}</span></button>
+            <div className="wiki-vault-status"><span>{wiki?.sync ? <Users size={13} /> : <LockKeyhole size={13} />}{t(wiki?.sync ? "wiki.automatic_sync" : "wiki.local_wiki")}</span><WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
+          </div>
+        </aside> : null}
+        <main className="wiki-main">
+          <header className="wiki-context-bar">
+            <WikiIconButton label={t("wiki.toggle_navigation")} pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><PanelLeft size={17} /></WikiIconButton>
+            <nav className="wiki-location" aria-label={t("wiki.breadcrumb")} title={surface === "page" ? path : undefined}>
+              {surface === "page" && path.includes("/") ? <><span className="wiki-location-folder">{path.slice(0, path.lastIndexOf("/"))}</span><ChevronRight size={12} /></> : null}
+              <span className="wiki-location-title">{surface === "graph" ? t("wiki.graph") : selectedView?.name ?? currentPage?.title ?? wiki?.name}</span>
+            </nav>
+            <div className="wiki-context-actions">
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={busy || !wiki} className="wiki-agent-trigger" aria-label={t("wiki.ask_agent")} />}><Sparkles size={15} /><span>{t("wiki.ask_agent")}</span><ChevronDown size={12} /></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-60">
+                  <DropdownMenuItem onClick={() => void run(() => startSession())}><Sparkles size={15} />{t("wiki.agent_session")}</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Bootstrap.md", "help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Capture.md", "help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Maintain.md", "maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button size="sm" variant="outline" className="wiki-share-trigger" aria-label={t("wiki.sharing")} disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={15} /><span>{t("wiki.sharing")}</span></Button>
+              <WikiIconButton label={t("wiki.settings")} disabled={!wiki} onClick={() => openSettings()}><Settings2 size={16} /></WikiIconButton>
+            </div>
+          </header>
+          {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {
             if (!props.client || !wiki) return;
             const pending = drafts.get(wiki.id, pagePath);
             if (pending && pending.content !== pending.baseline) throw new Error(t("wiki.save_before_move"));
@@ -211,42 +277,86 @@ export function WikiPane(props: WikiPaneProps) {
             await props.client.writeWikiPage(wiki.id, { path: pagePath, content: updateWikiProperty(doc.content, property, value), baseRevision: doc.revision });
             await drafts.load(wiki.id, pagePath); refresh();
           }} /> : <>
-            {wiki ? <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2"><span className="mr-auto min-w-0 truncate text-xs text-muted-foreground" title={path}>{path || wiki.name}</span><div className="flex rounded-lg border p-0.5">{[{ id: "preview", icon: Eye, label: "wiki.preview" }, { id: "source", icon: Code2, label: "wiki.markdown" }].map((item) => <Button key={item.id} size="sm" variant={mode === item.id ? "secondary" : "ghost"} className="h-7 px-2 text-xs" onClick={() => setMode(item.id === "source" ? "source" : "preview")}><item.icon size={13} />{t(item.label)}</Button>)}{richAllowed ? <Button size="sm" variant={mode === "rich" ? "secondary" : "ghost"} className="h-7 px-2 text-xs" onClick={() => setMode("rich")}>{t("wiki.rich_editor")}</Button> : null}</div>{draft ? <><Button size="sm" variant="ghost" className="h-8 gap-1.5 text-xs" disabled={!dirty || draft.saving || !wiki.writable} onClick={() => void drafts.save(wiki.id, path)}>{draft.saving ? <Loader2 size={13} className="animate-spin" /> : dirty ? <Save size={13} /> : <Check size={13} />}{t(draft.saving ? "wiki.saving" : dirty ? "wiki.save" : "wiki.saved")}</Button><Button size="sm" variant="ghost" aria-label={t("wiki.history")} onClick={() => { setHistoryPath(path); setHistory(true); }}><History size={14} /></Button>{wiki.writable ? <><Button size="sm" variant="ghost" aria-label={t("wiki.attach_file")} onClick={() => uploadInput.current?.click()} disabled={busy}><Paperclip size={14} /></Button><Button size="sm" variant="ghost" aria-label={t("wiki.delete_page")} className={deleteConfirm ? "text-destructive" : ""} disabled={busy || draft.saving} onClick={() => { if (!deleteConfirm) { setDeleteConfirm(true); return; } void run(async () => { await props.client?.deleteWikiPage(wiki.id, { path, baseRevision: draft.revision }); drafts.remove(wiki.id, path); setPath(""); setDeleteConfirm(false); refresh(); }); }}><Trash2 size={14} />{deleteConfirm ? t("wiki.delete_confirm") : null}</Button></> : null}</> : null}</div> : null}
-            {draft?.error ? <div role="alert" className="flex flex-wrap items-center gap-2 border-b bg-destructive/5 px-4 py-3 text-xs"><span className="mr-auto text-destructive">{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
-            {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <EmptyWiki message={t("wiki.loading")} /> : draft ? <>
-              {currentPage && Object.keys(currentPage.properties).length > 0 && mode === "preview" ? <div className="flex flex-wrap gap-x-6 gap-y-2 border-b bg-muted/20 px-6 py-3 text-xs">{Object.entries(currentPage.properties).filter(([key]) => key !== "id").map(([key, value]) => <div key={key}><span className="mr-2 text-muted-foreground">{key}</span><WikiPropertyValue value={value} pages={pages} fromPath={path} onOpen={openPage} /></div>)}</div> : null}
-              <div className="min-h-0 flex-1 overflow-auto">{mode === "source" ? <textarea spellCheck={false} aria-label={t("wiki.markdown")} className="block h-full min-h-80 w-full resize-none bg-background p-6 font-mono text-sm leading-7 text-foreground outline-none md:p-8" value={draft.content} readOnly={!wiki?.writable} onChange={(event) => drafts.change(wikiId, path, event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); void drafts.save(wikiId, path); } }} /> : mode === "rich" ? <Suspense fallback={<EmptyWiki message={t("wiki.loading")} />}><RichEditor key={`${wikiId}:${path}`} value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} readOnly={!wiki?.writable} imageUpload={uploadImage} imagePreview={imagePreview} /></Suspense> : <><WikiPreview content={draft.content} path={path} pages={pages} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />{backlinks.length ? <div className="mx-auto mb-8 max-w-[800px] border-t px-6 pt-5"><p className="mb-2 text-xs font-medium text-muted-foreground">{t("wiki.backlinks")}</p><div className="flex flex-wrap gap-2">{backlinks.map((page) => <Button key={page.path} variant="outline" size="sm" onClick={() => openPage(page.path)}>{page.title}</Button>)}</div></div> : null}</> }</div>
+            {wiki ? <div className="wiki-page-toolbar" role="toolbar" aria-label={t("wiki.page_actions")}>
+              <div className="wiki-mode-tabs">
+                <Button size="sm" variant="ghost" aria-pressed={mode === "preview"} className={mode === "preview" ? "is-active" : ""} onClick={() => setMode("preview")}><Eye size={14} />{t("wiki.preview")}</Button>
+                {richAllowed ? <Button size="sm" variant="ghost" aria-pressed={mode === "rich"} className={mode === "rich" ? "is-active" : ""} onClick={() => setMode("rich")}><Pencil size={14} />{t("wiki.rich_editor")}</Button> : null}
+                <Button size="sm" variant="ghost" aria-pressed={mode === "source"} className={mode === "source" ? "is-active" : ""} onClick={() => setMode("source")}><Code2 size={14} />{t("wiki.markdown")}</Button>
+              </div>
+              <div className="wiki-save-status" role="status" aria-live="polite">{draft ? draft.saving ? <><Loader2 size={13} className="animate-spin" />{t("wiki.saving")}</> : dirty ? <Button size="sm" variant="ghost" disabled={!wiki.writable} onClick={() => void drafts.save(wiki.id, path)}><Save size={13} />{t("wiki.save")}</Button> : <><Check size={13} />{t("wiki.saved")}</> : null}</div>
+              {draft ? <DropdownMenu>
+                <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("wiki.page_options")} title={t("wiki.page_options")} />}><MoreHorizontal size={17} /></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-56">
+                  <DropdownMenuItem onClick={() => { setHistoryPath(path); setHistory(true); }}><History size={15} />{t("wiki.history")}</DropdownMenuItem>
+                  {wiki.writable ? <DropdownMenuItem disabled={busy} onClick={() => uploadInput.current?.click()}><Paperclip size={15} />{t("wiki.attach_file")}</DropdownMenuItem> : null}
+                  <DropdownMenuItem onClick={() => { setMode("source"); }}><Code2 size={15} />{t("wiki.markdown")}</DropdownMenuItem>
+                  {wiki.writable ? <><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" disabled={busy || draft.saving} onClick={() => setDeleteConfirm(true)}><Trash2 size={15} />{t("wiki.delete_page")}</DropdownMenuItem></> : null}
+                </DropdownMenuContent>
+              </DropdownMenu> : null}
+            </div> : null}
+            {deleteConfirm && wiki && draft ? <div className="wiki-notice wiki-delete-notice" role="alert"><span>{t("wiki.delete_page_question", { title: currentPage?.title ?? path })}</span><Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(false)}>{t("wiki.cancel")}</Button><Button size="sm" variant="destructive" disabled={busy || draft.saving} onClick={() => void run(async () => { await props.client?.deleteWikiPage(wiki.id, { path, baseRevision: draft.revision }); drafts.remove(wiki.id, path); openPage(""); refresh(); })}>{t("wiki.delete_confirm")}</Button></div> : null}
+            {draft?.error ? <div role="alert" className="wiki-notice wiki-error-notice"><span>{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
+            {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <WikiLoading /> : draft ? <>
+              <div className="wiki-page-content" key={`${wikiId}:${path}:${mode}`}>
+                {mode === "source" ? <WikiSourceEditor key={`${wikiId}:${path}`} value={draft.content} readOnly={!wiki?.writable} onChange={(content) => drafts.change(wikiId, path, content)} onSave={() => void drafts.save(wikiId, path)} /> : mode === "rich" ? <Suspense fallback={<WikiLoading />}><RichEditor key={`${wikiId}:${path}`} value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} readOnly={!wiki?.writable} imageUpload={uploadImage} imagePreview={imagePreview} /></Suspense> : <>
+                  {currentPage && Object.keys(currentPage.properties).some((key) => key !== "id") ? <details className="wiki-properties"><summary><ListFilter size={14} /><span>{t("wiki.properties")}</span><span className="wiki-count">{Object.keys(currentPage.properties).filter((key) => key !== "id").length}</span></summary><dl>{Object.entries(currentPage.properties).filter(([key]) => key !== "id").map(([key, value]) => <div key={key}><dt>{key}</dt><dd><WikiPropertyValue value={value} pages={pages} fromPath={path} onOpen={openPage} /></dd></div>)}</dl></details> : null}
+                  <WikiPreview content={draft.content} path={path} anchor={pageAnchor} pages={pages} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
+                  {backlinks.length ? <section className="wiki-backlinks"><h2>{t("wiki.backlinks")}</h2>{backlinks.map((page) => <button key={page.path} onClick={() => openPage(page.path)}><FileText size={14} /><span>{page.title}</span><ArrowUpRight size={13} /></button>)}</section> : null}
+                </>}
+              </div>
+              <footer className="wiki-document-footer"><span title={path}>{path}</span><span>{t(wiki?.writable ? "wiki.autosave_hint" : "wiki.read_only")}</span></footer>
             </> : <EmptyWiki message={t("wiki.empty_pages")} action={<Button disabled={!wiki?.writable} onClick={() => setNewPage("")}>{t("wiki.new_page")}</Button>} />}
           </>}
-          {wiki ? <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2"><Sparkles size={14} className="text-primary" /><Button variant="ghost" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void run(() => startSession())}>{t("wiki.agent_session")}</Button><Button variant="ghost" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Bootstrap.md", "help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</Button><Button variant="ghost" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Capture.md", "help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</Button><Button variant="ghost" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Maintain.md", "maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</Button></div> : null}
-          {snapshot.data?.warnings.length ? <details className="border-t px-4 py-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{t("wiki.warnings", { count: snapshot.data.warnings.length })}</summary><ul className="mt-2 space-y-1">{snapshot.data.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details> : null}
+          {snapshot.data?.warnings.length ? <details className="wiki-warnings"><summary>{t("wiki.warnings", { count: snapshot.data.warnings.length })}</summary><ul>{snapshot.data.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details> : null}
         </main>
       </div>
     </>}
     <input ref={uploadInput} type="file" multiple className="hidden" onChange={(event) => { const files = [...event.target.files ?? []]; event.target.value = ""; if (!files.length) return; void run(async () => { for (const file of files) { const uploaded = await uploadAsset(file); if (draft) { const latest = drafts.get(wikiId, path); if (latest) drafts.change(wikiId, path, `${latest.content}\n\n[${file.name.replace(/[\[\]]/g, "")}](${uploaded.split("/").map(encodeURIComponent).join("/")})\n`); } } toast.success(t("wiki.uploaded")); }); }} />
     {newWiki && props.client ? <CreateWikiDialog client={props.client} serverUrl={props.serverUrl} wikis={list.data?.items ?? []} onClose={() => setNewWiki(false)} onCreate={async (input) => { const result = await props.client?.createWiki(input); if (!result) return; setNewWiki(false); chooseWiki(result.wiki.id); acceptWiki(result.wiki); setSharingActionError(result.sharingError ? { wikiId: result.wiki.id, message: result.sharingError } : null); props.onWikisChanged?.(); }} onJoin={async (input) => { const result = await props.client?.joinWiki(input); if (!result) return; setNewWiki(false); chooseWiki(result.wiki.id); acceptWiki(result.wiki); props.onWikisChanged?.(); }} /> : null}
-    {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); chooseWiki(""); refresh(); }} /> : null}
+    {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} initialTab={settingsTab} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); chooseWiki(""); refresh(); }} /> : null}
     {newPage !== null && props.client && wiki ? <NewWikiPageDialog key={`${wiki.id}:${newPage}`} pages={pages} initialPath={newPage} onClose={() => setNewPage(null)} onCreate={async (newPath, templatePath) => { if (pages.some((page) => page.path.toLocaleLowerCase() === newPath.toLocaleLowerCase())) throw new Error(t("wiki.page_exists")); let content = `# ${newPath.split("/").at(-1)?.replace(/\.md$/i, "")}\n\n`; if (templatePath) { const template = await props.client?.readWikiPage(wiki.id, templatePath); const page = pages.find((entry) => entry.path === templatePath); if (template && page) content = wikiTemplateContent(template.content, page, newPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? newPath); } await props.client?.writeWikiPage(wiki.id, { path: newPath, content }); setNewPage(null); setMode("source"); openPage(newPath); refresh(); }} /> : null}
-    {history && props.client && wiki ? <WikiHistoryDialog key={`${wiki.id}:${historyPath}`} client={props.client} wikiId={wiki.id} initialPath={historyPath} onClose={() => setHistory(false)} onRestore={async (restorePath, revisionId) => { if (drafts.get(wiki.id, restorePath)?.content !== drafts.get(wiki.id, restorePath)?.baseline) throw new Error(t("wiki.save_before_restore")); let baseRevision: string | undefined; try { baseRevision = (await props.client?.readWikiPage(wiki.id, restorePath))?.revision; } catch (error) { if (!(error instanceof LegalworkServerError && error.status === 404)) throw error; } await props.client?.restoreWikiPage(wiki.id, { path: restorePath, revisionId, baseRevision }); await drafts.load(wiki.id, restorePath, true); refresh(); toast.success(t("wiki.restored")); }} /> : null}
+    {history && props.client && wiki ? <WikiHistoryDialog key={`${wiki.id}:${historyPath}`} client={props.client} serverUrl={props.serverUrl} writable={wiki.writable} wikiId={wiki.id} initialPath={historyPath} onClose={() => setHistory(false)} onRestore={async (restorePath, revisionId) => { if (drafts.get(wiki.id, restorePath)?.content !== drafts.get(wiki.id, restorePath)?.baseline) throw new Error(t("wiki.save_before_restore")); let baseRevision: string | undefined; try { baseRevision = (await props.client?.readWikiPage(wiki.id, restorePath))?.revision; } catch (error) { if (!(error instanceof LegalworkServerError && error.status === 404)) throw error; } await props.client?.restoreWikiPage(wiki.id, { path: restorePath, revisionId, baseRevision }); await drafts.load(wiki.id, restorePath, true); refresh(); toast.success(t("wiki.restored")); }} /> : null}
   </div>;
 }
 
-function EmptyWiki(props: { message: string; action?: React.ReactNode }) {
-  return <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-8 text-center"><BookOpen size={36} strokeWidth={1} className="text-muted-foreground/40" /><p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{props.message}</p>{props.action}</div>;
+function WikiSourceEditor(props: { value: string; readOnly: boolean; onChange: (content: string) => void; onSave: () => void }) {
+  const region = useRef<HTMLDivElement>(null);
+  const label = t("wiki.markdown");
+  useEffect(() => { region.current?.querySelector(".cm-content")?.setAttribute("aria-label", label); }, [label]);
+  return <div ref={region} className="wiki-source" role="region" aria-label={label} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (!props.readOnly) props.onSave(); } }}><ArtifactTextEditor className="wiki-source-editor" language="markdown" value={props.value} readOnly={props.readOnly} onChange={props.onChange} /></div>;
 }
+
+function EmptyWiki(props: { title?: string; message: string; action?: React.ReactNode }) {
+  return <div className="wiki-empty"><BookOpen size={32} strokeWidth={1.3} aria-hidden="true" />{props.title ? <h2>{props.title}</h2> : null}<p>{props.message}</p>{props.action}</div>;
+}
+
+function WikiLoading() {
+  return <div className="wiki-loading" role="status"><Loader2 size={18} className="animate-spin" /><span>{t("wiki.loading")}</span></div>;
+}
+
+function WikiIconButton(props: { label: string; disabled?: boolean; pressed?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <Tooltip><TooltipTrigger render={<Button size="icon-sm" variant="ghost" className="wiki-icon-button" aria-label={props.label} aria-pressed={props.pressed} disabled={props.disabled} onClick={props.onClick} />}>{props.children}</TooltipTrigger><TooltipContent>{props.label}</TooltipContent></Tooltip>;
+}
+
 function PageRow(props: { page: WikiPage; active: boolean; onOpen: (path: string) => void }) {
-  return <button className={cn("flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-accent", props.active && "bg-accent font-medium")} title={props.page.path} onClick={() => props.onOpen(props.page.path)}><FileText size={13} className="shrink-0 text-muted-foreground" /><span className="truncate">{props.page.title}</span></button>;
+  return <button className={cn("wiki-nav-row", props.active && "is-active")} aria-current={props.active ? "page" : undefined} title={props.page.path} onClick={() => props.onOpen(props.page.path)}><FileText size={14} /><span>{props.page.title}</span></button>;
 }
+
 function PageTree(props: { pages: WikiPage[]; active: string; onOpen: (path: string) => void; searching: boolean }) {
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [limit, setLimit] = useState(100);
-  const visible = props.pages.slice(0, limit);
+  const visible = useMemo(() => wikiNavigationPages(props.pages, props.active, limit), [props.pages, props.active, limit]);
+  useEffect(() => {
+    const folder = props.active.slice(0, props.active.lastIndexOf("/"));
+    if (!props.active.includes("/")) return;
+    setCollapsed((current) => { if (!current.has(folder)) return current; const next = new Set(current); next.delete(folder); return next; });
+  }, [props.active]);
   const groups = useMemo(() => {
     const map = new Map<string, WikiPage[]>();
     for (const page of visible) { const folder = page.path.includes("/") ? page.path.slice(0, page.path.lastIndexOf("/")) : ""; const group = map.get(folder); if (group) group.push(page); else map.set(folder, [page]); }
     return [...map].sort(([a], [b]) => a.localeCompare(b));
-  }, [props.pages, limit]);
+  }, [visible]);
   const more = props.pages.length > limit ? <Button variant="ghost" size="sm" className="mt-2 w-full text-xs" onClick={() => setLimit((current) => current + 100)}>{t("wiki.show_more", { remaining: props.pages.length - limit })}</Button> : null;
   if (props.searching) return <>{visible.map((page) => <PageRow key={page.path} page={page} active={props.active === page.path} onOpen={props.onOpen} />)}{more}</>;
-  return <>{groups.map(([folder, pages]) => <div key={folder}>{folder ? <button className="mt-2 flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-muted-foreground" onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(folder)) next.delete(folder); else next.add(folder); return next; })} aria-expanded={!collapsed.has(folder)}>{collapsed.has(folder) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}<Folder size={12} /><span className="truncate">{folder}</span></button> : null}{!collapsed.has(folder) ? <div className={folder ? "pl-3" : ""}>{pages.map((page) => <PageRow key={page.path} page={page} active={props.active === page.path} onOpen={props.onOpen} />)}</div> : null}</div>)}{more}</>;
+  return <>{groups.map(([folder, pages]) => <div className="wiki-tree-group" key={folder}>{folder ? <button className="wiki-tree-folder" onClick={() => setCollapsed((current) => { const next = new Set(current); if (next.has(folder)) next.delete(folder); else next.add(folder); return next; })} aria-expanded={!collapsed.has(folder)}>{collapsed.has(folder) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}<Folder size={14} /><span>{folder}</span></button> : null}{!collapsed.has(folder) ? <div className={folder ? "wiki-tree-children" : undefined}>{pages.map((page) => <PageRow key={page.path} page={page} active={props.active === page.path} onOpen={props.onOpen} />)}</div> : null}</div>)}{more}</>;
 }
