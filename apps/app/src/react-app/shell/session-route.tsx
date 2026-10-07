@@ -6,6 +6,9 @@ import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
+import { useQuery } from "@tanstack/react-query";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -541,6 +544,37 @@ export function SessionRoute() {
     if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
+  const assistant = useQuery({
+    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(); },
+    refetchInterval: 30_000, refetchOnWindowFocus: "always",
+  });
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
+  useEffect(() => {
+    if (!assistant.data) return;
+    const workspace = assistant.data.workspace;
+    setWorkspaces(current => current.some(item => item.id === workspace.id) ? current : [...current, { ...workspace, displayNameResolved: assistant.data?.profile.name ?? t("assistant.title") }]);
+    // Daily sessions are separate engine contexts, displayed as a single chat.
+    if (assistantActive && selectedSessionId && selectedSessionId !== assistant.data.day.sessionId) {
+      carryAssistantDraft(selectedSessionId, assistant.data.day.sessionId);
+      navigate(workspaceSessionRoute(workspace.id, assistant.data.day.sessionId), { replace: true });
+    }
+  }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
+  const openAssistant = useCallback(async () => {
+    if (!client) return;
+    try {
+      const current = await client.mainAssistantCurrent();
+      getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+      setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
+      navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
+  }, [client, navigate, setWorkspaces]);
+  const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
+    if (!client) throw new Error(t("assistant.unavailable"));
+    await client.updateAssistantProfile(profile);
+    const current = await client.mainAssistantCurrent();
+    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+  }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectTemplateCatalog(client);
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
@@ -574,11 +608,14 @@ export function SessionRoute() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [client?.baseUrl, detached, platform, navigate]);
   useEffect(() => onSyncPoke((poke) => {
-    if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+    if (poke.projects || poke.resync) {
+      void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+      void refreshRouteState();
+    }
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
     // The firm's policy may have changed the engine's providers.
     if (poke.policy) void refreshProviderListQueries(getReactQueryClient());
-  }), []);
+  }), [refreshRouteState]);
   useEffect(() => {
     if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
     const search = new URLSearchParams(location.search);
@@ -694,7 +731,7 @@ export function SessionRoute() {
   // shows only project folders.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
@@ -1421,6 +1458,7 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
+      assistantDate: assistantActive ? assistant.data?.day.date : undefined,
       workspaceRoot: selectedWorkspaceRoot,
       developerMode: false,
       modelLabel,
@@ -1477,7 +1515,13 @@ export function SessionRoute() {
       onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
         const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
-        const targetSessionId = sessionId.trim() || selectedSessionId;
+        let targetSessionId = sessionId.trim() || selectedSessionId;
+        if (selectedWorkspace?.preset === "main-assistant") {
+          const current = await client.mainAssistantCurrent();
+          targetSessionId = current.day.sessionId;
+          getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+          if (targetSessionId !== selectedSessionId) navigate(workspaceSessionRoute(current.workspace.id, targetSessionId), { replace: true });
+        }
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
@@ -1687,6 +1731,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
+    assistantActive, assistant.data?.day.date,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2689,7 +2734,7 @@ export function SessionRoute() {
         openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
-            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
+            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
             openTaskId={new URLSearchParams(location.search).get("task")}
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
@@ -2786,6 +2831,11 @@ export function SessionRoute() {
       sidebar={{
         onOpenSearch: () => setCommandPaletteOpen(true),
         onNewChat: () => setNewChatOpen(true),
+        onOpenAssistant: () => { void openAssistant(); },
+        assistantActive,
+        assistantProfile: assistant.data?.profile,
+        onSaveAssistantProfile: saveAssistantProfile,
+        assistantDisabled: !client || assistant.isPending,
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
         onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),

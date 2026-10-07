@@ -16,6 +16,7 @@ import { openWorkspaceWindow, restoreWorkspaceWindow } from "../panel/workspace-
 import { chatPanelTab, projectViewTab, type ProjectView } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
 import { WindowMenubar } from "@/react-app/shell/window-menubar";
+import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -154,6 +155,11 @@ export type SessionPageSidebarProps = {
   onOpenSearch?: () => void;
   onShowChats?: () => void;
   onNewChat?: () => void;
+  onOpenAssistant?: () => void;
+  assistantProfile?: AssistantProfile;
+  onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
+  assistantActive?: boolean;
+  assistantDisabled?: boolean;
   onShowProjects?: () => void;
   onShowWikis?: () => void;
   onShowEvals?: () => void;
@@ -820,8 +826,8 @@ export function SessionPage(props: SessionPageProps) {
   // A reload may restore a wiki page focused beside the chat named in the URL.
   const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
   const selectedSessionTitle = useMemo(
-    () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
+    () => props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, props.sidebar.assistantActive, props.sidebar.assistantProfile?.name],
   );
   useEffect(() => {
     if (!props.selectedSessionId || hasMainView) return;
@@ -1246,6 +1252,11 @@ export function SessionPage(props: SessionPageProps) {
           onOpenSearch={props.sidebar.onOpenSearch}
           onShowChats={props.sidebar.onShowChats}
           onNewChat={props.sidebar.onNewChat}
+          onOpenAssistant={props.sidebar.onOpenAssistant}
+          assistantProfile={props.sidebar.assistantProfile}
+          onSaveAssistantProfile={props.sidebar.onSaveAssistantProfile}
+          assistantActive={props.sidebar.assistantActive}
+          assistantDisabled={props.sidebar.assistantDisabled}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}

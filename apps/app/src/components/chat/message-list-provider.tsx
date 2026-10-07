@@ -13,6 +13,7 @@ interface MessageListContextValue {
   sessionId: string
   onOpenSession?: (sessionId: string) => void
   pendingInteractionSessionIds: string[]
+  readOnly?: boolean
   showThinking: boolean
   developerMode: boolean
   displaySuggestions: boolean
@@ -33,6 +34,7 @@ interface MessageListProviderProps {
   sessionId: string
   onOpenSession?: (sessionId: string) => void
   pendingInteractionSessionIds?: string[]
+  readOnly?: boolean
   showThinking: boolean
   developerMode: boolean
   onRevertToUserMessage: (messageId: string) => void
@@ -59,6 +61,7 @@ export function MessageListProvider({
   sessionId,
   onOpenSession,
   pendingInteractionSessionIds = emptyPendingSessionIds,
+  readOnly = false,
   showThinking,
   developerMode,
   displaySuggestions,
@@ -76,6 +79,7 @@ export function MessageListProvider({
       sessionId,
       onOpenSession,
       pendingInteractionSessionIds,
+      readOnly,
       showThinking,
       developerMode,
       displaySuggestions,
@@ -92,6 +96,7 @@ export function MessageListProvider({
       sessionId,
       onOpenSession,
       pendingInteractionSessionIds,
+      readOnly,
       showThinking,
       developerMode,
       displaySuggestions,

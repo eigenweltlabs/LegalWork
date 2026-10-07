@@ -4,6 +4,7 @@ import { BackgroundTabStack } from "../background/background-tab-stack";
 import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
+import { AssistantDateDivider, AssistantHistory } from "./assistant-history";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
 /** @jsxImportSource react */
@@ -156,6 +157,7 @@ type SessionError = {
 export type SessionSurfaceProps = {
   /** Only the focused chat handles window-wide composer and voice events. */
   active?: boolean;
+  assistantDate?: string;
   client: LegalworkServerClient;
   environmentClient?: LegalworkServerClient | null;
   workspaceId: string;
@@ -1929,6 +1931,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
+            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} />}
+            <div className={cn(props.assistantDate && renderedMessages.length === 0 && "min-h-[calc(100dvh-12rem)]")}>
+            {props.assistantDate && <AssistantDateDivider date={props.assistantDate} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
@@ -1991,6 +1996,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onEditUserMessage={handleEditUserMessage}
                     >
                       <MessageList
+                        showWelcome={!props.assistantDate}
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId) => {
                           const subscriptionRecovery = renderSubscriptionRecovery(error,
@@ -2019,6 +2025,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 </OpenTargetProvider>
               </DevProfiler>
             )}
+            </div>
           </div>
         </div>
         {props.realtimeVoiceActive && props.realtimeVoiceSupported ? (

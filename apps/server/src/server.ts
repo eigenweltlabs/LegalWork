@@ -2,6 +2,8 @@ import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
+import { MainAssistant, isMainAssistant } from "./main-assistant.js";
+import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -869,6 +871,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
+  const mainAssistant = await MainAssistant.open(config, runtimeDbPath(config), workspace => {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    return {
+      get: async id => {
+        const result = await client.session.get({ sessionID: id }, { signal: AbortSignal.timeout(10000) });
+        return result.response.status === 404 ? null : unwrapOpencodeResult(result, "/session");
+      },
+      list: async () => unwrapOpencodeResult(await client.session.list({}, { signal: AbortSignal.timeout(10000) }), "/session"),
+      create: async title => unwrapOpencodeResult(await client.session.create({ title }, { signal: AbortSignal.timeout(10000) }), "/session"),
+    };
+  }, () => { restartReloadWatchers(); announceSyncChange(config, "projects"); });
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -876,11 +889,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     return workspace;
   };
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    resolveSession: async task => isMainAssistant(await scheduledWorkspace(task)) ? (await mainAssistant.current()).day.sessionId : null,
     available: async task => {
       if (config.readOnly) return false;
       const workspace = await scheduledWorkspace(task);
       const status = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
-      const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      const target = isMainAssistant(workspace) ? (await mainAssistant.current()).day.sessionId : task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
       return !target || !status[target] || status[target].type === "idle";
     },
     createSession: async task => {
@@ -907,7 +921,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
@@ -1196,6 +1210,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     }
   }
 
+  const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start();
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   const startedServer = {
     ...server,
@@ -1218,6 +1233,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopScheduledTasks();
       await wikiSync.stop();
       await wikiStore.close();
+      await stopMainAssistant();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -1792,8 +1808,10 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  mainAssistant: MainAssistant,
 ): Route[] {
   const routes: Route[] = [];
+  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
     if (primary) {
@@ -1932,7 +1950,6 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
     onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
