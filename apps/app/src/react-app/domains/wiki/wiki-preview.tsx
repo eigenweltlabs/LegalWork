@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Marked } from "marked";
 import DOMPurify from "dompurify";
 import type { WikiPage } from "@legalwork/types/wiki";
 import { openDesktopUrl } from "@/app/lib/desktop";
+import { t } from "@/i18n";
 import { resolveWikiPage, wikiMarkdownBody } from "./wiki-model";
 import "../session/artifacts/markdown-editor.css";
 
@@ -36,17 +37,54 @@ export function renderWikiMarkdown(content: string) {
   });
 }
 
+function headingSlug(value: string) {
+  return value.normalize("NFKD").toLowerCase().replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "section";
+}
+
 export function WikiPreview(props: {
   content: string;
   path: string;
+  anchor?: string;
   pages: WikiPage[];
-  onOpen: (path: string) => void;
+  onOpen: (path: string, anchor?: string) => void;
   onMissing: (target: string) => void;
   onAsset: (path: string) => void;
   imagePreview: (path: string) => Promise<string>;
 }) {
   const element = useRef<HTMLDivElement>(null);
-  const html = useMemo(() => renderWikiMarkdown(props.content), [props.content]);
+  const { html, outline, anchors } = useMemo(() => {
+    const document = new DOMParser().parseFromString(renderWikiMarkdown(props.content), "text/html");
+    const occurrences = new Map<string, number>();
+    const usedIds = new Set(Array.from(document.body.querySelectorAll("[id]"), (element) => element.id));
+    const anchors = new Map<string, string>();
+    const headings: { id: string; title: string; nested: boolean }[] = [];
+    for (const heading of document.body.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+      const title = heading.textContent?.trim() ?? "";
+      const authoredId = heading.id;
+      const slug = headingSlug(title);
+      let occurrence = (occurrences.get(slug) ?? 0) + 1;
+      let id = `wiki-heading-${slug}${occurrence > 1 ? `-${occurrence}` : ""}`;
+      while (usedIds.has(id)) {
+        occurrence++;
+        id = `wiki-heading-${slug}-${occurrence}`;
+      }
+      occurrences.set(slug, occurrence);
+      // Scope generated anchors to the reader, including duplicate heading names.
+      heading.id = id;
+      usedIds.add(id);
+      if (authoredId && !anchors.has(authoredId)) anchors.set(authoredId, heading.id);
+      if (title && (heading.tagName === "H2" || heading.tagName === "H3")) headings.push({ id: heading.id, title, nested: heading.tagName === "H3" });
+    }
+    return { html: document.body.innerHTML, outline: headings, anchors };
+  }, [props.content]);
+  const scrollToHeading = useCallback((id: string) => {
+    const exact = element.current?.querySelector(`[id="${CSS.escape(id)}"]`);
+    const heading = exact ?? element.current?.querySelector(`[id="${CSS.escape(anchors.get(id) ?? `wiki-heading-${headingSlug(id)}`)}"]`);
+    heading?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }, [anchors]);
+  useEffect(() => {
+    if (props.anchor) scrollToHeading(props.anchor);
+  }, [html, props.anchor, scrollToHeading]);
   useEffect(() => {
     let cancelled = false;
     const images = element.current?.querySelectorAll("img");
@@ -60,7 +98,8 @@ export function WikiPreview(props: {
     return () => { cancelled = true; };
   }, [html, props.imagePreview]);
 
-  return <div
+  const showOutline = outline.length >= 3;
+  return <div className={`wiki-reader${showOutline ? " wiki-reader-with-outline" : ""}`}><div
     ref={element}
     className="lw-markdown-page wiki-preview"
     dangerouslySetInnerHTML={{ __html: html }}
@@ -71,13 +110,22 @@ export function WikiPreview(props: {
       if (!href) return;
       event.preventDefault();
       if (/^https?:|^mailto:|^tel:/i.test(href)) { void openDesktopUrl(href); return; }
-      if (href.startsWith("#")) { element.current?.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView({ behavior: "smooth" }); return; }
+      if (href.startsWith("#")) {
+        let id: string;
+        try { id = decodeURIComponent(href.slice(1)); } catch { return; }
+        scrollToHeading(id);
+        return;
+      }
       let target: string;
       try { target = decodeURIComponent(href.replace(/^wiki:/, "")); } catch { return; }
       const page = resolveWikiPage(props.pages, target, props.path);
-      if (page) props.onOpen(page.path);
+      const fragment = target.includes("#") ? target.slice(target.indexOf("#") + 1) : "";
+      if (page) {
+        props.onOpen(page.path, fragment || undefined);
+        if (page.path === props.path && fragment) scrollToHeading(fragment);
+      }
       else if (href.startsWith("wiki:") || /\.md(?:#.*)?$/i.test(href)) props.onMissing(target);
       else props.onAsset(target);
     }}
-  />;
+  />{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
 }
