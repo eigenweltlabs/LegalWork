@@ -31,7 +31,7 @@ parser.use({ extensions: [{
 export function renderWikiMarkdown(content: string) {
   return DOMPurify.sanitize(parser.parse(wikiMarkdownBody(content), { async: false }), {
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|wiki):|[^a-z]|[a-z+.-]+(?:[^a-z+.:\-]|$))/i,
-    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button"],
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "svg", "math", "video", "audio", "source", "track", "picture"],
     FORBID_ATTR: ["style", "srcset", "src"],
   });
 }
