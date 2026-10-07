@@ -11,6 +11,8 @@ import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
+import { WikiStore } from "../wiki/store.js";
+import { assertProjectFolderIndependent } from "../wiki/workspace-safety.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -258,6 +260,7 @@ export async function registerLocalProject(
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   const workspacePath = resolve(input.folderPath);
+  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
   await ensureWorkspaceFiles(workspacePath, input.preset);
   if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);

@@ -30,6 +30,7 @@ import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
@@ -144,6 +145,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
+          LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
           OPENCODE_CONFIG: runtimeConfigPath,
           // The firm's enforced settings: read after every project's own config.
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),

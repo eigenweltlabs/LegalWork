@@ -21,7 +21,7 @@ import { listProjectContents, readProjectContent, type ProjectContentSources } f
 import { registerSystemOneRoutes } from "./routes/systemone.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
@@ -74,6 +74,7 @@ import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
+import { authenticateWikiAgentRequest, grantWikiAgentSession } from "./wiki/agent-access.js";
 import { EnvService } from "./env-file.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
@@ -121,6 +122,10 @@ import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { registerDocumentPreparationRoutes } from "./routes/document-preparation.js";
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
+import { registerWikiRoutes } from "./routes/wikis.js";
+import { WikiStore } from "./wiki/store.js";
+import { WikiSync } from "./wiki/sync.js";
+import { assertWikiWorkspaceAccess, ownsWikis, wikiForDirectory, wikiAgentCanAccess } from "./wiki/access.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -790,6 +795,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
+  const wikiStore = new WikiStore(config);
+  await wikiStore.list();
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   reloadBaselineRefreshers.set(
     config,
@@ -824,6 +831,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
+  const wikiSync = new WikiSync(config, wikiStore);
+  wikiSync.start();
   const benchmarkRunner = new BenchmarkRunner({
     config,
     // The SDK client is structurally compatible with the runner's reduced
@@ -879,12 +888,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         throw new ApiError(409, "schedule_scope_unavailable", "The local engine needs to reload scheduled task permissions. Restart LegalWork before resuming this task.");
       if (task.projectAccess === "project" && !hasProjectTaskBoundary({ name: agent, permission: [...selectedAgent.permission, ...(session.permission ?? [])] }))
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
+      // Schedules can be edited by collaborators. Never retain a prior owner's
+      // private wiki grant when a scheduled run takes over this chat.
+      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: "collaborator" });
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -917,6 +929,20 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
+  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
+    const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
+    assertWikiWorkspaceAccess(actor, wiki);
+    if (wiki && !ownsWikis(actor)) await wikiSync.ensureReadable(wiki);
+    if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
+  };
+  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
+    const directory = url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
+    if (!directory) return;
+    const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
+    assertWikiWorkspaceAccess(actor, wiki);
+    if (wiki && !ownsWikis(actor)) await wikiSync.ensureReadable(wiki);
+    if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
+  };
 
   const serverOptions: {
     hostname: string;
@@ -954,11 +980,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         authMode = "client";
         try {
           const actor = await requireClient(request, config, tokens);
+          await guardWikiWorkspace(actor, mount.workspaceId, request.method);
+          await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
           proxyBaseUrl = workspace.baseUrl?.trim() || undefined;
-          const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath });
+          const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath, actor });
           return finalize(response);
         } catch (error) {
           if (!(error instanceof ApiError)) {
@@ -1026,9 +1054,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
           const actor = await requireClient(request, config, tokens);
+          if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
+          await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
           proxyService = "opencode";
-          const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0] });
+          const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0], actor });
           return finalize(response);
         } catch (error) {
           if (!(error instanceof ApiError)) {
@@ -1050,15 +1080,19 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
 
       authMode = route.auth;
       try {
+        const agentAccess = await authenticateWikiAgentRequest(config, request);
         const actor =
-          route.auth === "host-token"
+          agentAccess?.actor ?? (route.auth === "host-token"
             ? requireHostToken(request, config)
             : route.auth === "host"
               ? await requireHost(request, config, tokens)
               : route.auth === "client"
                 ? await requireClient(request, config, tokens)
-                : undefined;
-        const response = await route.handler({
+                : undefined);
+        const workspaceId = route.params.id ?? route.params.workspaceId;
+        if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
+        await guardWikiDirectory(actor, request, url);
+        let response = await route.handler({
           request,
           url,
           params: route.params,
@@ -1068,6 +1102,27 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           tokens,
           actor,
         });
+        const workspaceList = url.pathname === "/workspaces" ? { field: "items", identity: "id" }
+          : url.pathname === "/scheduled-tasks/projects" ? { field: "projects", identity: "id" }
+          : url.pathname === "/scheduled-tasks" ? { field: "tasks", identity: "workspaceId" }
+          : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
+        if (request.method === "GET" && workspaceList && response.ok) {
+          const wikis = await wikiStore.list();
+          const hidden = new Set<string>();
+          for (const wiki of wikis) {
+            if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
+            else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
+            else if (!ownsWikis(actor)) { try { await wikiSync.ensureReadable(wiki); } catch { hidden.add(wiki.workspaceId); } }
+          }
+          const payload: unknown = await response.json();
+          if (isRecord(payload)) {
+            const items = payload[workspaceList.field];
+            if (Array.isArray(items)) response = jsonResponse({ ...payload, [workspaceList.field]: items.filter((item: unknown) => {
+              const id = isRecord(item) ? item[workspaceList.identity] : undefined;
+              return typeof id !== "string" || !hidden.has(id);
+            }) });
+          }
+        }
         return finalize(response);
       } catch (error) {
         if (!(error instanceof ApiError)) {
@@ -1144,6 +1199,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopFirmHub();
       stopTaskReminders();
       stopScheduledTasks();
+      await wikiSync.stop();
+      await wikiStore.close();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -1160,6 +1217,11 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   target.pathname = trimmedPath.startsWith("/") ? trimmedPath : `/${trimmedPath}`;
   target.search = search;
   return target.toString();
+}
+
+function decodeOpencodeDirectoryHeader(value: string | null) {
+  if (!value) return null;
+  try { return decodeURIComponent(value); } catch { return value; }
 }
 
 function buildOpencodeDirectoryHeader(directory: string) {
@@ -1236,6 +1298,7 @@ async function proxyOpencodeRequest(input: {
   url: URL;
   workspace?: WorkspaceInfo;
   proxyPath?: string;
+  actor?: Actor;
 }) {
   const workspace = input.workspace;
   const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
@@ -1264,6 +1327,12 @@ async function proxyOpencodeRequest(input: {
 
   const method = input.request.method.toUpperCase();
   if (input.config.agentSandboxEnabled) assertSandboxProxyAllowed(method, proxyPath);
+  const normalizedPath = normalizeOpencodeProxyPath(proxyPath);
+  const sessionDirectory = input.url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(headers.get("x-opencode-directory"));
+  const session = normalizedPath.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork)$/);
+  if (method === "POST" && session && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
+    await grantWikiAgentSession(input.config, { sessionId: decodeURIComponent(session[1]), directory: sessionDirectory, scope: input.actor.scope });
+  }
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
@@ -1296,6 +1365,12 @@ async function proxyOpencodeRequest(input: {
     body,
   });
 
+  if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
+    const created: unknown = await response.clone().json().catch(() => null);
+    if (isRecord(created) && typeof created.id === "string") {
+      await grantWikiAgentSession(input.config, { sessionId: created.id, directory: sessionDirectory, scope: input.actor.scope });
+    }
+  }
   return sanitizeProxyResponse(response);
 }
 
@@ -1349,6 +1424,12 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
 }
 
 async function requireClient(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
+  const agentAccess = await authenticateWikiAgentRequest(config, request);
+  if (agentAccess) return agentAccess.actor;
+  const hostToken = request.headers.get("x-legalwork-host-token");
+  if (hostToken && tokensMatch(hostToken, config.hostToken)) {
+    return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
+  }
   const header = request.headers.get("authorization") ?? "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   const token = match?.[1];
@@ -1668,6 +1749,8 @@ function createRoutes(
   reviews: ReviewService,
   corpus: CorpusService,
   scheduledTasks: ScheduledTaskStore,
+  wikiStore: WikiStore,
+  wikiSync: WikiSync,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1756,6 +1839,14 @@ function createRoutes(
       }
     },
   });
+  registerWikiRoutes({ routes, config, store: wikiStore, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope,
+    ensureWikiReadable: async (ctx, wiki) => {
+      const agent = await authenticateWikiAgentRequest(config, ctx.request);
+      if (agent && !await wikiAgentCanAccess(config, await wikiStore.list(), wiki, agent.directory)) throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project.");
+      if (!ownsWikis(ctx.actor)) await wikiSync.ensureReadable(wiki);
+    },
+    ensureWikiWritable: (ctx, wiki) => wikiSync.ensureWritable(wiki, ownsWikis(ctx.actor)),
+    onChanged: (id) => wikiSync.changed(id), onWorkspacesChanged, getSyncStatus: (id) => wikiSync.status(id), syncWiki: (id) => wikiSync.sync(id) });
 
   registerCoreRoutes({
     routes,
@@ -3753,6 +3844,7 @@ function createRoutes(
   const syncedWorkspace = (id: string): WorkspaceInfo => {
     const workspace = config.workspaces.find((entry) => entry.id === id && entry.workspaceType !== "remote");
     if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+    if (workspace.preset === "wiki") throw new ApiError(400, "wiki_project_sync", "Use wiki sharing for this folder.");
     return workspace;
   };
 
@@ -3777,7 +3869,7 @@ function createRoutes(
   addRoute(routes, "PUT", "/workspace/:id/project/sync", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, syncedWorkspace(ctx.params.id).id);
     const rawSettings = await readJsonBodyLimited(ctx.request, 64 * 1024);
     const parsed = projectSyncSettingsSchema.safeParse(rawSettings);
     if (!parsed.success) throw new ApiError(400, "invalid_project_sync_settings", "Choose who sees the project and what it syncs.");

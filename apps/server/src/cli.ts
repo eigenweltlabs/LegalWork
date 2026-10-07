@@ -21,6 +21,7 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
+import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
@@ -91,6 +92,7 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
         ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
         LEGALWORK_SERVER_URL: serverUrl,
         LEGALWORK_SERVER_TOKEN: config.token,
+        LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
         OPENCODE_CONFIG: runtimeConfigPath,
         OPENCODE_DISABLE_PROJECT_CONFIG: "true",
         OPENCODE_TEST_HOME: engineHome,

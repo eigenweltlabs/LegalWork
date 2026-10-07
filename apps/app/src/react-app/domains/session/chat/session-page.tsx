@@ -142,6 +142,7 @@ export type SessionPageSidebarProps = {
   onShowChats?: () => void;
   onNewChat?: () => void;
   onShowProjects?: () => void;
+  onShowWikis?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -149,7 +150,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -987,7 +988,7 @@ export function SessionPage(props: SessionPageProps) {
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
       navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
-      navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
+      navTasks: "tasks", navRecorder: "recorder", navWikis: "wikis", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
       toast.error(t("projects.open_in_new_window_failed"));
@@ -1180,6 +1181,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")
+    : props.sidebar.activeNav === "wikis" ? t("wiki.title")
     : props.sidebar.activeNav === "evals" ? t("sidebar.evals")
     : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
@@ -1289,6 +1291,7 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onCreateChatInNewWorkspace={props.sidebar.onCreateChatInNewWorkspace}
+          onShowWikis={props.sidebar.onShowWikis}
           onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}

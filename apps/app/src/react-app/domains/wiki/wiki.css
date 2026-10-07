@@ -1,0 +1,9 @@
+.wiki-preview { width: 100%; padding: 32px clamp(20px, 4vw, 48px) 64px; }
+.wiki-preview pre { padding: 14px 18px; background: var(--muted); border-radius: 10px; overflow-x: auto; font-size: .85em; }
+.wiki-preview pre code { padding: 0; }
+.wiki-preview input[type=checkbox] { margin-right: .5em; }
+.wiki-graph text { fill: var(--muted-foreground); font: 11px var(--font-sans); }
+.wiki-graph line { stroke: var(--border); stroke-width: 1.5; }
+.wiki-graph circle { fill: var(--muted); stroke: var(--primary); stroke-width: 1.5; }
+.wiki-graph g:focus { outline: none; }
+.wiki-graph g:focus circle, .wiki-graph g:hover circle { fill: var(--accent); stroke-width: 3; }

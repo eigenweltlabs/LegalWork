@@ -10,8 +10,8 @@ describe("main page navigation", () => {
   });
 
   test("every global main pane is recognized on its first render", () => {
-    expect(["/scheduled", "/calendar", "/workflows", "/recorder", "/evals"].map(sessionMainPage))
-      .toEqual(["scheduled", "calendar", "workflows", "recorder", "evals"]);
+    expect(["/scheduled", "/calendar", "/workflows", "/recorder", "/wikis", "/evals"].map(sessionMainPage))
+      .toEqual(["scheduled", "calendar", "workflows", "recorder", "wikis", "evals"]);
     expect(sessionMainPage("/workspace/project-a/evals")).toBe("evals");
   });
 

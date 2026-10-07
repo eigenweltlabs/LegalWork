@@ -72,6 +72,7 @@ export function sessionMainPage(pathname: string) {
     case "/calendar": return "calendar";
     case "/workflows": return "workflows";
     case "/recorder": return "recorder";
+    case "/wikis": return "wikis";
     case "/evals": return "evals";
     default: return /^\/workspace\/[^/]+\/evals$/.test(pathname) ? "evals" : null;
   }

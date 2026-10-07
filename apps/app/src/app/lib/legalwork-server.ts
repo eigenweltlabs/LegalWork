@@ -27,6 +27,7 @@ import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
+import type { WikiCreateInput, WikiDocument, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiUpdateInput, WikiVault } from "@legalwork/types/wiki";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1702,6 +1703,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   return {
     baseUrl,
     token,
+    listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
+    createWiki: (input: WikiCreateInput) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis", { token, hostToken, method: "POST", body: input }),
+    wikiSnapshot: (id: string) => requestJson<WikiSnapshot>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, timeoutMs: 30_000 }),
+    updateWiki: (id: string, input: WikiUpdateInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: input }),
+    forgetWiki: (id: string) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    readWikiPage: (id: string, path: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/page?path=${encodeURIComponent(path)}`, { token, hostToken }),
+    writeWikiPage: (id: string, input: { path: string; content: string; baseRevision?: string }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/page`, { token, hostToken, method: "PUT", body: input }),
+    deleteWikiPage: (id: string, input: { path: string; baseRevision: string }) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}/page`, { token, hostToken, method: "DELETE", body: input }),
+    wikiHistory: (id: string, path: string) => requestJson<{ items: WikiRevision[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/history${path ? `?path=${encodeURIComponent(path)}` : ""}`, { token, hostToken }),
+    restoreWikiPage: (id: string, input: { path: string; revisionId: string; baseRevision?: string }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/restore`, { token, hostToken, method: "POST", body: input }),
+    uploadWikiAsset: (id: string, path: string, data: ArrayBuffer) => requestJson<{ path: string }>(baseUrl, `/wikis/${encodeURIComponent(id)}/asset`, { token, hostToken, method: "POST", body: { path, dataBase64: arrayBufferToBase64(data) }, timeoutMs: timeouts.binary }),
+    downloadWikiAsset: (id: string, path: string) => requestBinary(baseUrl, `/wikis/${encodeURIComponent(id)}/asset?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    syncWiki: (id: string) => requestJson<WikiSyncStatus>(baseUrl, `/wikis/${encodeURIComponent(id)}/sync`, { token, hostToken, method: "POST", timeoutMs: 300_000 }),
+    searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>

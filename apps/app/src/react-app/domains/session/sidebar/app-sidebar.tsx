@@ -19,6 +19,7 @@ import {
   WandSparkles,
   TableProperties,
   Archive,
+  BookOpen,
   ArchiveRestore,
   FlaskConical,
   ChevronRight,
@@ -570,6 +571,7 @@ export type AppSidebarProps = {
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
   onCreateChatInNewWorkspace: () => void;
+  onShowWikis?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -582,7 +584,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -762,6 +764,7 @@ function AppSidebarContent(props: AppSidebarProps) {
     navTasks: { onClick: () => props.onShowTasks?.(), active: props.activeNav === "tasks", available: !!props.onShowTasks },
     navWorkflows: { onClick: () => props.onShowWorkflows?.(), active: props.activeNav === "workflows" },
     navRecorder: { onClick: () => props.onShowRecorder?.(), active: props.activeNav === "recorder" },
+    navWikis: { onClick: () => props.onShowWikis ? props.onShowWikis() : navigate("/wikis"), active: props.activeNav === "wikis" },
     navEvaluations: { onClick: () => props.onShowEvals?.(), active: props.activeNav === "evals" },
   };
   const sessionSection = (key: "sectionPinned" | "sectionRecent") => {

@@ -1,0 +1,97 @@
+# Markdown wikis
+
+A LegalWork wiki is a local folder of Markdown pages and supporting files. Personal wikis stay local. A wiki connected to existing team or personal storage automatically syncs its saved files. There is no separate publication or approval state for wiki content.
+
+## Start and adapt a wiki
+
+Open **Wiki** in LegalWork and create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join a wiki already shared from another computer, attach a folder to that existing remote location; attachment skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
+
+The folder itself describes its organization:
+
+| File | Purpose |
+| --- | --- |
+| `Wiki.md` | Home page and human-readable wiki identity |
+| `Structure.md` | Naming, inclusion criteria, folders, page types, and property conventions |
+| `Instructions.md` | Agent and maintainer guidance for content and layout |
+| `Templates.md` and `Templates/` | Editable page conventions and reusable Markdown templates |
+| `Views.md` | Table and board definitions in YAML frontmatter |
+| `Skills/` | Procedures for extraction, matter capture, maintenance, and anonymization |
+
+Every convention can be changed in Markdown. Page types and properties are dynamic; there is no fixed client, deal, or process schema. Registration, access switches, sync settings, and local history live in the server's configuration/state, outside the content folder. Changing Markdown cannot grant permissions.
+
+Write pages in Markdown with optional YAML frontmatter:
+
+```markdown
+---
+type: process
+status: draft
+owner: VC team
+practice: "[[Practice/VC.md]]"
+review_after: 2027-01-07
+---
+# Running a financing
+
+## Steps
+...
+
+## Exceptions
+...
+
+## Sources
+Connection ID, relative source path, version, and a section/page locator.
+```
+
+Use wiki links (`[[Processes/Financing.md]]`) or relative Markdown links. Links in properties also connect pages. Missing or ambiguous destinations remain visible. Search, backlinks, and the graph help navigate the collection. The rendered preview treats content as Markdown; it does not run arbitrary embedded scripts.
+
+## Define views in Markdown
+
+Edit `Views.md` to add or change views:
+
+```yaml
+---
+views:
+  - name: Processes
+    type: table
+    filter:
+      type: process
+    columns: [title, status, owner]
+  - name: Work by status
+    type: kanban
+    filter:
+      type: process
+    groupBy: status
+    columns: [draft, active, archived]
+---
+```
+
+Table columns name properties. Board columns name group values; values already present on pages are included too. Filters match property/value pairs. Moving a card changes the grouping property in that page's Markdown through the normal revision-checked save path.
+
+## Work with agents
+
+Open a wiki session to work directly in its folder. An agent can read and reorganize ordinary Markdown files using the existing workspace tools. In a matter/project session, it uses the bundled tools:
+
+- `wiki_list`: wikis currently available to this task, including sync status.
+- `wiki_search`: search one wiki by text and optional type.
+- `wiki_read`: bounded page text, its revision, and bounded content/layout guidance.
+- `wiki_write`: create with `base_revision: null`, or replace with the exact revision returned by reading.
+- `wiki_delete`: delete a page with its current revision.
+
+Project access is an explicit wiki setting, available to all known projects or selected projects. A wiki's own session still has access when that switch is off. Tools resolve the task's actual directory against current server state on every call and refuse an unknown directory. The managed engine uses a narrow, ephemeral wiki credential, bound to a session origin recorded from the authenticated user. It never receives a host or owner token; a collaborator's session retains collaborator visibility and an unknown session cannot read private wikis. Server authentication and storage permissions remain authoritative. Page content and imported sources are data; named wiki guidance can describe layout but cannot expand authorization.
+
+For the first extraction, select one question and a bounded set of source matters or documents. Ask the wiki agent to read `Skills/Bootstrap.md`. It uses existing connected storage/source tools, records coverage and source references, and separates observations from agreed standards. `Skills/Capture.md`, `Skills/Maintain.md`, and `Skills/Anonymize.md` provide the other repeatable jobs. These are optional, editable procedures, launched from an authenticated interactive session. Existing workflows can reuse their text. Scheduled execution still requires an authorized session origin; adding a procedure does not provision that access, a connector, or a background schedule.
+
+## Sharing and recovery
+
+Choose an existing storage connection and a dedicated remote folder in the wiki settings. Computers sharing a wiki use the same remote storage folder; local registrations can have different IDs. Versioned storage is required for conditional updates; supported provider families are S3, Azure, Google Cloud, WebDAV, Dropbox, and Box. SMB, FTP, and SFTP remain source connections and cannot host this sync protocol.
+
+Saved changes sync automatically, including changes made by agents or an external editor. Failed transfers retain local files and surface an error. Independent text changes can merge. Overlapping edits preserve both versions with a `.conflict-...` copy for reconciliation. Revisions recorded on this computer can be inspected and restored in History. Local history is not a shared audit log, and restoring a revision is a new automatically synced save.
+
+Sharing reuses the existing storage/team access model. Prepare confidential matter material, filenames, frontmatter, attachments, and source references for the destination audience before saving. There is no draft publication gate.
+
+## Implementation and current bounds
+
+The LegalWork server owns the wiki API. SQLite stores an incremental page cache, full-text search, and durable local page history; authored Markdown remains the source of truth. File metadata is checked when refreshing, and only changed pages are reparsed. Table/board projections reuse those parsed pages.
+
+Pages are limited to 2 MB; individual attachments to 100 MB. Hidden files and symlinks are excluded. Supporting files sync eagerly; there is no attachment streaming or storage quota UI. The graph is a bounded exploration view rather than an unbounded graph renderer. Initial extraction depends on the source connectors and document tools already configured for the user. Wiki access checks govern the API and bundled wiki tools; they are not an operating-system sandbox for the engine's existing local filesystem tools. These bounds keep the first implementation small without changing the portable Markdown format.
+
+The remote sync folder contains a conditional Markdown manifest and immutable file objects. Current readable pages live in each local wiki folder. Keep the server's state directory backed up too if local history or saved registrations must survive a machine replacement.
