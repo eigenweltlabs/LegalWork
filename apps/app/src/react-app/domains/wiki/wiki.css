@@ -70,10 +70,7 @@
 .wiki-context-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
 .wiki-agent-trigger, .wiki-share-trigger { gap: 6px; height: 30px; font-size: 11px; }
 .wiki-agent-trigger { color: var(--muted-foreground); }
-.wiki-page-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-height: 48px; padding: 7px 24px; }
-.wiki-mode-tabs { display: flex; align-items: center; gap: 3px; }
-.wiki-mode-tabs > button { height: 30px; gap: 6px; padding: 0 10px; font-size: 11px; color: var(--muted-foreground); }
-.wiki-mode-tabs > button.is-active { background: var(--muted); color: var(--foreground); }
+.wiki-page-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-height: 36px; padding: 3px 16px; }
 .wiki-save-status { display: flex; align-items: center; justify-content: flex-end; flex: 1; gap: 5px; color: var(--muted-foreground); font-size: 11px; }
 .wiki-save-status > button { font-size: 11px; }
 .wiki-page-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
@@ -110,17 +107,9 @@
 .wiki-outline-link:hover { color: var(--foreground); border-left-color: var(--primary); background: var(--muted); }
 .wiki-outline-subsection { padding-left: 18px; }
 .wiki-backlinks { max-width: 720px; margin: 0 clamp(24px, 4cqw, 48px) 48px; padding-top: 20px; border-top: 1px solid var(--border); }
-.wiki-backlinks h2 { margin-bottom: 12px; font-size: 11px; color: var(--muted-foreground); font-weight: 500; }
+.wiki-backlinks > summary { cursor: pointer; margin-bottom: 8px; font-size: 11px; color: var(--muted-foreground); font-weight: 500; }
 .wiki-backlinks > button { display: inline-flex; align-items: center; gap: 7px; margin: 0 16px 8px 0; padding: 4px 0; font-size: 12px; color: var(--muted-foreground); }
 .wiki-backlinks > button:hover { color: var(--primary); }
-.wiki-source { height: 100%; min-height: 0; border-top: 1px solid var(--border); }
-.wiki-source-editor .cm-content { font-size: 13px; line-height: 24px; padding: 20px 0 48px; }
-.wiki-source-editor .cm-line { padding: 0 24px; }
-.wiki-source-editor .cm-gutters { background: color-mix(in srgb, var(--muted) 20%, var(--background)); border-right: 1px solid var(--border); }
-.wiki-source-editor .cm-lineNumbers .cm-gutterElement { min-width: 44px; padding: 0 10px; color: var(--muted-foreground); font-size: 11px; }
-.wiki-source-editor .cm-focused { outline: none; }
-.wiki-source-editor .cm-cursor { border-left-color: var(--foreground); }
-.wiki-source-editor .cm-selectionBackground, .wiki-source-editor .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: color-mix(in srgb, var(--primary) 20%, transparent); }
 .wiki-document-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; min-height: 32px; gap: 12px; padding: 6px 24px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 10px; }
 .wiki-document-footer > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-document-footer > span:last-child { flex-shrink: 0; }
@@ -224,8 +213,6 @@
   .wiki-location-folder { display: none; }
   .wiki-location-folder + svg { display: none; }
   .wiki-page-toolbar { padding: 7px 16px; gap: 4px; }
-  .wiki-mode-tabs > button { padding: 0 7px; }
-  .wiki-mode-tabs > button > svg { display: none; }
   .wiki-reader { padding: 24px 20px 40px; }
   .wiki-properties { margin-right: 20px; margin-left: 20px; }
   .wiki-properties dl > div { grid-template-columns: 80px minmax(0, 1fr); gap: 10px; }
@@ -240,8 +227,12 @@
   .wiki-sidebar { position: absolute; top: 52px; bottom: 0; left: 0; z-index: 5; width: 248px; min-width: 0; max-width: 85%; background: var(--background); box-shadow: 8px 0 24px color-mix(in srgb, var(--foreground) 8%, transparent); }
 }
 @media (pointer: coarse) {
-  .wiki-nav-row, .wiki-tree-folder, .wiki-sidebar-disclosure > summary, .wiki-icon-button, .wiki-context-actions > button, .wiki-mode-tabs > button { min-height: 44px; }
+  .wiki-nav-row, .wiki-tree-folder, .wiki-sidebar-disclosure > summary, .wiki-icon-button, .wiki-context-actions > button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wiki-workbench *, .wiki-dialog * { scroll-behavior: auto; transition-duration: 0s; animation-duration: 0s; }
 }
+
+.wiki-editor-content { display: flex; flex-direction: column; overflow: hidden; }
+.wiki-editor-content > .lw-markdown-editor { flex: 1; }
+.wiki-editor-content > .wiki-backlinks { flex-shrink: 0; max-height: 160px; overflow: auto; margin: 0; padding: 8px 20px; }

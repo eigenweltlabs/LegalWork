@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WikiPage } from "@legalwork/types/wiki";
-import { canRichEditWiki, resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent, wikiViewPages } from "../src/react-app/domains/wiki/wiki-model";
+import { resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent, wikiViewPages } from "../src/react-app/domains/wiki/wiki-model";
 import { acceptWikiSave, type WikiDraft } from "../src/react-app/domains/wiki/wiki-drafts";
 
 function page(path: string, patch: Partial<WikiPage> = {}): WikiPage {
@@ -44,10 +44,7 @@ describe("Markdown wiki views and editing", () => {
     const b = page('B.md', { type: 'research', properties: { tags: ['VC'], active: false } });
     expect(wikiViewPages([a, b], { name: 'Deals', type: 'table', columns: ['title'], filter: { type: 'deal', tags: 'VC', active: true } })).toEqual([a]);
   });
-  test("source keeps unsupported constructs and strips only leading frontmatter for reading", () => {
-    expect(canRichEditWiki('# Title\n\n[[Client]]')).toBe(false);
-    expect(canRichEditWiki('<div>Hello</div>')).toBe(false);
-    expect(canRichEditWiki('# Title\n\nPlain Markdown.')).toBe(true);
+  test("strips only leading frontmatter for reading", () => {
     expect(wikiMarkdownBody('---\n---\n# Title')).toBe('# Title');
     expect(wikiMarkdownBody('---\ntype: page\n---\n# Title')).toBe('# Title');
   });

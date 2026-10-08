@@ -68,14 +68,6 @@ export function wikiMarkdownBody(content: string) {
   return header?.index === 0 ? content.slice(header[0].length) : content;
 }
 
-/** Rich editing is optional; source is always available for the entire format. */
-export function canRichEditWiki(content: string) {
-  const body = wikiMarkdownBody(content);
-  const header = content.slice(0, content.length - body.length);
-  if (/^\s+\S|^[A-Za-z_-]+:\s*[>|&*!\[{]|^---$/m.test(header.replace(/^---\r?\n/, "").replace(/---\r?\n$/, ""))) return false;
-  return !/\[\[|<\/?[A-Za-z]|^::|^\s*\$\$|\$[^$\n]+\$|^\s*~~~|^\s*\[\^[^\]]+\]:|\[\^[^\]]+\]/m.test(body);
-}
-
 export function wikiNewPagePath(value: string): string {
   const path = value.trim().replace(/\\/g, "/");
   if (!path || path.startsWith("/") || path.split("/").some((part) => !part || part === "." || part === "..")

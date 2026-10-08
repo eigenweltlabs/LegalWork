@@ -2,6 +2,13 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Shared Markdown editor (2026-10-08)
+
+- Writable Wiki pages and new pages use `ArtifactMarkdownEditor` directly through a small Wiki syntax plugin. Removed the duplicate Read/Edit/Markdown controls, custom source editor, and syntax restrictions that hid WYSIWYG for wiki links and nested YAML. Source and Diff remain the shared editor's own controls; explicit source requests do not remount the editor.
+- Wiki links import as ordinary editor links and serialize back to `[[target|label]]`. The standard Create Link dialog offers page destinations; destination actions open standard Wiki tabs. Full frontmatter goes through the existing frontmatter plugin. Unsupported syntax switches to the shared Source view, and Wiki raw HTML processing is disabled.
+- Parser regressions cover paths, aliases, Unicode, heading destinations, nested/multiline YAML, code, escaped bracket literals, ordinary links, and link creation. The app suite passed 939 tests; the focused Wiki suite passed 20. App typecheck, production build, i18n (5763 keys per language), and `git diff --check` passed.
+- Live Electron verification of this change is pending: macOS was locked and could not be unlocked automatically. The user was asked to unlock it. Earlier screenshots below show the prior editor. The dev server remains available on port 5176.
+
 ## Wiki file explorer (2026-10-08)
 
 - Fixed the sidebar's 85% width cap. The wiki selector now occupies the topbar, and the toolbar exposes new page, new folder, search, whole-wiki graph, and collapse-all icons.
