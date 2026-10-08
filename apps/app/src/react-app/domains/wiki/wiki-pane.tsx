@@ -352,7 +352,6 @@ export function WikiPane(props: WikiPaneProps) {
                   <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Maintain.md", "maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button size="sm" variant="outline" className="wiki-share-trigger" aria-label={t("wiki.sharing")} disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={15} /><span>{t("wiki.sharing")}</span></Button>
             </div>
           </header>
           {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface.startsWith("view:") && !selectedView ? <EmptyWiki message={t("wiki.view_unavailable")} action={<Button variant="outline" onClick={() => openPage("Views.md")}>{t("wiki.edit_view")}</Button>} /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {

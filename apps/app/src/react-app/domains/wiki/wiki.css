@@ -61,7 +61,7 @@
 .wiki-location-title, .wiki-location-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-location-title { font-weight: 500; }
 .wiki-context-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
-.wiki-agent-trigger, .wiki-share-trigger { gap: 6px; height: 30px; font-size: 11px; }
+.wiki-agent-trigger { gap: 6px; height: 30px; font-size: 11px; }
 .wiki-agent-trigger { color: var(--muted-foreground); }
 .wiki-page-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-height: 36px; padding: 3px 16px; }
 .wiki-save-status { display: flex; align-items: center; justify-content: flex-end; flex: 1; gap: 5px; color: var(--muted-foreground); font-size: 11px; }
@@ -200,8 +200,8 @@
 }
 @container wiki-main (max-width: 580px) {
   .wiki-context-bar { padding: 8px 10px; gap: 5px; }
-  .wiki-agent-trigger > span, .wiki-share-trigger > span { display: none; }
-  .wiki-agent-trigger, .wiki-share-trigger { width: 30px; padding: 0; }
+  .wiki-agent-trigger > span { display: none; }
+  .wiki-agent-trigger { width: 30px; padding: 0; }
   .wiki-agent-trigger > svg:last-child { display: none; }
   .wiki-location-folder { display: none; }
   .wiki-location-folder + svg { display: none; }
