@@ -207,16 +207,20 @@ export function NewWikiPageDialog(props: { pages: WikiPage[]; initialPath?: stri
 
 export function formatWikiSize(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
 
-export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId: string; initialPath: string; serverUrl?: string; writable?: boolean; onClose: () => void; onRestore: (path: string, revisionId: string) => Promise<void> }) {
+export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId: string; initialPath: string; serverUrl?: string; writable?: boolean; onClose: () => void; onRestore: (path: string, revisionId: string) => Promise<void>; onRestoreTrash: (id: string) => Promise<void> }) {
+  const [tab, setTab] = useState("history");
   const [path, setPath] = useState(props.initialPath);
   const [limit, setLimit] = useState(50);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const history = useQuery({ queryKey: ["wiki-history", props.serverUrl, props.wikiId, path], queryFn: () => props.client.wikiHistory(props.wikiId, path) });
+  const history = useQuery({ queryKey: ["wiki-history", props.serverUrl, props.wikiId, path], queryFn: () => props.client.wikiHistory(props.wikiId, path), enabled: tab === "history" });
+  const trash = useQuery({ queryKey: ["wiki-trash", props.serverUrl, props.wikiId], queryFn: () => props.client.wikiTrash(props.wikiId), enabled: tab === "trash" });
   return <Dialog open onOpenChange={(open) => { if (!open && !busyId) props.onClose(); }}>
     <DialogContent className="wiki-dialog flex max-h-[90vh] flex-col gap-0 p-0 sm:max-w-xl">
-      <DialogHeader className="wiki-dialog-header shrink-0 px-6 pb-4 pt-6 pr-12"><DialogTitle>{t("wiki.history")}</DialogTitle><DialogDescription>{t(props.writable === false ? "wiki.history_read_only_hint" : "wiki.history_hint")}</DialogDescription></DialogHeader>
-      <div className="wiki-dialog-body max-h-[65vh] space-y-4 overflow-y-auto px-6 pb-6 pt-2">
+      <DialogHeader className="wiki-dialog-header shrink-0 px-6 pb-4 pt-6 pr-12"><DialogTitle>{t("wiki.history")}</DialogTitle><DialogDescription>{t(tab === "trash" ? "wiki.trash_hint" : props.writable === false ? "wiki.history_read_only_hint" : "wiki.history_hint")}</DialogDescription></DialogHeader>
+      <Tabs value={tab} onValueChange={(value) => { if (value === "history" || value === "trash") { setTab(value); setError(null); } }} className="min-h-0 gap-0">
+        <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="history" disabled={Boolean(busyId)}><History size={14} />{t("wiki.history")}</TabsTrigger><TabsTrigger value="trash" disabled={Boolean(busyId)}><Trash2 size={14} />{t("wiki.trash")}</TabsTrigger></TabsList>
+        <TabsContent value="history" className="wiki-dialog-body max-h-[65vh] space-y-4 overflow-y-auto px-6 pb-6 pt-4">
         <label className="grid gap-2 text-sm font-medium">{t("wiki.history_filter")}<Input value={path} disabled={Boolean(busyId)} onChange={(event) => { setPath(event.target.value); setLimit(50); }} placeholder={t("wiki.all_history")} /><span className="text-xs font-normal text-muted-foreground">{t("wiki.history_page_hint")}</span></label>
         <div className="wiki-history-list overflow-hidden rounded-xl border">
           {history.isLoading ? <div className="flex justify-center p-8"><Loader2 size={20} className="animate-spin text-muted-foreground" aria-label={t("wiki.loading")} /></div> : null}
@@ -229,7 +233,12 @@ export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId
         </div>
         {history.data && history.data.items.length > limit ? <Button type="button" variant="ghost" size="sm" onClick={() => setLimit((current) => current + 50)}>{t("wiki.show_more", { remaining: history.data.items.length - limit })}</Button> : null}
         <DialogError message={error || (history.error ? wikiError(history.error) : null)} />
-      </div>
+        </TabsContent>
+        <TabsContent value="trash" className="wiki-dialog-body max-h-[65vh] space-y-4 overflow-y-auto px-6 pb-6 pt-4">
+          {trash.isLoading ? <div className="flex justify-center p-8"><Loader2 size={20} className="animate-spin text-muted-foreground" aria-label={t("wiki.loading")} /></div> : trash.data?.items.length === 0 ? <div className="p-8 text-center"><Trash2 size={24} className="mx-auto mb-3 text-muted-foreground" /><p className="text-sm text-muted-foreground">{t("wiki.trash_empty")}</p></div> : trash.data?.items.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b py-3 last:border-b-0"><span className="min-w-0 flex-1 truncate text-sm" title={entry.path}>{entry.path}</span><Button size="sm" variant="outline" disabled={props.writable === false || Boolean(busyId)} onClick={() => { setBusyId(entry.id); setError(null); void props.onRestoreTrash(entry.id).then(() => trash.refetch()).catch((err) => setError(wikiError(err))).finally(() => setBusyId(null)); }}>{busyId === entry.id ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}{t("wiki.restore")}</Button></div>)}
+          <DialogError message={error || (trash.error ? wikiError(trash.error) : null)} />
+        </TabsContent>
+      </Tabs>
       <DialogFooter className="wiki-dialog-footer shrink-0 mx-0 mb-0"><Button type="button" variant="ghost" disabled={Boolean(busyId)} onClick={props.onClose}>{t("common.close")}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;

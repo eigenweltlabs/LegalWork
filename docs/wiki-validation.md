@@ -2,6 +2,11 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## History and Trash tabs (2026-10-08)
+
+- Settings sit to the right of the picker, before sync, and retain hover-only visibility. Removed the separate sidebar Trash icon and dialog. Version history now contains History and Trash tabs using the existing queries, restore callbacks, and read-only restrictions.
+- Native Electron verified the footer, opening version history, switching between both tabs, and rendering saved revisions and deleted entries with restore controls. App typecheck, production build, and `git diff --check` passed.
+
 ## Wiki selector in the footer (2026-10-08)
 
 - Moved the wiki selector to the sidebar footer with refresh/sync on its right. Removed the footer Sharing row and lock/status text. Settings still appear immediately left of the dropdown arrow only on hover; the selector menu opens upward.
