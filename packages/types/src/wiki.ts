@@ -54,6 +54,13 @@ export type WikiPage = {
   updatedAt: number;
 };
 export type WikiAsset = { path: string; size: number; updatedAt: number; changedAt?: number };
+export type WikiEntry = { path: string; kind: "file" | "folder"; revision: string };
+export type WikiTrashEntry = { id: string; path: string; kind: "file" | "folder"; deletedAt: number };
+export type WikiEntryOperation =
+  | { action: "create-folder"; path: string }
+  | { action: "move" | "copy"; path: string; destination: string; baseRevision: string }
+  | { action: "trash"; path: string; baseRevision: string }
+  | { action: "restore"; trashId: string };
 export type WikiView = {
   name: string;
   type: "table" | "kanban";
@@ -65,6 +72,7 @@ export type WikiSnapshot = {
   wiki: WikiVault;
   pages: WikiPage[];
   assets: WikiAsset[];
+  folders?: string[];
   views: WikiView[];
   warnings: string[];
 };

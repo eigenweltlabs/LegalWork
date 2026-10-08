@@ -10,7 +10,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
-import type { WikiPanelTab } from "../../wiki/wiki-tabs";
+import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import { storageFileSourceSchema, storageFileTab } from "./storage-file-tab";
 import { MAX_DOCUMENT_PANES, legacyLayout, legacyLayoutSizes, layoutLeaves, findLayoutNode, pruneLayout, reconcileLayoutSizes, restoreLayout, splitLayout, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 
@@ -133,6 +133,7 @@ export type PanelTabStore = {
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean }) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
+  updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   moveTab: (sessionId: string, tabId: string, pane: string, edge?: DocumentDropEdge) => void;
@@ -426,6 +427,33 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           options?.preserveLayout && session.tabs.length ? chatPane?.id ?? session.focusedPaneId ?? session.panes[0]?.id : undefined);
         const sessions = { ...state.sessions, [scope]: session };
         if (scope !== sessionId) delete sessions[sessionId];
+        return { sessions };
+      }),
+      updateWikiPaths: (serverUrl, wikiId, path, destination) => set((state) => {
+        const sessions: Record<string, SessionPanelState> = {};
+        for (const [sessionId, session] of Object.entries(state.sessions)) {
+          let activeTabId = session.activeTabId;
+          const renamed = new Map<string, string>();
+          const tabs: PanelTab[] = [];
+          for (const tab of session.tabs) {
+            if (tab.type !== "wiki" || tab.serverUrl !== serverUrl || tab.wikiId !== wikiId || tab.location.kind !== "page"
+              || (tab.location.path !== path && !tab.location.path.startsWith(`${path}/`))) { tabs.push(tab); continue; }
+            if (destination === null) { if (tab.id === activeTabId) activeTabId = null; continue; }
+            const nextPath = destination + tab.location.path.slice(path.length);
+            const next = wikiPanelTab(serverUrl, wikiId, { ...tab.location, path: nextPath }, nextPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? nextPath);
+            renamed.set(tab.id, next.id);
+            tabs.push(next);
+            if (tab.id === activeTabId) activeTabId = next.id;
+          }
+          sessions[sessionId] = normalizeSession({ ...session, tabs,
+            panes: session.panes.map(pane => ({ ...pane,
+              tabIds: pane.tabIds.map(id => renamed.get(id) ?? id),
+              activeTabId: pane.activeTabId ? renamed.get(pane.activeTabId) ?? pane.activeTabId : null,
+              previewTabId: pane.previewTabId ? renamed.get(pane.previewTabId) ?? pane.previewTabId : undefined,
+            })),
+            activeTabId: resolveActiveTabId(tabs, activeTabId),
+          });
+        }
         return { sessions };
       }),
       setStorageWorkingPath: (sessionId, tabId, path) => set((state) => {

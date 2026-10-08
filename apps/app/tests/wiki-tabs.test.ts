@@ -6,6 +6,23 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("moving a folder updates open wiki tabs across chats and trash closes only its pages", () => {
+    const store = usePanelTabStore.getState();
+    const page = wikiPanelTab("local", "firm", { kind: "page", path: "Old/Guide.md", anchor: "sources", mode: "source" }, "Guide");
+    const otherWiki = wikiPanelTab("local", "other", { kind: "page", path: "Old/Guide.md" }, "Guide");
+    store.openTab("one", page);
+    store.openTab("two", page);
+    store.openTab("two", otherWiki);
+    store.updateWikiPaths("local", "firm", "Old", "New");
+    const moved = wikiPanelTab("local", "firm", { kind: "page", path: "New/Guide.md", anchor: "sources", mode: "source" }, "Guide");
+    expect(usePanelTabStore.getState().sessions.one.tabs).toEqual([moved]);
+    expect(usePanelTabStore.getState().sessions.one.activeTabId).toBe(moved.id);
+    expect(usePanelTabStore.getState().sessions.two.tabs).toEqual([moved, otherWiki]);
+    expect(usePanelTabStore.getState().sessions.two.activeTabId).toBe(otherWiki.id);
+    store.updateWikiPaths("local", "firm", "New", null);
+    expect(usePanelTabStore.getState().sessions.one.tabs).toEqual([]);
+    expect(usePanelTabStore.getState().sessions.two.tabs).toEqual([otherWiki]);
+  });
   test("opening the folder browser does not open a viewer and survives viewer switches", () => {
     const initial = { ...useUiStateStore.getState(), sidePanelState: {}, fileSidebarState: {} };
     const browsing = setFileSidebarState(initial, "chat", "wiki");

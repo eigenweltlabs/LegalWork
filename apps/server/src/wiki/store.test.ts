@@ -24,6 +24,74 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("file explorer creates empty nested folders and copies or moves complete folder contents", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Explorer", template: "blank" });
+    await store.changeEntry(wiki.id, { action: "create-folder", path: "Research/Empty" });
+    expect((await store.snapshot(wiki.id)).folders).toContain("Research/Empty");
+    const source = "---\nowner: Test\n---\n# Untouched\n";
+    await store.write(wiki.id, "Research/Note.md", source, "");
+    const bytes = Buffer.from([0, 255, 12, 89]);
+    await store.writeAsset(wiki.id, "Research/scan.png", bytes, "");
+    const entry = await store.entry(wiki.id, "Research");
+    await store.changeEntry(wiki.id, { action: "copy", path: entry.path, destination: "Research copy", baseRevision: entry.revision });
+    expect((await store.read(wiki.id, "Research copy/Note.md")).content).toBe(source);
+    expect(await store.readAsset(wiki.id, "Research copy/scan.png")).toEqual(bytes);
+    expect((await store.snapshot(wiki.id)).folders).toContain("Research copy/Empty");
+    await store.changeEntry(wiki.id, { action: "move", path: entry.path, destination: "Archive/Research", baseRevision: entry.revision });
+    const snapshot = await store.snapshot(wiki.id);
+    expect(snapshot.folders).toContain("Archive/Research/Empty");
+    expect(snapshot.pages.some((page) => page.path === "Research/Note.md")).toBe(false);
+    expect((await store.read(wiki.id, "Archive/Research/Note.md")).content).toBe(source);
+    expect(await store.readAsset(wiki.id, "Archive/Research/scan.png")).toEqual(bytes);
+  });
+
+  test("folder actions reject stale revisions and occupied destinations without changing originals", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Conflicts" });
+    const page = await store.write(wiki.id, "Work/Note.md", "# Original\n", "");
+    const original = await store.entry(wiki.id, "Work");
+    await store.write(wiki.id, page.path, "# Newer\n", page.revision);
+    await expect(store.changeEntry(wiki.id, { action: "trash", path: original.path, baseRevision: original.revision })).rejects.toMatchObject({ code: "wiki_revision_conflict" });
+    await store.changeEntry(wiki.id, { action: "create-folder", path: "Occupied" });
+    const fresh = await store.entry(wiki.id, "Work");
+    await expect(store.changeEntry(wiki.id, { action: "move", path: fresh.path, destination: "Occupied", baseRevision: fresh.revision })).rejects.toMatchObject({ status: 409, code: "wiki_entry_exists" });
+    await expect(store.changeEntry(wiki.id, { action: "copy", path: fresh.path, destination: "Work/Nested", baseRevision: fresh.revision })).rejects.toMatchObject({ code: "invalid_wiki_destination" });
+    expect((await store.read(wiki.id, page.path)).content).toBe("# Newer\n");
+    expect(await store.trash(wiki.id)).toEqual([]);
+  });
+
+  test("trash and restore retain page bytes, binary assets and empty directories without overwriting newer files", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Recover" });
+    const page = await store.write(wiki.id, "Matter/Note.md", "# Kept verbatim\n", "");
+    await store.writeAsset(wiki.id, "Matter/file.bin", Buffer.from([0, 255]), "");
+    await store.changeEntry(wiki.id, { action: "create-folder", path: "Matter/Empty" });
+    const entry = await store.entry(wiki.id, "Matter");
+    await store.changeEntry(wiki.id, { action: "trash", path: entry.path, baseRevision: entry.revision });
+    expect((await store.snapshot(wiki.id)).pages.some((item) => item.path === page.path)).toBe(false);
+    expect((await store.files(wiki.id)).some((item) => item.path.includes("legalwork-trash"))).toBe(false);
+    const [deleted] = await store.trash(wiki.id);
+    expect(deleted?.path).toBe("Matter");
+    await store.changeEntry(wiki.id, { action: "create-folder", path: "Matter" });
+    await expect(store.changeEntry(wiki.id, { action: "restore", trashId: deleted.id })).rejects.toMatchObject({ status: 409, code: "wiki_entry_exists" });
+    expect(await store.trash(wiki.id)).toHaveLength(1);
+    await rm(join(wiki.root, "Matter"), { recursive: true });
+    await store.changeEntry(wiki.id, { action: "restore", trashId: deleted.id });
+    expect((await store.read(wiki.id, page.path)).content).toBe(page.content);
+    expect(await store.readAsset(wiki.id, "Matter/file.bin")).toEqual(Buffer.from([0, 255]));
+    expect((await store.snapshot(wiki.id)).folders).toContain("Matter/Empty");
+    expect(await store.trash(wiki.id)).toEqual([]);
+  });
+
+  test("file actions reject traversal and symbolic links, including links inside folders", async () => {
+    const { store, root } = await fixture(), wiki = await store.create({ name: "Safety" });
+    const page = await store.write(wiki.id, "Work/Note.md", "# Original\n", "");
+    const file = await store.entry(wiki.id, page.path);
+    await expect(store.changeEntry(wiki.id, { action: "copy", path: page.path, destination: "../Outside.md", baseRevision: file.revision })).rejects.toMatchObject({ status: 400 });
+    await symlink(root, join(wiki.root, "Work/Escape"), "dir");
+    await expect(store.entry(wiki.id, "Work")).rejects.toMatchObject({ code: "unsafe_wiki_path" });
+    await expect(store.changeEntry(wiki.id, { action: "create-folder", path: "Work/Escape/Created" })).rejects.toMatchObject({ code: "unsafe_wiki_path" });
+    expect((await store.read(wiki.id, page.path)).content).toBe(page.content);
+  });
+
   test("creates portable starter files, registers a wiki workspace, and forgets without deleting content", async () => {
     const { root, config, store } = await fixture();
     const wiki = await store.create({ name: "VC knowledge", root: join(root, "content"), template: "firm" });

@@ -6,6 +6,10 @@ A LegalWork wiki is a local folder of Markdown pages and supporting files. Perso
 
 Open **Wiki** in the right rail to browse its folders. Opening the browser does not open a page. Pages, table and board views, and the graph open in LegalWork's standard tabs, alongside other documents and browser tabs. Links reuse an existing page tab, and switching tabs preserves the Markdown editor. The folder browser and viewer can be closed independently.
 
+Choose a wiki from the selector in the sidebar's topbar. The toolbar provides new page, new folder, search, graph, and collapse-all actions. The file tree includes Markdown pages, supporting files, and empty folders. Right-click a file or folder to rename, move, duplicate, copy its path, or move it to Trash. Folder menus also create pages and subfolders; page menus include source editing, wiki links, history, and download. Local desktop wikis offer Reveal in Finder/Explorer. Renaming and moving preserve file contents and update open page tabs; authored links keep their original paths.
+
+Trash in the footer restores deleted entries without replacing existing files. Restore copies stay on the host that performed the deletion; shared wikis sync the removal or restoration of saved files. Empty folders stay local until they contain a synced file.
+
 Create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join an existing firm wiki, choose it from the shared wiki list and select a local folder. Joining skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
 
 The folder itself describes its organization:

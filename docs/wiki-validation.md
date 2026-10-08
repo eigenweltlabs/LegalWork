@@ -2,6 +2,15 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Wiki file explorer (2026-10-08)
+
+- Fixed the sidebar's 85% width cap. The wiki selector now occupies the topbar, and the toolbar exposes new page, new folder, search, whole-wiki graph, and collapse-all icons.
+- Replaced the Pages/setup/attachment groups with one nested file tree, including empty directories and binary attachments. Files and folders have context menus for creation, rename, move, duplicate, paths, local Finder/Explorer reveal, and recoverable deletion; pages also offer source editing, links, history, and download.
+- New wiki-scoped APIs enforce existing access, approvals, read-only restrictions, safe paths, and revision checks. Occupied destinations return a conflict without replacing content. Hidden local trash preserves complete files/folders and offers restoration. Shared sync still transfers files; empty folders and trash copies remain local.
+- Native Electron checks verified the topbar menu, folder creation, a page created inside a folder, source-mode standard tabs, rename and move with tab updates, duplication, filename search, the whole-wiki graph tab, page trash/restore, and folder trash. Temporary test content was moved to recoverable trash after verification. [Sidebar](wiki-evidence/explorer-sidebar.png) · [Context menu](wiki-evidence/explorer-context-menu.png).
+- `pnpm --filter @legalwork/app test`: 933 passed, 0 failed. The wiki store/HTTP/sync/access/sharing/agent suites passed 66 tests across 11 files; the final conflict-response assertions also passed the 13-test store suite. Both typechecks, both production builds, i18n (5763 keys per language), and `git diff --check` passed. Existing large-chunk build notices remain.
+- The dev app remains on port 5176 with the existing wiki profile. The Office add-in watcher exhausted the Vite heap during an initial reload; this instance was restarted with that optional watcher disabled and an 8 GB Node heap. Other Electron instances were left running. `d4fd2ffd` remains an ancestor; no upstream files or dependencies were removed.
+
 ## Right sidebar and standard tabs (2026-10-08)
 
 - Wiki opens the folder browser in the right sidebar without opening the viewer or changing the main page. The folder browser and viewer close independently.

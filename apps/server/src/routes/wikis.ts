@@ -41,6 +41,12 @@ const writeSchema = z.object({ path: z.string().min(1), content: z.string(), bas
 const deleteSchema = z.object({ path: z.string().min(1), baseRevision: z.string().min(1).max(100) });
 const restoreSchema = z.object({ path: z.string().min(1), revisionId: z.string().uuid(), baseRevision: z.string().max(100).nullable().optional() });
 const assetSchema = z.object({ path: z.string().min(1), dataBase64: z.string(), baseRevision: z.string().max(100).nullable().optional() });
+const entryOperationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("create-folder"), path: z.string().min(1).max(4096) }).strict(),
+  z.object({ action: z.enum(["move", "copy"]), path: z.string().min(1).max(4096), destination: z.string().min(1).max(4096), baseRevision: z.string().min(1).max(100) }).strict(),
+  z.object({ action: z.literal("trash"), path: z.string().min(1).max(4096), baseRevision: z.string().min(1).max(100) }).strict(),
+  z.object({ action: z.literal("restore"), trashId: z.string().uuid() }).strict(),
+]);
 const owner = (ctx: RequestContext) => ctx.actor?.type === "host" || ctx.actor?.scope === "owner";
 const editor = (ctx: RequestContext) => owner(ctx) || ctx.actor?.scope === "collaborator";
 
@@ -200,6 +206,26 @@ export function registerWikiRoutes(options: Options): WikiStore {
   addRoute(routes, "GET", "/wikis/:wikiId/page", "client", async (ctx) => {
     await selected(ctx);
     return jsonResponse(await store.read(ctx.params.wikiId, queryPath(ctx)));
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/entry", "client", async (ctx) => {
+    const wiki = await selected(ctx);
+    return jsonResponse(await store.entry(wiki.id, queryPath(ctx)));
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/trash", "client", async (ctx) => {
+    const wiki = await selected(ctx);
+    return jsonResponse({ items: await store.trash(wiki.id) });
+  });
+  addRoute(routes, "POST", "/wikis/:wikiId/entries", "client", async (ctx) => {
+    const wiki = await selected(ctx, true);
+    const parsed = entryOperationSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_operation", "Choose a file action, safe paths and the current revision.");
+    const operation = parsed.data;
+    const paths = operation.action === "restore" ? (await store.trash(wiki.id)).filter((item) => item.id === operation.trashId).map((item) => item.path)
+      : "destination" in operation ? [operation.path, operation.destination] : [operation.path];
+    await authorize(ctx, wiki, `wiki.${operation.action}`, paths);
+    await store.changeEntry(wiki.id, operation);
+    change(wiki.id);
+    return jsonResponse({ ok: true });
   });
   addRoute(routes, "PUT", "/wikis/:wikiId/page", "client", async (ctx) => {
     const wiki = await selected(ctx, true);

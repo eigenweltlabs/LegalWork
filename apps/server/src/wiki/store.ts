@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import type { WikiAsset, WikiCreateInput, WikiDocument, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiUpdateInput, WikiView } from "@legalwork/types/wiki";
+import type { WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiView } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { workspaceIdForPath } from "../workspaces.js";
@@ -29,6 +29,7 @@ const indexRowSchema = z.object({
   path: z.string(), content: z.string(), revision: z.string(), mtime: z.number(), ctime: z.number(),
   size: z.number(), updatedAt: z.number(), warning: z.string().nullable(),
 });
+const trashSchema = z.object({ id: z.string().uuid(), path: z.string().refine(isWikiPath), kind: z.enum(["file", "folder"]), deletedAt: z.number() });
 type IndexedPage = Omit<z.infer<typeof indexRowSchema>, "warning"> & ReturnType<typeof parseWikiPage>;
 type SqlValue = string | number | null;
 type Sqlite = { run(sql: string, values?: SqlValue[]): void; all(sql: string, values?: SqlValue[]): unknown[]; close(): void; exec(sql: string): void };
@@ -39,6 +40,11 @@ async function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
   try { return await operation; } finally { if (pending.get(key) === operation) pending.delete(key); }
 }
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
+function entryError(error: unknown): never {
+  if (missing(error)) throw new ApiError(404, "wiki_entry_not_found", "This file or folder is unavailable. Refresh the wiki and try again.");
+  if (error instanceof Error && "code" in error && ["EEXIST", "ENOTEMPTY", "ERR_FS_CP_EEXIST"].includes(String(error.code))) throw new ApiError(409, "wiki_entry_exists", "A file or folder already exists at this destination. Choose another name or folder.");
+  throw error;
+}
 const hash = (content: string | Buffer) => createHash("sha256").update(content).digest("hex");
 
 export function isWikiPath(path: string): boolean {
@@ -220,20 +226,20 @@ export class WikiStore {
       return await file.readFile();
     } finally { await file.close(); }
   }
-  private async inventory(wiki: WikiRegistration): Promise<{ files: WikiAsset[]; warnings: string[] }> {
+  private async inventory(wiki: WikiRegistration): Promise<{ files: WikiAsset[]; folders: string[]; warnings: string[] }> {
     await this.safeRoot(wiki.root);
-    const files: WikiAsset[] = [], warnings: string[] = [];
+    const files: WikiAsset[] = [], folders: string[] = [], warnings: string[] = [];
     const walk = async (directory: string, depth: number): Promise<void> => {
       if (depth > 32) { warnings.push("Folders deeper than 32 levels were skipped."); return; }
       const canonical = await realpath(directory);
       if (canonical !== directory || (canonical !== wiki.root && !canonical.startsWith(`${wiki.root}${sep}`))) throw new ApiError(403, "unsafe_wiki_path", "Wiki folders cannot follow symbolic links.");
-      if (files.length >= 20_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 20,000 files. Split this folder into smaller wikis.");
+      if (files.length + folders.length >= 20_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 20,000 files and folders. Split this folder into smaller wikis.");
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         if (entry.name.startsWith(".")) continue;
         const absolute = join(directory, entry.name), path = relative(wiki.root, absolute).split(sep).join("/");
         if (entry.isSymbolicLink()) { warnings.push(`${path}: symbolic links are skipped.`); continue; }
         if (!isWikiPath(path)) { warnings.push(`${path}: unsupported filename.`); continue; }
-        if (entry.isDirectory()) { await walk(absolute, depth + 1); continue; }
+        if (entry.isDirectory()) { folders.push(path); await walk(absolute, depth + 1); continue; }
         if (!entry.isFile()) continue;
         try {
           const info = await lstat(absolute);
@@ -244,7 +250,7 @@ export class WikiStore {
       }
     };
     await walk(wiki.root, 0);
-    return { files: files.sort((a, b) => a.path.localeCompare(b.path)), warnings };
+    return { files: files.sort((a, b) => a.path.localeCompare(b.path)), folders: folders.sort(), warnings };
   }
   async files(id: string): Promise<WikiAsset[]> { return (await this.inventory(await this.get(id))).files; }
   private async index(id: string): Promise<Map<string, IndexedPage>> {
@@ -288,7 +294,7 @@ export class WikiStore {
     db.run("DELETE FROM wiki_search WHERE wiki=? AND path=?", [id, path]);
     (await this.index(id)).delete(path);
   }
-  private async refresh(id: string): Promise<{ files: WikiAsset[]; warnings: string[] }> {
+  private async refresh(id: string): Promise<{ files: WikiAsset[]; folders: string[]; warnings: string[] }> {
     const wiki = await this.get(id), inventory = await this.inventory(wiki), index = await this.index(id);
     const existing = new Set<string>();
     for (const file of inventory.files) {
@@ -314,7 +320,7 @@ export class WikiStore {
   }
   async snapshot(id: string): Promise<WikiSnapshot> {
     return serial(`${this.path}:${id}`, async () => {
-      const wiki = await this.get(id), { files, warnings } = await this.refresh(id);
+      const wiki = await this.get(id), { files, folders, warnings } = await this.refresh(id);
       const index = await this.index(id), pages = resolveWikiLinks([...index.values()].map((row) => row.page));
       for (const row of index.values()) if (row.warning) warnings.push(`${row.path}: ${row.warning}`);
       const views: { views: WikiView[]; warnings: string[] } = { views: [], warnings: [] };
@@ -329,7 +335,7 @@ export class WikiStore {
         }
       }
       const syncStatus: WikiSyncStatus = { state: wiki.sync ? "idle" : "local", lastSyncedAt: null, error: null, conflicts: [] };
-      return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), views: views.views, warnings: [...warnings, ...views.warnings] };
+      return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, views: views.views, warnings: [...warnings, ...views.warnings] };
     });
   }
   async search(id: string, query: string, type?: string) {
@@ -395,6 +401,105 @@ export class WikiStore {
       await rm(await this.safePath(wiki, path));
       if (isMarkdown(path)) await this.drop(id, path);
     });
+  }
+  private async entryState(wiki: WikiRegistration, path: string): Promise<WikiEntry> {
+    const source = await this.safePath(wiki, path), info = await lstat(source);
+    if (!info.isFile() && !info.isDirectory()) throw new ApiError(400, "invalid_wiki_file", "Choose a regular file or folder.");
+    const parts: string[] = [];
+    const walk = async (target: string, depth: number): Promise<void> => {
+      if (depth > 32 || parts.length >= 20_000) throw new ApiError(413, "wiki_too_many_files", "Split this folder before changing it.");
+      const current = await lstat(target);
+      if (current.isSymbolicLink()) throw new ApiError(403, "unsafe_wiki_path", "Folder actions cannot include symbolic links.");
+      const name = relative(source, target);
+      if (current.isDirectory()) {
+        parts.push(`folder:${name}`);
+        for (const entry of (await readdir(target)).sort()) await walk(join(target, entry), depth + 1);
+      } else if (current.isFile()) {
+        if (current.size > WIKI_MAX_ASSET_BYTES) throw new ApiError(413, "wiki_file_too_large", "This file exceeds the 100 MB limit.");
+        const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try { parts.push(`file:${name}:${hash(await file.readFile())}`); } finally { await file.close(); }
+      } else throw new ApiError(400, "invalid_wiki_file", "Folder actions cannot include special files.");
+    };
+    await walk(source, 0);
+    return { path, kind: info.isDirectory() ? "folder" : "file", revision: hash(JSON.stringify(parts)) };
+  }
+  async entry(id: string, path: string): Promise<WikiEntry> {
+    return serial(`${this.path}:${id}`, async () => this.entryState(await this.get(id), path)).catch(entryError);
+  }
+  private async trashRoot(wiki: WikiRegistration, create = false): Promise<string> {
+    await this.safeRoot(wiki.root);
+    const root = join(wiki.root, ".legalwork-trash");
+    if (create) await mkdir(root, { recursive: true });
+    await this.safeRoot(root);
+    return root;
+  }
+  async trash(id: string): Promise<WikiTrashEntry[]> {
+    const wiki = await this.get(id);
+    let root: string;
+    try { root = await this.trashRoot(wiki); } catch (error) { if (missing(error)) return []; throw error; }
+    const items: WikiTrashEntry[] = [];
+    for (const name of await readdir(root)) {
+      if (!z.string().uuid().safeParse(name).success) continue;
+      const folder = join(root, name);
+      await this.safeRoot(folder);
+      const item = trashSchema.parse(markdownData(await readFile(join(folder, "Entry.md"), "utf8")).data);
+      if (item.id !== name) throw new ApiError(500, "wiki_trash_invalid", "The saved trash entry is invalid.");
+      items.push(item);
+    }
+    return items.sort((a, b) => b.deletedAt - a.deletedAt);
+  }
+  async changeEntry(id: string, operation: WikiEntryOperation): Promise<void> {
+    if (this.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+    return serial(`${this.path}:${id}`, async () => {
+      const wiki = await this.get(id);
+      if (operation.action === "restore") {
+        const item = (await this.trash(id)).find((entry) => entry.id === operation.trashId);
+        if (!item) throw new ApiError(404, "wiki_trash_not_found", "This trash entry is unavailable.");
+        const folder = join(await this.trashRoot(wiki), item.id), source = join(folder, "Content");
+        const destination = await this.safePath(wiki, item.path, true);
+        await this.moveWithoutReplacing(source, destination, item.kind);
+        await rm(folder, { recursive: true });
+        return;
+      }
+      const source = await this.safePath(wiki, operation.path, operation.action === "create-folder");
+      if (operation.action === "create-folder") { await mkdir(source); return; }
+      const entry = await this.entryState(wiki, operation.path);
+      this.conflict(operation.baseRevision, entry.revision);
+      if (operation.action === "trash") {
+        const item: WikiTrashEntry = { id: randomUUID(), path: operation.path, kind: entry.kind, deletedAt: Date.now() };
+        const folder = join(await this.trashRoot(wiki, true), item.id);
+        await mkdir(folder);
+        try {
+          await writeFile(join(folder, "Entry.md"), markdownWithData("# Deleted wiki entry\n", item), { flag: "wx", mode: 0o600 });
+          await rename(source, join(folder, "Content"));
+        } catch (error) { await rm(folder, { recursive: true, force: true }); throw error; }
+        return;
+      }
+      wikiPath(operation.destination);
+      if (operation.destination === operation.path || operation.destination.startsWith(`${operation.path}/`)) throw new ApiError(400, "invalid_wiki_destination", "Choose a destination outside the source folder.");
+      if (entry.kind === "file" && isMarkdown(operation.path) && !isMarkdown(operation.destination)) throw new ApiError(400, "invalid_wiki_page", "Markdown pages keep the .md extension.");
+      const destination = await this.safePath(wiki, operation.destination, true);
+      if (operation.action === "move") await this.moveWithoutReplacing(source, destination, entry.kind);
+      else {
+        // Reserving the destination prevents copies from merging into existing folders.
+        if (entry.kind === "folder") await mkdir(destination);
+        try { await cp(source, destination, { recursive: true, errorOnExist: true, force: false }); }
+        catch (error) { if (entry.kind === "folder") await rm(destination, { recursive: true, force: true }); throw error; }
+      }
+    }).catch(entryError);
+  }
+  private async moveWithoutReplacing(source: string, destination: string, kind: WikiEntry["kind"]): Promise<void> {
+    const info = await lstat(source);
+    if (info.isSymbolicLink() || (kind === "file" ? !info.isFile() : !info.isDirectory())) throw new ApiError(403, "unsafe_wiki_path", "This entry is no longer a regular file or folder.");
+    if (kind === "file") {
+      // link fails if the destination exists, including dangling symbolic links.
+      await link(source, destination);
+      await unlink(source);
+    } else {
+      await mkdir(destination);
+      try { await rename(source, destination); }
+      catch (error) { await rmdir(destination).catch(() => undefined); throw error; }
+    }
   }
   async history(id: string, path = ""): Promise<WikiRevision[]> {
     if (path) wikiPath(path);

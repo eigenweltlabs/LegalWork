@@ -42,6 +42,32 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+  test("explorer actions require wiki access and revisions, and expose recoverable trash", async () => {
+    const { request, config } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Explorer", template: "blank" })).json());
+    const entries = `/wikis/${wiki.id}/entries`;
+    const create = { action: "create-folder", path: "Notes/Empty" };
+    expect((await request(entries, "anonymous", "POST", create)).status).toBe(401);
+    expect((await request(entries, "collaborator", "POST", create)).status).toBe(404);
+    expect((await request(entries, "viewer", "POST", create)).status).toBe(404);
+    expect((await request(entries, "owner", "POST", create)).status).toBe(200);
+    expect((await request(entries, "owner", "POST", { action: "create-folder", path: "../Outside" })).status).toBe(400);
+    expect((await request(entries, "owner", "POST", { action: "move", path: "Notes", destination: "Moved" })).status).toBe(400);
+    const shape = z.object({ path: z.string(), kind: z.literal("folder"), revision: z.string() });
+    const entry = shape.parse(await (await request(`/wikis/${wiki.id}/entry?path=Notes`, "owner")).json());
+    expect((await request(entries, "owner", "POST", { action: "trash", path: "Notes", baseRevision: "stale" })).status).toBe(409);
+    expect((await request(entries, "owner", "POST", { action: "trash", path: entry.path, baseRevision: entry.revision })).status).toBe(200);
+    expect((await request(`/wikis/${wiki.id}/trash`, "viewer")).status).toBe(404);
+    const trash = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) }).parse(await (await request(`/wikis/${wiki.id}/trash`, "owner")).json());
+    expect(trash.items[0].path).toBe("Notes");
+    config.readOnly = true;
+    expect((await request(entries, "owner", "POST", { action: "restore", trashId: trash.items[0].id })).status).toBe(403);
+    config.readOnly = false;
+    expect((await request(entries, "owner", "POST", { action: "restore", trashId: trash.items[0].id })).status).toBe(200);
+    const snapshot = z.object({ folders: z.array(z.string()) }).parse(await (await request(`/wikis/${wiki.id}`, "owner")).json());
+    expect(snapshot.folders).toContain("Notes/Empty");
+  });
+
   test("hides personal wiki schedules and inbox entries while retaining ordinary project results", async () => {
     const { request, config, root } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private schedules" })).json());
