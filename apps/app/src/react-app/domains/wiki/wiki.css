@@ -9,13 +9,12 @@
 .wiki-tab-pane .wiki-main { width: 100%; }
 .wiki-sidebar-header { display: grid; gap: 12px; padding: 16px 14px 14px; }
 .wiki-switcher { width: 100%; justify-content: flex-start; gap: 8px; height: 32px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--foreground); }
-.wiki-switcher > span { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.wiki-switcher > span { flex: 1; min-width: 0; overflow: hidden; padding-right: 36px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-switcher > svg { flex-shrink: 0; color: var(--muted-foreground); }
-.wiki-switcher-group { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.wiki-switcher-group { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .wiki-switcher-group > .wiki-switcher { flex: 1; min-width: 0; width: auto; }
-.wiki-switcher-settings { display: inline-flex; opacity: 0; pointer-events: none; transition: opacity 150ms; }
-.wiki-switcher-group:is(:hover, :focus-within) > .wiki-switcher-settings { opacity: 1; pointer-events: auto; }
-@media (hover: none) { .wiki-switcher-settings { opacity: 1; pointer-events: auto; } }
+.wiki-switcher-settings { position: absolute; right: 22px; display: inline-flex; visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 150ms; }
+.wiki-switcher-group:hover > .wiki-switcher-settings { visibility: visible; opacity: 1; pointer-events: auto; }
 .wiki-explorer-search { display: flex; align-items: center; gap: 3px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--background); }
 .wiki-explorer-search input { min-width: 0; height: 30px; font-size: 12px; box-shadow: none; }
 .wiki-tree-target { width: 100%; min-width: 0; }
