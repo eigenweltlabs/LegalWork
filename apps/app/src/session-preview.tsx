@@ -71,6 +71,7 @@ if (previewParams.has("theme")) document.documentElement.dataset.theme = preview
 const subscriptionPreview = previewParams.get("subscription") === "ended";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
 const assistantPreview = previewParams.has("assistant");
+const modelSettingsPreview = previewParams.has("model-settings");
 const assistantToday = "2026-10-07";
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
@@ -128,6 +129,13 @@ async function previewCopyDelay() {
   if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
 }
 
+if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ directory: workspace.path }), {
+  connected: [model.providerID],
+  all: [{ id: model.providerID, name: "Preview provider", models: {
+    [model.modelID]: { name: model.modelID },
+    "Another preview model": { name: "Another preview model" },
+  } }],
+});
 
 function snapshot(id: string, title: string, prompt?: string, response = reply): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
@@ -644,6 +652,9 @@ function SessionPreview() {
       automation: { runId: "briefing-preview", at: Date.now(), pinRunId: null } }]);
   }, []);
   const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement"));
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(model);
+  const [modelVariant, setModelVariant] = useState<string | null>("balanced");
   const [assistantProfile, setAssistantProfile] = useState<AssistantProfile>(previewParams.has("messenger") ? { name: "Johann", icon: "cat" } : DEFAULT_ASSISTANT_PROFILE);
   const [onboarding, setOnboarding] = useState<AssistantOnboardingState | undefined>(assistantPreview && previewParams.has("onboarding") ? {
     needed: true, greetingUnread: true, step: "name", sessionId: null, name: null, icon: "dot",
@@ -816,10 +827,12 @@ function SessionPreview() {
               limitFixture.usage = updated.usage;
               queryClient.setQueryData(eigenweltEntitlementsQueryKey(), updated.entitlements);
             },
-            modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
+            modelPickerOpen, modelSelectorLocked: !modelSettingsPreview && !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel, onModelPickerOpenChange: setModelPickerOpen,
+            onModelChange: next => { setSelectedModel(next); setModelPickerOpen(false); },
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
-            modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,
-            modelBehaviorOptions: previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
+            modelVariantLabel: "Standard", modelVariant, onModelVariantChange: setModelVariant,
+            modelBehaviorOptions: modelSettingsPreview ? [{ value: "balanced", label: "Balanced" }, { value: "light", label: "Light" }] : previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
+            agentLabel: "Assistant", selectedAgent: null,
             listAgents: async () => [], onSelectAgent: () => {}, listCommands: async () => [],
             recentFiles: files.map((file) => file.path), searchFiles: async (query) => files.filter((file) => file.name.toLowerCase().includes(query.toLowerCase())).map((file) => file.path),
             isRemoteWorkspace: false, isSandboxWorkspace: false, providerConnectedCount: 1,
