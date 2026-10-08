@@ -60,7 +60,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     const morning = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("every morning"));
     const delegation = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("Delegate this work"));
     const callTool = tools.length > 0 && toolResults.length < (morning ? 2 : 1);
-    const call = delegation ? { name: "legalwork_assistant_delegate", arguments: JSON.stringify({ projectId: "other", title: "Review agreement", prompt: "Review the liability clauses", scope: "Draft for review" }) } : morning
+    const call = delegation ? { name: "legalwork_assistant_delegate", arguments: JSON.stringify({ projectId: "other", title: "Review agreement", conversationLanguage: "en", prompt: "Review the liability clauses", scope: "Draft for review" }) } : morning
       ? toolResults.length === 0
         ? { name: "legalwork_schedule_clock", arguments: "{}" }
         : { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
@@ -77,7 +77,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   await writeFile(config, JSON.stringify({
     enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
     provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
-    plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview", "legalwork-assistant-tools"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
+    plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview", "legalwork-assistant-tools", "legalwork-task-tools"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
     permission: { "*": "allow" }, lsp: false, formatter: false,
     agent: { [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permission: projectTaskPermissions() }, [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permission: allProjectTaskPermissions() } },
   }));
@@ -143,9 +143,11 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(first?.tools).toContain("legalwork_assistant_delegate");
         for (const tool of ["projects", "session_search", "tasks", "calendar", "calendar_read", "file_search"]) expect(first?.tools).toContain(`legalwork_assistant_${tool}`);
         expect(first?.tools).toContain("bash");
-        expect(first?.system).toContain("fresh session each device-local calendar day");
-        expect(first?.system).toContain("first use legalwork_assistant_projects");
-        expect(delegated).toEqual([{ workspaceId: "other", sourceWorkspaceId: "matter", sourceSessionId: session.id, title: "Review agreement", prompt: "Review the liability clauses", scope: "Draft for review" }]);
+        expect(first?.system).toContain("Each device-local calendar day has a separate context");
+        expect(first?.system).toContain("Search legalwork_assistant_projects");
+        expect(first?.system).toContain("Always set conversationLanguage to the user's current chat language");
+        expect(first?.system).toContain("turning the outstanding evidence requests and decisions into source-linked tasks");
+        expect(delegated).toEqual([{ workspaceId: "other", sourceWorkspaceId: "matter", sourceSessionId: session.id, title: "Review agreement", conversationLanguage: "en", prompt: "Review the liability clauses", scope: "Draft for review" }]);
         expect(last?.toolResults.join(" ")).toContain("delegated-session");
       } else if (agent === "build") {
         expect(first?.tools).toContain("legalwork_schedule_create");
@@ -170,6 +172,8 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         for (const tool of ["projects", "session_search", "tasks", "calendar", "calendar_read", "file_search"]) expect(first?.tools).not.toContain(`legalwork_assistant_${tool}`);
         expect(last?.toolResults.join(" ")).toContain("cannot access that project"); expect(sourceReads).toEqual([]);
       } else {
+        for (const tool of ["projects", "project_list", "project_read", "session_status", "tasks", "calendar", "calendar_read", "share_file"]) expect(first?.tools).toContain(`legalwork_assistant_${tool}`);
+        for (const tool of ["get", "create"]) expect(first?.tools).toContain(`legalwork_task_${tool}`);
         expect(first?.tools).toContain("bash"); expect(last?.toolResults.join(" ")).toContain("Source message 22");
         expect(sourceReads).toEqual(["/workspace/other/project/content"]);
       }

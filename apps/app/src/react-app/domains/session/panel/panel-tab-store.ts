@@ -7,6 +7,7 @@ import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
 export type { ProjectView } from "./project-view";
 import type { SearchSourceReference } from "@legalwork/types/search";
+import type { AssistantFileSource } from "@legalwork/types/main-assistant";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { hasUnsavedSessionDocument, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
@@ -67,6 +68,8 @@ export type ArtifactPanelTab = {
   updatedAt?: number;
   pendingImportId?: string;
   storage?: StorageFileSource;
+  /** A shared deliverable stays in its originating project, even in another chat's viewer. */
+  source?: AssistantFileSource;
   sourcePage?: number;
   searchSources?: SearchSourceReference[];
   reviewCitation?: ReviewSourceReference;
@@ -333,7 +336,9 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.label === right.label &&
       left.preview === right.preview &&
       left.value === right.value &&
-      left.storage === right.storage
+      left.storage === right.storage &&
+      left.source?.workspaceId === right.source?.workspaceId &&
+      left.source?.workspaceRoot === right.source?.workspaceRoot
     );
   }
 

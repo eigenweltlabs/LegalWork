@@ -29,6 +29,7 @@ import {
   SettingsPage,
   SettingsSidebar,
   getGlobalSettingsTabs,
+  getAdvancedSettingsTabs,
   getSettingsTabIcon,
   getSettingsTabLabel,
   getWorkspaceSettingsTabs,
@@ -185,6 +186,7 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
     { label: null, tabs: ["general"] },
     { label: t("settings.group_workspace"), tabs: getWorkspaceSettingsTabs() },
     { label: t("settings.group_global"), tabs: getGlobalSettingsTabs(props.developerMode) },
+    { label: t("settings.tab_advanced"), tabs: getAdvancedSettingsTabs() },
   ];
   // Drop any empty groups defensively before rendering.
   const sections = allSections.filter((section) => section.tabs.length > 0);

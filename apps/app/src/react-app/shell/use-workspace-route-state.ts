@@ -555,6 +555,14 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady]);
   const refreshRouteState = useMemo(() => createCoalescedRefresh(refreshOnce), [refreshOnce]);
+
+  // Changing the URL selects a known project without rerunning desktop boot,
+  // reconnecting the server, or reloading every project's sessions.
+  useEffect(() => {
+    if (!hasLoadedServerWorkspaces || !routeWorkspaceId || selectedWorkspaceId !== routeWorkspaceId) return;
+    setLegacySelectedWorkspaceId(selectedWorkspaceId);
+    writeActiveWorkspaceId(selectedWorkspaceId);
+  }, [hasLoadedServerWorkspaces, routeWorkspaceId, selectedWorkspaceId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {

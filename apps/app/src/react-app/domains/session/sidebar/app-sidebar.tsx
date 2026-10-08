@@ -28,7 +28,7 @@ import {
   Inbox,
   Loader2,
   Mic,
-  PenLine,
+  SquarePen,
   Workflow,
   MoreHorizontal,
   Pencil,
@@ -142,7 +142,7 @@ import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { projectSectionGroups, reorderProjectSection } from "./project-sections";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
-import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
+import { unreadSession, unreadWorkspace, useSessionInboxStore } from "./session-inbox-store";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
@@ -545,8 +545,10 @@ export type AppSidebarProps = {
   onNewChat?: () => void;
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
+  assistantWorkspaceId?: string;
   onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
+  assistantGreetingUnread?: boolean;
   assistantDisabled?: boolean;
   onShowProjects?: () => void;
   workspaceSessionGroups: WorkspaceSessionGroup[];
@@ -731,18 +733,15 @@ function AppSidebarContent(props: AppSidebarProps) {
   const sidebarBrandAlt = sidebarBrandName || DEFAULT_SHELL_CONFIG.sidebarBrandName;
 
   const newChatSection = shellConfig.navNewChat ? <SidebarMenuItem key="navNewChat" className="mb-1 flex items-center gap-1">
-            <SidebarMenuButton className="min-w-0 flex-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
+            <SidebarMenuButton className="min-w-0 flex-1 text-sm leading-5 font-medium text-foreground [&_svg]:size-4" disabled={Boolean(openProjectId) && props.newChatDisabled} onClick={() => {
               if (openProjectId) props.onCreateChatInWorkspace(openProjectId);
               else if (props.onNewChat) props.onNewChat();
               else if (props.onShowChats) props.onShowChats();
               else navigate("/home");
             }}>
-              <PenLine className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("projects.new_chat")}</span>
+              <span aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center"><SquarePen className="size-4" strokeWidth={1.5} /></span>
+              <span className="min-w-0 flex-1 truncate">{t("projects.new_chat")}</span>
             </SidebarMenuButton>
-            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="h-8 w-[10%] min-w-8 shrink-0 text-muted-foreground hover:text-foreground" aria-label={t("content_search.title")} aria-keyshortcuts={isMacPlatform() ? "Meta+k" : "Control+k"} onClick={props.onOpenSearch} />}>
-              <Search className="size-[18px]" strokeWidth={1.5} />
-            </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
   const projectRoles = useProjectSyncStore((state) => state.roles);
   const pinned = usePinnedSessionIds();
@@ -847,7 +846,7 @@ function AppSidebarContent(props: AppSidebarProps) {
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
-        {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} /> : <>
+        {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} assistantProfile={props.assistantProfile} assistantDisabled={props.assistantDisabled} onSaveAssistantProfile={props.onOpenAssistant ? props.onSaveAssistantProfile : undefined} /> : <>
         <div className="flex shrink-0 flex-col pb-1 mac:titlebar-no-drag">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
@@ -866,15 +865,20 @@ function AppSidebarContent(props: AppSidebarProps) {
                 <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName}</div>
               </div>
             ) : null}
-            <Button ref={customizationButtonRef} variant="ghost" size="icon" className="pointer-events-none ml-auto size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/project-sidebar:opacity-100 group-hover/project-sidebar:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
-              <Settings className="size-3.5" />
-            </Button>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              <Button ref={customizationButtonRef} variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("projects.customize_nav")} title={t("projects.customize_nav")} aria-expanded={customizingNavigation} onClick={() => setCustomizingNavigation(true)}>
+                <Settings className="size-4" strokeWidth={1.5} />
+              </Button>
+              <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" aria-label={t("content_search.title")} aria-keyshortcuts={isMacPlatform() ? "Meta+k" : "Control+k"} onClick={props.onOpenSearch} />}>
+                <Search className="size-[18px]" strokeWidth={1.5} />
+              </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
+            </div>
           </div>
         </div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
-        <SidebarMenu className="px-2.5 pb-3 pt-1">
-          {props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} onOpen={props.onOpenAssistant} onSave={props.onSaveAssistantProfile} />}
+        <SidebarMenu className="px-2 pb-3 pt-1">
           {newChatSection}
+          {props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} unread={props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)} onOpen={props.onOpenAssistant} />}
         </SidebarMenu>
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
@@ -1097,7 +1101,7 @@ function WorkspaceSidebarGroup({
                   aria-label={t("session.new_task")}
                   title={t("session.new_task")}
                 >
-                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
+                  <SquarePen className="size-3.5" strokeWidth={1.5} />
                 </Button>}
                 <WorkspaceActionsMenu
                   workspace={workspace}
@@ -1160,7 +1164,7 @@ function WorkspaceSidebarGroup({
                       <DropdownMenu>
                         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("absolute top-1/2 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project-sessions-heading:opacity-100 group-focus-within/project-sessions-heading:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100", config.collapseProjectSessions ? "right-7" : "right-0.5")} aria-label={t("projects.session_actions")}><MoreHorizontal className="size-3.5" /></Button>} />
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><MessageSquare />{t("session.new_task")}</DropdownMenuItem>
+                          <DropdownMenuItem disabled={ctx.newChatDisabled} onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}><SquarePen />{t("session.new_task")}</DropdownMenuItem>
                           {ctx.onOpenCreateGroupModal && <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspace.id)}><FolderPlus />{t("session_management.create_group")}</DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>

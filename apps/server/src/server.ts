@@ -3,7 +3,12 @@ import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
+import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
+import { AssistantDelegations } from "./assistant-delegations.js";
+import { readDelegationResult } from "./assistant-delegation-result.js";
 import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
+import { createAssistantSessionQueue } from "./assistant-session-executor.js";
+import type { AssistantSessionQueue } from "./assistant-session-queue.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -921,9 +926,73 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true),
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
+  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
+    const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
+    assertWikiWorkspaceAccess(actor, wiki);
+    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
+    if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
+  };
+  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
+    const directory = url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
+    if (!directory) return;
+    const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
+    assertWikiWorkspaceAccess(actor, wiki);
+    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
+    if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
+  };
+  const delegationSession = async (workspaceId: string, sessionId: string) => {
+    const workspace = await resolveWorkspace(config, workspaceId);
+    if (workspace.workspaceType === "remote") throw new Error("The delegated project is unavailable locally.");
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
+    if (resolve(session.directory) !== resolve(workspace.path)) throw new Error("The delegated chat is outside this project.");
+    return { client, session };
+  };
+  const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
+    result: async delegation => {
+      const { client, session } = await delegationSession(delegation.workspaceId, delegation.sessionId);
+      if (session.time.archived) return null;
+      const children = await client.session.children({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) });
+      for (const child of children.data ?? []) if (child.parentID === session.id && resolve(child.directory) === resolve(session.directory) && !child.time.archived)
+        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true });
+      const result = await readDelegationResult(client, session.id);
+      return delegation.inputOnly && result?.outcome !== "input-required" ? null : result;
+    },
+    destination: async delegation => {
+      const source = await resolveWorkspace(config, delegation.sourceWorkspaceId);
+      if (isMainAssistant(source)) {
+        const { workspace, day } = await mainAssistant.current();
+        return { workspaceId: workspace.id, sessionId: day.sessionId };
+      }
+      return { workspaceId: source.id, sessionId: delegation.sourceSessionId };
+    },
+    idle: async destination => {
+      if (config.readOnly) return false;
+      const { client, session } = await delegationSession(destination.workspaceId, destination.sessionId);
+      if (session.time.archived) return false;
+      const statuses = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      return !statuses[session.id] || statuses[session.id].type === "idle";
+    },
+    hasMessage: async (destination, messageId) => {
+      const { client } = await delegationSession(destination.workspaceId, destination.sessionId);
+      const result = await client.session.message({ sessionID: destination.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
+      if (result.response.status === 404) return false;
+      return unwrapOpencodeResult(result, "/session/message").info.id === messageId;
+    },
+    send: async (delegation, notice) => {
+      const { client } = await delegationSession(notice.workspaceId, notice.sessionId);
+      const result = await client.session.promptAsync({ sessionID: notice.sessionId, messageID: notice.messageId, agent: "legalwork", ...(delegation.model ? { model: delegation.model } : {}),
+        parts: [{ type: "text", text: notice.text, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
+      if (!result.response.ok) throw new Error("Could not confirm delivery of the delegated result.");
+      announceSyncChange(config, "sessions");
+    },
+  });
+  const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
+    client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions") });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue);
+
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -956,20 +1025,6 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
-  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
-    const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
-    assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
-    if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
-  };
-  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
-    const directory = url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
-    if (!directory) return;
-    const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
-    assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
-    if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
-  };
 
   let ready = false;
   const serverOptions: {
@@ -1210,8 +1265,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     }
   }
 
-  const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start();
+  const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start(() => ensureMorningBriefing(config, scheduledTasks, mainAssistant,
+    () => hasBriefingSessionThreshold(config, id => resolveWorkspace(config, id))));
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
+  const stopDelegations = config.readOnly ? async () => {} : delegations.start();
+  const stopSessionQueue = config.readOnly ? async () => {} : sessionQueue.start();
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
@@ -1233,6 +1291,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopScheduledTasks();
       await wikiSync.stop();
       await wikiStore.close();
+      await stopDelegations();
+      await stopSessionQueue();
       await stopMainAssistant();
       benchmarkRunner.dispose();
       watcherHandle.close();
@@ -1809,9 +1869,11 @@ function createRoutes(
   wikiStore: WikiStore,
   wikiSync: WikiSync,
   mainAssistant: MainAssistant,
+  delegations: AssistantDelegations,
+  sessionQueue: AssistantSessionQueue,
 ): Route[] {
   const routes: Route[] = [];
-  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
+  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
     if (primary) {

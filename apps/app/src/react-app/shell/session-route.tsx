@@ -6,9 +6,9 @@ import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
-import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
-import { useQuery } from "@tanstack/react-query";
+import { resolveAssistantChat } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -138,8 +138,8 @@ import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
-import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
-import { seedSubmittedMessage } from "@/react-app/domains/session/sync/session-sync";
+import type { HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
+import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -185,9 +185,7 @@ import {
   invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
-import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
-import { WhatsNewDialog } from "./whats-new";
-import { TranscriptionIntroDialog } from "./transcription-intro";
+import { AssistantIntroDialog } from "./assistant-intro";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -550,6 +548,29 @@ export function SessionRoute() {
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
+  // Home already knows today's Assistant. Load its transcript in the shared
+  // cache so opening it does not start from an empty loading screen.
+  useEffect(() => {
+    const current = assistant.data;
+    if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    void getReactQueryClient().prefetchQuery({
+      queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
+      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      staleTime: 30_000,
+    });
+  }, [client, assistant.data, location.pathname]);
+  const assistantOnboarding = useQuery({
+    queryKey: ["assistant-onboarding", client?.baseUrl],
+    enabled: Boolean(client) && Boolean(assistant.data) && !isOfficeAddinRuntime(),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantOnboarding(); },
+    refetchOnWindowFocus: "always",
+  });
+  useEffect(() => {
+    if (!client || !assistantActive || !assistantOnboarding.data?.greetingUnread) return;
+    void client.viewAssistantGreeting().then(state => {
+      getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
+    }).catch(error => console.warn("Could not mark the Assistant greeting read", error));
+  }, [client, assistantActive, assistantOnboarding.data?.greetingUnread]);
   useEffect(() => {
     if (!assistant.data) return;
     const workspace = assistant.data.workspace;
@@ -563,7 +584,7 @@ export function SessionRoute() {
   const openAssistant = useCallback(async () => {
     if (!client) return;
     try {
-      const current = await client.mainAssistantCurrent();
+      const current = await resolveAssistantChat(client, getReactQueryClient());
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
       navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
@@ -574,6 +595,14 @@ export function SessionRoute() {
     await client.updateAssistantProfile(profile);
     const current = await client.mainAssistantCurrent();
     getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
+  }, [client]);
+  const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
+    if (!client) throw new Error(t("assistant.unavailable"));
+    const state = await client.answerAssistantOnboarding(answer);
+    const current = await client.mainAssistantCurrent();
+    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
   }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectTemplateCatalog(client);
@@ -610,6 +639,8 @@ export function SessionRoute() {
   useEffect(() => onSyncPoke((poke) => {
     if (poke.projects || poke.resync) {
       void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+      void getReactQueryClient().invalidateQueries({ queryKey: ["main-assistant"] });
+      void getReactQueryClient().invalidateQueries({ queryKey: ["assistant-onboarding"] });
       void refreshRouteState();
     }
     if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
@@ -866,13 +897,11 @@ export function SessionRoute() {
   }, [disabledProviderIds, hasUsableModel, providerConnectedIds, providerListQuery.data]);
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
-  // once and mark the migration dialog pending (marker first, so a crash in
-  // between re-runs this next boot instead of losing the notice).
+  // once; the composer's connect-AI bar offers a replacement.
   const { setPrefs } = local;
   useEffect(() => {
     const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
     if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
-    markFreeRetiredNoticePending();
     setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
   }, [local.prefs.defaultModel, setPrefs]);
   // Providers the server dropped from this workspace's stored config at
@@ -1459,6 +1488,10 @@ export function SessionRoute() {
     // local server with the local `rem_*` id.
     return {
       assistantDate: assistantActive ? assistant.data?.day.date : undefined,
+      assistantOnboarding: assistantActive && assistantOnboarding.data ? {
+        state: assistantOnboarding.data,
+        onIcon: (icon: AssistantAvatarIcon) => answerAssistantOnboarding({ icon }),
+      } : undefined,
       workspaceRoot: selectedWorkspaceRoot,
       developerMode: false,
       modelLabel,
@@ -1517,6 +1550,7 @@ export function SessionRoute() {
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         let targetSessionId = sessionId.trim() || selectedSessionId;
         if (selectedWorkspace?.preset === "main-assistant") {
+          if (assistantOnboarding.data?.needed && assistantOnboarding.data.step === "name") await client.viewAssistantGreeting();
           const current = await client.mainAssistantCurrent();
           targetSessionId = current.day.sessionId;
           getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
@@ -1731,7 +1765,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantActive, assistant.data?.day.date,
+    assistantActive, assistant.data?.day.date, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -1874,6 +1908,10 @@ export function SessionRoute() {
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
+    if (workspace?.preset === "main-assistant") {
+      setNewChatOpen(true);
+      return;
+    }
     if (
       !workspace ||
       loading ||
@@ -2367,34 +2405,31 @@ export function SessionRoute() {
     try {
       const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
       const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
-      const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
+      let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const name = displayText.trim().split(/\r?\n/)[0].slice(0, 80) || t("home.new_project");
-        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", templateLanguage: currentLocale() });
-        const createdId = resolveWorkspaceListSelectedId(list);
-        const created = list.workspaces.find((item) => item.id === createdId);
-        if (!created) throw new Error(t("session_route.create_server_unavailable"));
-        const createdWorkspace = mapDesktopWorkspace(created);
-        workspace = createdWorkspace;
-        // Expose the saved project immediately, even if copying a file fails.
-        setHomeProjectId(created.id);
-        setWorkspaces((current) => [createdWorkspace, ...current.filter((item) => item.id !== created.id)]);
-        captureAnalyticsEvent("workspace_created", { source: "home", surface: analyticsSurface() });
+        const current = await resolveAssistantChat(client, getReactQueryClient());
+        workspace = mapDesktopWorkspace(current.workspace);
+        assistantSessionId = current.day.sessionId;
+        getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+        const assistantWorkspace = workspace;
+        setWorkspaces(previous => previous.some(item => item.id === assistantWorkspace.id) ? previous : [...previous, assistantWorkspace]);
       }
       const targetWorkspace = workspace;
       const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token, hostToken });
       if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
-      await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
+      // Requests are already scoped to this workspace. Persisting navigation
+      // does not prepare the engine and must not delay the user's message.
+      void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
       if (isDesktopRuntime() && !endpoint.isRemote) {
-        await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
-        await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
+        void workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
+        void workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
       }
       const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
       let pending = pendingHomeMessage.current;
       if (!pending || pending.workspaceId !== targetWorkspace.id) {
-        pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
+        pending = { workspaceId: targetWorkspace.id, sessionId: assistantSessionId, uploads: new Map() };
         pendingHomeMessage.current = pending;
       }
       const sessionId = await submitHomeMessage({
@@ -2419,15 +2454,14 @@ export function SessionRoute() {
         },
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
-          const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
           const result = await workspaceClient.session.promptAsync({
             sessionID: sessionId,
             messageID: message.id,
-            parts: [{ id: message.partId, type: "text", text: prompt }],
+            parts: [{ id: message.partId, type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
             model,
             agent: selectedAgent ?? undefined,
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-            ...(system ? { system } : {}),
           });
           if (result.error) throw new Error(serializeSDKError(result.error));
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
@@ -2481,6 +2515,7 @@ export function SessionRoute() {
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime
+        assistantActive={assistantActive}
         // Use the server-side workspace id (the one without the `rem_`
         // prefix) so the React Query cache keys session-sync writes match
         // the keys SessionSurface reads from. Otherwise events arrive but
@@ -2745,6 +2780,7 @@ export function SessionRoute() {
         ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}
+            assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}
             onCreateProject={() => {
               setSelectCreatedProjectForHome(true);
@@ -2833,7 +2869,9 @@ export function SessionRoute() {
         onNewChat: () => setNewChatOpen(true),
         onOpenAssistant: () => { void openAssistant(); },
         assistantActive,
+        assistantGreetingUnread: assistantOnboarding.data?.greetingUnread,
         assistantProfile: assistant.data?.profile,
+        assistantWorkspaceId: assistant.data?.workspace.id,
         onSaveAssistantProfile: saveAssistantProfile,
         assistantDisabled: !client || assistant.isPending,
         onShowChats: () => navigate("/home"),
@@ -3038,9 +3076,7 @@ export function SessionRoute() {
       project={searchProject}
       onOpenResult={openSearchResult}
     />
-    <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
-    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
-    <TranscriptionIntroDialog workspacesReady={announcementsReady} onOpenRecorder={showRecorderPane} />
+    <AssistantIntroDialog ready={announcementsReady && Boolean(assistant.data)} onOpenAssistant={() => void openAssistant()} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost
       client={client}

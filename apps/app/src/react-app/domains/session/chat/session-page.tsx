@@ -64,6 +64,8 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import ProviderAuthModal, { type ProviderAuthModalProps } from "../../connections/provider-auth/provider-auth-modal";
 import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
+import { AssistantIdentity } from "../sidebar/assistant-identity";
+import { AssistantAttentionPanel } from "../sidebar/assistant-attention-panel";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { type SessionSurfaceProps } from "../surface/session-surface";
 import {
@@ -157,8 +159,10 @@ export type SessionPageSidebarProps = {
   onNewChat?: () => void;
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
+  assistantWorkspaceId?: string;
   onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
+  assistantGreetingUnread?: boolean;
   assistantDisabled?: boolean;
   onShowProjects?: () => void;
   onShowWikis?: () => void;
@@ -1254,8 +1258,10 @@ export function SessionPage(props: SessionPageProps) {
           onNewChat={props.sidebar.onNewChat}
           onOpenAssistant={props.sidebar.onOpenAssistant}
           assistantProfile={props.sidebar.assistantProfile}
+          assistantWorkspaceId={props.sidebar.assistantWorkspaceId}
           onSaveAssistantProfile={props.sidebar.onSaveAssistantProfile}
           assistantActive={props.sidebar.assistantActive}
+          assistantGreetingUnread={props.sidebar.assistantGreetingUnread}
           assistantDisabled={props.sidebar.assistantDisabled}
           onShowProjects={props.sidebar.onShowProjects}
           activeNav={props.sidebar.activeNav}
@@ -1546,6 +1552,9 @@ export function SessionPage(props: SessionPageProps) {
       </DocumentPane>)}
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
+          {props.sidebar.assistantActive && props.surface && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface} />}
+          {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
+            permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
           <SidePanel
             renderWikiTab={renderWikiTab}
             onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
@@ -1584,6 +1593,7 @@ export function SessionPage(props: SessionPageProps) {
             }}
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
+              assistantName={props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}
