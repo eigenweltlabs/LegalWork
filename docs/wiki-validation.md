@@ -2,6 +2,11 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Wiki settings in the selector (2026-10-08)
+
+- Moved Wiki settings beside the current wiki's topbar dropdown. The button appears on selector hover or keyboard focus; touch devices keep it available. Removed duplicate settings buttons from the navigation footer and page toolbar.
+- Native Electron verified the hidden default appearance, dropdown operation, and opening/closing General settings for Firm Knowledge. App typecheck, production build, and `git diff --check` passed.
+
 ## Shared folder panel design (2026-10-08)
 
 - Extracted the existing Project Files row into `FileBrowserRow`, shared by Project Files and the Wiki file tree and views. Wiki uses the existing blue `FolderIcon`, file-type `ArtifactIcon`, row sizing, typography, hover/focus states, and selection treatment. Toolbar height and panel spacing follow the other right-side browsers.

@@ -298,7 +298,7 @@ export function WikiPane(props: WikiPaneProps) {
       setFileDialog({ action, entry: selected, value: action === "copy" ? wikiCopyPath(entry.path, [...files, ...folders]) : action === "rename" ? selected.kind === "file" ? name.replace(/\.md$/i, "") : name : parent });
     });
   };
-  const wikiSelector = <DropdownMenu>
+  const wikiSelector = <span className="wiki-switcher-group"><DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} disabled={!props.client} />}>
       <FolderIcon shared={Boolean(wiki?.sync)} className="size-4" /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={13} />
     </DropdownMenuTrigger>
@@ -306,7 +306,7 @@ export function WikiPane(props: WikiPaneProps) {
       {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>{item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}</DropdownMenuItem>)}
       <DropdownMenuSeparator /><DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
     </DropdownMenuContent>
-  </DropdownMenu>;
+  </DropdownMenu>{wiki ? <span className="wiki-switcher-settings"><WikiIconButton label={t("wiki.settings")} onClick={() => openSettings()}><Settings2 size={15} /></WikiIconButton></span> : null}</span>;
 
   return <div className={cn("wiki-workbench", navigationOnly && "wiki-navigation-pane", tabOnly && "wiki-tab-pane")}>
     {navigationOnly ? <PanelHeader title={wiki?.name ?? t("wiki.title")} titleContent={wikiSelector} headerTarget={props.headerTarget}>{props.onCloseNavigation ? <WikiIconButton label={t("workspace_files.close_panel")} onClick={props.onCloseNavigation}><X size={15} /></WikiIconButton> : null}</PanelHeader> : null}
@@ -330,7 +330,7 @@ export function WikiPane(props: WikiPaneProps) {
             </div> : null}
           </WikiExplorer>
           <div className="wiki-sidebar-footer">
-            {navigationOnly ? <div className="wiki-navigation-settings"><Button size="sm" variant="ghost" disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={14} />{t("wiki.sharing")}</Button><WikiIconButton label={t("wiki.settings")} disabled={!wiki} onClick={() => openSettings()}><Settings2 size={15} /></WikiIconButton></div> : null}
+            {navigationOnly ? <div className="wiki-navigation-settings"><Button size="sm" variant="ghost" disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={14} />{t("wiki.sharing")}</Button></div> : null}
             <div className="wiki-navigation-settings"><button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.all_history")}</span></button><WikiExplorerButton label={t("wiki.trash")} onClick={() => setTrashOpen(true)}><Trash2 size={14} /></WikiExplorerButton></div>
             <div className="wiki-vault-status"><span>{wiki?.sync ? <Users size={13} /> : <LockKeyhole size={13} />}{t(wiki?.sync ? "wiki.automatic_sync" : "wiki.local_wiki")}</span><WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
@@ -355,7 +355,6 @@ export function WikiPane(props: WikiPaneProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button size="sm" variant="outline" className="wiki-share-trigger" aria-label={t("wiki.sharing")} disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={15} /><span>{t("wiki.sharing")}</span></Button>
-              <WikiIconButton label={t("wiki.settings")} disabled={!wiki} onClick={() => openSettings()}><Settings2 size={16} /></WikiIconButton>
             </div>
           </header>
           {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface.startsWith("view:") && !selectedView ? <EmptyWiki message={t("wiki.view_unavailable")} action={<Button variant="outline" onClick={() => openPage("Views.md")}>{t("wiki.edit_view")}</Button>} /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {
