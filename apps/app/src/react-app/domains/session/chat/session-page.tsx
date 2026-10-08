@@ -1148,6 +1148,7 @@ export function SessionPage(props: SessionPageProps) {
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
+      viewerOpen={sidePanelOpen}
       onResize={setFilesHeaderWidth}
       memory={memoryDrivePanel}
       wiki={props.wiki ? <WikiPane {...props.wiki} display="navigation" tab={activePanelTab?.type === "wiki" && activePanelTab.serverUrl === props.wiki.serverUrl ? activePanelTab : undefined} headerTarget={!mobile && fileSidebar === "wiki" ? filesHeaderTarget : null} onCloseNavigation={closeFileSidebar} /> : null}

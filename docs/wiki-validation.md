@@ -2,6 +2,11 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Stable sidebar width (2026-10-08)
+
+- Opening or closing the document viewer restored a different cached panel layout and changed the wiki sidebar's width. The shared file sidebar now preserves its current pixel width across viewer changes and group resizing; manual resizing remains available.
+- Native Electron verified stable sidebar and header widths when opening and closing a wiki page, both at the default 300 px and after resizing to approximately 360 px. App typecheck, production build, and `git diff --check` passed.
+
 ## History and Trash tabs (2026-10-08)
 
 - Settings sit to the right of the picker, before sync, and retain hover-only visibility. Removed the separate sidebar Trash icon and dialog. Version history now contains History and Trash tabs using the existing queries, restore callbacks, and read-only restrictions.
