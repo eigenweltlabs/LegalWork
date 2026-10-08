@@ -15,6 +15,8 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "@/react-app/design-system/panel-chrome";
+import { FileBrowserRow } from "@/react-app/design-system/file-browser-row";
+import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, type WikiWorkspaceOption } from "./wiki-dialogs";
 import { resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
 import { useWikiDrafts } from "./wiki-drafts";
@@ -298,7 +300,7 @@ export function WikiPane(props: WikiPaneProps) {
   };
   const wikiSelector = <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} disabled={!props.client} />}>
-      <BookOpen size={16} /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={13} />
+      <FolderIcon shared={Boolean(wiki?.sync)} className="size-4" /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={13} />
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-2rem)]">
       {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>{item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}</DropdownMenuItem>)}
@@ -324,7 +326,7 @@ export function WikiPane(props: WikiPaneProps) {
             {debouncedSearch.trim() && !searchFiles.length && !searchResult.isFetching ? <p className="wiki-search-status">{t("wiki.no_search_results")}</p> : null}
             {!debouncedSearch.trim() && snapshot.data?.views.length ? <div className="wiki-explorer-views">
               <div className="wiki-section-label"><span>{t("wiki.views")}</span></div>
-              {snapshot.data.views.map((view) => <button key={view.name} className={cn("wiki-nav-row", surface === `view:${view.name}` && "is-active")} aria-current={surface === `view:${view.name}` ? "page" : undefined} onClick={() => openSurface(`view:${view.name}`)}><LayoutList size={15} /><span>{view.name}</span></button>)}
+              {snapshot.data.views.map((view) => <FileBrowserRow key={view.name} selected={surface === `view:${view.name}`} style={{ paddingLeft: 6 }} aria-current={surface === `view:${view.name}` ? "page" : undefined} onClick={() => openSurface(`view:${view.name}`)} leading={<span className="size-3.5 shrink-0" />} icon={<LayoutList className="size-5 shrink-0 text-muted-foreground" />}>{view.name}</FileBrowserRow>)}
             </div> : null}
           </WikiExplorer>
           <div className="wiki-sidebar-footer">

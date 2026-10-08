@@ -1,30 +1,20 @@
 /* Wiki surfaces use the app's theme tokens; Markdown remains the source of truth. */
 .wiki-workbench { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; color: var(--foreground); background: var(--background); container: wiki-workbench / inline-size; }
 .wiki-workbench-body { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
-.wiki-sidebar { display: flex; flex-direction: column; width: 248px; min-width: 248px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 28%, var(--background)); }
+.wiki-sidebar { display: flex; flex-direction: column; width: 248px; min-width: 248px; border-right: 1px solid var(--border); background: var(--background); }
 .wiki-navigation-pane .wiki-sidebar { position: static; inset: auto; width: 100%; max-width: none; min-width: 0; border-right: 0; box-shadow: none; }
 .wiki-navigation-pane .wiki-notice { flex-wrap: wrap; }
 .wiki-navigation-settings { display: flex; align-items: center; justify-content: space-between; }
 .wiki-navigation-settings > .wiki-nav-row { flex: 1; width: auto; }
 .wiki-tab-pane .wiki-main { width: 100%; }
 .wiki-sidebar-header { display: grid; gap: 12px; padding: 16px 14px 14px; }
-.wiki-switcher { width: 100%; justify-content: flex-start; gap: 8px; height: 32px; padding: 0 4px; font-size: 13px; font-weight: 600; }
+.wiki-switcher { width: 100%; justify-content: flex-start; gap: 8px; height: 32px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--foreground); }
 .wiki-switcher > span { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-switcher > svg { flex-shrink: 0; color: var(--muted-foreground); }
-.wiki-explorer-toolbar { display: flex; flex-shrink: 0; justify-content: flex-end; align-items: center; gap: 2px; min-height: 42px; padding: 5px 10px; }
-.wiki-explorer-search { display: flex; align-items: center; gap: 3px; padding: 0 10px 8px; }
+.wiki-explorer-search { display: flex; align-items: center; gap: 3px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--background); }
 .wiki-explorer-search input { min-width: 0; height: 30px; font-size: 12px; box-shadow: none; }
-.wiki-explorer-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding: 0 8px 16px; }
 .wiki-tree-target { width: 100%; min-width: 0; }
-.wiki-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 5px 10px; border-radius: 6px; text-align: left; font-size: 12px; color: var(--foreground); }
-.wiki-tree-row > svg, .wiki-tree-chevron { flex-shrink: 0; color: var(--muted-foreground); }
-.wiki-tree-chevron { display: grid; place-items: center; width: 12px; }
-.wiki-tree-row > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wiki-tree-row:hover { background: var(--accent); }
-.wiki-tree-row.is-active { background: var(--accent); color: var(--accent-foreground); }
-.wiki-explorer-tree .wiki-tree-folder { gap: 6px; min-height: 30px; font-size: 12px; color: var(--foreground); }
 .wiki-explorer-views { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); }
-.wiki-explorer-views .wiki-nav-row { padding-left: 28px; }
 .wiki-search { position: relative; display: flex; align-items: center; }
 .wiki-search > svg { position: absolute; left: 10px; color: var(--muted-foreground); pointer-events: none; }
 .wiki-search input { height: 34px; padding-left: 32px; padding-right: 30px; font-size: 12px; background: var(--background); box-shadow: none; }
@@ -55,7 +45,7 @@
 .wiki-sidebar-disclosure > summary:hover { color: var(--foreground); }
 .wiki-asset-row { display: flex; align-items: center; min-width: 0; }
 .wiki-asset-row > .wiki-nav-row { flex: 1; min-width: 0; }
-.wiki-sidebar-footer { padding: 10px; border-top: 1px solid var(--border); }
+.wiki-sidebar-footer { padding: 8px; border-top: 1px solid var(--border); }
 .wiki-sidebar-footer .wiki-nav-row { color: var(--muted-foreground); }
 .wiki-vault-status { display: flex; justify-content: space-between; align-items: center; gap: 4px; padding-left: 9px; }
 .wiki-vault-status > span { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted-foreground); }

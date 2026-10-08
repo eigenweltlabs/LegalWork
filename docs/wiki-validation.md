@@ -2,12 +2,18 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Shared folder panel design (2026-10-08)
+
+- Extracted the existing Project Files row into `FileBrowserRow`, shared by Project Files and the Wiki file tree and views. Wiki uses the existing blue `FolderIcon`, file-type `ArtifactIcon`, row sizing, typography, hover/focus states, and selection treatment. Toolbar height and panel spacing follow the other right-side browsers.
+- Native Electron checks compared both panels, expanded a Wiki folder, verified its context menu, opened Wiki and Views in standard WYSIWYG tabs, checked nested YAML in Source, and navigated a Project Files folder and back. No page contents were edited. [Screenshot](wiki-evidence/shared-folder-design.png).
+- App typecheck, the 12-test Wiki tree/tab/syntax suite, production build, and `git diff --check` passed. Electron remains available on port 5176.
+
 ## Shared Markdown editor (2026-10-08)
 
 - Writable Wiki pages and new pages use `ArtifactMarkdownEditor` directly through a small Wiki syntax plugin. Removed the duplicate Read/Edit/Markdown controls, custom source editor, and syntax restrictions that hid WYSIWYG for wiki links and nested YAML. Source and Diff remain the shared editor's own controls; explicit source requests do not remount the editor.
 - Wiki links import as ordinary editor links and serialize back to `[[target|label]]`. The standard Create Link dialog offers page destinations; destination actions open standard Wiki tabs. Full frontmatter goes through the existing frontmatter plugin. Unsupported syntax switches to the shared Source view, and Wiki raw HTML processing is disabled.
 - Parser regressions cover paths, aliases, Unicode, heading destinations, nested/multiline YAML, code, escaped bracket literals, ordinary links, and link creation. The app suite passed 939 tests; the focused Wiki suite passed 20. App typecheck, production build, i18n (5763 keys per language), and `git diff --check` passed.
-- Live Electron verification of this change is pending: macOS was locked and could not be unlocked automatically. The user was asked to unlock it. Earlier screenshots below show the prior editor. The dev server remains available on port 5176.
+- Live Electron verification subsequently confirmed default WYSIWYG rendering of Wiki links and a page with nested YAML, as well as Source → Rich text switching. [Screenshot](wiki-evidence/shared-folder-design.png). The dev server remains available on port 5176.
 
 ## Wiki file explorer (2026-10-08)
 
