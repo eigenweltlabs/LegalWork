@@ -14,11 +14,13 @@ import { requestPanelTab } from "../session/panel/panel-tab-request";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { PanelHeader } from "@/react-app/design-system/panel-chrome";
 import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, type WikiWorkspaceOption } from "./wiki-dialogs";
 import { canRichEditWiki, updateWikiProperty, wikiBacklinks, wikiNavigationPages, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
 import { useWikiDrafts } from "./wiki-drafts";
 import { WikiPreview } from "./wiki-preview";
 import { WikiGraphPane, WikiPropertyValue, WikiViewPane } from "./wiki-views";
+import { wikiPanelTab, type WikiPanelTab } from "./wiki-tabs";
 import "./wiki.css";
 
 const RichEditor = lazy(() => import("../session/artifacts/artifact-markdown-editor").then((module) => ({ default: module.ArtifactMarkdownEditor })));
@@ -26,23 +28,30 @@ const controlFiles = ["Structure.md", "Instructions.md", "Templates.md", "Views.
 const EMPTY_PAGES: WikiPage[] = [];
 const EMPTY_ASSETS: WikiAsset[] = [];
 
-type WikiPaneProps = {
+export type WikiPaneProps = {
   client: LegalworkServerClient | null;
   serverUrl: string;
   workspaceId: string;
   workspaces: WikiWorkspaceOption[];
   onWikisChanged?: () => void;
   onOpenWikiSession: (wiki: WikiVault, prompt?: string) => Promise<void>;
+  display?: "navigation" | "tab";
+  tab?: WikiPanelTab;
+  headerTarget?: HTMLElement | null;
+  onCloseNavigation?: () => void;
+  onCloseTab?: () => void;
 };
 
 /** The folder is the wiki. The app renders its Markdown without imposing a hierarchy. */
 export function WikiPane(props: WikiPaneProps) {
+  const navigationOnly = props.display === "navigation";
+  const tabOnly = props.display === "tab";
   const queryClient = useQueryClient();
-  const [wikiId, setWikiId] = useState("");
-  const [path, setPath] = useState("");
-  const [pageAnchor, setPageAnchor] = useState("");
-  const [mode, setMode] = useState<"preview" | "source" | "rich">("preview");
-  const [surface, setSurface] = useState("page");
+  const [wikiId, setWikiId] = useState(props.tab?.wikiId ?? "");
+  const [path, setPath] = useState(props.tab?.location.kind === "page" ? props.tab.location.path : props.tab?.location.kind === "graph" ? props.tab.location.focus ?? "" : "");
+  const [pageAnchor, setPageAnchor] = useState(props.tab?.location.kind === "page" ? props.tab.location.anchor ?? "" : "");
+  const [mode, setMode] = useState<"preview" | "source" | "rich">(props.tab?.location.kind === "page" && props.tab.location.mode === "source" ? "source" : "preview");
+  const [surface, setSurface] = useState(props.tab?.location.kind === "view" ? `view:${props.tab.location.name}` : props.tab?.location.kind === "graph" ? "graph" : "page");
   const [assetLimit, setAssetLimit] = useState(100);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -101,22 +110,33 @@ export function WikiPane(props: WikiPaneProps) {
   const sharingError = sharingActionError?.wikiId === wikiId ? sharingActionError.message : wiki?.pendingSharing ? wiki.syncStatus.error ?? t("wiki.sharing_pending") : null;
 
   useEffect(() => {
+    if (!props.tab) return;
+    const { wikiId, location } = props.tab;
+    setWikiId(wikiId);
+    setSurface(location.kind === "view" ? `view:${location.name}` : location.kind === "graph" ? "graph" : "page");
+    setPath(location.kind === "page" ? location.path : location.kind === "graph" ? location.focus ?? "" : "");
+    setPageAnchor(location.kind === "page" ? location.anchor ?? "" : "");
+    if (location.kind === "page" && location.mode === "source") setMode("source");
+    setPageError(null);
+    setDeleteConfirm(false);
+  }, [props.tab]);
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search), 200);
     return () => window.clearTimeout(timer);
   }, [search]);
   useEffect(() => {
-    if (!wikiId && list.data?.items.length) setWikiId(list.data.items[0].id);
-  }, [wikiId, list.data]);
+    if (!tabOnly && !wikiId && list.data?.items.length) setWikiId(list.data.items[0].id);
+  }, [wikiId, list.data, tabOnly]);
   useEffect(() => {
-    if (!path && pages.length) setPath(pages.find((page) => /^(Wiki|Home|Index|README)\.md$/i.test(page.path))?.path ?? pages[0].path);
-  }, [pages, path]);
+    if (!navigationOnly && !tabOnly && !path && pages.length) setPath(pages.find((page) => /^(Wiki|Home|Index|README)\.md$/i.test(page.path))?.path ?? pages[0].path);
+  }, [pages, path, navigationOnly, tabOnly]);
   useEffect(() => {
-    if (!wikiId || !path) return;
+    if (navigationOnly || surface !== "page" || !wikiId || !path) return;
     let cancelled = false;
     setDocumentLoading(true); setPageError(null);
     void drafts.load(wikiId, path).catch((err) => { if (!cancelled) setPageError(wikiError(err)); }).finally(() => { if (!cancelled) setDocumentLoading(false); });
     return () => { cancelled = true; };
-  }, [wikiId, path, currentPage?.revision, drafts.load]);
+  }, [wikiId, path, currentPage?.revision, drafts.load, navigationOnly, surface]);
   useEffect(() => {
     if (mode === "rich" && !richAllowed) setMode("source");
   }, [mode, richAllowed]);
@@ -124,15 +144,29 @@ export function WikiPane(props: WikiPaneProps) {
 
   useEffect(() => {
     const body = workbenchBody.current;
-    if (!body) return;
+    if (!body || navigationOnly || tabOnly) return;
     const observer = new ResizeObserver(() => { if (body.clientWidth <= 680) setNavigationOpen(false); });
     observer.observe(body);
     return () => observer.disconnect();
-  }, [wikiId]);
+  }, [wikiId, navigationOnly, tabOnly]);
 
   const closeNarrowNavigation = () => { if (workbenchBody.current && workbenchBody.current.clientWidth <= 680) setNavigationOpen(false); };
-  const openSurface = (next: string) => { setSurface(next); closeNarrowNavigation(); };
-  const openPage = (nextPath: string, anchor = "") => { closeNarrowNavigation(); setPath(nextPath); setPageAnchor(anchor); setSurface("page"); setDeleteConfirm(false); setPageError(null); };
+  const openSurface = (next: string) => {
+    if (navigationOnly || tabOnly) {
+      const view = snapshot.data?.views.find((view) => `view:${view.name}` === next);
+      requestPanelTab(wikiPanelTab(props.serverUrl, wikiId, view ? { kind: "view", name: view.name } : { kind: "graph", focus: path || undefined }, view?.name ?? t("wiki.graph")));
+      return;
+    }
+    setSurface(next); closeNarrowNavigation();
+  };
+  const openPage = (nextPath: string, anchor = "", nextMode?: "source") => {
+    if (navigationOnly || tabOnly) {
+      if (!nextPath) { if (tabOnly) props.onCloseTab?.(); return; }
+      requestPanelTab(wikiPanelTab(props.serverUrl, wikiId, { kind: "page", path: nextPath, anchor, mode: nextMode }, pages.find((page) => page.path === nextPath)?.title ?? nextPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? nextPath));
+      return;
+    }
+    closeNarrowNavigation(); setPath(nextPath); setPageAnchor(anchor); setSurface("page"); setDeleteConfirm(false); setPageError(null);
+  };
   const chooseWiki = (id: string) => { setWikiId(id); setPath(""); setPageAnchor(""); setSurface("page"); setSearch(""); setDebouncedSearch(""); setDeleteConfirm(false); setPageError(null); };
   const openSettings = (tab: "general" | "sharing" | "agents" = "general") => { setSettingsTab(tab); setSettings(true); };
   const run = async (operation: () => Promise<void>) => {
@@ -204,15 +238,16 @@ export function WikiPane(props: WikiPaneProps) {
     await props.onOpenWikiSession(wiki, prompt);
   };
 
-  return <div className="wiki-workbench">
+  return <div className={cn("wiki-workbench", navigationOnly && "wiki-navigation-pane", tabOnly && "wiki-tab-pane")}>
+    {navigationOnly ? <PanelHeader title={t("wiki.title")} icon={<BookOpen size={16} />} headerTarget={props.headerTarget}>{props.onCloseNavigation ? <WikiIconButton label={t("workspace_files.close_panel")} onClick={props.onCloseNavigation}><X size={15} /></WikiIconButton> : null}</PanelHeader> : null}
     {!props.client || list.error || list.isLoading || !wikiId ? <>
-      <header className="wiki-empty-header"><span><BookOpen size={18} />{t("wiki.title")}</span><Button size="sm" variant="outline" disabled={!props.client} onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</Button></header>
+      {!navigationOnly ? <header className="wiki-empty-header"><span><BookOpen size={18} />{t("wiki.title")}</span><Button size="sm" variant="outline" disabled={!props.client} onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</Button></header> : null}
       {!props.client ? <EmptyWiki message={t("wiki.offline")} /> : list.error ? <EmptyWiki message={wikiError(list.error)} action={<Button variant="outline" onClick={() => void list.refetch()}>{t("wiki.retry")}</Button>} /> : list.isLoading ? <WikiLoading /> : <EmptyWiki title={t("wiki.empty_title")} message={t("wiki.empty_hint")} action={<Button onClick={() => setNewWiki(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button>} />}
     </> : <>
       {sharingError ? <div role="alert" className="wiki-notice"><span>{t("wiki.sharing_pending")} {sharingError === t("wiki.sharing_pending") ? null : sharingError}</span><Button size="sm" variant="ghost" onClick={() => openSettings("sharing")}>{t("wiki.retry_sharing")}</Button></div> : null}
       {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div role="alert" className="wiki-notice"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })} {t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
       <div ref={workbenchBody} className="wiki-workbench-body">
-        {navigationOpen ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
+        {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
           <div className="wiki-sidebar-header">
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} />}>
@@ -229,6 +264,7 @@ export function WikiPane(props: WikiPaneProps) {
             <Button className="wiki-create-page" size="sm" variant="outline" disabled={!wiki?.writable} onClick={() => setNewPage("")}><Plus size={15} />{t("wiki.new_page")}</Button>
           </div>
           <nav className="wiki-sidebar-content" aria-label={t("wiki.pages")}>
+            {snapshot.error ? <p role="alert" className="wiki-search-status">{wikiError(snapshot.error)} <button className="underline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</button></p> : null}
             <div className="wiki-section-label"><span>{t(debouncedSearch.trim() ? "wiki.search_results" : "wiki.pages")}</span><span>{visiblePages.length}</span></div>
             {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
             {searchResult.error && debouncedSearch.trim() ? <p role="alert" className="wiki-search-status text-destructive">{wikiError(searchResult.error)}</p> : null}
@@ -243,14 +279,16 @@ export function WikiPane(props: WikiPaneProps) {
             </> : null}
           </nav>
           <div className="wiki-sidebar-footer">
+            {navigationOnly ? <div className="wiki-navigation-settings"><Button size="sm" variant="ghost" disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={14} />{t("wiki.sharing")}</Button><WikiIconButton label={t("wiki.settings")} disabled={!wiki} onClick={() => openSettings()}><Settings2 size={15} /></WikiIconButton></div> : null}
             <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.all_history")}</span></button>
             <div className="wiki-vault-status"><span>{wiki?.sync ? <Users size={13} /> : <LockKeyhole size={13} />}{t(wiki?.sync ? "wiki.automatic_sync" : "wiki.local_wiki")}</span><WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
         </aside> : null}
-        <main className="wiki-main">
+        {!navigationOnly ? <main className="wiki-main">
           <header className="wiki-context-bar">
-            <WikiIconButton label={t("wiki.toggle_navigation")} pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><PanelLeft size={17} /></WikiIconButton>
+            {!tabOnly ? <WikiIconButton label={t("wiki.toggle_navigation")} pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><PanelLeft size={17} /></WikiIconButton> : null}
             <nav className="wiki-location" aria-label={t("wiki.breadcrumb")} title={surface === "page" ? path : undefined}>
+              {tabOnly ? <><span className="wiki-location-folder">{wiki?.name}</span><ChevronRight size={12} /></> : null}
               {surface === "page" && path.includes("/") ? <><span className="wiki-location-folder">{path.slice(0, path.lastIndexOf("/"))}</span><ChevronRight size={12} /></> : null}
               <span className="wiki-location-title">{surface === "graph" ? t("wiki.graph") : selectedView?.name ?? currentPage?.title ?? wiki?.name}</span>
             </nav>
@@ -269,7 +307,7 @@ export function WikiPane(props: WikiPaneProps) {
               <WikiIconButton label={t("wiki.settings")} disabled={!wiki} onClick={() => openSettings()}><Settings2 size={16} /></WikiIconButton>
             </div>
           </header>
-          {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {
+          {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface.startsWith("view:") && !selectedView ? <EmptyWiki message={t("wiki.view_unavailable")} action={<Button variant="outline" onClick={() => openPage("Views.md")}>{t("wiki.edit_view")}</Button>} /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} /> : selectedView ? <WikiViewPane view={selectedView} pages={pages} writable={Boolean(wiki?.writable)} key={selectedView.name} onOpen={openPage} onMove={async (pagePath, property, value) => {
             if (!props.client || !wiki) return;
             const pending = drafts.get(wiki.id, pagePath);
             if (pending && pending.content !== pending.baseline) throw new Error(t("wiki.save_before_move"));
@@ -308,13 +346,13 @@ export function WikiPane(props: WikiPaneProps) {
             </> : <EmptyWiki message={t("wiki.empty_pages")} action={<Button disabled={!wiki?.writable} onClick={() => setNewPage("")}>{t("wiki.new_page")}</Button>} />}
           </>}
           {snapshot.data?.warnings.length ? <details className="wiki-warnings"><summary>{t("wiki.warnings", { count: snapshot.data.warnings.length })}</summary><ul>{snapshot.data.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details> : null}
-        </main>
+        </main> : null}
       </div>
     </>}
     <input ref={uploadInput} type="file" multiple className="hidden" onChange={(event) => { const files = [...event.target.files ?? []]; event.target.value = ""; if (!files.length) return; void run(async () => { for (const file of files) { const uploaded = await uploadAsset(file); if (draft) { const latest = drafts.get(wikiId, path); if (latest) drafts.change(wikiId, path, `${latest.content}\n\n[${file.name.replace(/[\[\]]/g, "")}](${uploaded.split("/").map(encodeURIComponent).join("/")})\n`); } } toast.success(t("wiki.uploaded")); }); }} />
     {newWiki && props.client ? <CreateWikiDialog client={props.client} serverUrl={props.serverUrl} wikis={list.data?.items ?? []} onClose={() => setNewWiki(false)} onCreate={async (input) => { const result = await props.client?.createWiki(input); if (!result) return; setNewWiki(false); chooseWiki(result.wiki.id); acceptWiki(result.wiki); setSharingActionError(result.sharingError ? { wikiId: result.wiki.id, message: result.sharingError } : null); props.onWikisChanged?.(); }} onJoin={async (input) => { const result = await props.client?.joinWiki(input); if (!result) return; setNewWiki(false); chooseWiki(result.wiki.id); acceptWiki(result.wiki); props.onWikisChanged?.(); }} /> : null}
-    {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} initialTab={settingsTab} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); chooseWiki(""); refresh(); }} /> : null}
-    {newPage !== null && props.client && wiki ? <NewWikiPageDialog key={`${wiki.id}:${newPage}`} pages={pages} initialPath={newPage} onClose={() => setNewPage(null)} onCreate={async (newPath, templatePath) => { if (pages.some((page) => page.path.toLocaleLowerCase() === newPath.toLocaleLowerCase())) throw new Error(t("wiki.page_exists")); let content = `# ${newPath.split("/").at(-1)?.replace(/\.md$/i, "")}\n\n`; if (templatePath) { const template = await props.client?.readWikiPage(wiki.id, templatePath); const page = pages.find((entry) => entry.path === templatePath); if (template && page) content = wikiTemplateContent(template.content, page, newPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? newPath); } await props.client?.writeWikiPage(wiki.id, { path: newPath, content }); setNewPage(null); setMode("source"); openPage(newPath); refresh(); }} /> : null}
+    {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} initialTab={settingsTab} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); if (tabOnly) props.onCloseTab?.(); else chooseWiki(""); refresh(); }} /> : null}
+    {newPage !== null && props.client && wiki ? <NewWikiPageDialog key={`${wiki.id}:${newPage}`} pages={pages} initialPath={newPage} onClose={() => setNewPage(null)} onCreate={async (newPath, templatePath) => { if (pages.some((page) => page.path.toLocaleLowerCase() === newPath.toLocaleLowerCase())) throw new Error(t("wiki.page_exists")); let content = `# ${newPath.split("/").at(-1)?.replace(/\.md$/i, "")}\n\n`; if (templatePath) { const template = await props.client?.readWikiPage(wiki.id, templatePath); const page = pages.find((entry) => entry.path === templatePath); if (template && page) content = wikiTemplateContent(template.content, page, newPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? newPath); } await props.client?.writeWikiPage(wiki.id, { path: newPath, content }); setNewPage(null); setMode("source"); openPage(newPath, "", "source"); refresh(); }} /> : null}
     {history && props.client && wiki ? <WikiHistoryDialog key={`${wiki.id}:${historyPath}`} client={props.client} serverUrl={props.serverUrl} writable={wiki.writable} wikiId={wiki.id} initialPath={historyPath} onClose={() => setHistory(false)} onRestore={async (restorePath, revisionId) => { if (drafts.get(wiki.id, restorePath)?.content !== drafts.get(wiki.id, restorePath)?.baseline) throw new Error(t("wiki.save_before_restore")); let baseRevision: string | undefined; try { baseRevision = (await props.client?.readWikiPage(wiki.id, restorePath))?.revision; } catch (error) { if (!(error instanceof LegalworkServerError && error.status === 404)) throw error; } await props.client?.restoreWikiPage(wiki.id, { path: restorePath, revisionId, baseRevision }); await drafts.load(wiki.id, restorePath, true); refresh(); toast.success(t("wiki.restored")); }} /> : null}
   </div>;
 }

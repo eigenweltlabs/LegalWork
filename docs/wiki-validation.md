@@ -2,6 +2,15 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Right sidebar and standard tabs (2026-10-08)
+
+- Wiki opens the folder browser in the right sidebar without opening the viewer or changing the main page. The folder browser and viewer close independently.
+- Pages, table/board views, the graph, and linked setup files use the existing tab store and tab strip. Links reuse page tabs; switching tabs retains Markdown mode and the mounted editor.
+- Native Electron checks verified page rendering, board and table tabs, the graph, page-tab reuse from a board, Markdown mode retention, and independent panel closing. [Screenshot](wiki-evidence/sidebar-tabs.png).
+- `pnpm --filter @legalwork/app test`: 930 passed, 0 failed. Typecheck, production build, i18n checks (5738 keys in each language), and `git diff --check` passed. Existing build chunk warnings remain.
+- The Electron dev server runs on port 5176 with the wiki development profile. An initial workspace request stalled during startup; the connection recovered before the native UI checks.
+- `d4fd2ffd` remains an ancestor of this branch. This change leaves server APIs, dependencies, and upstream routes intact.
+
 ## Rebase verification (2026-10-07)
 
 Rebased onto current `origin/dev` at `d4fd2ffd`. A second fetch confirmed this remained the current dev head. The pre-rebase branch is retained as `codex/markdown-wiki-before-rebase-8babd32b`.

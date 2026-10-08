@@ -6653,6 +6653,7 @@ const de = {
   "wiki.view_hint": "In Views.md definiert. Bearbeiten Sie die Datei, um diese Ansicht zu ändern.",
   "wiki.unassigned": "Nicht zugeordnet",
   "wiki.move_stage": "{page} in eine Spalte verschieben",
+  "wiki.view_unavailable": "Diese Ansicht ist nicht mehr definiert. Öffnen Sie Views.md, um ihre Konfiguration zu prüfen.",
   "wiki.empty_view": "Noch keine Seiten entsprechen dieser Ansicht.",
   "wiki.graph_hint": "Öffnen Sie eine verbundene Seite, um ihre Links und Rückverweise zu erkunden.",
   "wiki.whole_wiki": "Ganzes Wiki",

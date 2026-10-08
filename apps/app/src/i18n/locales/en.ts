@@ -6264,6 +6264,7 @@ export default {
   "wiki.view_hint": "Defined in Views.md. Edit the file to change this view.",
   "wiki.unassigned": "Unassigned",
   "wiki.move_stage": "Move {page} to a column",
+  "wiki.view_unavailable": "This view is no longer defined. Open Views.md to review its configuration.",
   "wiki.empty_view": "No pages match this view yet.",
   "wiki.graph_hint": "Open a connected page to explore its links and backlinks.",
   "wiki.whole_wiki": "Whole wiki",

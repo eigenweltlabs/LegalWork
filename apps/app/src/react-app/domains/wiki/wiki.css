@@ -2,6 +2,10 @@
 .wiki-workbench { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; color: var(--foreground); background: var(--background); container: wiki-workbench / inline-size; }
 .wiki-workbench-body { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .wiki-sidebar { display: flex; flex-direction: column; width: 248px; min-width: 248px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 28%, var(--background)); }
+.wiki-navigation-pane .wiki-sidebar { position: static; inset: auto; width: 100%; min-width: 0; border-right: 0; box-shadow: none; }
+.wiki-navigation-pane .wiki-notice { flex-wrap: wrap; }
+.wiki-navigation-settings { display: flex; align-items: center; justify-content: space-between; }
+.wiki-tab-pane .wiki-main { width: 100%; }
 .wiki-sidebar-header { display: grid; gap: 12px; padding: 16px 14px 14px; }
 .wiki-switcher { width: 100%; justify-content: flex-start; gap: 10px; height: 36px; padding: 0 4px; font-size: 14px; font-weight: 600; }
 .wiki-switcher > span { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }

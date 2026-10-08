@@ -35,6 +35,7 @@ import {
   Workflow,
   MessageSquare,
   TableProperties,
+  BookOpen,
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
@@ -82,6 +83,7 @@ import { t } from "@/i18n";
 import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
 import { WorkflowEditorPanel } from "@/react-app/domains/settings/pages/workflow-editor-panel";
 import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/workflow-resource-editor-panel";
+import type { WikiPanelTab } from "../../wiki/wiki-tabs";
 import {
   computeBounds,
   getElectronBrowser,
@@ -111,6 +113,7 @@ type SidePanelProps = {
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
+  renderWikiTab?: (tab: WikiPanelTab) => React.ReactNode;
 };
 
 // HMR can remount this module without unmounting BrowserPanelContent, leaving
@@ -409,6 +412,8 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
+          ) : tab.type === "wiki" ? (
+            <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
@@ -723,6 +728,7 @@ function SidePanelContent({
   onFocusChat,
   onCloseChat,
   onNewChat, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  renderWikiTab,
 }: SidePanelProps) {
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const projectFiles = useProjectFiles();
@@ -1121,6 +1127,7 @@ function SidePanelContent({
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
         const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "wiki" ? renderWikiTab?.(tab)
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />

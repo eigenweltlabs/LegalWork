@@ -25,7 +25,7 @@ export function MainActionRail({ actions, onOpenWindow, unreadTasks = 0, childre
     navRecorder: useOrgPolicyForbids("recorder.allow"),
     navEvaluations: useOrgPolicyForbids("evaluations.allow"),
   };
-  const items = config.navOrder.filter(key => config[key] && actions[key].available !== false && !firmOff[key]);
+  const items = config.navOrder.filter(key => key !== "navWikis" && config[key] && actions[key].available !== false && !firmOff[key]);
 
   return (
     <nav aria-label={t("sidebar.main_actions")} className="flex w-[var(--lw-window-left-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 mac:titlebar-no-drag">

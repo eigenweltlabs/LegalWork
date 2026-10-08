@@ -13,6 +13,7 @@ export function FileSidebars(props: {
   active: FileSidebarItem | null;
   memory: ReactNode;
   files: ReactNode;
+  wiki?: ReactNode;
   onResize?: (width: number) => void;
 }) {
   const panelRef = usePanelRef();
@@ -50,7 +51,7 @@ export function FileSidebars(props: {
         }}
         className="min-h-0 overflow-hidden"
       >
-        {(["memory", "files"] satisfies FileSidebarItem[]).map((kind) => (
+        {(["memory", "files", "wiki"] satisfies FileSidebarItem[]).map((kind) => (
           <div key={kind} hidden={props.active !== kind} className="h-full min-h-0" data-file-sidebar={kind}
             // Mark after row/selection handlers have finished replacing drag payloads.
             onDragStart={event => event.dataTransfer.setData(FILE_SIDEBAR_DRAG_TYPE, "")}>

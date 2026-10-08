@@ -25,7 +25,6 @@ import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
 import { openTaskProject } from "../domains/tasks/task-project-navigation";
-import { WikiPane } from "../domains/wiki/wiki-pane";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { useComposerStateStore } from "../domains/session/surface/composer-state-store";
 import {
@@ -379,6 +378,7 @@ export function SessionRoute() {
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
   const showWikis = mainPage === "wikis";
+  useEffect(() => { if (showWikis) navigate("/home?panel=wiki", { replace: true }); }, [showWikis, navigate]);
   const showEvals = mainPage === "evals";
   const showWorkflows = mainPage === "workflows";
   const showRecorder = mainPage === "recorder";
@@ -2501,6 +2501,7 @@ export function SessionRoute() {
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
+      wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession }}
       legalworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
       headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
@@ -2610,9 +2611,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        showWikis ? (
-          <WikiPane client={client} serverUrl={baseUrl} workspaceId={selectedWorkspaceId} workspaces={sidebarWorkspaces} onWikisChanged={() => void refreshRouteState()} onOpenWikiSession={handleOpenWikiSession} />
-        ) : scheduledPage ? (
+        scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
@@ -2713,7 +2712,7 @@ export function SessionRoute() {
         onNewChat: () => setNewChatOpen(true),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
-        onShowWikis: () => navigate("/wikis"),
+        onShowWikis: () => navigate("/home?panel=wiki"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),

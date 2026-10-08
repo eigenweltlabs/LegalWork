@@ -21,7 +21,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -90,6 +90,8 @@ import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
+import { WikiPane, type WikiPaneProps } from "../../wiki/wiki-pane";
+import type { WikiPanelTab } from "../../wiki/wiki-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
 import {
   EVALS_PANEL_SESSION_ID,
@@ -243,6 +245,7 @@ export type SessionPageProps = {
   mainView?: React.ReactNode;
   /** Live workflow service host, also needed when returning to an open editor. */
   workflowLibraryView?: React.ReactNode;
+  wiki?: WikiPaneProps;
   projectsPage?: boolean;
   homePage?: boolean;
   projectPage?: ProjectView;
@@ -391,7 +394,12 @@ export function SessionPage(props: SessionPageProps) {
       search.delete("panel");
       navigate({ pathname: workspaceViewRoute(props.selectedWorkspaceId, "files"), search: search.toString() }, { replace: true });
     }
-  }, [props.projectPage, props.selectedWorkspaceId, location.pathname, location.search, navigate]);
+    if (search.get("panel") === "wiki") {
+      setFileSidebarState(panelStateSessionId, "wiki");
+      search.delete("panel");
+      navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
+    }
+  }, [props.projectPage, props.selectedWorkspaceId, location.pathname, location.search, navigate, panelStateSessionId, setFileSidebarState]);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -447,7 +455,7 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback(function setPanel(panel: SidePanelItem | null) {
-    if (panel === "files" || panel === "memory") {
+    if (panel === "files" || panel === "memory" || panel === "wiki") {
       setFileSidebarState(panelStateSessionId, panel);
       return;
     }
@@ -494,7 +502,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback(function togglePanel(panel: SidePanelItem) {
-    if (panel === "files" || panel === "memory") {
+    if (panel === "files" || panel === "memory" || panel === "wiki") {
       setFileSidebarState(panelStateSessionId, fileSidebar === panel ? null : panel);
       return;
     }
@@ -1142,6 +1150,7 @@ export function SessionPage(props: SessionPageProps) {
       active={fileSidebar}
       onResize={setFilesHeaderWidth}
       memory={memoryDrivePanel}
+      wiki={props.wiki ? <WikiPane {...props.wiki} display="navigation" tab={activePanelTab?.type === "wiki" && activePanelTab.serverUrl === props.wiki.serverUrl ? activePanelTab : undefined} headerTarget={!mobile && fileSidebar === "wiki" ? filesHeaderTarget : null} onCloseNavigation={closeFileSidebar} /> : null}
       files={(
         <WorkspaceFilesPanel
           active={fileSidebar === "files"}
@@ -1157,6 +1166,13 @@ export function SessionPage(props: SessionPageProps) {
       )}
     />
   );
+
+  const renderWikiTab = (tab: WikiPanelTab) => props.wiki ? <WikiPane key={tab.id} {...props.wiki} client={tab.serverUrl === props.wiki.serverUrl ? props.wiki.client : null} display="tab" tab={tab} onCloseTab={() => closeTab(panelStateSessionId, tab.id)} /> : null;
+  const wikiRailButton = shellConfig.navWikis && props.wiki ? (
+    <Button variant="ghost" size="icon-sm" className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", fileSidebar === "wiki" && "text-foreground")} onClick={() => toggleCurrentSidePanel("wiki")} title={t("wiki.title")} aria-label={t("wiki.title")} aria-pressed={fileSidebar === "wiki"}>
+      <BookOpen size={17} />
+    </Button>
+  ) : null;
 
   const workspaceFilesRailButton = (
     <Button
@@ -1353,6 +1369,7 @@ export function SessionPage(props: SessionPageProps) {
                       projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
+                      renderWikiTab={renderWikiTab}
                     /></div>
                   </ResizablePanel>
                 </>
@@ -1374,6 +1391,7 @@ export function SessionPage(props: SessionPageProps) {
               </Button>
 
               {workspaceFilesRailButton}
+              {wikiRailButton}
 
               <Button
                 variant="ghost"
@@ -1545,6 +1563,7 @@ export function SessionPage(props: SessionPageProps) {
           {shellConfig.panelRail ? (
           <aside aria-label={t("session.workspace_tools")} className="lw-session-rail flex w-[var(--lw-window-right-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
               {workspaceFilesRailButton}
+              {wikiRailButton}
 
               <Button
                 variant="ghost"
@@ -1582,6 +1601,7 @@ export function SessionPage(props: SessionPageProps) {
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
           <SidePanel
+            renderWikiTab={renderWikiTab}
             key={workspaceScope}
             sessionId={workspaceScope}
             controlSessionIds={controlSessionIds}

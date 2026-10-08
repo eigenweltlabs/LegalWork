@@ -10,6 +10,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
+import type { WikiPanelTab } from "../../wiki/wiki-tabs";
 import { storageFileSourceSchema, storageFileTab } from "./storage-file-tab";
 import { MAX_DOCUMENT_PANES, legacyLayout, legacyLayoutSizes, layoutLeaves, findLayoutNode, pruneLayout, reconcileLayoutSizes, restoreLayout, splitLayout, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 
@@ -77,7 +78,7 @@ export type TaskPanelTab = {
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
@@ -329,6 +330,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
 
   if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
   if (left.type === "workflow-resource" && right.type === "workflow-resource") return left.label === right.label;
+  if (left.type === "wiki" && right.type === "wiki") return left.label === right.label && left.serverUrl === right.serverUrl && left.wikiId === right.wikiId && JSON.stringify(left.location) === JSON.stringify(right.location);
 
   return false;
 }
