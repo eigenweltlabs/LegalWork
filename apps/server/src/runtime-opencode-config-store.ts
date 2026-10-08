@@ -302,6 +302,7 @@ export async function writeRuntimeOpencodeConfig(
   config: ServerConfig,
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
+  updatedAt = Date.now(),
 ): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
   const current = await readRuntimeOpencodeConfig(config, workspaceId);
