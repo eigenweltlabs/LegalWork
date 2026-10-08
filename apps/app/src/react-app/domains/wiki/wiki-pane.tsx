@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, FileText, History, LayoutList, ListFilter, Loader2, LockKeyhole, MoreHorizontal, PanelLeft, Paperclip, Plus, RefreshCw, Save, Settings2, Sparkles, Trash2, Users, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, FileText, History, LayoutList, ListFilter, Loader2, LockKeyhole, MoreHorizontal, PanelLeft, Paperclip, PenLine, Plus, RefreshCw, Save, Settings2, Trash2, Users, X } from "lucide-react";
 import type { WikiAsset, WikiEntryOperation, WikiPage, WikiSnapshot, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isLoopbackLegalworkServerUrl, LegalworkServerError } from "@/app/lib/legalwork-server";
@@ -343,9 +343,9 @@ export function WikiPane(props: WikiPaneProps) {
             </nav>
             <div className="wiki-context-actions">
               <DropdownMenu>
-                <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={busy || !wiki} className="wiki-agent-trigger" aria-label={t("wiki.ask_agent")} />}><Sparkles size={15} /><span>{t("wiki.ask_agent")}</span><ChevronDown size={12} /></DropdownMenuTrigger>
+                <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={busy || !wiki} className="wiki-agent-trigger" aria-label={t("wiki.ask_agent")} />}><PenLine size={15} strokeWidth={1.5} /><span>{t("wiki.ask_agent")}</span><ChevronDown size={12} /></DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-60">
-                  <DropdownMenuItem onClick={() => void run(() => startSession())}><Sparkles size={15} />{t("wiki.agent_session")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession())}><PenLine size={15} strokeWidth={1.5} />{t("wiki.agent_session")}</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Bootstrap.md", "help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Capture.md", "help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</DropdownMenuItem>
