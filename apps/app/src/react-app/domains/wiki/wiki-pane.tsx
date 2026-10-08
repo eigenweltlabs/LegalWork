@@ -302,14 +302,14 @@ export function WikiPane(props: WikiPaneProps) {
     <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} disabled={!props.client} />}>
       <FolderIcon shared={Boolean(wiki?.sync)} className="size-4" /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={13} />
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-2rem)]">
+    <DropdownMenuContent side="top" align="start" className="w-72 max-w-[calc(100vw-2rem)]">
       {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>{item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}</DropdownMenuItem>)}
       <DropdownMenuSeparator /><DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>{wiki ? <span className="wiki-switcher-settings"><WikiIconButton label={t("wiki.settings")} onClick={() => openSettings()}><Settings2 size={15} /></WikiIconButton></span> : null}</span>;
 
   return <div className={cn("wiki-workbench", navigationOnly && "wiki-navigation-pane", tabOnly && "wiki-tab-pane")}>
-    {navigationOnly ? <PanelHeader title={wiki?.name ?? t("wiki.title")} titleContent={wikiSelector} headerTarget={props.headerTarget}>{props.onCloseNavigation ? <WikiIconButton label={t("workspace_files.close_panel")} onClick={props.onCloseNavigation}><X size={15} /></WikiIconButton> : null}</PanelHeader> : null}
+    {navigationOnly ? <PanelHeader title={t("wiki.title")} icon={<BookOpen size={16} />} headerTarget={props.headerTarget}>{props.onCloseNavigation ? <WikiIconButton label={t("workspace_files.close_panel")} onClick={props.onCloseNavigation}><X size={15} /></WikiIconButton> : null}</PanelHeader> : null}
     {!props.client || list.error || list.isLoading || !wikiId ? <>
       {!navigationOnly ? <header className="wiki-empty-header"><span><BookOpen size={18} />{t("wiki.title")}</span><Button size="sm" variant="outline" disabled={!props.client} onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</Button></header> : null}
       {!props.client ? <EmptyWiki message={t("wiki.offline")} /> : list.error ? <EmptyWiki message={wikiError(list.error)} action={<Button variant="outline" onClick={() => void list.refetch()}>{t("wiki.retry")}</Button>} /> : list.isLoading ? <WikiLoading /> : <EmptyWiki title={t("wiki.empty_title")} message={t("wiki.empty_hint")} action={<Button onClick={() => setNewWiki(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button>} />}
@@ -318,7 +318,6 @@ export function WikiPane(props: WikiPaneProps) {
       {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div role="alert" className="wiki-notice"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })} {t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
       <div ref={workbenchBody} className="wiki-workbench-body">
         {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
-          {!navigationOnly ? <div className="wiki-sidebar-header">{wikiSelector}</div> : null}
           <WikiExplorer key={wikiId} files={files} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={Boolean(wiki?.writable)} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={() => openSurface("graph")} onAction={entryAction}>
             {snapshot.error ? <p role="alert" className="wiki-search-status">{wikiError(snapshot.error)} <button className="underline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</button></p> : null}
             {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
@@ -330,9 +329,8 @@ export function WikiPane(props: WikiPaneProps) {
             </div> : null}
           </WikiExplorer>
           <div className="wiki-sidebar-footer">
-            {navigationOnly ? <div className="wiki-navigation-settings"><Button size="sm" variant="ghost" disabled={!wiki} onClick={() => openSettings("sharing")}><Users size={14} />{t("wiki.sharing")}</Button></div> : null}
             <div className="wiki-navigation-settings"><button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.all_history")}</span></button><WikiExplorerButton label={t("wiki.trash")} onClick={() => setTrashOpen(true)}><Trash2 size={14} /></WikiExplorerButton></div>
-            <div className="wiki-vault-status"><span>{wiki?.sync ? <Users size={13} /> : <LockKeyhole size={13} />}{t(wiki?.sync ? "wiki.automatic_sync" : "wiki.local_wiki")}</span><WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
+            <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
         </aside> : null}
         {!navigationOnly ? <main className="wiki-main">

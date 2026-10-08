@@ -2,6 +2,11 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Wiki selector in the footer (2026-10-08)
+
+- Moved the wiki selector to the sidebar footer with refresh/sync on its right. Removed the footer Sharing row and lock/status text. Settings still appear immediately left of the dropdown arrow only on hover; the selector menu opens upward.
+- Native Electron verified the footer layout, selector menu, opening/closing settings, and refresh without errors. App typecheck, production build, and `git diff --check` passed.
+
 ## Wiki settings in the selector (2026-10-08)
 
 - Moved Wiki settings immediately left of the current wiki's dropdown arrow. The button appears only on selector hover; focus alone does not reveal it. Removed duplicate settings buttons from the navigation footer and page toolbar.
