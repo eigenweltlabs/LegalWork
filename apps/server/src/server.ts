@@ -6,6 +6,7 @@ import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
+import { registerChannelRuntimeRoutes } from "./channel-runtime-routes.js";
 import { cloudExecutionFetch, prepareCloudExecution } from "./cloud-sync/lifecycle.js";
 import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
@@ -1058,6 +1059,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
+  const channelRuntime = await registerChannelRuntimeRoutes({ config, routes, assistant: mainAssistant, delegations, schedules: scheduledTasks,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: id => resolveWorkspace(config, id),
+    json: jsonResponse, body: readJsonBodyLimited });
 
   let ready = false;
   const push = await AssistantPush.open(runtimeDbPath(config),
@@ -1343,6 +1347,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
       await server.stop();
+      channelRuntime.close();
     },
   };
   try {
