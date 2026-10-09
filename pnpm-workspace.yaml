@@ -9,6 +9,8 @@ minimumReleaseAgeExclude:
   - "@openuidev/react-ui@0.17.1"
   - "@openuidev/react-headless@0.17.1"
   - "@openuidev/devtools@0.2.3"
+  # SDK for the reviewed, pinned E2B Embed runtime.
+  - "e2b@2.53.1"
 
 packages:
   - "apps/*"
