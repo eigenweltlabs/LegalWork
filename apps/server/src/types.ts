@@ -132,7 +132,7 @@ export interface ServerConfig {
   decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   /** In-process cloud replica hooks; never accepted from a client/config JSON. */
   cloudSync?: {
-    role?: "executor" | "files";
+    role?: "executor" | "files" | "companion";
     canExecute: () => boolean;
     prepareWorkspace: (id: string) => Promise<unknown>;
     shouldSyncFiles: (id: string) => boolean;

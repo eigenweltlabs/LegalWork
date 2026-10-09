@@ -2,6 +2,9 @@ import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
+import { CloudAssistantSetup } from "./cloud-assistant-setup.js";
+import { AssistantChannelHistory } from "./assistant-channel-history.js";
+import { registerAssistantChannelHistoryRoutes } from "./routes/assistant-channel-history.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
@@ -898,6 +901,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       create: async title => unwrapOpencodeResult(await client.session.create({ title }, { signal: AbortSignal.timeout(10000) }), "/session"),
     };
   }, () => { restartReloadWatchers(); announceSyncChange(config, "projects"); });
+  const cloudAssistantSetup = await CloudAssistantSetup.open({ config, idle: async () => {
+    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+      const statuses = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      if (Object.values(statuses).some(status => status.type !== "idle")) return false;
+    }
+    return true;
+  } });
+  const assistantChannelHistory = await AssistantChannelHistory.open(runtimeDbPath(config), { config, assistant: mainAssistant,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace),
+    enabled: () => config.cloudSync?.role === "executor" ? Promise.resolve(true) : cloudAssistantSetup.enabled(),
+    executor: Boolean(process.env.LEGALWORK_CHANNEL_IDENTITY) });
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -1059,6 +1073,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
+  registerAssistantChannelHistoryRoutes({ routes, history: assistantChannelHistory, requireClientScope, json: jsonResponse });
+  addRoute(routes, "GET", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "viewer"); return jsonResponse(await cloudAssistantSetup.status()); });
+  addRoute(routes, "POST", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.enable(), 202); });
+  addRoute(routes, "DELETE", "/assistant/cloud", "client", async ctx => { requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.disable()); });
   const channelRuntime = await registerChannelRuntimeRoutes({ config, routes, assistant: mainAssistant, delegations, schedules: scheduledTasks,
     client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: id => resolveWorkspace(config, id),
     json: jsonResponse, body: readJsonBodyLimited });
@@ -1307,6 +1325,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     }
   }
 
+  const stopAssistantChannelHistory = assistantChannelHistory.start();
   const stopPush = push.start();
   const stopMainAssistant = config.readOnly ? () => {} : mainAssistant.start(() => {
     if (config.cloudSync && !config.cloudSync.canExecute()) return Promise.resolve();
@@ -1322,6 +1341,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     stop: async () => {
       stopSandboxSettingsSync();
       agentSandbox.stop();
+      await stopAssistantChannelHistory();
+      await cloudAssistantSetup.close();
       await stopPush();
       approvals.dispose();
       stopMessageQueue(config);
