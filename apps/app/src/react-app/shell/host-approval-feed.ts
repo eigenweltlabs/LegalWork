@@ -8,11 +8,11 @@ export const hostApprovalScope = (baseUrl: string, workspaceId: string) =>
 
 /** Each host owns its credentials, snapshot and failure state. */
 export async function refreshHostApprovals(client: LegalworkServerClient | null, workspaces: RouteWorkspace[],
-  current: () => boolean, skipLocal = false) {
+  current: () => boolean) {
   const local = { localClient: client, baseUrl: client?.baseUrl, token: client?.token };
   const sources = workspaces.flatMap(workspace => {
     const endpoint = resolveWorkspaceEndpoint(workspace, local);
-    return endpoint?.client.canApprove && !(skipLocal && !endpoint.isRemote) ? [endpoint] : [];
+    return endpoint?.client.canApprove ? [endpoint] : [];
   });
   // Reuse a fetch only for the same client object. Never merge different credentials.
   const reads = new Map<LegalworkServerClient, ReturnType<LegalworkServerClient["pendingHostApprovals"]>>();

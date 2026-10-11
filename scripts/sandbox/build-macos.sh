@@ -52,8 +52,8 @@ source_archive qemu-11.1.2 https://download.qemu.org/qemu-11.1.2.tar.xz 731b5681
 ln -s "$work/sandbox-source/qemu-11.1.2" "$work/qemu-11.1.2"
 cp "$root/scripts/sandbox/qemu-aarch64.mak" "$work/qemu-11.1.2/configs/devices/aarch64-softmmu/legalwork.mak"
 cd "$work/qemu-11.1.2"
-extra=()
-if [ "$arch" = aarch64 ]; then extra+=(--without-default-devices --with-devices-aarch64=legalwork); fi
-./configure --prefix="$work/qemu" --target-list="$arch-softmmu" --without-default-features --enable-tcg --enable-hvf --enable-slirp "${extra[@]}"
+set -- --prefix="$work/qemu" --target-list="$arch-softmmu" --without-default-features --enable-tcg --enable-hvf --enable-slirp
+if [ "$arch" = aarch64 ]; then set -- "$@" --without-default-devices --with-devices-aarch64=legalwork; fi
+./configure "$@"
 make -j3
 make install

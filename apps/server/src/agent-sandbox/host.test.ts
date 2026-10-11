@@ -1,8 +1,14 @@
 import { expect, test } from "bun:test";
 import { runHostCommand } from "./host.js";
 const run = (command: string, timeoutMs = 10000, signal = new AbortController().signal) => runHostCommand({ command, cwd: process.cwd(), timeoutMs, signal });
-test("host runner uses the native shell and reports exit status", async () => {
-  expect(await run("echo native-shell; exit 7")).toMatchObject({ exitCode: 7, truncated: false });
+test("cold native shell starts and reports exit status", async () => {
+  // Windows' first PowerShell launch also initializes .NET and scans the new
+  // supervisor. Measure that separately from subsequent command deadlines.
+  const start = performance.now();
+  expect(await run("echo native-shell; exit 7", process.platform === "win32" ? 30000 : 10000)).toMatchObject({ exitCode: 7, truncated: false });
+  console.info(`Cold native shell: ${Math.round(performance.now() - start)} ms`);
+}, 35000);
+test("warm native shell executes within the normal deadline", async () => {
   expect((await run("echo native-shell")).output).toContain("native-shell");
 });
 test("host runner bounds output without blocking the child", async () => {
