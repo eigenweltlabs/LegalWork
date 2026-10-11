@@ -8,7 +8,7 @@ import { changeOrgPolicySetting } from "../../connections/org-policy";
 import { HubTabs } from "../segmented-tabs";
 import { SandboxNetworkControl, networkDescription, type NetworkMode } from "./sandbox-network-control";
 
-export function SandboxStatus({ client, canWrite = false }: { client: LegalworkServerClient; canWrite?: boolean }) {
+export function SandboxStatus({ client, canWrite = false, variant = "full" }: { client: LegalworkServerClient; canWrite?: boolean; variant?: "full" | "quick" }) {
   const cache = useQueryClient();
   const query = useQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn: () => client.sandboxStatus(), refetchInterval: 5000 });
   const status = query.data;
@@ -30,22 +30,48 @@ export function SandboxStatus({ client, canWrite = false }: { client: LegalworkS
     finally { setBusy(false); }
   };
   const Icon = status?.enabled ? Shield : ShieldOff;
+  const toggle = <fieldset disabled={disabled} className="shrink-0 disabled:opacity-50">
+    <HubTabs label={t("sandbox.title")} items={[{ id: "off", label: t("sandbox.choice_off") }, { id: "on", label: t("sandbox.choice_on") }]} value={status?.enabled ? "on" : "off"} onChange={value => { if (status) void save({ enabled: value === "on", networkMode: status.networkMode }); }} />
+  </fieldset>;
+  const policyNote = status?.policy ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <Lock className="size-3.5" aria-hidden />{t(status.policy.locked ? "sandbox.managed" : "sandbox.firm_default", { org: status.policy.orgName || t("org_policy.your_firm") })}
+  </p> : null;
+  const errorNotice = error || query.isError ? <p role="alert" className="text-sm text-destructive">{error ?? t("sandbox.status_unavailable")}</p> : null;
+  if (variant === "quick") return <section className="space-y-3" aria-label={t("sandbox.title")}>
+    <div className="divide-y divide-subtle rounded-2xl border border-subtle bg-surface shadow-xs">
+      <div className="flex items-start justify-between gap-4 px-4 py-3.5">
+        <div className="min-w-0 space-y-0.5">
+          <h3 className="text-base font-medium text-ink">{t("sandbox.title")}</h3>
+          <p className="text-sm text-subtext">{t("onboarding_permissions.sandbox_description")}</p>
+        </div>
+        {toggle}
+      </div>
+      <div className="space-y-2.5 px-4 py-3.5">
+        <div className="space-y-0.5">
+          <h4 className="text-base font-medium text-ink">{t("sandbox.network_title")}</h4>
+          <p className="text-sm text-subtext">{status?.enabled ? t("onboarding_permissions.network_description") : t("onboarding_permissions.network_disabled")}</p>
+        </div>
+        <SandboxNetworkControl value={status?.networkMode ?? "approve"} disabled={disabled || !status?.enabled} onChange={networkMode => { if (status?.enabled) void save({ enabled: true, networkMode }); }} />
+      </div>
+    </div>
+    <p className="text-xs leading-relaxed text-muted-foreground">{status?.policy?.locked ? t("sandbox.managed_scope") : t("sandbox.application_scope")}</p>
+    {policyNote}
+    {status?.enabled ? <p className="text-xs leading-relaxed text-muted-foreground">{t("onboarding_permissions.network_scope")}</p> : null}
+    {status?.enabled && !status.available ? <p className="text-sm text-muted-foreground">{t("sandbox.setup")}</p> : null}
+    {errorNotice}
+  </section>;
   return <section className="space-y-6 py-2" aria-label={t("sandbox.title")}>
     <div className="space-y-1">
       <h3 className="text-base font-medium text-foreground">{t("sandbox.title")}</h3>
       <p className="text-sm text-muted-foreground">{status?.policy?.locked ? t("sandbox.managed_scope") : t("sandbox.application_scope")}</p>
-      {status?.policy ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Lock className="size-3.5" aria-hidden />{t(status.policy.locked ? "sandbox.managed" : "sandbox.firm_default", { org: status.policy.orgName || t("org_policy.your_firm") })}
-      </p> : null}
+      {policyNote}
     </div>
     <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
       <div className="min-w-0 flex-1 basis-64 space-y-1">
         <h4 className="text-sm font-medium">{t("sandbox.execution_title")}</h4>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">{status?.enabled ? t("sandbox.description") : t("sandbox.off_description")}</p>
       </div>
-      <fieldset disabled={disabled} className="shrink-0 disabled:opacity-50">
-        <HubTabs label={t("sandbox.title")} items={[{ id: "off", label: t("sandbox.choice_off") }, { id: "on", label: t("sandbox.choice_on") }]} value={status?.enabled ? "on" : "off"} onChange={value => { if (status) void save({ enabled: value === "on", networkMode: status.networkMode }); }} />
-      </fieldset>
+      {toggle}
     </div>
     {status?.enabled ? <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
@@ -75,6 +101,6 @@ export function SandboxStatus({ client, canWrite = false }: { client: LegalworkS
       </div> : null}
       {status && !status.policy ? <p className="text-xs text-muted-foreground">{syncLabels[status.sync]}</p> : null}
     </div>
-    {error || query.isError ? <p role="alert" className="text-sm text-destructive">{error ?? t("sandbox.status_unavailable")}</p> : null}
+    {errorNotice}
   </section>;
 }

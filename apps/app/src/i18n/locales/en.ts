@@ -4094,6 +4094,10 @@ export default {
   "free_retired.dismiss": "Not now",
   // Onboarding: the tool-permissions cover (Settings -> Tool Permissions, quick)
   "onboarding_permissions.title": "Decide what needs your approval.",
+  "onboarding_permissions.sandbox_description": "Keep commands inside a protected environment. Off by default.",
+  "onboarding_permissions.network_description": "Allow connections, block them, or ask you in the chat first.",
+  "onboarding_permissions.network_disabled": "Turn on sandboxing to control internet access for commands, page reads and web searches.",
+  "onboarding_permissions.network_scope": "Covers commands, page reads and web searches. Model providers, connected apps and browser tools keep their own permissions.",
   "onboarding_permissions.subtitle":
     "LegalWork works on this computer for you. Set how much it may do on its own, and when it should ask you first.",
   "onboarding_permissions.panel_eyebrow": "Always your call",

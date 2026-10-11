@@ -4380,6 +4380,10 @@ const de = {
   "free_retired.cta": "Kostenlose Testphase starten",
   "free_retired.dismiss": "Nicht jetzt",
   "onboarding_permissions.title": "Entscheiden Sie, was Ihre Freigabe braucht.",
+  "onboarding_permissions.sandbox_description": "Befehle in einer geschützten Umgebung ausführen. Standardmäßig aus.",
+  "onboarding_permissions.network_description": "Verbindungen erlauben, blockieren oder vorher im Chat nachfragen.",
+  "onboarding_permissions.network_disabled": "Aktivieren Sie die Sandbox, um den Internetzugriff für Befehle, Webseiten und Websuchen zu steuern.",
+  "onboarding_permissions.network_scope": "Gilt für Befehle, Webseiten und Websuchen. Modellanbieter, verbundene Apps und Browser-Tools behalten ihre eigenen Berechtigungen.",
   "onboarding_permissions.subtitle":
     "LegalWork arbeitet auf diesem Computer für Sie. Legen Sie fest, wie viel es eigenständig tun darf und wann es vorher nachfragen soll.",
   "onboarding_permissions.panel_eyebrow": "Sie entscheiden",

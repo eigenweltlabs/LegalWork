@@ -67,7 +67,7 @@ export type ToolPermissionsPanelProps = {
   onConfigUpdated: () => void;
   /**
    * "full" (default) is the settings screen. "quick" is the onboarding step:
-   * the three safety switches only, under the step's own heading — the
+   * sandbox defaults and safety switches, under the step's own heading. The
    * per-tool and pattern rules would push the step's action off-screen, and
    * they stay one click away in Settings.
    */
@@ -368,7 +368,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
-      {!quick && props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} /> : null}
+      {props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} variant={props.variant} /> : null}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>
@@ -388,6 +388,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
       ) : (
         <>
           {/* Quick safety toggles */}
+          {quick && firmTools ? <OrgPolicyNote policyKey="tools.permissions" locked={FIRM_TOOLS_TEXT[firmTools]} /> : null}
           <PermissionGroup>
             {QUICK_TOGGLES.map((toggle) => (
               <PermissionRow

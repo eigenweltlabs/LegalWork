@@ -42,6 +42,17 @@ test("network settings API authenticates, validates, persists and respects read-
     expect((await patch({ mode: "allow" })).status).toBe(401);
     expect((await patch({ mode: "allow" }, "client")).status).toBe(401);
     expect(await (await fetch(base + "/sandbox/status", { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, supported: true, available: null, networkMode: "approve" });
+    // Updating an existing profile must not turn an old network preference
+    // or tool permission into consent to enable sandboxing.
+    for (const networkMode of networkModeSchema.options) {
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({
+        permission: { bash: "allow", edit: "ask" }, sandboxNetworkMode: networkMode,
+      }));
+      expect(await (await fetch(base + "/sandbox/status", { headers: hostHeaders })).json()).toMatchObject({
+        enabled: false, available: null, networkMode,
+      });
+    }
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({}));
     expect((await fetch(base + "/sandbox/settings", { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ enabled: true, networkMode: "block" }) })).status).toBe(401);
     const issued = await fetch(base + "/tokens", { method: "POST", headers: hostHeaders, body: JSON.stringify({ scope: "viewer", label: "network-policy-test" }) });
     expect(issued.status).toBe(201);
