@@ -1,3 +1,10 @@
+/** Windows PowerShell started through Node/Bun otherwise inherits PowerShell
+ * 7's incompatible module paths. Let it reconstruct its native defaults.
+ * https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_psmodulepath#starting-windows-powershell-from-powershell-7 */
+export function windowsHostEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => name.toLowerCase() !== "psmodulepath"));
+}
+
 /** The bundled native supervisor owns descendant cleanup. Keep error status
  * in the command's own scope because PowerShell resets $? after script blocks. */
 export function windowsHostScript(command: string): string {

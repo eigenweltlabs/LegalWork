@@ -11,6 +11,19 @@ test("cold native shell starts and reports exit status", async () => {
 test("warm native shell executes within the normal deadline", async () => {
   expect((await run("echo native-shell")).output).toContain("native-shell");
 });
+test.skipIf(process.platform !== "win32")("native cmdlets work when launched from a PowerShell 7 environment", async () => {
+  const original = process.env.PSModulePath;
+  process.env.PSModulePath = "C:\\LEGALWORK_INCOMPATIBLE_PS7_MODULES";
+  try {
+    const result = await run("if ($env:PSModulePath.Contains('LEGALWORK_INCOMPATIBLE_PS7_MODULES')) { exit 99 }; Write-Output 'native-modules'; Get-Item . | Out-Null");
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("native-modules");
+    expect(process.env.PSModulePath).toBe("C:\\LEGALWORK_INCOMPATIBLE_PS7_MODULES");
+  } finally {
+    if (original === undefined) delete process.env.PSModulePath;
+    else process.env.PSModulePath = original;
+  }
+});
 test("host runner bounds output without blocking the child", async () => {
   const command = process.platform === "win32" ? "[Console]::Write('x' * 2000000)" : "head -c 2000000 /dev/zero";
   const result = await run(command);

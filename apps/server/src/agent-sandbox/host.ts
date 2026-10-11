@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stopHostProcessTree } from "./host-processes.js";
-import { windowsHostScript } from "./host-windows.js";
+import { windowsHostEnvironment, windowsHostScript } from "./host-windows.js";
 import { spawn } from "node:child_process";
 import { sandboxResources, type SandboxResult } from "./vm.js";
 
@@ -21,7 +21,8 @@ export async function runHostCommand(input: { command: string; cwd: string; time
     return await new Promise<SandboxResult>((resolve, reject) => {
       const child = spawn(windows ? join(sandboxResources(), "legalwork-host.exe") : "/bin/bash", windows
         ? [script]
-        : ["-c", input.command], { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: !windows });
+        : ["-c", input.command], { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: !windows,
+          env: windows ? windowsHostEnvironment(process.env) : process.env });
       const chunks: Buffer[] = [];
       let size = 0, truncated = false, finished = false;
       let failure: Error | undefined;
