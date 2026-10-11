@@ -403,6 +403,30 @@ describe("draft safety", () => {
 });
 
 describe("restoration and repeated moves", () => {
+  test("a fresh wiki inherits no tabs and two wikis restore independent layouts", async () => {
+    const first = "workspace:wiki-first", second = "workspace:wiki-second";
+    const firstPage = wikiPanelTab("local", "wiki-first", { kind: "page", path: "Wiki.md" }, "Firm knowledge");
+    const secondPage = wikiPanelTab("local", "wiki-second", { kind: "page", path: "Wiki.md" }, "Firm knowledge");
+    store().openTab(first, firstPage, "main");
+    store().openTab(first, document("Contract.docx"), "main", "right");
+    store().migrateWorkspace("wiki-second");
+    expect(store().sessions[second]?.tabs ?? []).toEqual([]);
+    store().openTab(second, secondPage);
+    store().adoptChat(second, "second-chat", "New wiki chat", { preserveLayout: true });
+    const firstLayout = store().sessions[first], secondLayout = store().sessions[second];
+    expect(firstLayout.panes).toHaveLength(2);
+    expect(secondLayout.panes).toHaveLength(1);
+    expect(secondLayout.tabs.map(tab => tab.id)).toEqual([secondPage.id, "chat:second-chat"]);
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(store().sessions[first]).toEqual(firstLayout);
+    expect(store().sessions[second]).toEqual(secondLayout);
+    store().closeTab(second, secondPage.id);
+    expect(store().sessions[first]).toEqual(firstLayout);
+  });
+
   test("wiki pages, views, graph and chats survive reload with their own workspace layout", async () => {
     const scope = "workspace:wiki-one";
     const page = wikiPanelTab("local", "wiki-one", { kind: "page", path: "Clients/Acme.md", anchor: "sources", mode: "source" }, "Acme");

@@ -24,6 +24,23 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("wikis with the same name own distinct workspaces and retain them after rename and reopen", async () => {
+    const { store, config } = await fixture();
+    const first = await store.create({ name: "Firm knowledge" });
+    const second = await store.create({ name: "Firm knowledge" });
+    expect(second.workspaceId).not.toBe(first.workspaceId);
+    expect(second.root).not.toBe(first.root);
+    for (const wiki of [first, second]) {
+      expect(config.workspaces.find(item => item.id === wiki.workspaceId)).toMatchObject({ path: wiki.root, preset: "wiki" });
+    }
+    await store.update(first.id, { name: "Renamed firm knowledge" });
+    expect((await store.get(first.id)).workspaceId).toBe(first.workspaceId);
+    await store.close();
+    const reopened = new WikiStore(config);
+    stores.push(reopened);
+    expect((await reopened.list()).map(wiki => wiki.workspaceId)).toEqual([first.workspaceId, second.workspaceId]);
+  });
+
   test("external agent batches update the watched tree, relations and indexed fields without a manual refresh", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Import", template: "firm" });
     const before = (await store.graph(wiki.id, undefined, true)).revision;

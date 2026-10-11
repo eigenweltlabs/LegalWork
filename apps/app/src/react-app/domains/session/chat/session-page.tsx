@@ -1413,6 +1413,7 @@ export function SessionPage(props: SessionPageProps) {
         <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
+            key={workspaceScope}
             orientation="horizontal"
             className="lw-workspace-surface min-h-0 flex-1"
           >
