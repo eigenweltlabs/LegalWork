@@ -4,7 +4,7 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
-import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
@@ -2056,6 +2056,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             workspaceId={props.workspaceId}
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            limit={parseProviderUsageLimit(error)?.limit ?? (props.selectedModel.providerID === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null)}
                             onChoosePlan={props.onChooseAiPlan}
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;

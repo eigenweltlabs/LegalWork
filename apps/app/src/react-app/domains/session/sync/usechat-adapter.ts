@@ -17,7 +17,7 @@ import {
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
 import { t } from "@/i18n";
-import { isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -76,6 +76,8 @@ function describeErrorText(text: string) {
 }
 
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed", providerId?: string) {
+  const limit = providerId === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null;
+  if (limit) return providerUsageLimitErrorText("eigenwelt", limit);
   if (isAnthropicUsageLimitError(error)) return providerUsageLimitErrorText(providerId ?? "anthropic");
   if (error instanceof Error) return describeErrorText(error.message || fallback);
   if (typeof error === "string") return describeErrorText(error.trim() || fallback);
