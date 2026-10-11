@@ -32,7 +32,6 @@ async (page) => {
   await markdown.press("Enter");
   await markdown.pressSequentially("Saved automatically from the Markdown editor.");
   await until(async () => (await read("Notes.md")).content.includes("Saved automatically from the Markdown editor."));
-  await page.screenshot({ path: "output/playwright/markdown-autosave.png" });
   results.push("Markdown autosave defaults on and writes to the real file API");
 
   await tab("Plain.txt");
@@ -83,7 +82,6 @@ async (page) => {
   assert((await read("Plain.txt")).content === "Concurrent edit on disk.\n", "Conflict overwrote concurrent disk changes");
   assert((await text.innerText()).includes("Conflicting local edit"), "Conflict lost the draft");
   page.off("request", countWrites);
-  await page.screenshot({ path: "output/playwright/text-autosave-conflict.png" });
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   results.push("Conflicts retain the text draft and disk content, and pause automatic retries");
 
@@ -92,7 +90,6 @@ async (page) => {
   await json.fill('{\n  "name": "LegalWork",\n  "enabled":\n}\n');
   await page.getByRole("button", { name: /syntax issue/ }).waitFor();
   await page.getByRole("button", { name: /syntax issue/ }).click();
-  await page.screenshot({ path: "output/playwright/code-editor-diagnostics.png" });
   await json.fill('{\n  "name": "LegalWork",\n  "enabled": true\n}\n');
   await page.getByRole("button", { name: "No syntax errors", exact: true }).waitFor();
   await until(async () => (await read("config.json")).content.includes('"enabled": true'));
@@ -104,7 +101,6 @@ async (page) => {
   await tab("matter.ts");
   await page.getByRole("textbox", { name: "Edit matter.ts" }).waitFor();
   await page.getByRole("button", { name: "Dark theme", exact: true }).click();
-  await page.screenshot({ path: "output/playwright/code-editor-dark.png" });
   await page.getByRole("button", { name: "Light theme", exact: true }).click();
   assert(external.length === 0, `Editor requested external resources: ${external.join(", ")}`);
   results.push("Python and TypeScript render in light/dark themes without external resource requests");

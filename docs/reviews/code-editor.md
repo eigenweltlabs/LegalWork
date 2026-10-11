@@ -30,22 +30,9 @@ PORT=5184 LEGALWORK_VISUAL_PREVIEW=1 pnpm --filter @legalwork/app dev
 Open `http://localhost:5184/code-editor-review.html`. The server prints its disposable workspace location. To replay the browser checks from a fresh browser session:
 
 ```sh
-mkdir -p output/playwright
 pnpm dlx @playwright/cli --session code-editor-review open http://localhost:5184/code-editor-review.html
 pnpm dlx @playwright/cli --session code-editor-review resize 1440 960
 pnpm dlx @playwright/cli --session code-editor-review run-code --filename apps/app/scripts/code-editor-review-checks.js
 ```
 
 The conflict scenario deliberately generates a 409 response. Use a fresh disposable server and browser session for a new replay.
-
-## Screenshots
-
-![TypeScript editor with autosave enabled](code-editor/code-editor-light.png)
-
-![TypeScript editor in dark theme](code-editor/code-editor-dark.png)
-
-![Inline JSON syntax diagnostics](code-editor/code-editor-diagnostics.png)
-
-![Markdown saved automatically](code-editor/markdown-autosave.png)
-
-![Text conflict retains the draft and pauses autosave](code-editor/text-autosave-conflict.png)
