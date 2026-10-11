@@ -1,14 +1,11 @@
-import type { PluginImportProvider } from "@legalwork/types/plugin-import";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
-import { Blocks, Cpu, HardDrive, Plug, RefreshCw, type LucideIcon } from "lucide-react";
+import { Blocks, Cpu, Download, HardDrive, Plug, RefreshCw, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
-import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
-import claudeLogo from "@/assets/claude-logo.svg";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
@@ -84,7 +81,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       : props.initialSection === "skills"
         ? "skills"
         : "connectors";
-  const [importProvider, setImportProvider] = useState<PluginImportProvider | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   useEffect(() => setTab(initialTab), [initialTab]);
@@ -107,12 +104,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       {props.showHeader !== false ? <SectionHeading size="page" title={t("extensions.eyebrow_integrations")} description={t("integrations.description")} action={
         <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw /></Button>
       } /> : null}
-      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
+      {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border">
         <div role="group" aria-label={t("extensions.eyebrow_integrations")} className="flex flex-wrap gap-5">
           {TABS.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => selectTab(id)} className={`inline-flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${tab === id ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}><Icon className="size-4" />{label}</button>)}
         </div>
         <div className="flex flex-wrap items-center gap-2 pb-2">
+          {hubScope === "local" && tab !== "storage" && props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-4" />{t("integrations.import_action")}</Button> : null}
           {teamHub || tab === "storage" ? <HubScopeToggle scope={hubScope} onChange={setHubScope} /> : null}
           {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button size="sm" variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}
           {props.showHeader === false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw /></Button> : null}
@@ -143,13 +141,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         />
       ) : null}
       </HubScopeContext.Provider>
-      {hubScope === "local" && tab !== "storage" && props.pluginImports ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
-        <div className="min-w-0"><p className="text-sm font-medium">{t("integrations.import_title")}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("integrations.import_description")}</p></div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("chatgpt")}><ChatGptLogo className="size-4" />{t("extensions.import_chatgpt")}</Button>
-          <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("claude")}><img src={claudeLogo} alt="" aria-hidden="true" width={16} height={16} className="size-4 shrink-0" />{t("extensions.import_claude")}</Button>
-        </div>
-      </div> : null}
     </section>
   );
 }

@@ -1,12 +1,12 @@
 # Import ChatGPT and Claude plugins
 
-On **Integrations**, choose **Import from ChatGPT** or **Import from Claude**. The dialog first shows a searchable list of plugins, skills and standalone MCP connectors found on this computer, using display names and descriptions from package metadata. **All / Plugins / Skills / Connectors** filters sit below the search field and work together with search; returning from a preview keeps both selections. Duplicate versions appear as one row, with other copies available in the source details. You can also choose a complete folder or ZIP with the native file picker. Selecting a source opens a separate review of its skills, connectors, agents, commands and compatibility notices before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
+On **Integrations**, choose **Import** in the top toolbar, then select **ChatGPT** or **Claude** in the provider chooser. Both choices show their logos. **Change app** returns to the chooser. The next dialog shows a searchable list of plugins, skills and standalone MCP connectors found on this computer, using display names and descriptions from package metadata. **All / Plugins / Skills / Connectors** filters sit below the search field and work together with search; returning from a preview keeps both selections. Duplicate versions appear as one row, with other copies available in the source details. You can also choose a complete folder or ZIP with the native file picker. Selecting a source opens a separate review of its skills, connectors, agents, commands and compatibility notices before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
 
 Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
 
 ## Integration libraries
 
-The Integrations page keeps **Connectors / Skills / Data storage** separate, with a shared header, category navigation, search and readable lists. Local/Team remains a library scope, not a project-scoped plugin setting. The ChatGPT and Claude import buttons keep their logos and sit below the connector/skill library so existing items take priority.
+The Integrations page keeps **Connectors / Skills / Data storage** separate, with a shared header, category navigation, search and readable lists. Local/Team remains a library scope, not a project-scoped plugin setting. A single Import action in the top toolbar opens a ChatGPT/Claude chooser with both logos. The Skills page labels its separate folder/ZIP action Import skills. The former import footer is removed.
 
 - **Connectors:** saved connections and active built-in tools appear first; ready items precede paused/offline items. Paused connectors remain available to enable or inspect. Browse directory opens a separate, searchable catalog with All / Services / LegalWork tools filters. Closing a detail returns to the same directory search. Technical setup stays in details. Own connectors, sign-in, removal, sharing, policy restrictions and read-only global configuration retain the existing behavior.
 - **Skills:** the complete installed library uses compact rows with a management menu for editing, exporting, sharing and removal. All skills / Your skills / Included / Imported packages filters separate skill use from package management. Search includes readable imported names, descriptions and built-in commands. Ordinary skills no longer inherit the eight-item workflow page limit; workflows retain pagination. Package loading and failures have explicit states.
@@ -78,7 +78,9 @@ Native Electron verification found existing installations for both providers, fi
 
 ## Library redesign verification
 
-![Connected-first connector library in Electron](images/integrations-connectors-library.png)
+![Single import action and connected-first connector library in Electron](images/integrations-connectors-library.png)
+
+![ChatGPT and Claude provider chooser in Electron](images/integrations-import-chooser.png)
 
 ![Skills library in Electron](images/integrations-skills-library.png)
 
@@ -89,3 +91,5 @@ Native Electron verification found existing installations for both providers, fi
 ![Storage provider picker in Electron](images/integrations-storage-picker.png)
 
 Native Electron checks cover tab navigation, connector search and clear, directory filters/search/detail return, custom connector setup, skills search by a built-in command and imported name, the management menu and editor, package filtering, storage provider search, configuration and Change provider. These checks did not add or remove a real connection. The application suite passed 940 tests; the final focused library/setup/import suite passed 20 tests. App type checking, production build and the English/German translation check passed. Regression coverage includes libraries with more than eight ordinary skills, built-in command search, configured connector ordering, read-only global connectors, separate provider discovery, and local/team storage membership.
+
+Import chooser follow-up: the single top-toolbar action and branded provider chooser were checked in Electron, including entry into ChatGPT discovery and component review. `pnpm --filter @legalwork/app exec bun test tests/plugin-import-buttons.test.tsx tests/plugin-import-presentation.test.ts tests/integration-libraries.test.tsx tests/mcp-library.test.tsx` passed 15 tests. App type checking, production build and the locale check passed (5,723 keys per language).

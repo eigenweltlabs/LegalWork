@@ -10,12 +10,16 @@ const props: ExtensionsViewProps = {
 };
 test("plugin imports are available on Extensions without enabling developer mode", () => {
   const html = renderToStaticMarkup(<ExtensionsView {...props} />);
-  expect(html).toContain("Import from ChatGPT"); expect(html).toContain("Import from Claude");
+  const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?>Import<\/button>/g) ?? [];
+  expect(importButtons).toHaveLength(1);
+  expect(importButtons[0]).not.toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
+  expect(html).not.toContain("Import from ChatGPT");
+  expect(html).not.toContain("Import from Claude");
   expect(html).not.toContain("Engine plugins");
 });
 test("read-only clients keep visible but disabled import actions", () => {
   const html = renderToStaticMarkup(<ExtensionsView {...props} canEditPlugins={false} />);
-  const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*Import from (?:ChatGPT|Claude)<\/button>/g) ?? [];
-  expect(importButtons).toHaveLength(2);
-  for (const button of importButtons) expect(button).toMatch(/^<button[^>]+disabled/);
+  const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?>Import<\/button>/g) ?? [];
+  expect(importButtons).toHaveLength(1);
+  for (const button of importButtons) expect(button).toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
 });

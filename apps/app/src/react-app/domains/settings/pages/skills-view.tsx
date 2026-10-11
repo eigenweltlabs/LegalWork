@@ -1833,7 +1833,7 @@ export function ImportSkillsButton(props: {
         disabled={props.busy}
       >
         <Download size={14} />
-        {t("skills.import")}
+        {t(asWorkflow ? "skills.import" : "skills.import_skills_title")}
       </Button>
       <Dialog
         open={open}

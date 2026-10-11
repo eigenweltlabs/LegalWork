@@ -26,7 +26,8 @@ const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal
 const componentTitle = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "skills.title" : type === "mcp" ? "extensions.connectors_label" : type === "agent" ? "composer.agents_label" : "dashboard.commands");
 
-export function PluginImportDialog(props: { provider: PluginImportProvider; store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void }) {
+export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void }) {
+  const [provider, setProvider] = useState<PluginImportProvider | null>(null);
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
   const [discovering, setDiscovering] = useState(true);
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
@@ -55,15 +56,25 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
 
   useEffect(() => {
     mounted.current = true;
+    if (!provider) return;
     let cancelled = false;
     setDiscovering(true);
     setDiscoveryFailed(false);
-    props.store.discoverPluginImports(props.provider)
+    props.store.discoverPluginImports(provider)
       .then(items => { if (!cancelled) setCandidates(items); })
       .catch(() => { if (!cancelled) setDiscoveryFailed(true); })
       .finally(() => { if (!cancelled) setDiscovering(false); });
     return () => { cancelled = true; mounted.current = false; };
-  }, [props.provider, props.store, discoveryRevision]);
+  }, [provider, props.store, discoveryRevision]);
+
+  useEffect(() => {
+    setCandidates([]);
+    setPreviews([]);
+    setSource(null);
+    setError(null);
+    setQuery("");
+    setFilter("all");
+  }, [provider]);
 
   const preview = async (nextSource: PluginImportSource, label: string) => {
     setBusy(true);
@@ -85,18 +96,19 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
   };
 
   const chooseFolder = async () => {
+    if (!provider) return;
     if (!isDesktopRuntime()) { folderInput.current?.click(); return; }
     try {
       const folder = await pickDirectory({ title: t("extensions.import_choose_folder") });
       if (typeof folder === "string") {
         setCopies([]);
-        await preview({ provider: props.provider, path: folder }, folder.split(/[\\/]/).pop() || t("extensions.import_unnamed"));
+        await preview({ provider, path: folder }, folder.split(/[\\/]/).pop() || t("extensions.import_unnamed"));
       }
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); }
   };
 
   const upload = async (files: FileList | null, folder: boolean) => {
-    if (!files?.length) return;
+    if (!provider || !files?.length) return;
     const entries = Array.from(files);
     const label = entries[0].name;
     setBusy(true);
@@ -119,7 +131,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
         for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
         zipBase64 = btoa(binary);
       }
-      if (mounted.current) await preview({ provider: props.provider, zipBase64 }, label);
+      if (mounted.current) await preview({ provider, zipBase64 }, label);
     } catch (cause) {
       if (mounted.current) { setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); setBusy(false); setStep("choose"); }
     }
@@ -139,11 +151,19 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
   };
 
   return <Dialog open onOpenChange={open => { if (!open && !installing) props.onClose(); }}>
-    <DialogContent className="flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 sm:max-w-2xl" showCloseButton={!installing}>
+    <DialogContent className={provider ? "flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 sm:max-w-2xl" : "bg-background"} showCloseButton={!installing}>
+      {provider === null ? <>
+        <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t("integrations.import_choose_provider")}</DialogDescription></DialogHeader>
+        <div className="space-y-3">
+          <Button autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+        </div>
+      </> : <>
       <DialogHeader className="shrink-0 px-6 pb-5 pt-6">
+        {step === "choose" ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" disabled={busy} onClick={() => setProvider(null)}><ArrowLeft className="size-3.5" />{t("integrations.change_import_provider")}</Button> : null}
         <div className="mb-1 flex items-center gap-2.5 pe-8">
-          {props.provider === "chatgpt" ? <ChatGptLogo className="size-6 shrink-0" /> : <img src={claudeLogo} alt="" className="size-6 shrink-0" />}
-          <DialogTitle>{t(props.provider === "chatgpt" ? "extensions.import_chatgpt" : "extensions.import_claude")}</DialogTitle>
+          {provider === "chatgpt" ? <ChatGptLogo className="size-6 shrink-0" /> : <img src={claudeLogo} alt="" className="size-6 shrink-0" />}
+          <DialogTitle>{t(provider === "chatgpt" ? "extensions.import_chatgpt" : "extensions.import_claude")}</DialogTitle>
         </div>
         <DialogDescription>{t(step === "choose" ? "extensions.import_description" : "extensions.import_review_description")}</DialogDescription>
       </DialogHeader>
@@ -175,7 +195,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
               : filtered.length ? <div className="divide-y divide-border">{filtered.map(group => {
                 const item = group.candidate;
                 const Icon = item.kind === "connector" ? Plug : item.kind === "skill" ? Blocks : Package;
-                return <Button key={pluginImportCandidateKey(item)} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider: props.provider, path: item.path, connector: item.connector }, pluginImportName(item)); }}>
+                return <Button key={pluginImportCandidateKey(item)} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider, path: item.path, connector: item.connector }, pluginImportName(item)); }}>
                   <Icon className="size-5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.kind === "connector" ? `${t("extensions.connectors_label")} · ` : ""}{item.description || t(item.kind === "skill" ? "extensions.import_skill" : "extensions.import_plugin")}</span></span>
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
@@ -199,7 +219,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
             })}
           </div> : null}
           {selected.warnings.length ? <details className="rounded-xl border border-border bg-muted/30 px-4 py-3"><summary className="cursor-pointer text-sm font-medium"><span className="inline-flex items-center gap-2"><TriangleAlert className="size-4 text-amber-11" />{t("extensions.import_compatibility", { count: selected.warnings.length })}</span></summary><ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-relaxed text-muted-foreground">{selected.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details> : null}
-          <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">{t("extensions.import_details")}</summary><div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3"><p className="break-all text-xs text-muted-foreground">{source && "path" in source ? source.path : sourceLabel}</p><p className="text-xs text-muted-foreground">{t("extensions.import_file_count", { count: selected.fileCount })} · {(selected.bytes / 1024 / 1024).toFixed(1)} MB</p><p className="text-xs leading-relaxed text-muted-foreground">{t(selected.format === "connectors" ? "extensions.import_connector_resources" : "extensions.import_resources")}</p>{copies.length > 1 ? <div className="space-y-2"><p className="text-xs font-medium">{t("extensions.import_other_copies")}</p>{copies.map(copy => <Button key={copy.path} variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal text-start" disabled={installing} aria-pressed={source !== null && "path" in source && source.path === copy.path} onClick={() => void preview({ provider: props.provider, path: copy.path }, pluginImportName(copy))}><span className="min-w-0"><span className="block">{copy.version || pluginImportName(copy)}</span><span className="block break-all text-xs text-muted-foreground">{copy.path}</span></span></Button>)}</div> : null}</div></details>
+          <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">{t("extensions.import_details")}</summary><div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3"><p className="break-all text-xs text-muted-foreground">{source && "path" in source ? source.path : sourceLabel}</p><p className="text-xs text-muted-foreground">{t("extensions.import_file_count", { count: selected.fileCount })} · {(selected.bytes / 1024 / 1024).toFixed(1)} MB</p><p className="text-xs leading-relaxed text-muted-foreground">{t(selected.format === "connectors" ? "extensions.import_connector_resources" : "extensions.import_resources")}</p>{copies.length > 1 ? <div className="space-y-2"><p className="text-xs font-medium">{t("extensions.import_other_copies")}</p>{copies.map(copy => <Button key={copy.path} variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal text-start" disabled={installing} aria-pressed={source !== null && "path" in source && source.path === copy.path} onClick={() => void preview({ provider, path: copy.path }, pluginImportName(copy))}><span className="min-w-0"><span className="block">{copy.version || pluginImportName(copy)}</span><span className="block break-all text-xs text-muted-foreground">{copy.path}</span></span></Button>)}</div> : null}</div></details>
         </> : null}
         {error ? <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
       </div>
@@ -210,6 +230,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Layers className="size-3.5" />{t("extensions.import_all_projects")}</span>
         {step === "choose" ? <Button variant="outline" onClick={props.onClose}>{t("common.close")}</Button> : <div className="flex items-center gap-2"><Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !selected || !source} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : "extensions.import_install")}</Button></div>}
       </DialogFooter>
+      </>}
     </DialogContent>
   </Dialog>;
 }
