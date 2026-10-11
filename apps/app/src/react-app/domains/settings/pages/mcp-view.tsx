@@ -41,7 +41,7 @@ import {
   normalizeMcpSlug,
 } from "../../../../app/mcp";
 import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
-import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
+import { isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { pluginImportConnectorName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
@@ -644,7 +644,6 @@ export function McpView(props: McpViewProps) {
         directoryEntry={resolveQuickConnectMatch}
         onEntryDetail={openEntryDetails}
         statuses={props.mcpStatuses}
-        lastUpdatedAt={props.mcpLastUpdatedAt}
         selectedMcp={props.selectedMcp}
         busy={props.busy}
         logoutBusy={logoutBusy}
@@ -1193,7 +1192,6 @@ function McpConfiguredServersSection(props: {
   directoryEntry: (name: string) => McpDirectoryInfo | undefined;
   onEntryDetail: (entry: McpDirectoryInfo) => void;
   statuses: McpStatusMap;
-  lastUpdatedAt: number | null;
   selectedMcp: string | null;
   busy: boolean;
   logoutBusy: boolean;
@@ -1220,9 +1218,7 @@ function McpConfiguredServersSection(props: {
   rows.sort((a, b) => Number(connected(b)) - Number(connected(a)));
   return (
     <div className="space-y-4">
-      <IntegrationGroupHeading title={t("mcp.your_apps")} count={rows.length}>
-        {props.lastUpdatedAt ? <span className="text-xs text-muted-foreground">{t("mcp.last_synced")} {formatRelativeTime(props.lastUpdatedAt)}</span> : null}
-      </IntegrationGroupHeading>
+      <IntegrationGroupHeading title={t("mcp.your_apps")} count={rows.length} />
 
       {rows.length ? (
         <div className="divide-y divide-border/60">
