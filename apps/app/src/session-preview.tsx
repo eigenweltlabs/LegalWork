@@ -193,6 +193,13 @@ if (subagentApprovals) {
       patterns: ["/Shared/Client precedents/*"], metadata: { path: "/Shared/Client precedents", description: "Read the precedents used for this review" }, always: [],
     }]);
   }
+  for (const { id, title, running } of [
+    { id: "visual-drafting", title: "Draft review summary", running: true },
+    { id: "visual-completed", title: "Check liability clauses", running: false },
+  ]) {
+    const item = snapshot(id, title, running ? undefined : "Check the liability clauses.");
+    saveSnapshot({ ...item, session: { ...item.session, parentID: "visual-review" }, status: { type: running ? "busy" : "idle" } });
+  }
   seedQuestionState(workspace.id, "visual-reference", [{
     id: "reference-question", sessionID: "visual-reference", questions: [{
       header: "Reference version", question: "Which policy version should I use for the comparison?",
