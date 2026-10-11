@@ -30,3 +30,8 @@ test("bundled stock components render a report without a provider or network", (
   expect(html).not.toContain("<iframe");
   expect(html).not.toContain("cdn.jsdelivr");
 });
+test("board lifecycle order is explicit and columns have separately scrolling card lists", () => {
+  const html = renderToStaticMarkup(<OpenUIView program={'root = Board([{title:"Existing",stage:"Active"},{title:"New",stage:"Prospect"}],"stage","title",[],["Prospect","Active"])'} />);
+  expect(html.indexOf("Prospect")).toBeLessThan(html.indexOf("Active"));
+  expect(html).toContain("lw-view-board-items");
+});

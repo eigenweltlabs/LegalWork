@@ -51,6 +51,7 @@ const ArtifactPptxEditor = lazy(() => import("./artifact-pptx-editor").then((mod
 const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((module) => ({ default: module.ArtifactXlsxEditor })));
 
 const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").then((module) => ({ default: module.ArtifactMarkdownPanel })));
+const ViewFilePanel = lazy(() => import("../../views/view-file-panel").then(module => ({ default: module.ViewFilePanel })));
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
@@ -158,6 +159,8 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   if (tab.reviewRecognition) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
     <ReviewRecognitionPanel client={client} workspaceId={workspaceId} reference={tab.reviewRecognition} name={tab.label} onClose={onClose} />
   </Suspense></OfficeEditorBoundary>;
+
+  if (target.preview === "view") return <Suspense fallback={<PreviewLoading />}><ViewFilePanel client={client} workspaceId={workspaceId} path={target.value} tabId={tab.id} /></Suspense>;
 
   if (target.preview === "markdown") {
     return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>

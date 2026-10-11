@@ -17,6 +17,7 @@ describe("saved view records", () => {
     const saved = await repository().create(input);
     expect(await repository().read(saved.id)).toEqual(saved);
     await rename(join(root, "Views", `${saved.id}.view.json`), join(root, "Renamed.view.json"));
+    expect((await repository().list()).items[0].path).toBe("Renamed.view.json");
     const next = await repository().update(saved.id, { ...input, title: "Renamed report" }, saved.revision);
     expect(next.id).toBe(saved.id);
     expect(next.datasets).toEqual(input.datasets);

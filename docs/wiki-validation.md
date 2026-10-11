@@ -2,6 +2,24 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Demo, page UI, view files and agent write boundaries (2026-10-11)
+
+- Seeded **Northstar Law Demo** with 50 clients, 150 matters, 12 processes and four template pages with adjacent DOCX documents. Three live dashboards and wiki/project frozen reports use the real typed query implementation. Exact totals and four copyable agent prompts are in [demo flows](wiki-demo-flows.md).
+- Removed the persistent Markdown toolbar, replaced the vendor image dialog with the app dialog, and aligned page content and properties. Native Electron verified image insertion, dashboard source navigation, the editable Word template tab, and searchable multi-page metadata selection/removal. Metadata link values contribute graph edges; ordinary stage strings do not.
+- Dashboard/report `.view.json` files now open their dedicated viewer from wiki and project file trees. Generation previews have their own temporary tab and resolve to the saved file in place. Unit tests cover incomplete input, successful save, failure, duplicate saved tabs and persistence. Native Electron verified full-tab/embedded data and wiki tab restoration after restarting.
+- Project-agent wiki writes always request a fresh approval in the originating chat, including when ordinary approvals are automatic. Tests cover page/property/view writes, deletes, refusal, disconnect/timeout, incorrect session/workspace, actor downgrade and revoked wiki access. Reads use authorized wiki tools without approval. Delegated agents inherit live scope through engine-verified ancestry, never caller-supplied parent claims.
+- Bundled file tools block direct cross-wiki reads/writes and runtime/configuration bypasses. Unsandboxed host shell execution is blocked when external wikis require protection; sandbox mounts keep those wikis read-only. These guards do not turn arbitrary host-loaded third-party plugins, formatters or language servers into an OS sandbox.
+- Real HTTP regressions exposed and fixed Bun cancellation behavior, long approval waits and transport limits for supported wiki uploads. The Electron Node adapter remains in use on desktop.
+- A real model test was attempted at 19:25 UTC. The configured OpenAI API returned **“You have no credits remaining. Add credits to continue using the API”**, with zero input/output tokens and no tool calls. Model-generated streaming cadence, model-triggered native approvals and the four prompts' model execution remain unverified. The seeded programs, production query/renderer path and authenticated tool/HTTP approval behavior are tested; no provider was changed and no billing action was taken.
+
+| Command | Result |
+| --- | --- |
+| `pnpm --filter @legalwork/app test` | 1,276 passed, 0 failed, 199 files |
+| `pnpm exec bun test apps/server/src/wiki apps/server/src/views apps/server/src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts apps/server/src/agent-sandbox/files.test.ts apps/server/src/agent-sandbox/service.test.ts apps/server/src/agent-sandbox/network.test.ts apps/server/src/serve-node.test.ts apps/server/scripts/fixtures/law-firm-wiki.test.ts packages/openui/src/catalog.test.tsx packages/openui/src/law-firm-demo.test.tsx` | 215 passed, 0 failed, 1,667 assertions |
+| App/server typechecks and production builds | Passed; existing app chunk-size notices remain |
+| `pnpm --filter @legalwork/app test:i18n` | 6,227 complete keys per shipped language |
+| `git diff --check` | Passed |
+
 ## OpenUI experiment and final technical checks (2026-10-11)
 
 The OpenUI layer is a separate commit above the wiki workspace/editor/graph baseline. Reverting that layer removes its UI, typed view/query tools and bundled dependencies without reverting the baseline. Existing Markdown and saved view files are not migrated or deleted.

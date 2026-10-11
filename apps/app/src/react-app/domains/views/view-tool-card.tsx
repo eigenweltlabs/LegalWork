@@ -1,42 +1,48 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parsePartialJson, type DynamicToolUIPart } from "ai";
-import { ViewRecordSchema } from "@legalwork/types/views";
 import { FileChartColumn, ArrowUpRight, Loader2 } from "lucide-react";
 import { useMessageList } from "@/components/chat/message-list-provider";
 import { Button } from "@/components/ui/button";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
+import { usePanelTabStore } from "../session/panel/panel-tab-store";
 import { viewPanelTab } from "./view-reference";
-const OpenUIView = lazy(() => import("./view-renderer").then(module => ({ default: module.OpenUIView })));
-function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function programOf(value: unknown): string | null {
-  if (!record(value)) return null;
-  if (typeof value.program === "string") return value.program;
-  return record(value.input) && typeof value.input.program === "string" ? value.input.program : null;
-}
-function savedView(output: unknown) {
-  let value = output;
-  if (typeof output === "string") { try { value = JSON.parse(output); } catch { return null; } }
-  const parsed = ViewRecordSchema.strip().safeParse(record(value) && value.view ? value.view : value);
-  return parsed.success ? parsed.data : null;
-}
-function failureMessage(output: unknown): string | null {
-  let value = output;
-  if (typeof output === "string") { try { value = JSON.parse(output); } catch { return null; } }
-  if (!record(value) || value.ok !== false) return null;
-  return typeof value.error === "string" ? value.error : record(value.error) && typeof value.error.message === "string" ? value.error.message : "The view could not be saved.";
-}
+import { record, viewProgramInput, viewToolOutcome, viewGenerationId, viewDraftTab, useViewGenerationStore } from "./view-generation";
+
 export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
-  const { legalworkClient } = useMessageList();
+  const { legalworkClient, sessionId, workspaceId } = useMessageList();
   const request = useRequestPanelTab();
-  const [partial, setPartial] = useState<string | null>(null);
+  const [partial, setPartial] = useState<unknown>(null);
   const metadata = part.callProviderMetadata?.opencode;
   const raw = record(metadata) && typeof metadata.rawInput === "string" ? metadata.rawInput : "";
-  useEffect(() => { let cancelled = false; if (!raw) { setPartial(null); return; } void parsePartialJson(raw).then(parsed => { if (!cancelled) setPartial(programOf(parsed.value)); }); return () => { cancelled = true; }; }, [raw]);
-  const view = part.state === "output-available" ? savedView(part.output) : null;
+  useEffect(() => { let cancelled = false; if (!raw) { setPartial(null); return; } void parsePartialJson(raw).then(parsed => { if (!cancelled) setPartial(parsed.value); }); return () => { cancelled = true; }; }, [raw]);
+  const outcome = useMemo(() => part.state === "output-available" ? viewToolOutcome(part.output) : null, [part.state, part.output]);
+  const view = outcome && "view" in outcome ? outcome.view : null;
+  const failure = outcome && "error" in outcome ? outcome.error : part.state === "output-error" ? part.errorText : null;
   const pending = part.state === "input-streaming" || part.state === "input-available";
-  const program = programOf(part.input) ?? partial;
-  const failure = part.state === "output-available" ? failureMessage(part.output) : part.state === "output-error" ? part.errorText : null;
-  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex items-center gap-3 p-4"><FileChartColumn className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{view?.title ?? (failure || !pending ? "View unavailable" : part.toolName === "view_read" ? "Opening a view" : "Creating a view")}</p><p className="text-xs text-muted-foreground">{failure ?? (pending ? "Building the page…" : view?.mode === "dashboard" ? "Live wiki dashboard" : view ? "Report snapshot" : "The agent did not return a saved view.")}</p></div>{view && legalworkClient ? <Button size="sm" variant="outline" onClick={() => request(viewPanelTab(legalworkClient.baseUrl, { owner: view.owner, viewId: view.id }, view.title))}>Open<ArrowUpRight /></Button> : pending ? <Loader2 className="size-4 animate-spin" /> : null}</div>
-    {pending && program && <div className="max-h-[420px] overflow-auto border-t p-5" inert><Suspense fallback={<p className="text-xs text-muted-foreground">Preparing preview…</p>}><OpenUIView program={program} streaming /></Suspense></div>}
-  </div>;
+  const input = useMemo(() => viewProgramInput(partial ?? part.input), [partial, part.input]);
+  const generationId = legalworkClient ? viewGenerationId(legalworkClient.baseUrl, sessionId, part.toolCallId) : "";
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!legalworkClient || !generationId || !["view_create", "view_update"].includes(part.toolName)) return;
+    const store = useViewGenerationStore.getState(), previous = store.entries[generationId];
+    if (pending) {
+      if (previous?.status === "failed" || previous?.status === "saved") return;
+      const next = { serverUrl: legalworkClient.baseUrl, sessionId, workspaceId, toolCallId: part.toolCallId, title: input.title, program: input.program, status: "streaming" } satisfies NonNullable<typeof previous>;
+      store.update(generationId, next);
+      if (!previous && !opened.current) { opened.current = true; request(viewDraftTab(generationId, next)); }
+      return;
+    }
+    // Historical successful tool cards do not open unsolicited tabs on chat load.
+    if (!previous) return;
+    if (view) {
+      store.update(generationId, { ...previous, status: "saved", saved: view, title: view.title });
+      usePanelTabStore.getState().resolveViewTab(generationId, viewPanelTab(legalworkClient.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
+    } else store.fail(generationId, failure ?? "Generation ended without a saved view.");
+  }, [legalworkClient, generationId, pending, input, view, failure, part.toolName, part.toolCallId, request, sessionId, workspaceId]);
+  const open = () => {
+    if (!legalworkClient) return;
+    if (view) request(viewPanelTab(legalworkClient.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
+    else { const generation = useViewGenerationStore.getState().entries[generationId]; if (generation) request(viewDraftTab(generationId, generation)); }
+  };
+  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex items-center gap-3 p-4"><FileChartColumn className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{view?.title ?? (failure || !pending ? "View unavailable" : input.title)}</p><p className="text-xs text-muted-foreground">{failure ?? (pending ? "Building in its own tab…" : view?.mode === "dashboard" ? "Live wiki dashboard" : view ? "Report snapshot" : "The agent did not return a saved view.")}</p></div>{legalworkClient && (view || pending) ? <Button size="sm" variant="outline" onClick={open}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}Open<ArrowUpRight /></Button> : null}</div></div>;
 }

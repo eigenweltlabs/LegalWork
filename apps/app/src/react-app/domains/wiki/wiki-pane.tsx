@@ -1,5 +1,5 @@
 import { ViewHostProvider } from "../views/view-host";
-import { ViewList } from "../views/view-list";
+import { ViewList, useSavedViews } from "../views/view-list";
 import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -130,11 +130,21 @@ function WikiContentPane(props: WikiPaneProps) {
   const drafts = useWikiDrafts(props.client, props.serverUrl, refresh);
   const wiki = snapshot.data?.wiki ?? list.data?.items.find((item) => item.id === wikiId);
   const pages = snapshot.data?.pages ?? EMPTY_PAGES;
-  const assets = useMemo(() => (snapshot.data?.assets ?? EMPTY_ASSETS).filter(asset => !/\.view\.json$/i.test(asset.path)), [snapshot.data?.assets]);
+  const assets = snapshot.data?.assets ?? EMPTY_ASSETS;
+  const savedViews = useSavedViews(props.client, { kind: "wiki", id: wikiId });
+  const viewFiles = useMemo(() => Object.fromEntries((savedViews.data?.items ?? []).map(view => [view.path ?? `Views/${view.id}.view.json`, { title: view.title, mode: view.mode }])), [savedViews.data?.items]);
   const currentPage = pages.find((page) => page.path === path);
+  useEffect(() => {
+    if (!props.tab || props.tab.location.kind !== "page" || !currentPage?.title) return;
+    const store = usePanelTabStore.getState();
+    for (const [scope, session] of Object.entries(store.sessions)) {
+      if (session.tabs.some(tab => tab.id === props.tab?.id && tab.label !== currentPage.title)) store.updateTabLabel(scope, props.tab.id, currentPage.title);
+    }
+  }, [props.tab?.id, props.tab?.location.kind, currentPage?.title]);
   const draft = wikiId && path ? drafts.get(wikiId, path) : undefined;
   const backlinks = useMemo(() => wikiBacklinks(pages, path), [pages, path]);
   const linkSuggestions = useMemo(() => pages.map((page) => `[[${page.path}]]`), [pages]);
+  const pageTitles = useMemo(() => Object.fromEntries(pages.map(page => [page.path, page.title])), [pages]);
   const files = useMemo(() => [...pages.map((page) => page.path), ...assets.map((asset) => asset.path)], [pages, assets]);
   const folders = useMemo(() => [...new Set([...(snapshot.data?.folders ?? []), ...files.flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); })])].filter(folder => !(folder === "Views" || folder.startsWith("Views/")) || files.some(file => file.startsWith(`${folder}/`))).sort(), [snapshot.data?.folders, files]);
   const searchFiles = useMemo(() => [...new Set([...(searchResult.data?.items.map((page) => page.path) ?? []), ...files.filter((path) => path.toLowerCase().includes(debouncedSearch.trim().toLowerCase()))])], [searchResult.data, files, debouncedSearch]);
@@ -264,6 +274,8 @@ function WikiContentPane(props: WikiPaneProps) {
   const openAsset = async (source: string) => {
     if (!props.client || !wiki) return;
     const assetPath = resolveAssetPath(source);
+    const saved = savedViews.data?.items.find(view => (view.path ?? `Views/${view.id}.view.json`) === assetPath);
+    if (saved) { requestPanelTab(viewPanelTab(props.serverUrl, { owner: saved.owner, viewId: saved.id }, saved.title)); return; }
     requestPanelTab(wikiPanelTab(props.serverUrl, wiki.id, { kind: "asset", path: assetPath }, assetPath.split("/").at(-1) ?? assetPath));
   };
   const startSession = async (prompt?: string) => {
@@ -353,7 +365,7 @@ function WikiContentPane(props: WikiPaneProps) {
       {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div role="alert" className="wiki-notice"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })} {t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
       <div ref={workbenchBody} className="wiki-workbench-body">
         {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
-          <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={Boolean(wiki?.writable)} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={() => openSurface("graph")} onAction={entryAction} onImport={importFiles}>
+          <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={Boolean(wiki?.writable)} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={() => openSurface("graph")} onAction={entryAction} onImport={importFiles}>
             {snapshot.error ? <p role="alert" className="wiki-search-status">{wikiError(snapshot.error)} <button className="underline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</button></p> : null}
             {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
             {searchResult.error && debouncedSearch.trim() ? <p role="alert" className="wiki-search-status text-destructive">{wikiError(searchResult.error)}</p> : null}
@@ -362,7 +374,7 @@ function WikiContentPane(props: WikiPaneProps) {
               <div className="wiki-section-label"><span>{t("wiki.views")}</span></div>
               {snapshot.data.views.map((view) => <FileBrowserRow key={view.name} selected={surface === `view:${view.name}`} style={{ paddingLeft: 6 }} aria-current={surface === `view:${view.name}` ? "page" : undefined} onClick={() => openSurface(`view:${view.name}`)} leading={<span className="size-3.5 shrink-0" />} icon={<LayoutList className="size-5 shrink-0 text-muted-foreground" />}>{view.name}</FileBrowserRow>)}
             </div> : null}
-            {!debouncedSearch.trim() && <ViewList client={props.client} owner={{ kind: "wiki", id: wikiId }} />}
+            {!debouncedSearch.trim() && <ViewList issuesOnly client={props.client} owner={{ kind: "wiki", id: wikiId }} />}
           </WikiExplorer>
           {props.children}
           <div className="wiki-sidebar-footer">

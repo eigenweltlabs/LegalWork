@@ -5,7 +5,7 @@ import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
 type OpenTargetKind = "url" | "file";
-export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "audio" | "video" | "pdf" | "html" | "text" | "external";
+export type OpenTargetPreview = "view" | "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "audio" | "video" | "pdf" | "html" | "text" | "external";
 
 export interface TextData {
   kind: "text";
@@ -38,7 +38,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{*])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["view", "markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
 const ARTIFACT_METADATA_TOOL_NAMES = new Set(["legalwork_extension_call"]);
@@ -84,6 +84,7 @@ function extname(value: string) {
 
 export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
+  if (/\.view\.json$/i.test(attachmentFilename(value))) return "view";
   const ext = extname(attachmentFilename(value));
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";

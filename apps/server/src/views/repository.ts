@@ -50,7 +50,7 @@ export class ViewRepository {
   }
   async list(): Promise<{ items: ViewSummary[]; issues: ViewIssue[] }> {
     const { records, issues } = await this.records();
-    return { items: records.map(({ record: { id, title, mode, updatedAt, revision, owner } }) => ({ id, title, mode, updatedAt, revision, owner })).sort((a, b) => b.updatedAt - a.updatedAt), issues };
+    return { items: records.map(({ path, record: { id, title, mode, updatedAt, revision, owner } }) => ({ path, id, title, mode, updatedAt, revision, owner })).sort((a, b) => b.updatedAt - a.updatedAt), issues };
   }
   private async find(id: string) {
     const { records, issues } = await this.records();

@@ -15,8 +15,16 @@ import { isLocalOpenUIProgram, schemas, SourceOwnerSchema, type SourceOwner } fr
 type Row = Record<string, unknown>;
 type Column = { field: string; label: string };
 const Host = createContext<{ openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; streaming: boolean }>({ streaming: false });
+const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const chartPalette = ["#6366f1", "#14b8a6", "#a78bfa", "#f59e0b", "#60a5fa", "#f472b6"];
+function fieldLabel(field: string) { return field.replace(/^properties\./, "").replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()); }
+function stageTone(value: unknown): "neutral" | "info" | "success" | "warning" | "danger" {
+  const text = String(value).toLowerCase();
+  return /overdue|over budget|high|blocked/.test(text) ? "danger" : /awaiting|review|hold|onboarding/.test(text) ? "warning" : /active|complete|current/.test(text) ? "success" : /progress|retainer|scoping/.test(text) ? "info" : "neutral";
+}
 function display(value: unknown): string {
   if (value === null || value === undefined) return "";
+  if (typeof value === "number" && Number.isFinite(value)) return numberFormat.format(value);
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
@@ -35,22 +43,25 @@ function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns:
     return sort ? next.sort((a, b) => (typeof a[sort.field] === "number" && typeof b[sort.field] === "number" ? Number(a[sort.field]) - Number(b[sort.field]) : display(a[sort.field]).localeCompare(display(b[sort.field]), undefined, { numeric: true })) * (sort.desc ? -1 : 1)) : next;
   }, [rows, columns, search, sort]);
   return <div className="lw-view-table">{searchable && rows.length > 5 && <Input aria-label="Filter displayed rows" placeholder="Filter displayed rows…" value={search} onChange={event => setSearch(event.target.value)} />}
-    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}>{display(row[col.field])}</SourceButton> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
+    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
     {!visible.length && <p className="lw-view-muted">No matching records</p>}
   </div>;
 }
-function Board({ rows, groupBy, titleField, fields = [] }: { rows: Row[]; groupBy: string; titleField: string; fields?: Column[] }) {
+function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { rows: Row[]; groupBy: string; titleField: string; fields?: Column[]; groupOrder?: string[] }) {
   const groups = new Map<string, Row[]>();
   for (const row of rows.slice(0, 1000)) { const key = display(row[groupBy]) || "Unassigned"; groups.set(key, [...(groups.get(key) ?? []), row]); }
-  return <div className="lw-view-board">{[...groups].map(([name, items]) => <section key={name} className="lw-view-board-column"><div className="lw-view-board-heading"><Tag text={name} size="sm" /><span>{items.length}</span></div>{items.map((row, i) => <Card key={typeof row.path === "string" ? row.path : i} width="full" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{display(row[titleField]) || "Untitled"}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}</Card>)}</section>)}</div>;
+  const ordered = [...new Set([...groupOrder.filter(name => groups.has(name)), ...groups.keys()])].map(name => [name, groups.get(name)!] satisfies [string, Row[]]);
+  return <div className="lw-view-board">{ordered.map(([name, items]) => <section key={name} className="lw-view-board-column"><div className="lw-view-board-heading"><Tag text={name} variant={stageTone(name)} size="sm" /><span className="lw-view-board-count">{items.length}</span></div><div className="lw-view-board-items">{items.map((row, i) => <Card key={typeof row.path === "string" ? row.path : i} width="full" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{display(row[titleField]) || "Untitled"}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}</Card>)}</div></section>)}</div>;
 }
 function Chart({ kind, rows, category, series, title }: { kind: "bar" | "line" | "pie"; rows: Row[]; category: string; series: string[]; title?: string }) {
+  const categoryName = fieldLabel(category);
+  const seriesNames = series.map(fieldLabel);
   const data = rows.slice(0, 1000).flatMap(row => {
-    const entry: Record<string, string | number> = { [category]: display(row[category]) };
-    for (const field of series) if (typeof row[field] === "number" && Number.isFinite(row[field])) entry[field] = row[field];
+    const entry: Record<string, string | number> = { [categoryName]: display(row[category]) };
+    for (const field of series) if (typeof row[field] === "number" && Number.isFinite(row[field])) entry[fieldLabel(field)] = row[field];
     return Object.keys(entry).length > 1 ? [entry] : [];
   });
-  return <div className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? kind === "pie" ? <PieChart data={data} categoryKey={category} dataKey={series[0]} variant="donut" height={280} /> : kind === "bar" ? <BarChart data={data} categoryKey={category} height={280} /> : <LineChart data={data} categoryKey={category} height={280} /> : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>View chart data</summary><DataTable rows={data} columns={[category, ...series].map(field => ({ field, label: field }))} searchable={false} /></details></div>;
+  return <div className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? kind === "pie" ? <PieChart data={data} categoryKey={categoryName} dataKey={seriesNames[0]} variant="donut" height={300} customPalette={chartPalette} /> : kind === "bar" ? <BarChart data={data} categoryKey={categoryName} height={300} customPalette={chartPalette} barRadius={5} maxBarWidth={44} condensed tickVariant="multiLine" yTickCount={4} legend={series.length > 1} /> : <LineChart data={data} categoryKey={categoryName} height={300} customPalette={chartPalette} condensed tickVariant="multiLine" yTickCount={4} /> : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>View chart data</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></div>;
 }
 
 export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
@@ -58,7 +69,7 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
-  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <Card width="full" className="lw-view-metric"><div className="lw-view-metric-label">{props.label}</div><MetricIndicatorInline value={display(props.value)} subtext={props.detail} /></Card> }),
+  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <Card width="full" className="lw-view-metric"><div className="lw-view-metric-label">{props.label}</div><MetricIndicatorInline value={display(props.value)} />{props.detail && <div className="lw-view-metric-detail">{props.detail}</div>}</Card> }),
   defineComponent({ name: "Table", props: schemas.Table, description: "Data table", component: ({ props }) => <DataTable {...props} /> }),
   defineComponent({ name: "Board", props: schemas.Board, description: "Grouped stage board", component: ({ props }) => <Board {...props} /> }),
   defineComponent({ name: "BarChart", props: schemas.BarChart, description: "Bar chart", component: ({ props }) => <Chart {...props} kind="bar" /> }),

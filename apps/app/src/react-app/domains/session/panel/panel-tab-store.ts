@@ -1,3 +1,4 @@
+import { replaceGenerationTab, type ViewDraftTab } from "../../views/view-generation";
 import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views/view-reference";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileTab } from "../../workspace/project-file-tab";
@@ -79,7 +80,7 @@ export type TaskPanelTab = {
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab | ViewDraftTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
@@ -144,6 +145,7 @@ export type PanelTabStore = {
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean }) => void;
+  resolveViewTab: (draftId: string, saved: ViewPanelTab) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
@@ -484,6 +486,15 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, paneId, edge, options?.preview, () => get().openTab(sessionId, tab, paneId, edge, options));
         return next === session ? state : updateSession(state, sessionId, next);
       }),
+      resolveViewTab: (draftId, saved) => set(state => ({ sessions: Object.fromEntries(Object.entries(state.sessions).map(([scope, session]) => {
+        if (!session.tabs.some(tab => tab.id === draftId)) return [scope, session];
+        const panes = session.panes.map(pane => ({ ...pane,
+          tabIds: pane.tabIds.flatMap(id => id === draftId ? [saved.id] : id === saved.id ? [] : [id]),
+          activeTabId: pane.activeTabId === draftId ? saved.id : pane.activeTabId === saved.id ? null : pane.activeTabId,
+          previewTabId: pane.previewTabId === draftId ? undefined : pane.previewTabId,
+        }));
+        return [scope, normalizeSession({ ...session, tabs: replaceGenerationTab(session.tabs, draftId, saved), panes })];
+      })) })),
       finishFileImport: (id, file) => set(state => {
         const sessions = { ...state.sessions };
         let changed = false;
@@ -696,7 +707,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
               .flatMap<PersistedPanelTab>((tab) => {
                 if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
-                if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
+                if (tab.type === "workflow" || tab.type === "workflow-resource" || tab.type === "view-draft") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];
                 if (tab.type === "artifact" && tab.sourceProject) return [{ ...projectFileTab(tab.sourceProject), id: tab.id }];
                 // Restore original workspace files, not downloaded credentials,

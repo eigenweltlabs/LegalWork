@@ -170,6 +170,7 @@ type TabDropZoneProps = {
 };
 
 const ViewPanel = React.lazy(() => import("../../views/view-panel").then(module => ({ default: module.ViewPanel })));
+const ViewDraftPanel = React.lazy(() => import("../../views/view-panel").then(module => ({ default: module.ViewDraftPanel })));
 
 function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, shieldFileDrops = true, workspaceId, onChatDrop, onProjectViewDrop, onProjectItemDrop, onTabInsert, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
   const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentDropEdge | null } | null>(null);
@@ -418,7 +419,7 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
-          ) : tab.type === "view" ? <TableProperties /> : tab.type === "wiki" ? (
+          ) : (tab.type === "view" || tab.type === "view-draft") ? <TableProperties /> : tab.type === "wiki" ? (
             tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
@@ -1135,6 +1136,7 @@ function SidePanelContent({
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
         const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
