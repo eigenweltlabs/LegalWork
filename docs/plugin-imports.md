@@ -2,7 +2,7 @@
 
 On **Extensions**, choose **Import from ChatGPT** or **Import from Claude**. Import a complete folder or ZIP, or select a discovered installation. Preview every detected component and compatibility notice before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
 
-Choose **All projects on this computer** (default for local workers) or **This project only**. Folder paths refer to the worker's filesystem; browser clients can upload a folder or ZIP instead. Discovery and reading worker folders require owner access. Global installation/removal also requires owner access. Project ZIP imports accept collaborator access and respect custom-plugin, skill and connector policies.
+Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
 
 ## Supported formats
 

@@ -125,16 +125,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       ) : null}
 
       {hubScope === "local" && props.pluginImports ? <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("chatgpt")}>
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("chatgpt")}>
           <ChatGptLogo className="size-5" />
           {t("extensions.import_chatgpt")}
         </Button>
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("claude")}>
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("claude")}>
           <img src={claudeLogo} alt="" aria-hidden="true" width={16} height={16} className="size-4 shrink-0" />
           {t("extensions.import_claude")}
         </Button>
       </div> : null}
-      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} canUseGlobalScope={props.canUseGlobalScope} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); props.onRefresh(); }} /> : null}
+      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex items-center gap-2">
