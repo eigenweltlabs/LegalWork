@@ -4,6 +4,7 @@ import type { PermissionRequest, PermissionV2Request, QuestionRequest } from "@o
 
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { interactionSessionIds, interactionSessionsKey, type InteractionSessions } from "../src/react-app/domains/session/sync/interaction-state";
 import {
   __applySessionSyncEventForTest,
   __createWorkspaceSessionSyncForTest,
@@ -442,6 +443,12 @@ test("a mounted sibling chat remains subscribed after route focus releases it", 
       expect(getReactQueryClient().getQueryData(questionKey(input.workspaceId, sessionID))).toMatchObject([{ sessionID }]);
     }
     __applySessionSyncEventForTest(input, { type: "permission.asked", properties: permission("foreign", "session-c") });
-    expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, "session-c"))).toBeUndefined();
+    // Unopened chats now retain requests for subagent recovery, but each pane
+    // still selects only its own chat and descendants.
+    expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, "session-c"))).toMatchObject([{ sessionID: "session-c" }]);
+    const sessions = getReactQueryClient().getQueryData<InteractionSessions>(interactionSessionsKey(input.workspaceId)) ?? {};
+    for (const sessionID of ["session-a", "session-b"]) {
+      expect(interactionSessionIds(sessionID, sessions)).toEqual([sessionID]);
+    }
   } finally { releasePane(); releaseSibling(); cleanup(); }
 });

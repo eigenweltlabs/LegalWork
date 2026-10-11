@@ -229,6 +229,7 @@ export type SessionPageProps = {
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
+  onOpenInteractionSession?: (sessionId: string) => void;
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
@@ -1598,6 +1599,7 @@ export function SessionPage(props: SessionPageProps) {
               sessionId={sessionId}
               opencodeBaseUrl={reactSessionBaseUrl}
               legalworkToken={reactSessionToken}
+              onOpenInteractionSession={props.onOpenInteractionSession}
               onOpenTarget={(target, options) => openTarget(target, options, sessionId)}
               realtimeVoiceSupported={active && realtimeVoiceSupported}
               realtimeVoiceActive={active && voiceSidePanelOpen}

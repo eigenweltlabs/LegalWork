@@ -38,6 +38,7 @@ import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
+import { seedPermissionState, seedQuestionState } from "@/react-app/domains/session/sync/interaction-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
@@ -160,6 +161,45 @@ if (limitParam) {
     const continued = snapshot("visual-limit", "Review supplier agreement", "Hallo?");
     saveSnapshot({ ...continued, messages: [...(previous?.messages ?? []), ...continued.messages] });
   }
+}
+
+// `?subagentApprovals` exercises the real descendant selectors and approval
+// panels. Decisions are simulated locally, like the rest of this fixture.
+const subagentApprovals = new URLSearchParams(window.location.search).has("subagentApprovals");
+if (subagentApprovals) {
+  for (const { id, parentID, title } of [
+    { id: "visual-research", parentID: "visual-review", title: "Research contract history" },
+    { id: "visual-reference", parentID: "visual-research", title: "Compare policy references" },
+  ]) {
+    const item = snapshot(id, title);
+    saveSnapshot({ ...item, session: { ...item.session, parentID } });
+    seedPermissionState(workspace.id, id, [{
+      id: `approval-${id}`, sessionID: id, permission: "external_directory",
+      patterns: ["/Shared/Client precedents/*"], metadata: { path: "/Shared/Client precedents", description: "Read the precedents used for this review" }, always: [],
+    }]);
+  }
+  seedQuestionState(workspace.id, "visual-reference", [{
+    id: "reference-question", sessionID: "visual-reference", questions: [{
+      header: "Reference version", question: "Which policy version should I use for the comparison?",
+      options: [{ label: "Current policy", description: "Use the approved policy" }, { label: "Draft policy", description: "Compare against the latest draft" }],
+    }],
+  }]);
+  seedPermissionState(workspace.id, "visual-board", [{
+    id: "unrelated-approval", sessionID: "visual-board", permission: "bash", patterns: ["echo unrelated"], metadata: {}, always: [],
+  }]);
+  // Each workspace chat owns its reply handlers. Simulate the transport so
+  // approvals still exercise those handlers when chats are split or moved.
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  const requestIds = new Set(["approval-visual-research", "approval-visual-reference", "reference-question", "unrelated-approval"]);
+  globalThis.fetch = (input, init) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    const reply = url.pathname.match(/^\/opencode\/(?:permission|question)\/([^/]+)\/reply$/);
+    if (url.hostname === "legalwork-preview.invalid" && request.method === "POST" && reply && requestIds.has(reply[1]!)) {
+      return Promise.resolve(Response.json(true));
+    }
+    return originalFetch(input, init);
+  };
 }
 
 let files: LegalworkWorkspaceDirectoryEntry[] = [
@@ -496,7 +536,7 @@ const fixtureClient: LegalworkServerClient = {
 function SessionPreview() {
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
@@ -601,6 +641,7 @@ function SessionPreview() {
             if (item) saveSnapshot({ ...item, session: { ...item.session, time: { ...item.session.time, archived: archived ? Date.now() : undefined } } });
             setRevision(value => value + 1);
           }}
+          onOpenInteractionSession={setSelectedSessionId}
           onRenameSession={(id, title) => {
             const item = snapshots.get(id);
             if (item) saveSnapshot({ ...item, session: { ...item.session, title } });
