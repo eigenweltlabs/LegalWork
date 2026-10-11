@@ -6356,6 +6356,8 @@ export default {
   "wiki.page_actions": "Page actions",
   "wiki.page_options": "Page options",
   "wiki.delete_page_question": "Delete “{title}”? You can restore it from version history.",
+  "wiki.properties_show_all": "Show all {count} properties",
+  "wiki.properties_show_less": "Show fewer properties",
   "wiki.properties": "Properties",
   "wiki.autosave_hint": "Changes save automatically",
   "wiki.read_only": "Read only",

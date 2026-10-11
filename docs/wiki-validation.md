@@ -2,6 +2,12 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Compact properties below the page title (2026-10-11)
+
+- The editable page title appears first, followed by four property rows and an expandable list of the remaining fields. Identifiers and fixture metadata are tucked into the expanded list; title metadata is represented by the title itself. Properties have no separate container or scrollbar. Read-only pages use the same compact layout. [Native Electron screenshot](wiki-evidence/compact-properties-below-title.jpg).
+- Native checks expanded/collapsed 17 client properties, edited the title, verified that the body was byte-identical, restored the complete original file, and switched Source/Rich text. Title edits preserve unrelated YAML and Markdown; Source retains the complete authored H1 and metadata.
+- `pnpm exec bun test tests/wiki-page-heading.test.ts tests/wiki-properties.test.ts tests/wiki-properties-editor.test.tsx tests/markdown-block-editor.test.ts tests/markdown-draft.test.ts tests/wiki-markdown-syntax.test.ts` (from `apps/app`): 42 passed, 162 assertions. App typecheck, production build and i18n validation passed (6,232 keys in each shipped language).
+
 ## Live dashboard generation and wiki workspace fixes (2026-10-11)
 
 - Actual model verification in the running Electron app now confirms progressive rendering. The existing configured model generated a new view over Northstar's 50 synthetic clients and 150 matters. The dashboard opened in the panel beside its chat, received 85 preview updates, with the first preview arriving 11.8 seconds before the file was saved. [During generation](wiki-evidence/live-dashboard-streaming.jpg) and [saved dashboard after restart](wiki-evidence/live-dashboard-saved.jpg).

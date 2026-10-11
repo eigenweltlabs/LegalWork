@@ -6745,6 +6745,8 @@ const de = {
   "wiki.page_actions": "Seitenaktionen",
   "wiki.page_options": "Seitenoptionen",
   "wiki.delete_page_question": "„{title}“ löschen? Sie können die Seite über den Versionsverlauf wiederherstellen.",
+  "wiki.properties_show_all": "Alle {count} Eigenschaften anzeigen",
+  "wiki.properties_show_less": "Weniger Eigenschaften anzeigen",
   "wiki.properties": "Eigenschaften",
   "wiki.autosave_hint": "Änderungen werden automatisch gespeichert",
   "wiki.read_only": "Nur lesen",

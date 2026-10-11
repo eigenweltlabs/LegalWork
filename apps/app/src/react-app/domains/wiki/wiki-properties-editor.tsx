@@ -1,12 +1,13 @@
 import { useId, useMemo, useRef, useState } from "react";
-import { AlignLeft, Braces, CalendarDays, CheckSquare2, Hash, Link2, List, Plus, Tags, X } from "lucide-react";
+import { AlignLeft, Braces, CalendarDays, CheckSquare2, ChevronDown, Hash, Link2, List, Plus, Tags, X } from "lucide-react";
 import type { WikiPage } from "@legalwork/types/wiki";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { setWikiProperty, wikiPageRelations, wikiPropertyFields, wikiPropertyType, type WikiPropertyScalar, type WikiPropertyType, type WikiPropertyValue } from "./wiki-properties";
 import { WikiPagePropertyPicker } from "./wiki-page-property-picker";
+import { WikiPropertyValue as PropertyValue } from "./wiki-views";
 
-type Props = { content: string; pages: WikiPage[]; path: string; onChange: (content: string) => void; onSource: () => void; onOpen: (path: string) => void };
+export type WikiPropertiesEditorProps = { readOnly?: boolean; content: string; pages: WikiPage[]; path: string; onChange: (content: string) => void; onSource: () => void; onOpen: (path: string) => void };
 
 function PropertyIcon({ kind, name }: { kind: WikiPropertyType | "complex"; name: string }) {
   const Icon = kind === "complex" ? Braces : kind === "boolean" ? CheckSquare2 : kind === "number" ? Hash : kind === "date" ? CalendarDays : kind === "page" || kind === "pages" ? Link2 : kind === "list" ? name === "tags" ? Tags : List : AlignLeft;
@@ -57,11 +58,12 @@ function PropertyList({ name, values, onCommit }: { name: string; values: WikiPr
   </div>;
 }
 
-export function WikiPropertiesEditor(props: Props) {
+export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
   const heading = useId();
   const parsed = useMemo(() => wikiPropertyFields(props.content), [props.content]);
   const content = useRef(props.content);
   content.current = props.content;
+  const [expanded, setExpanded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState("text");
@@ -82,23 +84,28 @@ export function WikiPropertiesEditor(props: Props) {
     try { content.current = setWikiProperty(content.current, key, value); props.onChange(content.current); setError(null); return true; }
     catch (error) { setError(error instanceof Error ? error.message : String(error)); return false; }
   };
+  const fields = parsed.fields.filter(field => field.key !== "title");
+  const compact = fields.filter(field => !["id", "demo_fixture", "synthetic"].includes(field.key) && !field.key.endsWith("_id")).slice(0, 4);
+  const visible = expanded ? fields : compact;
   return <section className="wiki-properties wiki-properties-editor" aria-labelledby={heading}>
-    <h2 id={heading} className="wiki-properties-heading">{t("wiki.properties")}</h2>
-    {parsed.error ? <div className="wiki-property-error">{t("wiki.properties_invalid")}<Button type="button" variant="ghost" size="sm" onClick={props.onSource}>{t("wiki.edit_source")}</Button></div> : <>
-      <div className="wiki-property-rows">{parsed.fields.map(field => {
+    <h2 id={heading} className="sr-only">{t("wiki.properties")}</h2>
+    {parsed.error ? <div className="wiki-property-error">{t("wiki.properties_invalid")}{!props.readOnly && <Button type="button" variant="ghost" size="sm" onClick={props.onSource}>{t("wiki.edit_source")}</Button>}</div> : <>
+      <div className="wiki-property-rows">{visible.map(field => {
         const relationKey = `${props.path}\0${field.key}`;
         const fieldKind = field.editable ? relationKinds[relationKey] ?? wikiPropertyType(field.value) : "complex";
         const relationValue = wikiPageRelations(field.value) ? field.value : null;
         return <div key={field.key} className="wiki-property-row" data-property-type={fieldKind}>
-          <div className="wiki-property-name" title={field.key}><PropertyIcon kind={fieldKind} name={field.key} /><span>{field.key}</span></div>
-          <div className="wiki-property-value">{!field.editable ? <button type="button" className="wiki-property-source" onClick={props.onSource} title={field.source}>{t("wiki.edit_source")}</button>
+          <div className="wiki-property-name" title={field.key}><PropertyIcon kind={fieldKind} name={field.key} /><span>{field.key.replace(/_/g, " ")}</span></div>
+          <div className="wiki-property-value">{props.readOnly ? field.editable ? <PropertyValue value={field.value} pages={props.pages} fromPath={props.path} onOpen={props.onOpen} /> : <code className="break-words text-xs">{field.source}</code> : !field.editable ? <button type="button" className="wiki-property-source" onClick={props.onSource} title={field.source}>{t("wiki.edit_source")}</button>
             : fieldKind === "page" || fieldKind === "pages" ? <WikiPagePropertyPicker name={field.key} value={relationValue} multiple={fieldKind === "pages"} pages={props.pages} path={props.path} onOpen={props.onOpen} onChange={value => { setRelationKinds(current => ({ ...current, [relationKey]: fieldKind })); update(field.key, value); }} />
             : Array.isArray(field.value) ? <PropertyList name={field.key} values={field.value} onCommit={values => update(field.key, values)} />
             : <PropertyInput key={JSON.stringify([field.key, field.value])} name={field.key} value={field.value} suggestions={[...(suggestions.get(field.key) ?? [])]} onCommit={value => update(field.key, value)} />}
           </div>
         </div>;
       })}</div>
-      {adding ? <form className="wiki-property-create" onSubmit={event => {
+      <div className="wiki-property-actions">
+      {fields.length > compact.length && <button type="button" className="wiki-property-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><ChevronDown size={14} />{expanded ? t("wiki.properties_show_less") : t("wiki.properties_show_all", { count: fields.length })}</button>}
+      {!props.readOnly && (adding ? <form className="wiki-property-create" onSubmit={event => {
         event.preventDefault();
         if (!name.trim() || parsed.fields.some(field => field.key === name.trim())) return;
         const value = kind === "number" ? 0 : kind === "boolean" ? false : kind === "date" ? new Date().toISOString().slice(0, 10) : kind === "list" ? [] : kind === "page" || kind === "pages" ? newRelation : "";
@@ -111,7 +118,8 @@ export function WikiPropertiesEditor(props: Props) {
         <select aria-label={t("wiki.property_type")} className="wiki-property-type" value={kind} onChange={event => { setKind(event.target.value); setNewRelation(event.target.value === "pages" ? [] : null); }}>{["text", "number", "boolean", "date", "list", "page", "pages"].map(kind => <option key={kind} value={kind}>{t(`wiki.property_${kind}`)}</option>)}</select>
         {(kind === "page" || kind === "pages") && <WikiPagePropertyPicker name={name || t("wiki.property_name")} value={newRelation} multiple={kind === "pages"} pages={props.pages} path={props.path} onOpen={props.onOpen} onChange={setNewRelation} />}
         <Button size="sm" variant="ghost" type="submit" disabled={!name.trim() || parsed.fields.some(field => field.key === name.trim())}>{t("wiki.add_property")}</Button><Button size="sm" variant="ghost" type="button" onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
-      </form> : <button type="button" className="wiki-property-add" onClick={() => setAdding(true)}><Plus size={15} strokeWidth={1.6} />{t("wiki.add_property")}</button>}
+      </form> : <button type="button" className="wiki-property-add" onClick={() => setAdding(true)}><Plus size={15} strokeWidth={1.6} />{t("wiki.add_property")}</button>)}
+      </div>
     </>}{error && <div role="alert" className="wiki-property-error"><span>{error}</span><Button type="button" size="sm" variant="ghost" onClick={props.onSource}>{t("wiki.edit_source")}</Button></div>}
   </section>;
 }

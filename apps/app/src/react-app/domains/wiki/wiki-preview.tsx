@@ -88,7 +88,9 @@ export function WikiPreview(props: {
   const scrollToHeading = useCallback((id: string) => {
     const exact = element.current?.querySelector(`[id="${CSS.escape(id)}"]`);
     const heading = exact ?? element.current?.querySelector(`[id="${CSS.escape(anchors.get(id) ?? `wiki-heading-${headingSlug(id)}`)}"]`);
-    heading?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    const pageTitle = heading?.tagName === "H1" && heading === element.current?.querySelector("h1")
+      ? element.current?.closest(".wiki-page-content")?.querySelector('.wiki-page-header[data-leading-heading="true"] .wiki-page-title') : null;
+    (pageTitle ?? heading)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }, [anchors]);
   useEffect(() => {
     if (props.anchor) scrollToHeading(props.anchor);
