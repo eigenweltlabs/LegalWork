@@ -6,7 +6,7 @@ Windows panel headings span the same width as the workspace panes below. The las
 
 ## Verification
 
-- `pnpm --filter @legalwork/app test`: 925 passed, 0 failed.
+- `pnpm --filter @legalwork/app test`: 1,139 passed, 0 failed after merging `dev`.
 - `pnpm --filter @legalwork/app typecheck`: passed.
 - `pnpm --filter @legalwork/app build`: passed, with the existing large-chunk warning.
 - `git diff --check`: passed.
@@ -15,12 +15,15 @@ Windows panel headings span the same width as the workspace panes below. The las
 - Viewer alone, Files/Drive alone and both panes together align their header separators with the body separators to within 1 CSS pixel. This also holds after resizing the panes and collapsing the chat sidebar.
 - Checked renderer widths of 1440 and 1280 pixels, fullscreen, and a simulated 172.5-pixel caption area, including a 220-pixel Files pane. Visible toolbar controls remain outside the caption area.
 - Checked the renderer without Windows platform styles for layout regressions.
+- After the split-view changes on `dev`, checked a horizontally split Viewer alone and with Files open, keyboard resizing, and fullscreen. Header dividers remain within 1 CSS pixel of the panes. Only the rightmost split's controls reserve caption space when Viewer is the last heading.
 
 ## Renderer evidence
 
 These screenshots contain sample data. They verify the real components in a browser; native Windows caption controls are not present.
 
 ![Aligned Windows panel headers](windows-panel-headers.jpg)
+
+![Aligned split Viewer and Files headers after merging dev](windows-split-headers.png)
 
 ![Account banner without the duplicate button](account-banner.jpg)
 
