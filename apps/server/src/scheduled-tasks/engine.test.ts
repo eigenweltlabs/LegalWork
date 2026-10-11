@@ -21,7 +21,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   let transcriptSources: ProjectContentSources | undefined;
   let sourceSessionId = "";
   let uiActions = 0;
-  const modelRequests: { tools: string[]; toolResults: string[]; system: string }[] = [];
+  const modelRequests: { tools: string[]; toolDefinitions: string; toolResults: string[]; system: string; users: string[] }[] = [];
   const created: ScheduledTaskInput[] = [];
   const sourceReads: string[] = [];
   const fixture = Bun.serve({ port: 0, async fetch(request) {
@@ -36,16 +36,21 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       return Response.json({ task: { ...input, nextRunAt: nextOccurrence(input.schedule, Date.parse("2026-10-24T12:00:00Z")) } });
     }
     if (path === "/workspace/other/project/content" && transcriptSources) { sourceReads.push(path); return Response.json(await readProjectContent(transcriptSources, Object.fromEntries(new URL(request.url).searchParams))); }
-    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown().optional() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown().optional() })), tools: z.array(z.object({ function: z.object({ name: z.string(), description: z.string().optional(), parameters: z.unknown().optional() }) })).optional() }).parse(await request.json());
     const tools = input.tools?.map(tool => tool.function.name) ?? [];
     const toolResults = input.messages.filter(message => message.role === "tool").map(message => JSON.stringify(message.content));
     const system = input.messages.filter(message => message.role === "system").map(message => JSON.stringify(message.content)).join(" ");
-    if (tools.length) modelRequests.push({ tools, toolResults, system });
-    const callTool = tools.length > 0 && toolResults.length === 0;
+    const users = input.messages.filter(message => message.role === "user").map(message => JSON.stringify(message.content));
+    if (tools.length) modelRequests.push({ tools, toolDefinitions: JSON.stringify(input.tools), toolResults, system, users });
     const morning = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("every morning"));
+    const callTool = tools.length > 0 && toolResults.length < (morning ? 2 : 1);
     const call = morning
-      ? { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
+      ? toolResults.length === 0
+        ? { name: "legalwork_schedule_clock", arguments: "{}" }
+        : { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
       : { name: "legalwork_schedule_project_read", arguments: JSON.stringify({ projectId: "other", kind: "sessions", id: sourceSessionId }) };
+    // Let the live engine clock advance before its next model step.
+    if (callTool && call.name === "legalwork_schedule_clock") await Bun.sleep(1100);
     const delta = callTool ? { tool_calls: [{ index: 0, id: "call_fixture", type: "function", function: call }] } : { content: "Finished the fixture check." };
     const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
     return new Response(chunk({ role: "assistant", ...delta }, null) + chunk({}, callTool ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
@@ -98,12 +103,20 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     const agents = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "deny", "ask"]) })) })).parse(await agentsResponse.json());
     expect(hasProjectTaskBoundary(agents.find(agent => agent.name === PROJECT_TASK_AGENT)), JSON.stringify(agents.find(agent => agent.name === PROJECT_TASK_AGENT)?.permission.slice(-20))).toBe(true);
     for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build"]) {
+      const requestStart = modelRequests.length;
       const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
       const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
       const result = await response.text();
       expect(response.status, result).toBe(200);
-      const first = modelRequests.at(-2), last = modelRequests.at(-1);
+      const requests = modelRequests.slice(requestStart), first = requests[0], last = requests.at(-1);
       expect(first?.tools).toContain("legalwork_schedule_project_read");
+      expect(first?.tools).toContain("legalwork_schedule_clock");
+      expect(first?.users.join(" ")).toContain('topic=\\"scheduling-clock\\"');
+      expect(first?.users.join(" ")).toContain("time zone Europe/Berlin");
+      expect(first?.system).not.toContain("Scheduling clock at the start of this user turn");
+      expect(last?.system).toBe(first?.system);
+      expect(last?.toolDefinitions).toBe(first?.toolDefinitions);
+      expect(last?.users).toEqual(first?.users);
       if (agent !== "build") {
         expect(first?.tools).not.toContain("legalwork_ui_execute_action");
         expect(first?.tools).not.toContain("legalwork_ui_snapshot");
@@ -111,12 +124,22 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       }
       if (agent === "build") {
         expect(first?.tools).toContain("legalwork_schedule_create");
-        expect(first?.system).toContain("local time zone is Europe/Berlin");
+        expect(requests).toHaveLength(3);
+        expect(last?.toolResults.join(" ")).toContain("currentTime");
+        expect(last?.toolResults.join(" ")).toContain("Europe/Berlin");
         expect(first?.system).toContain("Do not ask the user for their time zone");
         expect(first?.system).toContain("use 06:00, starting at the next future morning");
         expect(created).toHaveLength(1);
         expect(created[0]).toMatchObject({ sessionId: session.id, reuseChat: true, projectAccess: "project", model: { providerID: "fixture", modelID: "fixture" }, schedule: { timeZone: "Europe/Berlin", startAt: "2026-10-25T06:00:00" } });
         expect(last?.toolResults.join(" ")).toContain("2026-10-25T05:00:00.000Z");
+        const followUp = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Continue." }] }), signal: AbortSignal.timeout(25000) });
+        expect(followUp.status, await followUp.text()).toBe(200);
+        const next = modelRequests.at(-1);
+        expect(next?.system).toBe(first?.system);
+        expect(next?.toolDefinitions).toBe(first?.toolDefinitions);
+        expect(next?.users.slice(0, first.users.length)).toEqual(first.users);
+        expect(next?.users.at(-1)).toContain('topic=\\"scheduling-clock\\"');
+        expect(next?.users.at(-1)).not.toBe(first.users.at(-1));
       } else if (agent === PROJECT_TASK_AGENT) {
         expect(first?.tools).not.toContain("bash"); expect(first?.tools).not.toContain("read"); expect(first?.tools).not.toContain("task");
         expect(last?.toolResults.join(" ")).toContain("cannot access that project"); expect(sourceReads).toEqual([]);
