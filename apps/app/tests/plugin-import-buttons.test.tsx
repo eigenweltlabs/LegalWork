@@ -15,6 +15,7 @@ test("plugin imports are available on Extensions without enabling developer mode
 });
 test("read-only clients keep visible but disabled import actions", () => {
   const html = renderToStaticMarkup(<ExtensionsView {...props} canEditPlugins={false} />);
-  expect(html).toMatch(/<button[^>]+disabled[^>]*>Import from ChatGPT/);
-  expect(html).toMatch(/<button[^>]+disabled[^>]*>Import from Claude/);
+  const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*Import from (?:ChatGPT|Claude)<\/button>/g) ?? [];
+  expect(importButtons).toHaveLength(2);
+  for (const button of importButtons) expect(button).toMatch(/^<button[^>]+disabled/);
 });

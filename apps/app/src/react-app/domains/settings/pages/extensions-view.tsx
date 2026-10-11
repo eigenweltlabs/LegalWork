@@ -7,6 +7,8 @@ import { Blocks, Cpu, HardDrive, Plug, type LucideIcon } from "lucide-react";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
+import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
+import claudeLogo from "@/assets/claude-logo.svg";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubTabs } from "../segmented-tabs";
@@ -123,8 +125,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       ) : null}
 
       {hubScope === "local" && props.pluginImports ? <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("chatgpt")}>{t("extensions.import_chatgpt")}</Button>
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("claude")}>{t("extensions.import_claude")}</Button>
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("chatgpt")}>
+          <ChatGptLogo className="size-5" />
+          {t("extensions.import_chatgpt")}
+        </Button>
+        <Button variant="outline" disabled={props.busy || !props.canEditPlugins} onClick={() => setImportProvider("claude")}>
+          <img src={claudeLogo} alt="" aria-hidden="true" width={16} height={16} className="size-4 shrink-0" />
+          {t("extensions.import_claude")}
+        </Button>
       </div> : null}
       {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} canUseGlobalScope={props.canUseGlobalScope} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
