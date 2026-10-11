@@ -8,6 +8,7 @@ import { TokenService } from "../tokens.js";
 import { serve } from "../serve-node.js";
 import { WikiStore } from "../wiki/store.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
+import { listApprovals, respondApproval, waitForApprovals } from "../wiki/approval.test-helpers.js";
 import type { ServerConfig } from "../types.js";
 import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
 
@@ -37,7 +38,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   await writeFile(sourcePath, "# Closing note\n\nThe practice team used a closing checklist. An incomplete signature delayed closing.\n");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "wiki-agent-client", hostToken: "wiki-agent-host",
-    configPath: join(root, "configuration", "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
+    configPath: join(root, "configuration", "server.json"), approval: { mode: "auto", timeoutMs: 5000 }, corsOrigins: ["*"],
     workspaces: [{ id: "matter", name: "Matter", path: project, preset: "starter", workspaceType: "local" }],
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
     logFormat: "pretty", logRequests: false,
@@ -48,6 +49,18 @@ test("an agent captures an authorized source into real Markdown through the serv
   const server = await startServer(config);
   stops.push(async () => { await server.stop(); });
   const url = `http://127.0.0.1:${server.port}`;
+  const approvedIds = new Set<string>();
+  const approved = async (result: Promise<string>, action: string) => {
+    const [approval] = await waitForApprovals(url, config.hostToken);
+    expect(approval).toMatchObject({ action, workspaceId: "matter", sessionID: "session-capture" });
+    expect(approval.description).toBeTruthy();
+    expect(approvedIds.has(approval.id)).toBe(false);
+    approvedIds.add(approval.id);
+    expect((await respondApproval(url, config.hostToken, approval, "allow")).status).toBe(200);
+    const response = await result;
+    expect(await listApprovals(url, config.hostToken)).toEqual([]);
+    return response;
+  };
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
   process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
@@ -60,28 +73,29 @@ test("an agent captures an authorized source into real Markdown through the serv
   const skills = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Skills/Capture.md" }));
   expect(skills.content).toContain("Capture learning after a matter");
   expect(skills.guidance.some((entry: { path: string }) => entry.path === "Structure.md")).toBe(true);
+  expect(await listApprovals(url, config.hostToken)).toEqual([]);
 
   // A source read is required before capture. No model or remote document system
   // is simulated here: this fixture tests the actual tool -> HTTP -> file/index path.
   const source = await readFile(sourcePath, "utf8");
   expect(source).toContain("incomplete signature");
   const content = "---\ntype: process\nstatus: draft\n---\n# Closing checklist\n\nObserved in one closing: validate all signatures before closing.\n\n## Sources\nLocal authorized matter file: Closing note.md, Closing note section.\n\nSee [[Processes/Knowledge capture.md]].\n";
-  const saved = JSON.parse(await tool.wiki_write.execute({ wiki_id: wiki.id, path: "Processes/Closing checklist.md", content, base_revision: null }));
+  const saved = JSON.parse(await approved(tool.wiki_write.execute({ wiki_id: wiki.id, path: "Processes/Closing checklist.md", content, base_revision: null }), "wiki.write"));
   expect(saved.ok).toBe(true);
   expect(await readFile(join(wiki.root, saved.path), "utf8")).toBe(content);
   const found = JSON.parse(await tool.wiki_search.execute({ wiki_id: wiki.id, query: "signatures", type: "process" }));
   expect(found.pages.some((page: { path: string }) => page.path === saved.path)).toBe(true);
   const opened = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: saved.path }));
-  const replacement = JSON.parse(await tool.wiki_write.execute({ wiki_id: wiki.id, path: saved.path,
-    content: content + "\nReview each signature block.\n", base_revision: opened.revision }));
+  const replacement = JSON.parse(await approved(tool.wiki_write.execute({ wiki_id: wiki.id, path: saved.path,
+    content: content + "\nReview each signature block.\n", base_revision: opened.revision }), "wiki.write"));
   expect(replacement.ok).toBe(true);
-  const stale = JSON.parse(await tool.wiki_write.execute({ wiki_id: wiki.id, path: saved.path,
-    content: "# Stale overwrite\n", base_revision: opened.revision }));
+  const stale = JSON.parse(await approved(tool.wiki_write.execute({ wiki_id: wiki.id, path: saved.path,
+    content: "# Stale overwrite\n", base_revision: opened.revision }), "wiki.write"));
   expect(stale.code).toBe("wiki_revision_conflict");
   expect(await readFile(join(wiki.root, saved.path), "utf8")).toContain("Review each signature block");
 
-  const patched = JSON.parse(await tool.wiki_properties_update.execute({ wiki_id: wiki.id, path: saved.path,
-    base_revision: replacement.revision, patch: { set: { status: "reviewed", score: 0 } } }));
+  const patched = JSON.parse(await approved(tool.wiki_properties_update.execute({ wiki_id: wiki.id, path: saved.path,
+    base_revision: replacement.revision, patch: { set: { status: "reviewed", score: 0 } } }), "wiki.properties.update"));
   expect(patched.content).toContain('status: "reviewed"');
   expect(patched.content).toContain("Review each signature block.");
   const fields = JSON.parse(await tool.wiki_fields.execute({ wiki_id: wiki.id }));
@@ -101,16 +115,26 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(projectReport.datasets.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
   expect(JSON.parse(await tool.view_list.execute({})).items.map((view: { id: string }) => view.id)).toContain(projectReport.id);
   const wikiOwner = { kind: "wiki", id: wiki.id };
-  const report = JSON.parse(await tool.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }));
+  const report = JSON.parse(await approved(tool.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }), "wiki.view.create"));
   expect(report.datasets.reviewed.rows[0]["properties.score"]).toBe(0);
   expect(report.reference).toBe(`wiki:${wiki.id}/${report.id}`);
   const reread = JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id }));
   expect(reread.revision).toBe(report.revision);
-  const updated = JSON.parse(await tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
-    base_revision: report.revision, input: { ...input, title: "Reviewed closing", queries: report.queries, datasets: report.datasets } }));
+  const updated = JSON.parse(await approved(tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input: { ...input, title: "Reviewed closing", queries: report.queries, datasets: report.datasets } }), "wiki.view.update"));
   expect(updated.title).toBe("Reviewed closing");
-  expect(JSON.parse(await tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
-    base_revision: report.revision, input })).code).toBe("view_revision_conflict");
+  expect(JSON.parse(await approved(tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input }), "wiki.view.update")).code).toBe("view_revision_conflict");
+
+  const controller = new AbortController();
+  const cancelledWrite = tool.wiki_write.execute({ wiki_id: wiki.id, path: "Cancelled.md", content: "# Cancelled proposal\n", base_revision: null }, { abort: controller.signal });
+  const [cancelledApproval] = await waitForApprovals(url, config.hostToken);
+  expect(cancelledApproval).toMatchObject({ action: "wiki.write", workspaceId: "matter", sessionID: "session-capture" });
+  controller.abort();
+  expect(JSON.parse(await cancelledWrite).ok).toBe(false);
+  expect(await waitForApprovals(url, config.hostToken, 0, 500)).toEqual([]);
+  expect((await respondApproval(url, config.hostToken, cancelledApproval, "allow")).status).toBe(404);
+  expect(await Bun.file(join(wiki.root, "Cancelled.md")).exists()).toBe(false);
 
   const revoked = await fetch(`${url}/wikis/${wiki.id}`, { method: "PATCH", headers, body: JSON.stringify({ allowInProjects: false }) });
   expect(revoked.status).toBe(200);
@@ -132,6 +156,7 @@ test("authenticated proxy session origin grants local wiki access and a collabor
   await mkdir(project);
   const engine = await serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
     const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/command") return Response.json([{ name: "capture", template: "Capture the requested knowledge." }]);
     if (request.method === "POST" && path === "/session") return Response.json({ id: "ses_http_origin", directory: project, title: "Matter" });
     if (request.method === "POST" && path === "/session/ses_http_origin/message") return Response.json({ id: "msg_fixture", sessionID: "ses_http_origin" });
     if (request.method === "POST" && path === "/session/ses_http_origin/prompt_async") return new Response(null, { status: 204 });

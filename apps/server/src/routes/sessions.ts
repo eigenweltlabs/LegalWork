@@ -2,6 +2,7 @@ import { retryStopReason } from "../session-retry-policy.js";
 import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
+import { WikiStore } from "../wiki/store.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
@@ -70,7 +71,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
   async function validateQueuedExecution(client: WorkspaceOpencodeClient, execution: QueueEntry["execution"]) {
-    if (!config.agentSandboxEnabled) return;
+    if (!config.agentSandboxEnabled && !(await new WikiStore(config).list()).length) return;
     if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
     if (execution.kind === "command") {
       assertNoHostShellInterpolation(execution.arguments);

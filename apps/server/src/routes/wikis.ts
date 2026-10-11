@@ -3,6 +3,10 @@ import { ViewInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
 import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
+import { buildWikiFilePolicy } from "../wiki/file-access-policy.js";
+import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
+import { approveWikiWrite } from "../wiki/write-approval.js";
 import type { WikiRegistration, WikiSharingInput, WikiSnapshot, WikiSyncStatus, WikiTeamOverview, WikiTeamRecord, WikiVault } from "@legalwork/types/wiki";
 import { ApiError } from "../errors.js";
 import type { ApprovalRequest, ServerConfig, TokenScope } from "../types.js";
@@ -79,8 +83,15 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return { ...snapshot.wiki, writable, sharing, pendingSharing, syncStatus: options.getSyncStatus ? await options.getSyncStatus(snapshot.wiki.id) : snapshot.wiki.syncStatus };
   };
   const change = (id: string) => { options.onChanged?.(id); };
-  const authorize = async (ctx: RequestContext, wiki: WikiRegistration, action: string, paths: string[]) => {
-    await requireApproval(ctx, { workspaceId: wiki.workspaceId, action, summary: `${action.replace("wiki.", "")} in ${wiki.name}`, paths });
+  const authorize = async (ctx: RequestContext, wiki: WikiRegistration, action: string, paths: string[], proposal?: unknown) => {
+    const preview = proposal === undefined ? undefined : JSON.stringify(proposal, null, 2);
+    await approveWikiWrite(ctx, config, wiki, { workspaceId: wiki.workspaceId, action, summary: `${action.replace("wiki.", "")} in ${wiki.name}`, paths,
+      ...(preview ? { description: preview.length <= 16_000 ? preview : preview.slice(0, 16_000) + "\n[Preview truncated. Review the complete proposal in the tool call before allowing.]" } : {}),
+    }, requireApproval);
+    // Permissions can change while a human is reviewing the pending proposal.
+    const currentAgent = await authenticateWikiAgentRequest(config, ctx.request);
+    if (currentAgent) ctx.actor = currentAgent.actor;
+    await selected(ctx, true);
   };
   const queryPath = (ctx: RequestContext, bodyPath?: string) => {
     const query = ctx.url.searchParams.get("path");
@@ -90,6 +101,22 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+  addRoute(routes, "GET", "/wikis/file-policy", "client", async ctx => {
+    const agent = await authenticateWikiAgentRequest(config, ctx.request);
+    if (!agent) throw new ApiError(403, "wiki_agent_session_required", "File access policy requires an authenticated agent session.");
+    const wikis = await store.list();
+    const policy = await buildWikiFilePolicy(wikis, agent.directory, [store.baseDir, runtimeStorageDir(config)]);
+    if (policy.ownRoot) {
+      const wiki = wikis.find(item => item.root === policy.ownRoot);
+      if (!wiki || !visible(ctx, wiki)) throw new ApiError(404, "wiki_not_found", "This wiki is not available to this client.");
+      await options.ensureWikiReadable?.(ctx, wiki);
+      policy.ownWritable = !config.readOnly && editor(ctx);
+      if (policy.ownWritable && options.ensureWikiWritable) {
+        try { await options.ensureWikiWritable(ctx, wiki); } catch { policy.ownWritable = false; }
+      }
+    }
+    return jsonResponse(policy);
+  });
   const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
     list: async () => (await store.files(id)).map(file => file.path),
     read: path => store.readAsset(id, path),
@@ -110,7 +137,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const wiki = await selected(ctx, true);
     const parsed = z.object({ path: z.string().min(1).max(4096), baseRevision: z.string().min(1).max(200), patch: wikiPropertiesPatchSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 128 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_wiki_properties", "Choose fields to set or remove and provide the current page revision.");
-    await authorize(ctx, wiki, "wiki.properties.update", [parsed.data.path]);
+    await authorize(ctx, wiki, "wiki.properties.update", [parsed.data.path], parsed.data);
     const document = await store.updateProperties(wiki.id, parsed.data.path, parsed.data.patch, parsed.data.baseRevision);
     change(wiki.id);
     return jsonResponse(document);
@@ -133,7 +160,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
       const pages = await store.indexedPages(wiki.id);
       input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, queryWikiPages(pages, query)])) };
     }
-    await authorize(ctx, wiki, "wiki.view.create", ["Views"]);
+    await authorize(ctx, wiki, "wiki.view.create", ["Views"], input);
     const result = await views(wiki.id).create(input);
     change(wiki.id);
     return jsonResponse(result, 201);
@@ -142,7 +169,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const wiki = await selected(ctx, true);
     const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the view before changing its definition.");
-    await authorize(ctx, wiki, "wiki.view.update", ["Views"]);
+    await authorize(ctx, wiki, "wiki.view.update", ["Views"], parsed.data);
     const result = await views(wiki.id).update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
     change(wiki.id);
     return jsonResponse(result);
@@ -303,7 +330,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const parsed = writeSchema.safeParse(await readJsonBodyLimited(ctx.request, WIKI_MAX_PAGE_BYTES + 128 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_wiki_page", "Provide a path, Markdown content and optional base revision.");
     const path = queryPath(ctx, parsed.data.path);
-    await authorize(ctx, wiki, "wiki.write", [path]);
+    await authorize(ctx, wiki, "wiki.write", [path], parsed.data);
     const document = await store.write(wiki.id, path, parsed.data.content, parsed.data.baseRevision ?? "");
     change(wiki.id);
     return jsonResponse(document);
@@ -313,7 +340,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const parsed = deleteSchema.safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_wiki_page", "Provide the path and the current revision before deleting a file.");
     const path = queryPath(ctx, parsed.data.path);
-    await authorize(ctx, wiki, "wiki.delete", [path]);
+    await authorize(ctx, wiki, "wiki.delete", [path], parsed.data);
     await store.remove(wiki.id, path, parsed.data.baseRevision);
     change(wiki.id);
     return jsonResponse({ ok: true });

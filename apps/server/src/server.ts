@@ -74,7 +74,7 @@ import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
-import { authenticateWikiAgentRequest, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWikiAgentSession } from "./wiki/agent-access.js";
 import { EnvService } from "./env-file.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
@@ -898,6 +898,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
+    unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -1327,7 +1329,8 @@ async function proxyOpencodeRequest(input: {
   }
 
   const method = input.request.method.toUpperCase();
-  if (input.config.agentSandboxEnabled) assertSandboxProxyAllowed(method, proxyPath);
+  const protectedExecution = input.config.agentSandboxEnabled || (await new WikiStore(input.config).list()).length > 0;
+  if (protectedExecution) assertSandboxProxyAllowed(method, proxyPath);
   const normalizedPath = normalizeOpencodeProxyPath(proxyPath);
   const sessionDirectory = input.url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(headers.get("x-opencode-directory"));
   const session = normalizedPath.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork)$/);
@@ -1342,7 +1345,7 @@ async function proxyOpencodeRequest(input: {
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
   if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
   if (isSessionCommandProxyRequest(method, proxyPath)) {
-    if (input.config.agentSandboxEnabled) {
+    if (protectedExecution) {
       if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
       const command = z.object({ command: z.string(), arguments: z.string().default("") }).parse(JSON.parse(Buffer.from(body).toString()));
       assertNoHostShellInterpolation(command.arguments);

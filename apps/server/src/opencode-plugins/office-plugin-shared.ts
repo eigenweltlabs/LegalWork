@@ -16,6 +16,7 @@ export type OpenCodeContext = {
   messageID?: string;
   directory?: string;
   worktree?: string;
+  abort?: AbortSignal;
   ask?: (input: {
     permission: string;
     patterns: string[];

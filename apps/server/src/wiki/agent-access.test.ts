@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
-import { authenticateWikiAgentRequest, ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
+import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -82,4 +82,71 @@ test("runtime auth permits only the page tool endpoints and refuses broader mana
     ["/wikis/team", "GET"], ["/wikis/join", "POST"], ["/wikis/wiki-id/share", "POST"],
     ["/wikis/wiki-id/share", "PATCH"], ["/wikis/wiki-id/share", "DELETE"]])
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
+test("engine-verified descendants inherit current ancestor scope without becoming independent grants", async () => {
+  const { config, root, request } = await fixture();
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  const parents: Record<string, string | undefined> = { grandchild: "child", child: "parent", parent: undefined };
+  configureWikiAgentSessionLookup(config, async (workspace, id, directory) => {
+    expect(workspace.id).toBe("project");
+    expect(directory).toBe(await realpath(root));
+    return { id, directory: root, parentID: parents[id] };
+  });
+  const descendant = request("/wikis", { session: "grandchild" });
+  expect(await authenticateWikiAgentRequest(config, descendant)).toMatchObject({ sessionId: "grandchild", actor: { clientId: "wiki-agent:grandchild", scope: "owner" } });
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "collaborator" });
+  expect((await authenticateWikiAgentRequest(config, descendant))?.actor.scope).toBe("collaborator");
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: join(root, "unavailable"), scope: "owner" });
+  await expect(authenticateWikiAgentRequest(config, descendant)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});
+
+test("claimed parents, mismatched engine IDs and changed directories cannot grant descendant access", async () => {
+  const { config, root, request } = await fixture();
+  const other = join(root, "other");
+  await mkdir(other);
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  const child = request("/wikis", { session: "child" });
+  child.headers.set("x-legalwork-wiki-agent-parent-session", "parent");
+  for (const record of [
+    { id: "child", directory: root },
+    { id: "different-child", directory: root, parentID: "parent" },
+    { id: "child", directory: other, parentID: "parent" },
+    { id: "child", directory: root, parentID: ["parent"] },
+  ]) {
+    configureWikiAgentSessionLookup(config, async () => record);
+    await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  }
+  configureWikiAgentSessionLookup(config, async () => { throw new Error("Unavailable engine"); });
+  await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});
+
+test("cycles and excessive ancestry fail closed, and revoked ancestors cannot fall back to an older grant", async () => {
+  const { config, root, request } = await fixture();
+  const child = request("/wikis", { session: "child" });
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: root, parentID: id === "child" ? "loop" : "child" }));
+  await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  let lookups = 0;
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: root, parentID: `ancestor-${++lookups}` }));
+  await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  expect(lookups).toBe(64);
+  await grantWikiAgentSession(config, { sessionId: "older", directory: root, scope: "owner" });
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: join(root, "unavailable"), scope: "owner" });
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: root, parentID: id === "child" ? "parent" : "older" }));
+  await expect(authenticateWikiAgentRequest(config, child)).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});
+
+test("ancestor downgrades during engine lookup and explicit child grants cannot be elevated", async () => {
+  const { config, root, request } = await fixture();
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => {
+    if (id === "parent") await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "viewer" });
+    return { id, directory: root, ...(id === "child" ? { parentID: "parent" } : {}) };
+  });
+  expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("viewer");
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  await grantWikiAgentSession(config, { sessionId: "child", directory: root, scope: "collaborator" });
+  configureWikiAgentSessionLookup(config, async () => { throw new Error("A directly registered child must not use ancestor permissions"); });
+  expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("collaborator");
 });

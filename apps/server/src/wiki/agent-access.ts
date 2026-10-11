@@ -1,19 +1,28 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import type { Actor, ServerConfig, TokenScope } from "../types.js";
+import { isAbsolute, relative, sep } from "node:path";
+import { z } from "zod";
+import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 
 type SessionOrigin = { directory: string; scope: TokenScope };
-type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin> };
+type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
+type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
+const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { token: randomBytes(32).toString("hex"), sessions: new Map() };
+    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), revoked: new Set() };
     runtimes.set(config, access);
   }
   return access;
+}
+
+/** The server supplies its authenticated, directory-pinned engine client. */
+export function configureWikiAgentSessionLookup(config: ServerConfig, lookup: SessionLookup): void {
+  runtime(config).lookup = lookup;
 }
 
 /** Only the managed engine receives this ephemeral, narrow credential. */
@@ -32,7 +41,9 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   if (!directory) {
     // A remote engine may use a directory absent on this host. Its ordinary
     // session can proceed, but no private wiki grant may survive that change.
-    runtimes.get(config)?.sessions.delete(input.sessionId);
+    const access = runtime(config);
+    access.sessions.delete(input.sessionId);
+    access.revoked.add(input.sessionId);
     return;
   }
   const access = runtime(config);
@@ -42,9 +53,39 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   // Replace rather than merge: a collaborator taking over an owner's session
   // must immediately lose the owner's private wiki access.
   access.sessions.set(input.sessionId, { directory, scope: input.scope });
+  access.revoked.delete(input.sessionId);
+}
+
+/** Inherit live scope, never a cached owner grant, from an engine-verified ancestor. */
+async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sessionId: string, directory: string, requestSignal: AbortSignal): Promise<SessionOrigin | undefined> {
+  const lookup = access.lookup;
+  if (!lookup || access.revoked.has(sessionId)) return;
+  const workspaces = await Promise.all(config.workspaces.map(async workspace => {
+    const root = await realpath(workspace.directory || workspace.path).catch(() => null);
+    if (!root) return null;
+    const child = relative(root, directory);
+    return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child) ? { workspace, root } : null;
+  }));
+  const source = workspaces.filter(item => item !== null).sort((a, b) => b.root.length - a.root.length)[0];
+  if (!source) return;
+  const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(10_000)]);
+  const visited = new Set<string>();
+  let id: string | undefined = sessionId;
+  while (id && visited.size < 64) {
+    if (visited.has(id) || access.revoked.has(id) || signal.aborted) return;
+    visited.add(id);
+    const session = sessionSchema.safeParse(await lookup(source.workspace, id, directory, signal).catch(() => null));
+    if (!session.success || session.data.id !== id || await realpath(session.data.directory).catch(() => null) !== directory || signal.aborted) return;
+    // Read after the engine response, so a downgrade during lookup takes effect.
+    const origin = access.sessions.get(id);
+    if (access.revoked.has(id)) return;
+    if (origin) return origin.directory === directory ? origin : undefined;
+    id = session.data.parentID;
+  }
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
+  if (method === "GET" && pathname === "/wikis/file-policy") return true;
   if (method === "GET" && (pathname === "/workspaces" || pathname === "/wikis")) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/search$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/fields$/.test(pathname)) return true;
@@ -63,6 +104,7 @@ function narrowWikiPath(method: string, pathname: string): boolean {
 export async function authenticateWikiAgentRequest(config: ServerConfig, request: Request): Promise<{
   actor: Actor;
   directory: string;
+  sessionId: string;
 } | null> {
   const token = request.headers.get("x-legalwork-wiki-agent-token");
   if (token === null) return null;
@@ -74,14 +116,16 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   if (!narrowWikiPath(request.method, new URL(request.url).pathname))
     throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to wiki page tools.");
   const sessionId = request.headers.get("x-legalwork-wiki-agent-session");
-  const origin = sessionId ? access.sessions.get(sessionId) : undefined;
-  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
+  if (!sessionId || sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
   const claimed = request.headers.get("x-legalwork-wiki-agent-directory");
   let decoded: string | null = null;
   try { decoded = claimed ? decodeURIComponent(claimed) : null; } catch { /* Invalid encoded claims fail closed. */ }
   const directory = decoded ? await realpath(decoded).catch(() => null) : null;
-  if (!directory || directory !== origin.directory)
+  if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
+  const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
+  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
+  if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
-  return { directory, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
+  return { directory, sessionId, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
     tokenHash: createHash("sha256").update(access.token).digest("hex") } };
 }
