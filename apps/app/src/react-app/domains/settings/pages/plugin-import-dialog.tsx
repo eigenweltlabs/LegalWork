@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
-import { ArrowLeft, Blocks, Bot, ChevronRight, FileArchive, FolderOpen, Layers, Loader2, Package, Plug, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Blocks, Bot, ChevronRight, FileArchive, FolderOpen, Loader2, Package, Plug, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportSource } from "@legalwork/types/plugin-import";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,8 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const mounted = useRef(true);
   const zipInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const providerButton = useRef<HTMLButtonElement>(null);
   const selected = previews.find(item => item.root === selectedRoot);
   const groups = groupPluginImportCandidates(candidates);
   const search = query.trim().toLocaleLowerCase();
@@ -74,6 +76,8 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setError(null);
     setQuery("");
     setFilter("all");
+    if (provider) searchInput.current?.focus();
+    else providerButton.current?.focus();
   }, [provider]);
 
   const preview = async (nextSource: PluginImportSource, label: string) => {
@@ -155,7 +159,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
       {provider === null ? <>
         <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t("integrations.import_choose_provider")}</DialogDescription></DialogHeader>
         <div className="space-y-3">
-          <Button autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          <Button ref={providerButton} autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
           <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
         </div>
       </> : <>
@@ -176,7 +180,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input autoFocus className="ps-9" aria-label={t("extensions.import_search")} placeholder={t("extensions.import_search")} value={query} onChange={event => setQuery(event.target.value)} />
+            <Input ref={searchInput} autoFocus className="ps-9" aria-label={t("extensions.import_search")} placeholder={t("extensions.import_search")} value={query} onChange={event => setQuery(event.target.value)} />
           </div>
           <HubTabs<ImportFilter>
             label={t("extensions.import_filter")}
@@ -226,8 +230,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
 
       <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden" aria-label={t("extensions.import_choose_zip")} onChange={event => { void upload(event.target.files, false); event.target.value = ""; }} />
       <input ref={element => { folderInput.current = element; element?.setAttribute("webkitdirectory", ""); }} type="file" multiple className="hidden" aria-label={t("extensions.import_choose_folder")} onChange={event => { void upload(event.target.files, true); event.target.value = ""; }} />
-      <DialogFooter className="mx-0 mb-0 shrink-0 items-center gap-3 px-6 py-4 sm:justify-between">
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Layers className="size-3.5" />{t("extensions.import_all_projects")}</span>
+      <DialogFooter className="mx-0 mb-0 shrink-0 items-center gap-3 px-6 py-4 sm:justify-end">
         {step === "choose" ? <Button variant="outline" onClick={props.onClose}>{t("common.close")}</Button> : <div className="flex items-center gap-2"><Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !selected || !source} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : "extensions.import_install")}</Button></div>}
       </DialogFooter>
       </>}

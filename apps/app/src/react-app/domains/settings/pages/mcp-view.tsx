@@ -5,6 +5,7 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleAlert,
   Cloud,
   Code2,
@@ -47,7 +48,7 @@ import { pluginImportConnectorName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import type { LegalworkMcpProbeResult, LegalworkMcpRegisterClientResult } from "../../../../app/lib/legalwork-server";
@@ -1299,138 +1300,86 @@ function McpConfiguredServerRow(props: {
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
-  const Icon = serviceIcon(props.entry.name);
   return (
-    <div className={`group relative rounded-xl transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
+    <div className="group relative rounded-xl transition-colors hover:bg-dls-hover/60">
       <div className="flex items-center gap-3 px-1 py-3">
         <button
           type="button"
-          aria-expanded={props.selected}
+          aria-haspopup="dialog"
           className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-          onClick={() => props.onSelect(props.selected ? null : props.entry.name)}
+          onClick={() => props.onSelect(props.entry.name)}
         >
-          {props.directoryEntry ? <LedgerBrandIcon name={props.directoryEntry.name} iconSlug={props.directoryEntry.iconSlug} iconSrc={props.directoryEntry.iconSrc} kind={props.directoryEntry.kind ?? "mcp"} /> :
-          <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
-            <Icon size={16} className={props.status === "connected" ? "text-green-11" : serviceColor(props.entry.name)} />
-          </div>}
+          <McpConfiguredServerIcon {...props} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
             <div className="mt-0.5 truncate text-[13px] text-dls-secondary">{props.directoryEntry?.description ?? t("integrations.custom_connector")}</div>
           </div>
-          <ChevronDown size={14} className={`shrink-0 text-dls-secondary/40 transition-transform ${props.selected ? "rotate-180" : ""}`} />
+          <ChevronRight size={14} className="shrink-0 text-muted-foreground/50" />
         </button>
-        {props.canShareWithFirm && props.onShareWithFirm ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={props.busy}
-            onClick={(event) => {
-              event.stopPropagation();
-              void props.onShareWithFirm?.(props.entry.name);
-            }}
-            title={t("firm_hub.share_with_firm")}
-            aria-label={`${t("firm_hub.share_with_firm")}: ${props.displayName(props.entry.name)}`}
-          >
-            <Share2 size={13} />
-          </Button>
-        ) : null}
         <div className="flex shrink-0 items-center gap-2">
           <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
           <span className="text-xs text-muted-foreground">{friendlyStatus(props.status)}</span>
         </div>
-        {props.onToggleEnabled && props.entry.source !== "config.global" ? <Switch
-          checked={props.entry.config.enabled !== false}
-          disabled={props.busy || props.togglingMcp !== null}
-          aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
-          onCheckedChange={enabled => {
-            if (props.togglingMcp) return;
-            props.onToggleBusy(props.entry.name);
-            void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
-          }}
-        /> : null}
+        <McpConnectorToggle {...props} />
       </div>
 
-      {props.selected ? <McpConfiguredServerDetails {...props} /> : null}
+      <McpConfiguredServerDetails {...props} />
     </div>
   );
+}
+
+function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  const directory = props.directoryEntry;
+  const Icon = serviceIcon(props.entry.name);
+  return directory ? <LedgerBrandIcon name={directory.name} iconSlug={directory.iconSlug} iconSrc={directory.iconSrc} kind={directory.kind ?? "mcp"} /> :
+    <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted/30"><Icon className="size-4 text-muted-foreground" /></div>;
+}
+
+function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  if (!props.onToggleEnabled || props.entry.source === "config.global") return null;
+  return <Switch
+    checked={props.entry.config.enabled !== false}
+    disabled={props.busy || props.togglingMcp !== null}
+    aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
+    onCheckedChange={enabled => {
+      if (props.togglingMcp) return;
+      props.onToggleBusy(props.entry.name);
+      void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
+    }}
+  />;
 }
 
 function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServerRow>[0]) {
-  return (
-    <div className="animate-in fade-in slide-in-from-top-1 space-y-3 border-t border-dls-border pb-4 pl-5 pr-3 pt-3 duration-200">
-      <div className="flex items-center gap-4 text-xs">
-        <span className="text-dls-secondary">{t("mcp.connection_type")}</span>
-        <span className="text-dls-text">{props.entry.config.type === "remote" ? t("mcp.type_cloud") : t("mcp.type_local")}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="rounded-md border border-dls-border bg-dls-surface px-2 py-0.5 text-[10px] font-medium text-dls-text">
-          {t("mcp.cap_tools")}
-        </span>
-        {props.entry.config.type === "remote" ? (
-          <span className="rounded-md border border-dls-border bg-dls-surface px-2 py-0.5 text-[10px] font-medium text-dls-text">
-            {t("mcp.cap_signin")}
-          </span>
-        ) : null}
-      </div>
-      {props.errorInfo ? <div className="rounded-lg border border-red-6 bg-red-2 px-3 py-2 text-xs text-red-11">{props.errorInfo}</div> : null}
-      <details className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-dls-secondary transition-colors hover:text-dls-text">
-          <Code2 size={11} />
-          {t("mcp.technical_details")}
-          <ChevronDown size={10} className="transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="mt-1.5 break-all rounded-lg bg-dls-hover px-3 py-2 font-mono text-[11px] text-dls-secondary">
-          {props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}
+  return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
+    <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
+      <DialogHeader className="pe-6">
+        <div className="mb-1 flex items-center gap-3"><McpConfiguredServerIcon {...props} /><DialogTitle>{props.displayName(props.entry.name)}</DialogTitle></div>
+        <DialogDescription>{props.directoryEntry?.description ?? t("integrations.connector_details")}</DialogDescription>
+      </DialogHeader>
+      <div className="divide-y divide-border">
+        <div className="flex items-center justify-between gap-4 pb-5">
+          <div className="space-y-2"><h3 className="text-sm font-medium">{t("integrations.connector_chat_access")}</h3><p className="flex items-center gap-2 text-sm text-muted-foreground"><span className={`size-1.5 rounded-full ${statusDot(props.status)}`} />{friendlyStatus(props.status)}</p></div>
+          <McpConnectorToggle {...props} />
         </div>
-      </details>
-      <McpConfiguredServerAuthActions {...props} />
-      <div className="flex justify-end gap-2 pt-1">
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onRemove(props.entry.name);
-          }}
-        >
-          {t("mcp.remove_app")}
-        </Button>
+        {props.supportsOauth(props.entry) ? <div className="flex items-center justify-between gap-4 py-5">
+          <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t("integrations.connector_account_hint")}</p></div>
+          {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy} onClick={() => props.onAuthorize(props.entry)}>{t("mcp.login_action")}</Button>}
+        </div> : null}
+        <details className="group pt-5">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><Code2 className="size-3.5" />{t("mcp.technical_details")}<ChevronDown className="ms-auto size-3.5 transition-transform group-open:rotate-180" /></summary>
+          <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground"><p>{t(props.entry.config.type === "remote" ? "integrations.connector_remote" : "integrations.connector_local")}</p><p className="break-all font-mono">{props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}</p></div>
+        </details>
       </div>
-    </div>
-  );
-}
-
-function McpConfiguredServerAuthActions(props: Parameters<typeof McpConfiguredServerRow>[0]) {
-  if (!props.supportsOauth(props.entry)) return null;
-  if (props.status !== "connected") {
-    return (
-      <>
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="text-xs text-dls-secondary">{t("mcp.logout_label")}</div>
-          <Button size="sm" disabled={props.busy} onClick={() => props.onAuthorize(props.entry)}>
-            {t("mcp.login_action")}
-          </Button>
+      {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
+      <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
+        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
+        <div className="flex items-center gap-2">
+          {props.canShareWithFirm && props.onShareWithFirm ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => void props.onShareWithFirm?.(props.entry.name)}><Share2 className="size-4" />{t("firm_hub.share_with_firm")}</Button> : null}
+          <Button size="sm" onClick={() => props.onSelect(null)}>{t("common.close")}</Button>
         </div>
-        <div className="text-[11px] text-dls-secondary/70">{t("mcp.login_hint")}</div>
-      </>
-    );
-  }
-  return (
-    <>
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="text-xs text-dls-secondary">{t("mcp.logout_label")}</div>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={props.busy || props.logoutBusy}
-          onClick={() => props.onRequestLogout(props.entry.name)}
-        >
-          {props.logoutBusy && props.logoutTarget === props.entry.name ? t("mcp.logout_working") : t("mcp.logout_action")}
-        </Button>
-      </div>
-      <div className="text-[11px] text-dls-secondary/70">{t("mcp.logout_hint")}</div>
-    </>
-  );
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
 }
 
 function McpAdvancedConfigSection(props: {
