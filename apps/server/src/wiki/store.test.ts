@@ -254,14 +254,18 @@ describe("Markdown wiki store", () => {
     expect(creates.filter((item) => item.status === "fulfilled")).toHaveLength(1);
   });
 
-  test("view definitions stay in editable Markdown files and refresh after external changes", async () => {
+  test("retired view definitions remain ordinary editable metadata without a snapshot projection", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Views" });
     const source = "---\nviews:\n  - name: Deals\n    type: kanban\n    filter: { type: deal, practice: venture }\n    columns: [lead, closing, completed]\n    groupBy: stage\n---\n# My deal board\n";
     await store.write(wiki.id, "Views/Deals.md", source, "");
-    const first = (await store.snapshot(wiki.id)).views.find((view) => view.name === "Deals");
-    expect(first).toEqual({ name: "Deals", type: "kanban", filter: { type: "deal", practice: "venture" }, columns: ["lead", "closing", "completed"], groupBy: "stage" });
+    const first = await store.snapshot(wiki.id);
+    expect(first).not.toHaveProperty("views");
+    expect((await store.read(wiki.id, "Views/Deals.md")).content).toBe(source);
+    expect(first.pages.find(page => page.path === "Views/Deals.md")?.properties.views).toEqual([{ name: "Deals", type: "kanban", filter: { type: "deal", practice: "venture" }, columns: ["lead", "closing", "completed"], groupBy: "stage" }]);
     await writeFile(join(wiki.root, "Views/Deals.md"), source.replace("practice: venture", "practice: litigation"));
-    expect((await store.snapshot(wiki.id)).views.find((view) => view.name === "Deals")?.filter.practice).toBe("litigation");
+    const next = await store.snapshot(wiki.id);
+    expect(next.pages.find(page => page.path === "Views/Deals.md")?.revision).not.toBe(first.pages.find(page => page.path === "Views/Deals.md")?.revision);
+    expect((await store.read(wiki.id, "Views/Deals.md")).content).toBe(source.replace("practice: venture", "practice: litigation"));
   });
 
   test("records external edits and deletions, recovers deleted pages, and keeps history across restarts", async () => {

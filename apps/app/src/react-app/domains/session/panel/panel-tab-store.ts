@@ -109,7 +109,6 @@ function restoredTab(value: unknown): PanelTab | null {
     const location = value.location;
     if (location.kind === "page" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "page", path: location.path, anchor: typeof location.anchor === "string" ? location.anchor : undefined, mode: location.mode === "source" ? "source" : undefined }, value.label);
     if (location.kind === "asset" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "asset", path: location.path }, value.label);
-    if (location.kind === "view" && typeof location.name === "string") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "view", name: location.name }, value.label);
     if (location.kind === "graph") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "graph", focus: typeof location.focus === "string" ? location.focus : undefined }, value.label);
     return null;
   }

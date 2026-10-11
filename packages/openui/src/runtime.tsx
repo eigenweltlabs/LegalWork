@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createLibrary, defineComponent, Renderer } from "@openuidev/react-lang";
 import { Card } from "@openuidev/react-ui/Card";
 import { CardHeader } from "@openuidev/react-ui/CardHeader";
@@ -14,7 +14,11 @@ import { isLocalOpenUIProgram, schemas, SourceOwnerSchema, type SourceOwner } fr
 
 type Row = Record<string, unknown>;
 type Column = { field: string; label: string };
-const Host = createContext<{ openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; streaming: boolean }>({ streaming: false });
+export type BoardActions = {
+  canMove: (row: Row, field: string) => boolean;
+  move: (row: Row, field: string, value: string) => Promise<void>;
+};
+const Host = createContext<{ openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming: boolean }>({ streaming: false });
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const chartPalette = ["#6366f1", "#14b8a6", "#a78bfa", "#f59e0b", "#60a5fa", "#f472b6"];
 function fieldLabel(field: string) { return field.replace(/^properties\./, "").replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()); }
@@ -48,10 +52,42 @@ function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns:
   </div>;
 }
 function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { rows: Row[]; groupBy: string; titleField: string; fields?: Column[]; groupOrder?: string[] }) {
+  const host = useContext(Host);
+  const actions = host.streaming ? undefined : host.boardActions;
+  const dragging = useRef<Row | null>(null);
+  const moving = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const groups = new Map<string, Row[]>();
-  for (const row of rows.slice(0, 1000)) { const key = display(row[groupBy]) || "Unassigned"; groups.set(key, [...(groups.get(key) ?? []), row]); }
-  const ordered = [...new Set([...groupOrder.filter(name => groups.has(name)), ...groups.keys()])].map(name => [name, groups.get(name)!] satisfies [string, Row[]]);
-  return <div className="lw-view-board">{ordered.map(([name, items]) => <section key={name} className="lw-view-board-column"><div className="lw-view-board-heading"><Tag text={name} variant={stageTone(name)} size="sm" /><span className="lw-view-board-count">{items.length}</span></div><div className="lw-view-board-items">{items.map((row, i) => <Card key={typeof row.path === "string" ? row.path : i} width="full" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{display(row[titleField]) || "Untitled"}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}</Card>)}</div></section>)}</div>;
+  for (const row of rows.slice(0, 1000)) { const key = display(row[groupBy]); groups.set(key, [...(groups.get(key) ?? []), row]); }
+  const stages = [...new Set([...groupOrder, ...groups.keys()])];
+  const move = async (row: Row, value: string) => {
+    if (!actions?.canMove(row, groupBy) || moving.current || !stages.includes(value) || value === display(row[groupBy])) return;
+    moving.current = true; setPending(true); setError("");
+    try { await actions.move(row, groupBy, value); }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    finally { moving.current = false; setPending(false); }
+  };
+  return <div>{error && <p role="alert" className="lw-view-board-error">{error}</p>}<div className="lw-view-board" aria-busy={pending}>{stages.map(name => {
+    const items = groups.get(name) ?? [];
+    return <section key={name} className={`lw-view-board-column${dropTarget === name ? " lw-view-board-drop" : ""}`} onDragOver={event => {
+      if (dragging.current && actions?.canMove(dragging.current, groupBy) && !moving.current) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setDropTarget(name); }
+    }} onDragLeave={() => setDropTarget(null)} onDrop={event => {
+      if (!dragging.current) return;
+      event.preventDefault(); event.stopPropagation(); setDropTarget(null);
+      if (dragging.current) void move(dragging.current, name);
+      dragging.current = null;
+    }}><div className="lw-view-board-heading"><Tag text={name || "Unassigned"} variant={stageTone(name)} size="sm" /><span className="lw-view-board-count">{items.length}</span></div><div className="lw-view-board-items">{items.map((row, i) => {
+      const editable = Boolean(actions?.canMove(row, groupBy));
+      const title = display(row[titleField]) || "Untitled";
+      return <article key={typeof row.path === "string" ? row.path : i} draggable={editable && !pending} onDragStart={event => { if (!editable || pending) { event.preventDefault(); return; } event.stopPropagation(); dragging.current = row; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", title); }} onDragEnd={() => { dragging.current = null; setDropTarget(null); }}>
+        <Card width="full" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{title}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}
+          {editable && <select className="lw-view-board-stage" aria-label={`Move ${title} to stage`} disabled={pending} value={name} onChange={event => void move(row, event.target.value)}>{stages.map(stage => <option key={stage} value={stage}>{stage || "Unassigned"}</option>)}</select>}
+        </Card>
+      </article>;
+    })}{!items.length && <p className="lw-view-board-empty">No records</p>}</div></section>;
+  })}</div></div>;
 }
 function Chart({ kind, rows, category, series, title }: { kind: "bar" | "line" | "pie"; rows: Row[]; category: string; series: string[]; title?: string }) {
   const categoryName = fieldLabel(category);
@@ -80,12 +116,12 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Source", props: schemas.Source, description: "Local source", component: ({ props }) => <SourceButton path={props.path} binding={props.binding}>{props.label ?? props.path}</SourceButton> }),
 ] });
 const theme = { fontBody: "var(--font-sans, sans-serif)", fontHeading: "var(--font-sans, sans-serif)", fontLabel: "var(--font-sans, sans-serif)", fontNumbers: "var(--font-sans, sans-serif)", background: "var(--background)", textNeutralPrimary: "var(--foreground)", textNeutralSecondary: "var(--muted-foreground)", borderDefault: "var(--border)" };
-export function OpenUIView({ program, query, openSource, streaming = false, dark = false, onError }: { program: string; query?: (name: string) => Promise<unknown>; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; streaming?: boolean; dark?: boolean; onError?: (message: string) => void }) {
+export function OpenUIView({ program, query, openSource, boardActions, streaming = false, dark = false, onError }: { program: string; query?: (name: string) => Promise<unknown>; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; onError?: (message: string) => void }) {
   const themeId = `lw-openui-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const toolProvider = useMemo(() => ({ wiki_query: async (args: Record<string, unknown>) => {
     if (streaming || typeof args.name !== "string" || !query) throw new Error("Data is unavailable for this preview");
     return query(args.name);
   } }), [query, streaming]);
   if (!isLocalOpenUIProgram(program)) return <div role="alert">This view contains an unsupported program format.</div>;
-  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} lightTheme={theme} darkTheme={theme} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, streaming }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
+  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} lightTheme={theme} darkTheme={theme} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, boardActions, streaming }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
 }

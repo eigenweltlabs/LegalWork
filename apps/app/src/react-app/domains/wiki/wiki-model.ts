@@ -1,5 +1,5 @@
 import { setWikiProperty } from "./wiki-properties";
-import type { WikiPage, WikiValue, WikiView } from "@legalwork/types/wiki";
+import type { WikiPage, WikiValue } from "@legalwork/types/wiki";
 
 export function wikiValueText(value: WikiValue | undefined): string {
   if (value === undefined || value === null) return "";
@@ -55,17 +55,9 @@ export function wikiBacklinks(pages: WikiPage[], path: string): WikiPage[] {
   return pages.filter((page) => page.path !== path && page.links.some((link) => link.resolved && link.target === path));
 }
 
-export function wikiViewPages(pages: WikiPage[], view: WikiView): WikiPage[] {
-  return pages.filter((page) => Object.entries(view.filter).every(([key, expected]) => {
-    const actual = key === "type" ? page.type : key === "title" ? page.title : page.properties[key];
-    if (Array.isArray(actual) && !Array.isArray(expected)) return actual.some((item) => JSON.stringify(item) === JSON.stringify(expected));
-    return JSON.stringify(actual) === JSON.stringify(expected);
-  }));
-}
-
 /** Keep the source byte-for-byte except the selected top-level scalar. */
 export function updateWikiProperty(content: string, key: string, value: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) throw new Error("This property name cannot be edited on the board. Edit it in Markdown.");
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) throw new Error("This property name cannot be edited here. Edit it in Markdown.");
   return setWikiProperty(content, key, value);
 }
 

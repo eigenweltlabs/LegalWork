@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { viewPanelTab } from "../src/react-app/domains/views/view-reference";
 import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateStore } from "../src/react-app/shell/ui-state-store";
@@ -6,6 +7,20 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("restoring a workspace drops retired YAML view tabs without losing pages, graphs or saved dashboards", () => {
+    const store = usePanelTabStore.getState();
+    const tabs = [
+      wikiPanelTab("local", "firm", { kind: "page", path: "Guide.md" }, "Guide"),
+      wikiPanelTab("local", "firm", { kind: "graph" }, "Graph"),
+      viewPanelTab("local", { owner: { kind: "wiki", id: "firm" }, viewId: "31c119ce-672f-4e8b-a036-127609e3b56a" }, "Dashboard"),
+    ];
+    for (const tab of tabs) store.openTab("chat", tab);
+    const saved = usePanelTabStore.getState().sessions.chat;
+    const legacy = { id: "retired", type: "wiki", label: "Processes", serverUrl: "local", wikiId: "firm", location: { kind: "view", name: "Processes" } };
+    const restored = store.readLayout({ ...saved, tabs: [...tabs, legacy], panes: saved.panes.map(pane => ({ ...pane, tabIds: [...pane.tabIds, legacy.id], activeTabId: legacy.id })) });
+    expect(restored?.tabs).toEqual(tabs);
+    expect(restored?.panes.some(pane => pane.tabIds.includes(legacy.id) || pane.activeTabId === legacy.id)).toBe(false);
+  });
   test("attachments retain original wiki identity through restore and folder moves", () => {
     const store = usePanelTabStore.getState();
     const asset = wikiPanelTab("local", "firm", { kind: "asset", path: "Attachments/Contract.docx" }, "Contract.docx");
@@ -82,7 +97,7 @@ describe("Wiki navigation in the standard viewer", () => {
     const page = wikiPanelTab("local", "firm", { kind: "page", path: "Processes/Review.md" }, "Review");
     store.openTab("chat", { id: "contract", type: "artifact", label: "Contract", value: "Contract.md", preview: "markdown" });
     store.openTab("chat", page);
-    store.openTab("chat", wikiPanelTab("local", "firm", { kind: "view", name: "Processes" }, "Processes"));
+    store.openTab("chat", viewPanelTab("local", { owner: { kind: "wiki", id: "firm" }, viewId: "31c119ce-672f-4e8b-a036-127609e3b56a" }, "Processes"));
     const section = wikiPanelTab("local", "firm", { kind: "page", path: "Processes/Review.md", anchor: "sources" }, "Review");
     store.openTab("chat", section);
     const panel = usePanelTabStore.getState().sessions.chat;
@@ -99,7 +114,7 @@ describe("Wiki navigation in the standard viewer", () => {
       wikiPanelTab("local", "one", { kind: "page", path: "Guide.md" }, "Guide"),
       wikiPanelTab("local", "two", { kind: "page", path: "Guide.md" }, "Guide"),
       wikiPanelTab("remote", "one", { kind: "page", path: "Guide.md" }, "Guide"),
-      wikiPanelTab("local", "one", { kind: "view", name: "Guide.md" }, "Guide"),
+      viewPanelTab("local", { owner: { kind: "wiki", id: "one" }, viewId: "31c119ce-672f-4e8b-a036-127609e3b56a" }, "Guide"),
       wikiPanelTab("local", "one", { kind: "graph" }, "Graph"),
     ];
     for (const tab of tabs) store.openTab("chat", tab);

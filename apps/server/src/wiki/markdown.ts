@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
-import type { WikiLink, WikiPage, WikiValue, WikiView } from "@legalwork/types/wiki";
+import type { WikiLink, WikiPage, WikiValue } from "@legalwork/types/wiki";
 
 export function markdownData(content: string): { data: Record<string, unknown>; body: string; warning?: string } {
   const match = content.match(/^(?:\uFEFF)?---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)(?:\r?\n|$)/);
@@ -103,27 +103,4 @@ export function resolveWikiLinks(pages: WikiPage[]): WikiPage[] {
       return link;
     }),
   }));
-}
-
-const viewSchema = z.object({
-  name: z.string().min(1).max(200),
-  type: z.enum(["table", "kanban"]),
-  filter: z.record(z.string(), z.unknown()).default({}),
-  columns: z.array(z.string()).max(50).default([]),
-  groupBy: z.string().optional(),
-});
-
-export function parseWikiViews(content: string): { views: WikiView[]; warnings: string[] } {
-  const { data, warning } = markdownData(content);
-  if (warning) return { views: [], warnings: [warning] };
-  if (data.views === undefined) return { views: [], warnings: [] };
-  if (!Array.isArray(data.views)) return { views: [], warnings: ["The views property in Views.md must be a list."] };
-  const views: WikiView[] = [], warnings: string[] = [];
-  for (const item of data.views) {
-    const parsed = viewSchema.safeParse(item);
-    if (!parsed.success) { warnings.push("A view in Views.md has invalid settings."); continue; }
-    if (parsed.data.type === "kanban" && !parsed.data.groupBy) { warnings.push(`${parsed.data.name}: a Kanban view needs groupBy.`); continue; }
-    views.push({ ...parsed.data, filter: Object.fromEntries(Object.entries(parsed.data.filter).map(([key, item]) => [key, value(item)])) });
-  }
-  return { views, warnings };
 }

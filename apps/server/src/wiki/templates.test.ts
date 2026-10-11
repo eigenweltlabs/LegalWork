@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseWikiPage, parseWikiViews, resolveWikiLinks } from "./markdown.js";
+import { parseWikiPage, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles, WIKI_CONTROL_FILES } from "./templates.js";
 
 describe("portable wiki starters", () => {
@@ -7,9 +7,7 @@ describe("portable wiki starters", () => {
     const files = createWikiStarterFiles("firm", "Our firm");
     const pages = resolveWikiLinks(Object.entries(files).map(([path, content]) => parseWikiPage(path, content, "starter", 1).page));
     expect(pages.flatMap((page) => page.links.filter((link) => !link.resolved).map((link) => `${page.path}: ${link.target}`))).toEqual([]);
-    const views = parseWikiViews(files["Views.md"]!);
-    expect(views.warnings).toEqual([]);
-    expect(views.views).toEqual([]);
+    expect(pages.every(page => page.properties.views === undefined)).toBe(true);
     expect(pages.filter((page) => ["client", "matter", "person"].includes(String(page.properties.type)))).toEqual([]);
     for (const folder of ["Clients", "Matters", "People", "Processes", "Research", "Templates", "Sources", "Views", "Reports"]) {
       expect(pages.find((page) => page.path === `${folder}/${folder}.md`)?.properties.type).toBe("index");
@@ -32,6 +30,8 @@ describe("portable wiki starters", () => {
     expect(files["Skills/Bootstrap.md"]).toContain("storage_read_file");
     expect(files["Instructions.md"]).toContain("sync automatically");
     expect(files["Skills/Anonymize.md"]).toContain("frontmatter, source labels, links, filenames, attachment names");
-    expect(parseWikiViews(files["Views.md"]!).views.some((view) => view.type === "kanban")).toBe(true);
+    expect(files["Views.md"]).toContain("view_create");
+    expect(files["Views.md"]).toContain(".view.json");
+    expect(Object.entries(files).every(([path, content]) => parseWikiPage(path, content, "starter", 1).page.properties.views === undefined)).toBe(true);
   });
 });

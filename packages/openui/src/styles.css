@@ -80,3 +80,11 @@
 .lw-view-board-column { max-height: 392px; }
 .lw-view-board-items { display: flex; min-height: 0; flex-direction: column; gap: 10px; overflow-y: auto; padding: 1px 2px 4px; scrollbar-width: thin; }
 .lw-view-board-items > * { flex-shrink: 0; }
+.lw-view-board-stage { margin-top: 12px; padding: 4px 2px; width: 100%; border: 0; border-radius: 4px; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 11px; cursor: pointer; }
+.lw-view-board-stage:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.lw-view-board-stage:disabled { opacity: .5; cursor: wait; }
+.lw-view-board-stage option { color: var(--foreground); background: var(--background); }
+.lw-view-board article[draggable="true"] { cursor: grab; }
+.lw-view-board-drop { outline: 2px solid var(--ring); outline-offset: -2px; }
+.lw-view-board-empty { padding: 16px 4px; color: var(--muted-foreground); font-size: 12px; }
+.lw-view-board-error { margin-bottom: 12px; color: var(--destructive); font-size: 13px; }

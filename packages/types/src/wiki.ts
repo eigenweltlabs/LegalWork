@@ -69,19 +69,11 @@ export type WikiEntryOperation =
   | { action: "move" | "copy"; path: string; destination: string; baseRevision: string }
   | { action: "trash"; path: string; baseRevision: string }
   | { action: "restore"; trashId: string };
-export type WikiView = {
-  name: string;
-  type: "table" | "kanban";
-  filter: Record<string, WikiValue>;
-  columns: string[];
-  groupBy?: string;
-};
 export type WikiSnapshot = {
   wiki: WikiVault;
   pages: WikiPage[];
   assets: WikiAsset[];
   folders?: string[];
-  views: WikiView[];
   warnings: string[];
 };
 export type WikiDocument = { path: string; content: string; revision: string; updatedAt: number };

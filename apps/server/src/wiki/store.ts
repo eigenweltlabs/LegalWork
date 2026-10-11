@@ -4,11 +4,11 @@ import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, realpath, renam
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiView } from "@legalwork/types/wiki";
+import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { workspaceIdForPath } from "../workspaces.js";
-import { markdownData, markdownWithData, parseWikiPage, parseWikiViews, resolveWikiLinks } from "./markdown.js";
+import { markdownData, markdownWithData, parseWikiPage, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
 import { WikiGraphIndex } from "./graph.js";
 import { patchWikiProperties, type WikiPropertiesPatch } from "./properties.js";
@@ -414,19 +414,8 @@ export class WikiStore {
       const wiki = await this.get(id), { files, folders, warnings } = await this.refresh(id);
       const index = await this.index(id), pages = resolveWikiLinks([...index.values()].map((row) => row.page));
       for (const row of index.values()) if (row.warning) warnings.push(`${row.path}: ${row.warning}`);
-      const views: { views: WikiView[]; warnings: string[] } = { views: [], warnings: [] };
-      const names = new Set<string>();
-      for (const row of index.values()) if (row.path === "Views.md" || row.page.properties.views !== undefined) {
-        const parsed = parseWikiViews(row.content);
-        views.warnings.push(...parsed.warnings.map((warning) => `${row.path}: ${warning}`));
-        for (const view of parsed.views) {
-          if (names.has(view.name)) { views.warnings.push(`${row.path}: duplicate view name ${view.name}.`); continue; }
-          views.views.push(view);
-          names.add(view.name);
-        }
-      }
       const syncStatus: WikiSyncStatus = { state: wiki.sync ? "idle" : "local", lastSyncedAt: null, error: null, conflicts: [] };
-      return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, views: views.views, warnings: [...warnings, ...views.warnings] };
+      return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, warnings };
     });
   }
   async indexedPages(id: string) {

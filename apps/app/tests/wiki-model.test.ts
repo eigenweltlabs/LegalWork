@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WikiPage } from "@legalwork/types/wiki";
-import { resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent, wikiViewPages } from "../src/react-app/domains/wiki/wiki-model";
+import { resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent } from "../src/react-app/domains/wiki/wiki-model";
 import { acceptWikiSave, type WikiDraft } from "../src/react-app/domains/wiki/wiki-drafts";
 
 function page(path: string, patch: Partial<WikiPage> = {}): WikiPage {
@@ -38,11 +38,6 @@ describe("Markdown wiki views and editing", () => {
     expect(wikiGraph(all, target.path).pages).toEqual([target, from]);
     expect(wikiGraph(all, null).pages).toHaveLength(all.length);
     expect(wikiGraph(all, null).truncated).toBe(false);
-  });
-  test("dynamic view filtering supports typed properties and tags", () => {
-    const a = page('A.md', { type: 'deal', properties: { tags: ['VC', 'Firm'], active: true } });
-    const b = page('B.md', { type: 'research', properties: { tags: ['VC'], active: false } });
-    expect(wikiViewPages([a, b], { name: 'Deals', type: 'table', columns: ['title'], filter: { type: 'deal', tags: 'VC', active: true } })).toEqual([a]);
   });
   test("strips only leading frontmatter for reading", () => {
     expect(wikiMarkdownBody('---\n---\n# Title')).toBe('# Title');

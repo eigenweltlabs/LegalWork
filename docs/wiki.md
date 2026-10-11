@@ -6,15 +6,15 @@ A LegalWork wiki is a local folder of Markdown pages and supporting files. Perso
 
 Open **Wiki** in the left navigation rail. Each wiki has its own workspace, with a folder browser, chats, and standard tabs for pages, views, the graph, files, and browsers. Returning to a wiki or reloading restores its tabs, split layout, focused pane, folder expansion, and navigation width. New chats in this workspace use the wiki folder as their working directory. In a project workspace, choose **+ → Wiki page…** to open an existing wiki page in that tab group without switching workspaces.
 
-Choose a wiki from the selector at the bottom of the sidebar, with settings between the picker and refresh/sync. Settings appear only while you hover over the current wiki; its Sharing tab manages wiki members. The toolbar provides new page, new folder, import files, search, graph, and collapse-all actions. The file tree includes Markdown pages, supporting files, and empty folders. Right-click a file or folder to rename, move, duplicate, copy its path, or move it to Trash. Folder menus also import files and create pages and subfolders; page menus include source editing, wiki links, history, and download. Local desktop wikis offer Reveal in Finder/Explorer. Renaming and moving preserve file contents and update open page tabs; authored links keep their original paths.
+Choose a wiki from the selector at the top of the sidebar, with settings between the picker and refresh/sync. Settings appear only while you hover over the current wiki; its Sharing tab manages wiki members. The toolbar provides new page, new folder, import files, search, graph, and collapse-all actions. The file tree includes Markdown pages, supporting files, and empty folders. Right-click a file or folder to rename, move, duplicate, copy its path, or move it to Trash. Folder menus also import files and create pages and subfolders; page menus include source editing, wiki links, history, and download. Local desktop wikis offer Reveal in Finder/Explorer. Renaming and moving preserve file contents and update open page tabs; authored links keep their original paths.
 
 Drop system files or folders into the tree to copy them into the wiki. Drop on a folder to choose the destination, or on empty tree space for the wiki root. Nested folders and empty folders are retained. Files dragged from other LegalWork projects are copied from their original authenticated workspace. Originals remain in place; duplicate filenames receive a numbered suffix. Import files also supports selecting multiple system files. All file types are accepted within the size and filename bounds below. Word, spreadsheets, slides, PDF, images, media and text use the existing standard tab editors/viewers against the original wiki file. Formats without an in-app viewer use the existing external-open/download behavior.
 
 Writable pages open directly in LegalWork's existing Markdown WYSIWYG editor, including new pages and pages with wiki links or nested YAML. Its normal toolbar provides formatting, links, images, tables, code, Source, and Diff. Source edits the complete file, including frontmatter. To create a wiki link, use Create Link (Cmd/Ctrl+K) and choose a `[[Page.md]]` destination. Existing wiki links render as links and keep their Markdown syntax when the body changes. Clicking a link opens its destination directly in the same tab group, reusing an existing page tab. Alt-click places the caret for editing the link with the toolbar or Cmd/Ctrl+K. Read-only pages use the sanitized reader. Unsupported syntax, including raw HTML, remains editable in the same editor's Source view.
 
-Hover beside a block for its actions and drag handle, or use Alt+Shift+Up/Down to reorder it. Type `/` to insert a block and select text for inline formatting. Tables are editable. Properties above the document edit typed YAML scalars while retaining comments and unrelated YAML. Opening a document, changing properties, focusing a table or switching editor modes does not rewrite its Markdown body. Deliberate rich-text edits may normalize Markdown spacing; Source mode preserves literal text.
+Hover beside a block for its actions and drag handle, or use Alt+Shift+Up/Down to reorder it. Type `/` to insert a block and select text for inline formatting. Tables are editable. Properties below the page title edit typed YAML scalars while retaining comments and unrelated YAML. Opening a document, changing properties, focusing a table or switching editor modes does not rewrite its Markdown body. Deliberate rich-text edits may normalize Markdown spacing; Source mode preserves literal text.
 
-Open Version history from the footer to review saved page versions or switch to the Trash tab and restore deleted entries without replacing existing files. Restore copies stay on the host that performed the deletion; shared wikis sync the removal or restoration of saved files. Empty folders stay local until they contain a synced file.
+Open Version history at the top of the sidebar to review saved page versions or switch to the Trash tab and restore deleted entries without replacing existing files. Restore copies stay on the host that performed the deletion; shared wikis sync the removal or restoration of saved files. Empty folders stay local until they contain a synced file.
 
 Create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join an existing firm wiki, choose it from the shared wiki list and select a local folder. Joining skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
 
@@ -26,7 +26,8 @@ The folder itself describes its organization:
 | `Structure.md` | Naming, inclusion criteria, folders, page types, and property conventions |
 | `Instructions.md` | Agent and maintainer guidance for content and layout |
 | `Templates.md` and `Templates/` | Editable page conventions and reusable Markdown templates |
-| `Views.md` | Table and board definitions in YAML frontmatter |
+| `Views.md` | Guidance for creating dashboards and reports |
+| `Views/*.view.json` and `Reports/*.view.json` | Saved dashboard and report records |
 | `Skills/` | Procedures for extraction, matter capture, maintenance, and anonymization |
 
 Every convention can be changed in Markdown. Page types and properties are dynamic; there is no fixed client, deal, or process schema. Registration, access switches, sync settings, and local history live in the server's configuration/state, outside the content folder. Changing Markdown cannot grant permissions.
@@ -57,11 +58,11 @@ Use wiki links (`[[Processes/Financing.md]]`) or relative Markdown links. Links 
 
 ## Reports, dashboards, and inline widgets
 
-The bundled OpenUI experiment provides live dashboards and frozen reports in ordinary workspace tabs. Saved wiki views appear under **Reports & dashboards** in the wiki sidebar. Project reports appear under **+ → Reports**. A project report belongs to that project; creating it does not publish its contents into a shared wiki.
+The bundled OpenUI experiment provides live dashboards and frozen reports in ordinary workspace tabs. Saved wiki views appear as files in the wiki tree. Project reports appear under **+ → Reports**. A project report belongs to that project; creating it does not publish its contents into a shared wiki.
 
 Agents use `view_catalog` to discover the available components, `wiki_fields` to discover typed fields, and `wiki_query` to inspect data. `view_create` and `view_update` accept a validated layout with named query bindings or frozen datasets. Users and agents do not need to write YAML or reconstruct a storage file. The bundled catalog includes OpenUI cards, metrics, tables, charts, inputs and supporting components, plus a board and source navigation. Data access stays within the task's current wiki and project permissions.
 
-Dashboard queries read indexed wiki properties and refresh after local saves or periodic refresh. Report creation resolves its queries into a frozen snapshot with source revisions and an as-of time. Updating a report's layout retains that snapshot. Source links open the original page or file in a standard tab, including when a project report refers to a wiki page. Boards currently navigate to editable source pages; moving cards to change a field is supported by the older board below, not yet by the OpenUI board.
+Dashboard queries read indexed wiki properties and refresh after local saves or periodic refresh. Report creation resolves its queries into a frozen snapshot with source revisions and an as-of time. Updating a report's layout retains that snapshot. Source links open the original page or file in a standard tab, including when a project report refers to a wiki page. Dashboard boards support dragging cards or choosing a stage to update a string property through the revision-checked property API. Only source-backed rows in writable wikis can be moved. Unsaved page drafts block a move, and reports and streaming previews remain read-only. Configured stages remain visible even when empty.
 
 Inline widgets use a `legalwork-view` code fence containing only the saved view's UUID. They render between ordinary editable Markdown blocks and offer **Open view in tab**. The layout and its data live in one versioned record; copying the reference does not duplicate that record. Agents can insert the returned reference into page prose through the existing revision-checked wiki write tool.
 
@@ -69,28 +70,7 @@ This layer is intentionally separate from a future page/block storage migration.
 
 OpenUI runs locally with the existing model connection. No Thesys gateway, Autofix service, cloud observability or remote development inspector is enabled. The renderer can preview partial tool arguments while an agent creates a view; incomplete previews cannot execute queries or actions. Parser and transport regressions cover partial output, but end-to-end model streaming latency has not been measured. See the [research and architecture comparison](wiki-openui-research.md) and [validation results](wiki-validation.md).
 
-## Existing Markdown-defined views
-
-Edit `Views.md` to add or change views:
-
-```yaml
----
-views:
-  - name: Processes
-    type: table
-    filter:
-      type: process
-    columns: [title, status, owner]
-  - name: Work by status
-    type: kanban
-    filter:
-      type: process
-    groupBy: status
-    columns: [draft, active, archived]
----
-```
-
-Table columns name properties. Board columns name group values; values already present on pages are included too. Filters match property/value pairs. Moving a card changes the grouping property in that page's Markdown through the normal revision-checked save path.
+The retired YAML `views:` configuration is no longer interpreted. Existing authored Markdown files and metadata are preserved as ordinary content. New views use the typed view tools and `.view.json` files only.
 
 ## Work with agents
 
@@ -125,7 +105,7 @@ Revisions recorded on this computer can be inspected and restored in History. Lo
 
 ## Implementation and current bounds
 
-The LegalWork server owns the wiki API. SQLite stores an incremental page cache, full-text search, and durable local page history; authored Markdown remains the source of truth. File metadata is checked when refreshing, and only changed pages are reparsed. Table/board projections reuse those parsed pages.
+The LegalWork server owns the wiki API. SQLite stores an incremental page cache, full-text search, and durable local page history; authored Markdown remains the source of truth. File metadata is checked when refreshing, and only changed pages are reparsed. Dashboard queries use the indexed page properties.
 
 Pages are limited to 2 MB; individual attachments to 100 MB. Hidden files and symlinks are excluded. Supporting files sync eagerly; there is no attachment streaming or storage quota UI. The graph receives a compact, incremental projection instead of page bodies. Small graphs use a worker force layout and Sigma; graphs above 5,000 nodes use GPU simulation where supported, with an automatic Canvas fallback. Positions and camera state persist locally. Large-graph camera movement and live layout have different performance limits: see the measured fixtures and device details in [graph research](wiki-graph-research.md). Initial extraction depends on the source connectors and document tools already configured for the user. Wiki access checks govern the API and bundled wiki tools; they are not an operating-system sandbox for the engine's existing local filesystem tools.
 

@@ -35,3 +35,20 @@ test("board lifecycle order is explicit and columns have separately scrolling ca
   expect(html.indexOf("Prospect")).toBeLessThan(html.indexOf("Active"));
   expect(html).toContain("lw-view-board-items");
 });
+test("empty stages survive and move controls require a host capability, disabled during streaming", () => {
+  const program = 'root = Board([{title:"Review",path:"Review.md",stage:"Draft"}],"stage","title",[],["Draft","Active","Archived"])';
+  const boardActions = { canMove: () => true, move: async () => {} };
+  const editable = renderToStaticMarkup(<OpenUIView program={program} boardActions={boardActions} />);
+  expect(editable).toContain('aria-label="Move Review to stage"');
+  expect(editable).toContain('draggable="true"');
+  expect(editable).toContain('value="Archived"');
+  expect(editable).toContain('No records');
+  for (const html of [
+    renderToStaticMarkup(<OpenUIView program={program} />),
+    renderToStaticMarkup(<OpenUIView program={program} boardActions={boardActions} streaming />),
+    renderToStaticMarkup(<OpenUIView program={program} boardActions={{ ...boardActions, canMove: () => false }} />),
+  ]) {
+    expect(html).not.toContain('<select');
+    expect(html).not.toContain('draggable="true"');
+  }
+});

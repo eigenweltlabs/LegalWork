@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { setWikiProperty, wikiPageRelations, wikiPropertyFields, wikiPropertyType, type WikiPropertyScalar, type WikiPropertyType, type WikiPropertyValue } from "./wiki-properties";
 import { WikiPagePropertyPicker } from "./wiki-page-property-picker";
-import { WikiPropertyValue as PropertyValue } from "./wiki-views";
+import { WikiPropertyValue as PropertyValue } from "./wiki-property-value";
 
 export type WikiPropertiesEditorProps = { readOnly?: boolean; content: string; pages: WikiPage[]; path: string; onChange: (content: string) => void; onSource: () => void; onOpen: (path: string) => void };
 

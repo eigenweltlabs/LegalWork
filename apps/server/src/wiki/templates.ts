@@ -73,23 +73,14 @@ For connected storage, retain the connection ID, relative file path, source vers
 
 const VIEWS = `---
 type: views
-views:
-  - name: All knowledge
-    type: table
-    filter: {}
-    columns: [title, type, status, owner, reviewed]
-  - name: Process board
-    type: kanban
-    filter:
-      type: process
-    columns: [draft, active, archived]
-    groupBy: status
 ---
-# Views
+# Dashboards and reports
 
-Edit the YAML above to change the wiki's tables and boards. Each view has a name, a type (table or kanban), a filter of property/value pairs, and columns. Table columns are property names; board columns are group values such as draft and active. A board also specifies groupBy. Filters match the properties of the pages; they do not move or duplicate files.
+Ask an agent to create a dashboard or report from this wiki's indexed fields. Read view_catalog, discover fields with wiki_fields, inspect records with wiki_query, then use view_create or view_update. Do not hand-write view configuration.
 
-Add more entries to the views list in this file. Page types and property names are yours to choose. See [[Structure.md]].
+Saved dashboards and reports are .view.json files. Open them in their own tabs, or embed the returned legalwork-view reference in a page. Dashboards query current data; reports keep a dated snapshot. Tables, stage boards, metrics, and charts use the same indexed properties as the page editor.
+
+See [[Structure.md]] for page and property conventions.
 `;
 
 const SKILLS: Record<string, string> = {
@@ -167,7 +158,7 @@ Start with a few useful pages. Add folders, page types, and properties when they
 - Each page is an ordinary Markdown file with a descriptive filename and # title.
 - Link related pages with wiki links or relative Markdown links. Use a real page path, for example \`[[Notes/Example.md]]\`.
 - YAML frontmatter is optional. Use simple values, lists, and page references. Add new properties whenever useful.
-- Wiki.md is the home page. Instructions.md holds content/layout guidance. Templates.md and Templates/ hold reusable page conventions. Views.md defines tables and boards. Skills/ holds repeatable procedures.
+- Wiki.md is the home page. Instructions.md holds content/layout guidance. Templates.md and Templates/ hold reusable page conventions. Views.md explains how to create dashboards and reports. Skills/ holds repeatable procedures.
 - These are suggestions. Edit this file to describe the organization you choose. Markdown cannot grant permissions or change sync settings.
 
 ## What belongs here
