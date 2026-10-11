@@ -5,6 +5,7 @@ import { ViewInputSchema } from "../views/schema.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { ViewGenerationChunkSchema, viewGenerationStreams } from "../views/generation-stream.js";
 import { ViewRepository, workspaceViewFiles } from "../views/repository.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -18,6 +19,25 @@ export function registerViewRoutes(options: {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   isWikiWorkspace: (id: string) => Promise<boolean>;
 }) {
+  const generations = viewGenerationStreams();
+  const generationScope = async (ctx: RequestContext, writing = false) => {
+    options.requireClientScope(ctx, "viewer");
+    const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
+    const agent = await authenticateWikiAgentRequest(options.config, ctx.request);
+    if (writing && !agent) throw new ApiError(403, "view_generation_engine_only", "Only the connected agent can stream a view.");
+    if (agent && (agent.sessionId !== ctx.params.sessionId || agent.directory !== await realpath(workspace.directory || workspace.path)))
+      throw new ApiError(403, "view_generation_session_mismatch", "The preview belongs to another session.");
+    return JSON.stringify([workspace.id, ctx.params.sessionId]);
+  };
+  addRoute(options.routes, "GET", "/workspace/:id/view-generations/:sessionId", "client", async ctx =>
+    generations.subscribe(await generationScope(ctx), ctx.request.signal));
+  addRoute(options.routes, "POST", "/workspace/:id/view-generations/:sessionId", "client", async ctx => {
+    const key = await generationScope(ctx, true);
+    const parsed = ViewGenerationChunkSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 900_000));
+    if (!parsed.success) throw new ApiError(400, "invalid_view_generation", "The view preview is invalid.");
+    generations.publish(key, parsed.data);
+    return options.jsonResponse({ ok: true });
+  });
   const select = async (ctx: RequestContext, writing = false) => {
     options.requireClientScope(ctx, writing ? "collaborator" : "viewer");
     if (writing) options.ensureWritable(options.config);

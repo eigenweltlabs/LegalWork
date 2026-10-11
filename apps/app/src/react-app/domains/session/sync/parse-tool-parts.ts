@@ -10,7 +10,7 @@ function shouldDeferInProgressTool(part: ToolPart) {
     return false;
   }
 
-  if ((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending" && part.state.raw) return false;
+  if ((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending") return false;
   return Object.keys(part.state.input).length === 0;
 }
 

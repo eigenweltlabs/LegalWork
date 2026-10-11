@@ -85,6 +85,7 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
+  if (method === "POST" && /^\/workspace\/[^/]+\/view-generations\/[^/]+$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/wikis/file-policy") return true;
   if (method === "GET" && (pathname === "/workspaces" || pathname === "/wikis")) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/search$/.test(pathname)) return true;

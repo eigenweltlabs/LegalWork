@@ -1,6 +1,7 @@
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
 import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
 import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
+import { useViewGenerations } from "@/react-app/domains/views/use-view-generations";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
@@ -438,6 +439,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "view") return <ViewToolCard key={group.part.toolCallId} part={group.part} />;
 
             if (group.kind === "file") {
               return (
@@ -1027,6 +1029,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+  useViewGenerations(messages);
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();

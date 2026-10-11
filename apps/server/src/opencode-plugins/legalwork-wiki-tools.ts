@@ -1,3 +1,4 @@
+import { installViewStreamBridge, viewStreamHeaders } from "./view-stream-bridge.js";
 import { randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
@@ -177,7 +178,25 @@ function defineTool<T extends z.ZodRawShape>(
   } };
 }
 
+function viewGenerationHeaders(initial: OpenCodeContext) {
+  installViewStreamBridge();
+  return async (input: { sessionID: string }, output: { headers: Record<string, string> }) => {
+    if (!initial.directory || !process.env.LEGALWORK_WIKI_AGENT_TOKEN) return;
+    const context = { ...initial, sessionID: input.sessionID };
+    let workspace: Promise<string> | undefined;
+    Object.assign(output.headers, viewStreamHeaders(async chunk => {
+      workspace ??= scope({ ...context, abort: AbortSignal.timeout(5_000) }).then(current => {
+        if (!current.workspaceId) throw new Error("The view session has no workspace.");
+        return current.workspaceId;
+      });
+      const id = await workspace;
+      await request(`/workspace/${encodeURIComponent(id)}/view-generations/${encodeURIComponent(input.sessionID)}`, "POST", chunk, { ...context, abort: AbortSignal.timeout(5_000) });
+    }));
+  };
+}
+
 export const LegalWorkWikiTools = async (initial: OpenCodeContext = {}) => ({
+  "chat.headers": viewGenerationHeaders(initial),
   "tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args: unknown }) => {
     if (!wikiFileToolNeedsPolicy(input.tool)) return;
     const context = { ...initial, sessionID: input.sessionID ?? initial.sessionID };

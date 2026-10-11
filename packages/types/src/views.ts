@@ -48,3 +48,10 @@ export type ViewIssue = { path: string; id?: string; code: string; message: stri
 export type WikiDataQuery = z.infer<typeof WikiDataQuerySchema>;
 export type WikiDataResult = z.infer<typeof WikiDataResultSchema>;
 export type WikiFields = z.infer<typeof WikiFieldsSchema>;
+
+export const ViewGenerationChunkSchema = z.object({
+  callId: z.string().min(1).max(200),
+  tool: z.enum(["view_create", "view_update"]),
+  raw: z.string().max(200_000),
+}).strict();
+export type ViewGenerationChunk = z.infer<typeof ViewGenerationChunkSchema>;

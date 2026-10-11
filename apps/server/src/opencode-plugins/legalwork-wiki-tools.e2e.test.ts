@@ -70,6 +70,23 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(created.status).toBe(201);
   const { wiki } = z.object({ wiki: z.object({ id: z.string(), root: z.string() }) }).parse(await created.json());
   const { tool } = await LegalWorkWikiTools({ directory: project, sessionID: "session-capture" });
+  // Preview chunks are ephemeral and scoped to the authenticated originating session.
+  const streamAbort = new AbortController();
+  const previewUrl = `${url}/workspace/matter/view-generations/session-capture`;
+  const preview = await fetch(previewUrl, { headers, signal: streamAbort.signal });
+  expect(preview.status).toBe(200);
+  const reader = preview.body!.getReader();
+  await reader.read(); // connected comment
+  const agentHeaders = { "Content-Type": "application/json", "x-legalwork-wiki-agent-token": agentToken,
+    "x-legalwork-wiki-agent-session": "session-capture", "x-legalwork-wiki-agent-directory": encodeURIComponent(project) };
+  const chunk = { callId: "preview-call", tool: "view_create", raw: '{"input":{"program":"root = Stack(' };
+  expect((await fetch(previewUrl, { method: "POST", headers, body: JSON.stringify(chunk) })).status).toBe(403);
+  expect((await fetch(previewUrl.replace("session-capture", "other-session"), { method: "POST", headers: agentHeaders, body: JSON.stringify(chunk) })).status).toBe(403);
+  expect((await fetch(previewUrl, { method: "POST", headers: agentHeaders, body: JSON.stringify(chunk) })).status).toBe(200);
+  expect(new TextDecoder().decode((await reader.read()).value)).toContain(JSON.stringify(chunk));
+  streamAbort.abort();
+  await reader.cancel().catch(() => {});
+  expect(await listApprovals(url, config.hostToken)).toEqual([]);
   const skills = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Skills/Capture.md" }));
   expect(skills.content).toContain("Capture learning after a matter");
   expect(skills.guidance.some((entry: { path: string }) => entry.path === "Structure.md")).toBe(true);

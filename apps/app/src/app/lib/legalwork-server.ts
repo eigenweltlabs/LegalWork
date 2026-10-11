@@ -28,6 +28,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
@@ -1712,6 +1713,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     stopWikiSharing: (id: string) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
     createWiki: (input: WikiCreateInput) => requestJson<{ wiki: WikiVault; sharingError?: string }>(baseUrl, "/wikis", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     wikiSnapshot: (id: string) => requestJson<WikiSnapshot>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, timeoutMs: 30_000 }),
+    viewGenerationEvents: async (workspaceId: string, sessionId: string, onChunk: (chunk: ViewGenerationChunk) => void, signal: AbortSignal) => {
+      const response = await (isDesktopRuntime() ? desktopStreamFetch : globalThis.fetch)(`${baseUrl}/workspace/${encodeURIComponent(workspaceId)}/view-generations/${encodeURIComponent(sessionId)}`, {
+        headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }), signal,
+      });
+      if (!response.ok || !response.body) throw new LegalworkServerError(response.status, "request_failed", response.statusText);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const feed = serverSentEvents(data => {
+        try { const chunk = ViewGenerationChunkSchema.safeParse(JSON.parse(data)); if (chunk.success) onChunk(chunk.data); } catch { /* Ignore invalid stream frames. */ }
+      });
+      try { for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) feed(decoder.decode(chunk.value, { stream: true })); }
+      finally { reader.releaseLock(); }
+    },
     listViews: (owner: ViewOwner) => requestJson<{ items: ViewSummary[]; issues: ViewIssue[] }>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken }),
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
     createView: (owner: ViewOwner, input: ViewInput) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken, method: "POST", body: input }),

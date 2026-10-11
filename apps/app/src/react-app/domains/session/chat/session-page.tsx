@@ -489,7 +489,7 @@ export function SessionPage(props: SessionPageProps) {
       if (hasMainView && props.sidebar.activeNav !== "evals" && !destination) return;
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
-      openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview });
+      openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
       if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }

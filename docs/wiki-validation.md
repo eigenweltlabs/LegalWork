@@ -2,6 +2,17 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Live dashboard generation and wiki workspace fixes (2026-10-11)
+
+- Actual model verification in the running Electron app now confirms progressive rendering. The existing configured model generated a new view over Northstar's 50 synthetic clients and 150 matters. The dashboard opened in the panel beside its chat, received 85 preview updates, with the first preview arriving 11.8 seconds before the file was saved. [During generation](wiki-evidence/live-dashboard-streaming.jpg) and [saved dashboard after restart](wiki-evidence/live-dashboard-saved.jpg).
+- The earlier assumption that the bundled engine forwarded partial tool arguments was incorrect: OpenCode 1.18.29 discards `tool-input-delta`. A compatibility bridge in the existing wiki plugin now forwards genuine provider argument chunks to an authenticated, bounded, ephemeral SSE channel. OpenAI Responses, Chat Completions-compatible and Anthropic formats are covered. The correlation header never reaches the provider, and preview delivery failure does not interrupt the model response. No second model or service is used.
+- Generation observation now runs independently of collapsed tool groups. It opens a new draft tab beside chat at the start, incrementally renders its program, and resolves that tab to the saved view. Completed history does not reopen old dashboards; closing a preview does not cause repeated reopening. Live query results populate once the saved definition has passed validation. Existing write approvals and revision checks still govern saving.
+- Each wiki has its own panel layout and fresh initial tabs. Regression and native checks cover independent wiki switching, layout restoration and closing tabs without altering another wiki.
+- Properties are always visible as typed icon/name/value rows with inline scalar, date, checkbox, list and linked-page editing. Properties and body use one scroll area. Source mode still exposes the complete Markdown file, and unknown nested metadata stays preserved. [Properties](wiki-evidence/inline-properties.jpg).
+- `pnpm exec bun test tests/view-generation-sync.test.ts tests/wiki-properties.test.ts tests/wiki-properties-editor.test.tsx tests/panel-side-pane.test.ts tests/wiki-tabs.test.ts tests/views.test.ts` (from `apps/app`): 116 passed.
+- `pnpm exec bun test apps/server/src/opencode-plugins/view-stream-parser.test.ts apps/server/src/opencode-plugins/view-stream-bridge.test.ts apps/server/src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts`: 7 passed, including authenticated preview routing, mismatched session rejection and both declared and missing SSE Content-Type headers.
+- App/server typechecks and production builds passed. Existing app bundle-size notices remain. The Harvey import was not resumed and remains ready for the user.
+
 ## Firm workflows and local Harvey S3 demonstration (2026-10-11)
 
 - Added the firm starter's folder procedures, source coverage/checkpoint workflow, client/matter page templates, relation-field conventions and indexed GenUI guidance. A bundled Build firm knowledge workflow is discoverable across workspaces and preserves subsequent firm edits.

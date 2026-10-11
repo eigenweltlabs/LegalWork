@@ -134,6 +134,7 @@ type AssistantRenderGroup =
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "view"; part: DynamicToolUIPart }
   | { kind: "subagents"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
 
@@ -271,6 +272,7 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (part.type === "dynamic-tool" && ["view_create", "view_update", "view_read"].includes(part.toolName)) { groups.push({ kind: "view", part }); continue; }
       if (isSubagentTool(part)) {
         const previous = groups.at(-1);
         if (previous?.kind === "subagents") previous.parts.push(part);

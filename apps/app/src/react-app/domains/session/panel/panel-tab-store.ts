@@ -16,7 +16,7 @@ import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import { storageFileSourceSchema, storageFileTab } from "./storage-file-tab";
 import { MAX_DOCUMENT_PANES, legacyLayout, legacyLayoutSizes, layoutLeaves, findLayoutNode, pruneLayout, reconcileLayoutSizes, restoreLayout, splitLayout, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 
-import { automaticTabDestination, DEFAULT_WORKSPACE_OPENING, restoreWorkspaceOpening, type WorkspaceOpening } from "./workspace-opening";
+import { automaticTabDestination, DEFAULT_WORKSPACE_OPENING, MIN_AUTO_SPLIT_WIDTH, restoreWorkspaceOpening, type WorkspaceOpening } from "./workspace-opening";
 
 // Measurements are per window and must not trigger persisted layout writes during resize.
 const workspaceWidths = new Map<string, number>();
@@ -144,7 +144,7 @@ export type PanelTabStore = {
   adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
-  openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean }) => void;
+  openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
   resolveViewTab: (draftId: string, saved: ViewPanelTab) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
@@ -483,7 +483,13 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
       }),
       openTab: (sessionId, tab, paneId, edge, options) => set(state => {
         const session = getWritableSession(state, sessionId);
-        const next = openInSession(sessionId, session, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, paneId, edge, options?.preview, () => get().openTab(sessionId, tab, paneId, edge, options));
+        const opening = state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING;
+        const width = workspaceWidths.get(sessionId) ?? 0;
+        const next = openInSession(sessionId, session, tab,
+          options?.besideChat ? { ...DEFAULT_WORKSPACE_OPENING, chatSide: opening.chatSide } : opening,
+          options?.besideChat ? Math.max(width, MIN_AUTO_SPLIT_WIDTH) : width,
+          options?.besideChat ? undefined : paneId, edge, options?.preview,
+          () => get().openTab(sessionId, tab, paneId, edge, options));
         return next === session ? state : updateSession(state, sessionId, next);
       }),
       resolveViewTab: (draftId, saved) => set(state => ({ sessions: Object.fromEntries(Object.entries(state.sessions).map(([scope, session]) => {
