@@ -353,7 +353,7 @@ function WikiContentPane(props: WikiPaneProps) {
     <DropdownMenuTrigger render={<Button variant="ghost" className="wiki-switcher" aria-label={t("wiki.select_wiki")} disabled={!props.client} />}>
       <FolderIcon shared={Boolean(wiki?.sync)} className="size-4" /><span>{wiki?.name ?? t("wiki.title")}</span><ChevronDown size={13} />
     </DropdownMenuTrigger>
-    <DropdownMenuContent side="top" align="start" className="w-72 max-w-[calc(100vw-2rem)]">
+    <DropdownMenuContent side="bottom" align="start" className="w-72 max-w-[calc(100vw-2rem)]">
       {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>{item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}</DropdownMenuItem>)}
       <DropdownMenuSeparator /><DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
     </DropdownMenuContent>
@@ -369,6 +369,11 @@ function WikiContentPane(props: WikiPaneProps) {
       {wiki && ((!sharingError && wiki.syncStatus.error) || wiki.syncStatus.conflicts.length) ? <div role="alert" className="wiki-notice"><span>{wiki.syncStatus.error ?? t("wiki.conflicts", { count: wiki.syncStatus.conflicts.length })} {t("wiki.local_changes_safe")}</span>{wiki.syncStatus.conflicts.map((conflict) => <button key={conflict} className="underline" onClick={() => openPage(conflict)}>{conflict}</button>)}</div> : null}
       <div ref={workbenchBody} className="wiki-workbench-body">
         {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
+          {props.children}
+          <div className="wiki-sidebar-header">
+            <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
+            <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
+          </div>
           <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={Boolean(wiki?.writable)} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={() => openSurface("graph")} onAction={entryAction} onImport={importFiles}>
             {snapshot.error ? <p role="alert" className="wiki-search-status">{wikiError(snapshot.error)} <button className="underline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</button></p> : null}
             {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
@@ -380,11 +385,6 @@ function WikiContentPane(props: WikiPaneProps) {
             </div> : null}
             {!debouncedSearch.trim() && <ViewList issuesOnly client={props.client} owner={{ kind: "wiki", id: wikiId }} />}
           </WikiExplorer>
-          {props.children}
-          <div className="wiki-sidebar-footer">
-            <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
-            <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
-          </div>
         </aside> : null}
         {!navigationOnly ? <main className="wiki-main">
           {surface !== "page" ? <header className="wiki-context-bar">

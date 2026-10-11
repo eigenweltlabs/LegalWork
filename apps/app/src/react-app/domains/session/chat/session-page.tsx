@@ -1420,7 +1420,7 @@ export function SessionPage(props: SessionPageProps) {
             {wikiWorkspace && props.wiki ? <>
               <ResizablePanel key={wikiWorkspace.workspaceId} id="wiki-navigation" defaultSize={`${readWikiNavigationWidth(wikiWorkspace.workspaceId)}px`} onResize={size => writeWikiNavigationWidth(wikiWorkspace.workspaceId, size.inPixels)} groupResizeBehavior="preserve-pixel-size" minSize="200px" maxSize="440px" className="min-w-0 border-r border-border">
                 <WikiPane key={wikiWorkspace.id} {...props.wiki} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined}>
-                  <div className="max-h-48 shrink-0 overflow-y-auto border-t border-border p-2">
+                  <div className="max-h-48 shrink-0 overflow-y-auto border-b border-border p-2">
                     <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground"><span>{t("wiki.chats")}</span><Button size="icon-xs" variant="ghost" aria-label={t("session.new_task")} onClick={() => void props.sidebar.onCreateChatInWorkspace(wikiWorkspace.workspaceId)}><Plus className="size-3.5" /></Button></div>
                     {props.sidebar.workspaceSessionGroups.find(group => group.workspace.id === wikiWorkspace.workspaceId)?.sessions.filter(session => !session.parentID).map(session => <button key={session.id} className={cn("wiki-nav-row", activePanelTab?.type === "chat" && activePanelTab.sessionId === session.id && "is-active")} title={session.title} onClick={() => openSessionTab(wikiWorkspace.workspaceId, session.id)}><MessageSquare className="size-4" /><span>{session.title || t("session.default_title")}</span></button>)}
                   </div>
