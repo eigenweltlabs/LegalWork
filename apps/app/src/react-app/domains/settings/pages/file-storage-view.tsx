@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,10 +7,8 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
-  Download,
   Loader2,
   HardDrive,
-  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -37,7 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { t } from "@/i18n";
-import { cn } from "@/lib/utils";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import {
   STORAGE_CHANGED_EVENT,
   storageAuthDescription,
@@ -66,6 +64,7 @@ export function FileStorageView({
   const libraryLayout = useIntegrationLibraryLayout();
   const scope = useHubScope() ?? "local";
   const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -86,6 +85,7 @@ export function FileStorageView({
     enabled: Boolean(client && workspaceId),
   });
   const allConnections = connections.data?.connections ?? [];
+  const detail = allConnections.find(connection => connection.id === detailId);
   const visibleConnections = libraryLayout ? allConnections : storageConnectionsForScope(allConnections, scope);
   const storageProviderName = (connection: StorageConnection) => connection.config.kind === "oauth" ? providers.data?.providers.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind);
   const query = search.trim().toLowerCase();
@@ -111,6 +111,7 @@ export function FileStorageView({
   useEffect(() => {
     setEditor(null);
     setRemoving(null);
+    setDetailId(null);
     setError("");
   }, [client, workspaceId, scope]);
   useEffect(() => {
@@ -120,6 +121,16 @@ export function FileStorageView({
     window.addEventListener(STORAGE_CHANGED_EVENT, listener);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, listener);
   }, [connections.refetch]);
+  async function setTeamInstalled(connection: StorageConnection) {
+    if (!client || !workspaceId || !connection.team) return;
+    setBusy(true);
+    setError("");
+    try {
+      await client.setTeamStorageInstalled(workspaceId, connection.id, !connection.team.installed);
+      refresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }
+    finally { setBusy(false); }
+  }
   if (!client || !workspaceId)
     return (
       <div className="rounded-2xl border border-border p-6 text-sm text-muted-foreground">
@@ -128,7 +139,7 @@ export function FileStorageView({
     );
   return (
     <div className="space-y-6">
-      <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={canAdd ? <Button size="sm" onClick={() => { setProviderSearch(""); setPickerOpen(true); }}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
+      <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={<IntegrationAddMenu disabled={busy || !canAdd}><DropdownMenuItem onClick={() => { setProviderSearch(""); setPickerOpen(true); }}><Plus />{t("storage.add")}</DropdownMenuItem></IntegrationAddMenu>} />
       {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
       <IntegrationSearch toolbar value={search} onChange={setSearch} label={t("integrations.search_storage")} />
       {(error || connections.error) && (
@@ -158,87 +169,13 @@ export function FileStorageView({
             {matchingConnections.map((connection) => {
               const Icon = storageIcons[connection.config.kind];
               return (
-                <div key={connection.id} className="flex flex-wrap items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border">
-                    <Icon className="size-4 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{connection.name}</p>
-                    {connection.team && !libraryLayout ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t(
-                          connection.teamInstallation === "optional"
-                            ? "storage.team_optional"
-                            : "storage.team_automatic",
-                        )}
-                      </p>
-                    ) : null}
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {storageProviderName(connection)} <span className="mx-1">·</span>{" "}
-                      {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
-                    </p>
-                  </div>
-                  {connection.team && libraryLayout ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={t(connection.teamInstallation === "optional" ? "storage.team_optional" : "storage.team_automatic")}>{t("firm_hub.scope_team")}</span> : null}
-                  {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
-                    <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
-                  )}
-                  {connection.team && connection.teamInstallation === "optional" && (
-                    <Button
-                      variant={connection.team.installed ? "outline" : "default"}
-                      size="sm"
-                      disabled={busy || (!connection.enabled && !connection.team.installed)}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await client.setTeamStorageInstalled(workspaceId, connection.id, !connection.team?.installed);
-                          refresh();
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : t("storage.failed"));
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {!connection.team.installed && <Download className="size-3.5" />}
-                      {t(connection.team.installed ? "storage.remove_local" : "storage.install")}
-                    </Button>
-                  )}
-                  <span
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-[11px]",
-                      connection.enabled ? "bg-green-3 text-green-11" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {t(
-                      !connection.enabled
-                        ? "storage.paused"
-                        : connection.team?.installed === false
-                          ? "storage.available"
-                          : "storage.enabled",
-                    )}
-                  </span>
-                  {!connection.team && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("storage.edit_connection", { name: connection.name })}
-                        onClick={() => setEditor({ kind: connection.config.kind, connection })}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("storage.remove_connection", { name: connection.name })}
-                        onClick={() => setRemoving(connection)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </>
-                  )}
-                </div>
+                <IntegrationLibraryRow key={connection.id} name={connection.name} description={`${storageProviderName(connection)} · ${t(connection.readOnly ? "storage.read_only" : "storage.read_write")}`}
+                  icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></span>}
+                  source={connection.team ? t("firm_hub.scope_team") : undefined} busy={busy} onOpen={() => setDetailId(connection.id)}
+                  actions={connection.team ? connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined : <>
+                    <DropdownMenuItem onClick={() => setEditor({ kind: connection.config.kind, connection })}>{t("common.edit")}</DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onClick={() => setRemoving(connection)}><Trash2 />{t("storage.remove_connection", { name: connection.name })}</DropdownMenuItem>
+                  </>} />
               );
             })}
           </div>
@@ -246,6 +183,21 @@ export function FileStorageView({
       ) : !connections.isLoading && !connections.error ? (
         <IntegrationEmptyState icon={HardDrive} title={t(query ? "integrations.no_storage_matches" : scope === "team" ? "integrations.no_shared_storage" : "integrations.no_storage_title")} description={t(query ? "integrations.search_hint" : scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "integrations.no_storage_description")} action={!query && canAdd ? <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
       ) : null}
+      <Dialog open={Boolean(detail)} onOpenChange={open => { if (!open) setDetailId(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{detail?.name}</DialogTitle><DialogDescription>{detail ? `${storageProviderName(detail)} · ${t(detail.readOnly ? "storage.read_only" : "storage.read_write")}` : ""}</DialogDescription></DialogHeader>
+          {detail ? <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t(!detail.enabled ? "storage.paused" : detail.team?.installed === false ? "storage.available" : "storage.enabled")}</p>
+            {detail.team ? <p className="text-sm text-muted-foreground">{t(detail.teamInstallation === "optional" ? "storage.team_optional" : "storage.team_automatic")}</p> : null}
+            {detail.config.kind === "oauth" && detail.enabled && detail.team?.installed !== false ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={detail.id} revision={detail.updatedAt} onChanged={refresh} /> : null}
+            {detail.team && detail.teamInstallation === "optional" ? <Button variant="outline" disabled={busy || (!detail.enabled && !detail.team.installed)} onClick={() => void setTeamInstalled(detail)}>{t(detail.team.installed ? "storage.remove_local" : "storage.install")}</Button> : null}
+          </div> : null}
+          <DialogFooter>
+            {detail && !detail.team ? <Button variant="outline" disabled={busy} onClick={() => { setEditor({ kind: detail.config.kind, connection: detail }); setDetailId(null); }}>{t("common.edit")}</Button> : null}
+            <Button onClick={() => setDetailId(null)}>{t("common.close")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={pickerOpen && canAdd} onOpenChange={setPickerOpen}>
         <DialogContent className="flex max-h-[calc(100dvh-3rem)] flex-col gap-5 sm:max-w-2xl">
           <DialogHeader className="pe-8"><DialogTitle>{t("storage.add")}</DialogTitle><DialogDescription>{t("integrations.storage_picker_description")}</DialogDescription></DialogHeader>

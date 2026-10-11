@@ -1,7 +1,11 @@
-import { IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
 import { Blocks, Loader2, Package, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { t } from "@/i18n";
 import { toast } from "@/components/ui/sonner";
@@ -49,6 +53,7 @@ export function ImportedPackages(props: {
   const [packages, setPackages] = useState<ImportedPlugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<ImportedPlugin | null>(null);
   const [removing, setRemoving] = useState<ImportedPlugin | null>(null);
 
   useEffect(() => {
@@ -87,30 +92,18 @@ export function ImportedPackages(props: {
       {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t("integrations.no_packages")} description={t(query ? "integrations.search_hint" : "integrations.import_description")} /> : null}
       <div className="space-y-1">
         {visiblePackages.map((plugin) => (
-          <div key={plugin.pluginId} className="group flex items-start gap-3 py-4">
-            <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Package className="size-5 text-muted-foreground" /></span>
-            <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{pluginImportName(plugin)}</h4>
-              </div>
-              <button
-                type="button"
-                className="inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={props.busy}
-                onClick={() => setRemoving(plugin)}
-                title={t("skills.package_remove")}
-                aria-label={t("skills.package_remove_named", { name: pluginImportName(plugin) })}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-            {plugin.description ? <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{plugin.description}</p> : null}
-            <p className="mt-1 text-xs text-muted-foreground">{packageParts(plugin.files.map((file) => file.objectType))}</p>
-            </div>
-          </div>
+          <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType))}
+            icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
+            actions={<DropdownMenuItem variant="destructive" onClick={() => setRemoving(plugin)}><Trash2 />{t("skills.package_remove")}</DropdownMenuItem>} />
         ))}
       </div>
+      <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{selected ? pluginImportName(selected) : ""}</DialogTitle><DialogDescription>{selected?.description || t("integrations.import_description")}</DialogDescription></DialogHeader>
+          <p className="text-sm text-muted-foreground">{selected ? packageParts(selected.files.map(file => file.objectType)) : ""}</p>
+          <DialogFooter><Button onClick={() => setSelected(null)}>{t("common.close")}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ConfirmModal
         open={removing !== null}
         title={t("skills.package_remove_title", { name: removing ? pluginImportName(removing) : "" })}
@@ -136,6 +129,7 @@ export function matchingBuiltInSkills(searchQuery = "") {
 
 export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean } = {}) {
   const skills = matchingBuiltInSkills(props.searchQuery);
+  const [selected, setSelected] = useState<typeof skills[number] | null>(null);
   if (skills.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
@@ -143,18 +137,18 @@ export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean
       {skills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("integrations.no_skill_matches")} description={t("integrations.search_hint")} /> : null}
       <div className="space-y-1">
         {skills.map((skill) => (
-          <div key={skill.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30" title={skill.commands.join(" · ")}>
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>
-            <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center justify-between gap-2">
-              <h4 className="truncate text-sm font-medium">{skill.name}</h4><span className="shrink-0 text-xs text-muted-foreground">{t("integrations.included")}</span>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={skill.description()}>{skill.description()}</p>
-            <span className="sr-only">{skill.commands.join(" ")}</span>
-            </div>
-          </div>
+          <IntegrationLibraryRow key={skill.id} name={skill.name} description={skill.description()} source={t("integrations.included")} onOpen={() => setSelected(skill)}
+            icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>} />
         ))}
       </div>
+      <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected?.description()}</DialogDescription></DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("integrations.skill_commands")}</p>
+          <div className="flex flex-wrap gap-2">{selected?.commands.map(command => <code key={command} className="rounded-md bg-muted px-2 py-1 text-sm">{command}</code>)}</div>
+          <DialogFooter><Button onClick={() => setSelected(null)}>{t("common.close")}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

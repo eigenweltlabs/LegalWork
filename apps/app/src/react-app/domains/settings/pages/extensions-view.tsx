@@ -1,10 +1,11 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
-import { Download, RefreshCw, Share2 } from "lucide-react";
+import { Download, MoreHorizontal, RefreshCw, Share2 } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
@@ -102,10 +103,15 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
-            <div ref={setActionsTarget} className="flex flex-wrap items-center gap-2 empty:hidden" />
-            {tab !== "storage" && props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
-            {tab !== "storage" && props.onOpenTeamShare ? <Button size="icon-sm" variant="ghost" onClick={props.onOpenTeamShare} aria-label={t("extensions.share_with_firm")} title={t("extensions.share_with_firm")}><Share2 className="size-3.5" /></Button> : null}
-            <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw className="size-3.5" /></Button>
+            {props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {props.onOpenTeamShare && tab !== "storage" ? <DropdownMenuItem onClick={props.onOpenTeamShare}><Share2 />{t("extensions.share_with_firm")}</DropdownMenuItem> : null}
+                <DropdownMenuItem disabled={props.busy} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw />{t("common.refresh")}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}

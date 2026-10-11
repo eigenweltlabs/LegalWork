@@ -85,8 +85,9 @@ test("the unified storage library includes optional team sources without grantin
   expect(html).toContain("Personal files");
   expect(html).toContain("Team documents");
   expect(html).toContain(">Team<");
-  expect(html).toContain(">Add to Memory Drive<");
-  expect(html).toContain('aria-label="Edit Personal files"');
+  expect(html).toContain('aria-label="Actions for Personal files"');
+  expect(html).toContain('aria-label="Actions for Team documents"');
+  expect(html).not.toContain('aria-label="Edit Personal files"');
   expect(html).not.toContain('aria-label="Edit Team documents"');
   expect(html).not.toContain('aria-label="Disconnect Team documents"');
   queries.clear();

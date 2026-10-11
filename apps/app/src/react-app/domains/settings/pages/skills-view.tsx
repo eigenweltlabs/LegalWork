@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
@@ -23,7 +23,6 @@ import {
   FileArchive,
   FolderOpen,
   Loader2,
-  MoreHorizontal,
   Package,
   Plus,
   RefreshCw,
@@ -352,6 +351,7 @@ export function SkillsView(props: SkillsViewProps) {
     packages: t("skills.packages_title"),
   };
   const [skillsImportOpen, setSkillsImportOpen] = useState(false);
+  const [skillCreateOpen, setSkillCreateOpen] = useState(false);
   const [teamSkillsOpen, setTeamSkillsOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
@@ -740,19 +740,19 @@ export function SkillsView(props: SkillsViewProps) {
                   <FolderOpen size={14} />
                 </button> : null}
                 <SkillCreatorButton
+                  open={libraryLayout ? skillCreateOpen : undefined}
+                  onOpenChange={libraryLayout ? setSkillCreateOpen : undefined}
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
                   saveSkillResource={extensions.saveSkillResource}
                 />
-                {libraryLayout ? <DropdownMenu>
-                  <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.more_skill_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                {libraryLayout ? <IntegrationAddMenu disabled={props.busy}>
+                    <DropdownMenuItem onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); }}><Plus />{t("skills.new_skill")}</DropdownMenuItem>
                     <DropdownMenuItem onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("skills.import_skills_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={!props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
                     {props.firmDownloadView ? <DropdownMenuItem onClick={() => setTeamSkillsOpen(true)}><Share2 />{t("integrations.browse_team_skills")}</DropdownMenuItem> : null}
-                  </DropdownMenuContent>
-                </DropdownMenu> : null}
+                </IntegrationAddMenu> : null}
               </>
             )}
             {isWorkflowsView || props.showHeader !== false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} onClick={refreshCatalogs} title={t("common.refresh")} aria-label={t("common.refresh")}><RefreshCw className="size-4" /></Button> : null}
@@ -1274,12 +1274,16 @@ export function SkillsView(props: SkillsViewProps) {
  * (installSkillTemplate). No round-trip through chat.
  */
 function SkillCreatorButton(props: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   existingNames: Set<string>;
   onCreate: (input: { name: string; content: string; description?: string }) => Promise<{ ok: boolean; message: string }>;
   saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = props.open ?? internalOpen;
+  const setOpen = props.onOpenChange ?? setInternalOpen;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -1333,7 +1337,7 @@ function SkillCreatorButton(props: {
 
   return (
     <>
-      <Button
+      {props.open === undefined ? <Button
         size="sm"
         onClick={async () => {
           if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
@@ -1342,7 +1346,7 @@ function SkillCreatorButton(props: {
       >
         <Plus size={14} />
         {t("skills.new_skill")}
-      </Button>
+      </Button> : null}
       <Dialog
         open={open}
         onOpenChange={(next) => {

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationAddMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
@@ -47,6 +47,7 @@ import { pluginImportConnectorName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
@@ -265,7 +266,7 @@ function LedgerBrandIcon(props: {
 }) {
   const resolvedIconSrc = resolveBrandIconSrc(props.iconSrc, props.iconSlug);
   return (
-    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-dls-hover">
+    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border">
       {props.connecting ? (
         <Loader2 size={16} className="animate-spin text-dls-secondary" />
       ) : resolvedIconSrc ? (
@@ -607,10 +608,10 @@ export function McpView(props: McpViewProps) {
     <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-5 empty:hidden">
         {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
-        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button>
-          <Button size="sm" disabled={props.busy || connectorsForbidden} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); }}>{t("integrations.add_connector")}</Button>
-        </div> : undefined} />
+        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <IntegrationAddMenu disabled={props.busy}>
+          <DropdownMenuItem disabled={connectorsForbidden} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); }}><Plus />{t("integrations.add_connector")}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setDirectoryOpen(true)}><Search />{t("mcp.browse_directory")}</DropdownMenuItem>
+        </IntegrationAddMenu> : undefined} />
         <OrgPolicyNote policyKey="connectors.allowCustom" />
 
         {showInternalToggle ? (
@@ -1288,13 +1289,9 @@ function McpConfiguredServersSection(props: {
 
 function McpConnectedToolRow(props: { entry: McpDirectoryInfo; busy: boolean; onDetail: (entry: McpDirectoryInfo) => void }) {
   const entry = props.entry;
-  return <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30">
-    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={() => props.onDetail(entry)}>
-      <LedgerBrandIcon name={entry.name} iconSlug={entry.iconSlug} iconSrc={entry.iconSrc} kind={entry.kind ?? "mcp"} />
-      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-dls-text">{entry.name}</span><span className="mt-0.5 block truncate text-xs text-dls-secondary">{entry.description}</span></span>
-    </button>
-    {isToggleOnlyExtension(entry) ? <Switch checked disabled={props.busy} aria-label={`${t("mcp.disable_app")} ${entry.name}`} onCheckedChange={enabled => setLegalWorkExtensionEnabled(entry, enabled)} /> : <span className="shrink-0 text-xs text-dls-secondary">{t("mcp.friendly_status_ready")}</span>}
-  </div>;
+  return <IntegrationLibraryRow name={entry.name} description={entry.description} busy={props.busy} onOpen={() => props.onDetail(entry)}
+    icon={<LedgerBrandIcon name={entry.name} iconSlug={entry.iconSlug} iconSrc={entry.iconSrc} kind={entry.kind ?? "mcp"} />}
+    actions={isToggleOnlyExtension(entry) ? <DropdownMenuItem onClick={() => setLegalWorkExtensionEnabled(entry, false)}>{t("mcp.disable_app")}</DropdownMenuItem> : undefined} />;
 }
 
 function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
@@ -1324,26 +1321,10 @@ function McpConfiguredServerRow(props: {
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
   return (
-    <div className="group relative rounded-xl transition-colors hover:bg-muted/30">
-      <div className="flex items-center gap-3 px-1 py-2.5">
-        <button
-          type="button"
-          aria-haspopup="dialog"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-          onClick={() => props.onSelect(props.entry.name)}
-        >
-          <McpConfiguredServerIcon {...props} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-dls-text">{props.displayName(props.entry.name)}</div>
-            <div className="mt-0.5 truncate text-xs text-dls-secondary">{props.directoryEntry?.description ?? t("integrations.custom_connector")}</div>
-          </div>
-        </button>
-        <McpConnectorStatus {...props} />
-        <McpConnectorToggle {...props} />
-      </div>
-
+    <>
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<McpConnectorStatus {...props} />} />
       <McpConfiguredServerDetails {...props} />
-    </div>
+    </>
   );
 }
 
@@ -1351,7 +1332,7 @@ function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow
   const directory = props.directoryEntry;
   const Icon = serviceIcon(props.entry.name);
   return directory ? <LedgerBrandIcon name={directory.name} iconSlug={directory.iconSlug} iconSrc={directory.iconSrc} kind={directory.kind ?? "mcp"} /> :
-    <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted/30"><Icon className="size-4 text-muted-foreground" /></div>;
+    <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></div>;
 }
 
 function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0]) {

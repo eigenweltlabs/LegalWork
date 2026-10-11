@@ -23,10 +23,10 @@ const props: McpViewProps = {
   setMcpEnabled: async () => {}, isExtensionConnected: entry => entry === native,
 };
 
-test("connector library leads with saved connectors and keeps available entries behind Browse directory", () => {
+test("connector library leads with saved connectors and keeps discovery behind Add", () => {
   const html = renderToStaticMarkup(<McpView {...props} />);
-  expect(html).toContain("Browse directory");
-  expect(html).toContain("Add connector");
+  expect(html).toContain('aria-haspopup="menu"');
+  expect(html).toContain("lucide-plus");
   expect(html).toContain("Your connectors");
   expect(html).toContain("Manage your CRM");
   expect(html).not.toContain("Directory-only tool");
@@ -38,10 +38,9 @@ test("ready connectors and active built-ins come before paused connectors withou
   const html = renderToStaticMarkup(<McpView {...props} />);
   expect(html.indexOf("Attio")).toBeLessThan(html.indexOf(">paused<"));
   expect(html.indexOf("Built-in Browser")).toBeLessThan(html.indexOf(">paused<"));
-  expect(html).toContain('aria-label="Enable paused"');
-  expect(html).toContain('aria-label="Disable Attio"');
-  expect(html).toContain('aria-checked="false"');
-  expect(html).toContain('aria-checked="true"');
+  expect(html).toContain('aria-label="Actions for paused"');
+  expect(html).toContain('aria-label="Actions for Attio"');
+  expect(html).not.toContain('role="switch"');
 });
 
 test("empty library points to directory or own connector instead of rendering the catalog", () => {
@@ -84,15 +83,15 @@ test("team connectors share the personal list, deduplicate engine config and ret
 
 test("optional team connectors remain discoverable without exposing account actions before adding", () => {
   const html = renderTeamLibrary([{ ...teamResearch, installation: "optional", connector: { ...teamResearch.connector!, access: "oauth" } }]);
-  expect(html).toContain('aria-label="Enable Team Research"');
-  expect(html).toContain('aria-checked="false"');
+  expect(html).toContain('aria-label="Actions for Team Research"');
+  expect(html).not.toContain('role="switch"');
   expect(html).not.toContain(">Sign in<");
 });
 
-test("added team connectors retain their own account and key controls", () => {
+test("team connector account and key requirements remain visible without inline controls", () => {
   const oauth = renderTeamLibrary([{ ...teamResearch, installation: "optional", added: true, connector: { ...teamResearch.connector!, access: "oauth" } }], { mcpStatuses: { research: { status: "needs_auth" } } });
-  expect(oauth).toContain(">Sign in<");
-  expect(oauth).toContain('aria-label="Disable Team Research"');
+  expect(oauth).toContain("Sign in to use it");
+  expect(oauth).toContain('aria-label="Actions for Team Research"');
   const member = renderTeamLibrary([{ ...teamResearch, connector: { ...teamResearch.connector!, access: "member" } }]);
-  expect(member).toContain("Add your key");
+  expect(member).toContain("Add your key to use it");
 });

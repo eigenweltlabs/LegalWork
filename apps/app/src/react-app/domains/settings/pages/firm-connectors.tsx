@@ -10,6 +10,8 @@ import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { McpStatusMap } from "@/app/types";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { IntegrationLibraryRow } from "./integration-library";
 import { FIRM_HUB_QUERY_KEY, useFirmHub } from "../../connections/firm-hub";
 import { MemberKeyDialog } from "../../connections/org-policy-ui";
 
@@ -31,6 +33,7 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
   const [busy, setBusy] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
   const [confirmAdd, setConfirmAdd] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const { item } = props;
   const name = firmConnectorName(item.name);
   const installed = item.installation === "automatic" || item.added;
@@ -58,19 +61,23 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
     props.onChanged?.();
   }
 
-  return <div className="flex flex-wrap items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30">
-    <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border"><Plug className="size-4 text-muted-foreground" /></span>
-    <div className="min-w-0 flex-1">
-      <p className="truncate text-sm font-medium">{name}</p>
-      <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.description}</p>
-    </div>
-    <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={t(item.installation === "automatic" ? "firm_hub.installed_for_everyone" : "integrations.team_optional")}>{t("firm_hub.scope_team")}</span>
-    {state ? <span className="text-xs text-muted-foreground">{state}</span> : null}
-    {installed && connector?.access === "member" ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => setKeyOpen(true)}><KeyRound className="size-3.5" />{t(connector.hasOwnKey ? "firm_hub.change_key" : "firm_hub.add_key")}</Button> : null}
-    {canSignIn && connector?.url ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => connector.url && props.onSignIn(connector.serverName, connector.url)}><LogIn className="size-3.5" />{t("firm_hub.sign_in")}</Button> : null}
-    {item.installation === "optional" ? <Switch checked={installed} disabled={props.busy || busy} aria-label={t(installed ? "mcp.disable_app" : "mcp.enable_app") + " " + name} onCheckedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} /> : null}
-    {busy ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+  return <>
+    <IntegrationLibraryRow name={name} description={item.description} icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Plug className="size-4 text-muted-foreground" /></span>} source={t("firm_hub.scope_team")} status={state ? <span className="text-xs text-muted-foreground">{state}</span> : null} busy={props.busy || busy} onOpen={() => setDetailsOpen(true)} />
+    <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>{name}</DialogTitle><DialogDescription>{item.description}</DialogDescription></DialogHeader>
+        <p className="text-sm text-muted-foreground">{t(item.installation === "automatic" ? "firm_hub.installed_for_everyone" : "integrations.team_optional")}</p>
+        {state ? <p className="text-sm text-muted-foreground">{state}</p> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          {installed && connector?.access === "member" ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => setKeyOpen(true)}><KeyRound className="size-3.5" />{t(connector.hasOwnKey ? "firm_hub.change_key" : "firm_hub.add_key")}</Button> : null}
+          {canSignIn && connector?.url ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => connector.url && props.onSignIn(connector.serverName, connector.url)}><LogIn className="size-3.5" />{t("firm_hub.sign_in")}</Button> : null}
+          {item.installation === "optional" ? <div className="flex w-full items-center justify-between gap-3"><span className="text-sm">{t("integrations.connector_chat_access")}</span><Switch checked={installed} disabled={props.busy || busy} aria-label={t(installed ? "mcp.disable_app" : "mcp.enable_app") + " " + name} onCheckedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} /></div> : null}
+          {busy ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+        </div>
+        <DialogFooter><Button onClick={() => setDetailsOpen(false)}>{t("common.close")}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
     {keyOpen ? <MemberKeyDialog name={name} onSave={saveKey} onClose={() => setKeyOpen(false)} /> : null}
     <ConfirmModal open={confirmAdd} title={t("firm_hub.add_review_title", { name })} message={t("integrations.team_add_review")} confirmLabel={t("firm_hub.add")} cancelLabel={t("common.cancel")} variant="warning" onCancel={() => setConfirmAdd(false)} onConfirm={() => { setConfirmAdd(false); void setAdded(true); }} />
-  </div>;
+  </>;
 }

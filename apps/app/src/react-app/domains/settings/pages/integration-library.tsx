@@ -1,8 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Search, X, type LucideIcon } from "lucide-react";
+import { ChevronDown, MoreHorizontal, Plus, Search, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 
@@ -17,6 +18,32 @@ export function IntegrationLibraryActions({ children }: { children: ReactNode })
   const layout = useIntegrationLibraryLayout();
   if (layout) return layout.actions ? createPortal(children, layout.actions) : null;
   return children;
+}
+
+export function IntegrationAddMenu(props: { children: ReactNode; disabled?: boolean }) {
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<Button size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
+    <DropdownMenuContent align="end">{props.children}</DropdownMenuContent>
+  </DropdownMenu>;
+}
+
+/** Every library uses the same click-to-open row and trailing action menu. */
+export function IntegrationLibraryRow(props: { name: string; description: string; icon: ReactNode; source?: ReactNode; status?: ReactNode; busy?: boolean; onOpen: () => void; openLabel?: string; actions?: ReactNode }) {
+  return <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-muted/30">
+    <button type="button" onClick={props.onOpen} aria-haspopup="dialog" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {props.icon}
+      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{props.name}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{props.description}</span></span>
+    </button>
+    {props.source ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{props.source}</span> : null}
+    {props.status}
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.item_actions", { name: props.name })} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={props.onOpen}>{props.openLabel ?? t("integrations.view_details")}</DropdownMenuItem>
+        {props.actions}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>;
 }
 
 /** Shared structure for the three integration libraries; setup lives in dialogs. */
