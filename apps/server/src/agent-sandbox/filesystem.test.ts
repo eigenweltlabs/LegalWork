@@ -197,3 +197,21 @@ test.skipIf(process.platform === "linux")("case and Unicode spelling collisions 
   await f.filesystem.commit();
   expect(await readFile(join(f.workspace, "Report.txt"), "utf8")).toBe("first");
 });
+
+test("directory indexes follow cross-folder renames, deletion and recreation", async () => {
+  const f = await fixture();
+  await mkdir(join(f.workspace, "first")); await mkdir(join(f.workspace, "second"));
+  await writeFile(join(f.workspace, "first", "original"), "original");
+  const names = async (path: string) => z.object({ names: z.array(z.string()) }).parse(await f.filesystem.request({ op: "list", path, offset: 0 })).names;
+  expect(await names("/workspace/first")).toEqual(["original"]);
+  await f.filesystem.request({ op: "rename", path: "/workspace/first/original", destination: "/workspace/second/moved" });
+  expect(await names("/workspace/first")).toEqual([]);
+  expect(await names("/workspace/second")).toEqual(["moved"]);
+  await f.filesystem.request({ op: "unlink", path: "/workspace/second/moved" });
+  expect(await names("/workspace/second")).toEqual([]);
+  const handle = await openFile(f.filesystem, "/workspace/second/moved", true, true);
+  await write(f.filesystem, handle, "recreated");
+  expect(await names("/workspace/second")).toEqual(["moved"]);
+  await f.filesystem.commit();
+  expect(await readFile(join(f.workspace, "second", "moved"), "utf8")).toBe("recreated");
+});

@@ -1,3 +1,4 @@
+import { withCommitPaths } from "./commit-lock.js";
 import { constants, type BigIntStats } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, rename, rm, rmdir, statfs, type FileHandle } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -50,6 +51,7 @@ type Entry = Location & { baseline: string | undefined; originalDirectory: boole
 export class SandboxFilesystem {
   private entries = new Map<string, Entry>();
   private allEntries = new Set<Entry>();
+  private children = new Map<string, Map<string, Entry>>();
   private handles = new Map<number, { entry: Entry; write: boolean }>();
   private sequence = 0;
   private stagedBytes = 0;
@@ -121,9 +123,17 @@ export class SandboxFilesystem {
       directory: stat?.isDirectory() ?? false, deleted: !stat, dirty: false,
       size: Number(stat?.size ?? 0), mode: Number(stat?.mode ?? 0o644) & 0o777 };
     if (!Number.isSafeInteger(entry.size)) error("EFBIG");
-    this.entries.set(location.key, entry);
+    this.remember(entry);
     this.allEntries.add(entry);
     return entry;
+  }
+
+  private remember(entry: Entry): void {
+    this.entries.set(entry.key, entry);
+    const parent = keyFor(dirname(entry.host));
+    let children = this.children.get(parent);
+    if (!children) { children = new Map(); this.children.set(parent, children); }
+    children.set(entry.key, entry);
   }
 
   private async hashOriginal(entry: Entry, signal = this.signal): Promise<string> {
@@ -237,8 +247,7 @@ export class SandboxFilesystem {
     if (!entry.directory) error("ENOTDIR");
     if (entry.originalDirectory) await this.original(entry);
     const names = new Set(entry.originalDirectory ? await readdir(entry.host) : []);
-    for (const item of this.entries.values()) {
-      if (keyFor(dirname(item.host)) !== entry.key) continue;
+    for (const item of this.children.get(entry.key)?.values() ?? []) {
       if (item.deleted) names.delete(basename(item.host)); else names.add(basename(item.host));
     }
     return [...names].filter((name) => {
@@ -276,7 +285,7 @@ export class SandboxFilesystem {
         if (entry.dirty) {
           if (this.allEntries.size >= 100000) error("EMFILE");
           entry = { ...entry, descriptor: undefined, stage: undefined, size: 0, directory: false };
-          this.entries.set(entry.key, entry); this.allEntries.add(entry);
+          this.remember(entry); this.allEntries.add(entry);
         }
         await this.stage(entry, true);
       } else if (request.write) {
@@ -357,9 +366,9 @@ export class SandboxFilesystem {
       if (this.allEntries.size >= 100000) error("EMFILE");
       const removed: Entry = { ...entry, descriptor: undefined, deleted: true };
       this.allEntries.add(removed);
-      this.entries.set(entry.key, removed);
+      this.remember(removed);
       Object.assign(entry, destination, { baseline: target.baseline, contentHash: target.contentHash, originalDirectory: false });
-      this.entries.set(destination.key, entry);
+      this.remember(entry);
       this.change(removed); this.change(entry);
     }
     return 0;
@@ -374,46 +383,48 @@ export class SandboxFilesystem {
   async commit(signal = this.signal): Promise<void> {
     await this.closeHandles();
     const changed = [...this.entries.values()].filter((entry) => entry.dirty);
-    // Validate every destination before applying any change.
-    for (const entry of changed) { signal.throwIfAborted(); this.writable(entry); await this.checkOriginal(entry, true, signal); }
-    changed.sort((a, b) => {
-      const rank = (entry: Entry) => entry.directory ? entry.deleted ? 2 : 0 : 1;
-      return rank(a) - rank(b) || (a.directory && a.deleted ? b.suffix.length - a.suffix.length : a.suffix.length - b.suffix.length);
-    });
-    for (const entry of changed) {
-      signal.throwIfAborted();
-      await checkedPath(entry.mount, entry.suffix, true);
-      // Own child edits can change a directory's mtime; file baselines must
-      // still match immediately before replacement.
-      if (!entry.directory) await this.checkOriginal(entry, entry.deleted, signal);
-      if (entry.deleted) {
-        if (entry.baseline !== undefined) { if (entry.directory) await rmdir(entry.host); else await rm(entry.host); }
-      } else if (entry.directory) {
-        await mkdir(entry.host, { recursive: true, mode: entry.mode });
-        await chmod(entry.host, entry.mode);
-      }
-      else if (entry.stage) {
-        await chmod(entry.stage, entry.mode);
+    await withCommitPaths(changed.map(entry => entry.key), signal, async () => {
+      // Validate every destination before applying any change.
+      for (const entry of changed) { signal.throwIfAborted(); this.writable(entry); await this.checkOriginal(entry, true, signal); }
+      changed.sort((a, b) => {
+        const rank = (entry: Entry) => entry.directory ? entry.deleted ? 2 : 0 : 1;
+        return rank(a) - rank(b) || (a.directory && a.deleted ? b.suffix.length - a.suffix.length : a.suffix.length - b.suffix.length);
+      });
+      for (const entry of changed) {
         signal.throwIfAborted();
-        await this.checkOriginal(entry, true, signal);
-        try {
-          // Same-volume publication needs no second copy of a large output.
-          await rename(entry.stage, entry.host);
-          continue;
-        } catch (failure) {
-          if (!failure || typeof failure !== "object" || !("code" in failure) || failure.code !== "EXDEV") throw failure;
+        await checkedPath(entry.mount, entry.suffix, true);
+        // Own child edits can change a directory's mtime; file baselines must
+        // still match immediately before replacement.
+        if (!entry.directory) await this.checkOriginal(entry, entry.deleted, signal);
+        if (entry.deleted) {
+          if (entry.baseline !== undefined) { if (entry.directory) await rmdir(entry.host); else await rm(entry.host); }
+        } else if (entry.directory) {
+          await mkdir(entry.host, { recursive: true, mode: entry.mode });
+          await chmod(entry.host, entry.mode);
         }
-        const temporary = `${entry.host}.legalwork-${randomUUID()}.tmp`;
-        try {
-          await copyFile(entry.stage, temporary, constants.COPYFILE_EXCL);
-          const file = await open(temporary, "r+");
-          try { await file.chmod(entry.mode); } finally { await file.close(); }
+        else if (entry.stage) {
+          await chmod(entry.stage, entry.mode);
           signal.throwIfAborted();
           await this.checkOriginal(entry, true, signal);
-          await rename(temporary, entry.host);
-        } finally { await rm(temporary, { force: true }); }
+          try {
+            // Same-volume publication needs no second copy of a large output.
+            await rename(entry.stage, entry.host);
+            continue;
+          } catch (failure) {
+            if (!failure || typeof failure !== "object" || !("code" in failure) || failure.code !== "EXDEV") throw failure;
+          }
+          const temporary = `${entry.host}.legalwork-${randomUUID()}.tmp`;
+          try {
+            await copyFile(entry.stage, temporary, constants.COPYFILE_EXCL);
+            const file = await open(temporary, "r+");
+            try { await file.chmod(entry.mode); } finally { await file.close(); }
+            signal.throwIfAborted();
+            await this.checkOriginal(entry, true, signal);
+            await rename(temporary, entry.host);
+          } finally { await rm(temporary, { force: true }); }
+        }
       }
-    }
+    });
   }
 
   async dispose(): Promise<void> {

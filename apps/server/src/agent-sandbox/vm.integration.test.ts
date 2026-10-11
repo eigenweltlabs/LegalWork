@@ -14,6 +14,10 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
   beforeAll(async () => {
     workspace = await mkdtemp(join(tmpdir(), "legalwork-sandbox-canary-"));
     await sandbox.prepare();
+    // Separate the cold-boot budget (up to 180 seconds under TCG) from the
+    // concurrency test's 120-second execution budget.
+    const warm = await sandbox.run({ command: "true", cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 10000, signal: AbortSignal.timeout(210000), authorizeNetwork: async () => false });
+    expect(warm.exitCode).toBe(0);
   }, 600_000);
   afterAll(async () => { await VmSandbox.shutdown(); if (workspace) await rm(workspace, { recursive: true, force: true }); });
   const run = (command: string, writable = false, signal = new AbortController().signal) => sandbox.run({

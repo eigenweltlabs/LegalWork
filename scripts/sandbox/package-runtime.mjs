@@ -1,4 +1,5 @@
 /** Bundle QEMU and its dependencies. No package manager is required at runtime. */
+import { assertMacOSMinimum } from './macos-compatibility.mjs';
 import { peImports } from './pe-imports.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -23,6 +24,7 @@ if (process.platform === 'win32' && !/^whpx\s*$/m.test(run(source, ['-accel', 'h
   throw new Error('Windows QEMU must include Windows Hypervisor Platform acceleration');
 }
 mkdirSync(destination, { recursive: true });
+if (process.platform === 'win32' && !existsSync(join(destination, 'legalwork-host.exe'))) throw new Error('Build the native command supervisor before packaging');
 for (const name of ['kernel', 'initrd.gz']) if (!existsSync(join(destination, name))) throw new Error(`Build the guest first: missing ${name}`);
 const copied = new Map();
 const packageRoots = new Set();
@@ -41,6 +43,7 @@ function bundle(original) {
   copyFileSync(canonical, output);
   chmodSync(output, 0o755);
   if (process.platform === 'darwin') {
+    assertMacOSMinimum(run('otool', ['-l', canonical]), name);
     const dependencies = run('otool', ['-L', canonical]).split('\n').slice(1).map((line) => line.trim().split(' (')[0]).filter(Boolean);
     for (const dependency of dependencies) {
       if (dependency === canonical || dependency.startsWith('/usr/lib/') || dependency.startsWith('/System/Library/')) continue;
@@ -81,6 +84,7 @@ function collectLicenses(directory) {
     else if (entry.isFile()) notices.push(`${basename(directory)}/${entry.name}`, readFileSync(file, 'utf8'));
   }
 }
+if (process.env.SANDBOX_DEPENDENCY_LICENSES) collectLicenses(process.env.SANDBOX_DEPENDENCY_LICENSES);
 if (process.platform === 'win32') collectLicenses(resolve(dirname(source), '../share/licenses'));
 if (process.platform === 'linux' || (process.platform === 'darwin' && process.env.QEMU_SOURCE_DIR)) {
   if (!process.env.QEMU_SOURCE_DIR) throw new Error('QEMU_SOURCE_DIR is required to bundle the QEMU license');

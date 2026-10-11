@@ -182,7 +182,7 @@ export class AgentSandboxService {
             request = { ...request, url: new URL(response.headers.location, prepared.url).href };
             continue;
           }
-          return webResult(input, prepared.url, response);
+          return webResult(input, prepared.url, response, signal);
         }
         throw new Error("Website request did not finish.");
       });

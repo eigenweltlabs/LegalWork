@@ -359,7 +359,7 @@ function releaseRetainedSessionSoon(input: SyncOptions, entry: SyncEntry, sessio
 }
 
 /** Host approvals share the chat's permission queue and waiting indicator. */
-export function seedHostApprovalState(workspaceId: string, requests: HostApprovalRequest[]) {
+export function seedHostApprovalState(workspaceId: string, requests: HostApprovalRequest[], runtime?: { workspaceId: string; baseUrl: string }) {
   const queryClient = getReactQueryClient();
   const sessions = new Set(requests.flatMap((request) => request.sessionID ? [request.sessionID] : []));
   for (const [key] of queryClient.getQueriesData({ queryKey: ["react-session-permissions", workspaceId] })) {
@@ -374,11 +374,11 @@ export function seedHostApprovalState(workspaceId: string, requests: HostApprova
       receivedAt: request.createdAt, protocol: "host", host: request,
     }] : []);
     const activity = useSessionActivityStore.getState();
-    for (const item of current.filter((item) => item.protocol === "host")) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, false);
-    for (const item of next) activity.setWaitingRequest(workspaceId, sessionID, "permission", item.id, true);
+    for (const item of current.filter((item) => item.protocol === "host")) activity.setWaitingRequest(runtime?.workspaceId ?? workspaceId, sessionID, "permission", item.id, false);
+    for (const item of next) activity.setWaitingRequest(runtime?.workspaceId ?? workspaceId, sessionID, "permission", item.id, true);
     queryClient.setQueryData(key, [...current.filter((item) => item.protocol !== "host"), ...next].sort(sortInteractionRequests));
     if (next.length) for (const entry of syncs.values()) {
-      if (entry.input.workspaceId === workspaceId && !entry.deletedSessionIds.has(sessionID)) resolveRequestLineage(entry, sessionID);
+      if (entry.input.workspaceId === (runtime?.workspaceId ?? workspaceId) && (!runtime || entry.input.baseUrl === runtime.baseUrl) && !entry.deletedSessionIds.has(sessionID)) resolveRequestLineage(entry, sessionID);
     }
   }
 }

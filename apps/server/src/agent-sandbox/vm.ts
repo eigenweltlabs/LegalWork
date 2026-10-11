@@ -43,7 +43,6 @@ export function sandboxResources(): string {
  * has a NIC. Neither has host mounts; each command has its own folder broker. */
 export class VmSandbox {
   private static runtimes = new Map<string, Promise<SharedVmRuntime>>();
-  private static commits = Promise.resolve();
   static async shutdown(): Promise<void> {
     const runtimes = [...this.runtimes.values()];
     this.runtimes.clear();
@@ -100,7 +99,7 @@ export class VmSandbox {
     const manifest = await this.prepared!;
     const arm = manifest.architecture === "aarch64";
     const nativeMac = this.acceleration === "auto" && process.platform === "darwin" && (arm ? process.arch === "arm64" : process.arch === "x64") &&
-      await exec("/usr/sbin/sysctl", ["-i", "kern.hv_support", "kern.hv_vmm_present", "hw.optional.arm64"], { timeout: 5000 })
+      await exec("/usr/sbin/sysctl", ["-i", "kern.hv_support", "kern.hv_vmm_present", "hw.optional.arm64", "kern.osproductversion"], { timeout: 5000 })
         .then(({ stdout }) => canUseMacHypervisor(manifest.architecture, stdout), () => false);
     const windowsHardware = this.acceleration === "auto" && process.platform === "win32" &&
       await exec(executable, ["-accel", "help"], { timeout: 5000, windowsHide: true })
@@ -201,11 +200,7 @@ export class VmSandbox {
       filesystem.cancel();
       await filesystemWork;
       if (exitCode === undefined) throw new Error("Protected command did not finish.");
-      // Serialize validation and publication: concurrent workers must not both
-      // validate the same old contents and then overwrite each other's edits.
-      const commit = VmSandbox.commits.then(() => filesystem.commit(input.signal));
-      VmSandbox.commits = commit.catch(() => {});
-      await commit;
+      await filesystem.commit(input.signal);
       return { output, exitCode, truncated };
     } finally {
       controller.abort();

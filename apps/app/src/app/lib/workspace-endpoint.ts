@@ -121,6 +121,7 @@ export function resolveWorkspaceEndpoint(
     const client = createLegalworkServerClient({
       baseUrl,
       token: token || undefined,
+      hostToken: workspace.legalworkHostToken?.trim() || undefined,
     });
     const mountedBaseUrl = (
       buildLegalworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl

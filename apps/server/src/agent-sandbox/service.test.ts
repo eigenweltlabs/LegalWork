@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentSandboxService } from "./service.js";
+import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
+import { managedPermissionRules } from "./engine-policy.js";
 import { webInputSchema } from "./web.js";
 import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
@@ -539,4 +540,16 @@ test("changing network mode closes an active web response", async () => {
     await writeSandboxNetworkMode(f.config, "block");
     expect(await result).toBeInstanceOf(Error);
   } finally { server.stop(true); }
+});
+
+test("a legacy chat shell denial prevents real native execution after migration", async () => {
+  const f = await fixture({ "*": "allow" });
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+  const rules = managedPermissionRules<AgentPermissionRule>([
+    { permission: "bash", pattern: "*", action: "deny" },
+    { permission: "legalwork_shell", pattern: "*", action: "allow" },
+  ], [{ permission: "bash", pattern: "*", action: "deny" }]);
+  await expect(f.service.run(f.workspace, { command: "echo bypassed", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal, rules)).rejects.toThrow("blocked");
+  expect(f.executions).toHaveLength(0);
+  expect(f.prompts).toHaveLength(0);
 });

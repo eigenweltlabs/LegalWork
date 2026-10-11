@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { workspaceServerId } from "@/app/lib/workspace-endpoint";
+import { refreshHostApprovals } from "./host-approval-feed";
 import { onSyncPoke, useSyncEventsLive } from "@/react-app/kernel/sync-events";
-import { seedHostApprovalState } from "../domains/session/sync/session-sync";
 import type { RouteWorkspace } from "./route-workspaces";
 
 /** Feed host decisions into the same per-chat queue as engine permissions. */
@@ -11,7 +10,7 @@ export function useHostApprovalSync(client: LegalworkServerClient | null, worksp
   latest.current = { client, workspaces };
   const workspaceKey = workspaces.map((workspace) => workspace.id).join("|");
   useEffect(() => {
-    if (!client?.canApprove) return;
+    if (!workspaces.length) return;
     let stopped = false, running = false, pending = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async (heard = false) => {
@@ -19,13 +18,9 @@ export function useHostApprovalSync(client: LegalworkServerClient | null, worksp
       if (running) { pending = true; return; }
       running = true;
       try {
-        if (!heard && useSyncEventsLive.getState().live) return;
-        const result = await latest.current.client?.pendingHostApprovals();
-        if (stopped || !result) return;
-        for (const workspace of latest.current.workspaces) {
-          if (workspace.workspaceType === "remote") continue;
-          seedHostApprovalState(workspace.id, result.items.filter((request) => request.workspaceId === workspaceServerId(workspace)));
-        }
+        const source = latest.current;
+        await refreshHostApprovals(source.client, source.workspaces, () => !stopped && latest.current.client === source.client && latest.current.workspaces === source.workspaces,
+          !heard && useSyncEventsLive.getState().live);
       } catch { /* Retain pending decisions while the host reconnects. */ }
       finally {
         running = false;
@@ -41,5 +36,5 @@ export function useHostApprovalSync(client: LegalworkServerClient | null, worksp
     window.addEventListener("focus", focus);
     void refresh(true);
     return () => { stopped = true; clearTimeout(timer); unsubscribe(); window.removeEventListener("focus", focus); };
-  }, [client?.baseUrl, client?.canApprove, workspaceKey, sessionId]);
+  }, [client, workspaces, workspaceKey, sessionId]);
 }

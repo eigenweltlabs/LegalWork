@@ -8,7 +8,9 @@ export function canUseMacHypervisor(architecture: "aarch64" | "x86_64", systemFl
   }
   if (flags.get("kern.hv_support") !== "1") return false;
   const arm = flags.get("hw.optional.arm64");
-  if (architecture === "aarch64") return arm === "1";
+  // QEMU's ARM HVF backend calls VM configuration APIs introduced in macOS 13.
+  // The same binary still supports macOS 12 through TCG, without touching them.
+  if (architecture === "aarch64") return arm === "1" && Number(flags.get("kern.osproductversion")?.split(".")[0]) >= 13;
   // hw.optional.arm64 may be absent on Intel. It remains 1 under Rosetta.
   return (arm === undefined || arm === "0") && flags.get("kern.hv_vmm_present") === "0";
 }

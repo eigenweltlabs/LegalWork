@@ -92,21 +92,9 @@ jobs:
         if: runner.os == 'macOS'
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
-          MACOSX_DEPLOYMENT_TARGET: '14.0'
         run: |
-          brew install glib ninja pkgconf libslirp
-          curl -fL --retry 3 https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
-          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | shasum -a 256 -c -
-          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
-          cp scripts/sandbox/qemu-aarch64.mak "$RUNNER_TEMP/qemu-11.1.2/configs/devices/aarch64-softmmu/legalwork.mak"
-          cd "$RUNNER_TEMP/qemu-11.1.2"
-          extra=()
-          if [ '${{ matrix.qemu }}' = aarch64 ]; then
-            extra+=(--without-default-devices --with-devices-aarch64=legalwork)
-          fi
-          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-hvf --enable-slirp "${extra[@]}"
-          make -j3
-          make install
+          brew install ninja pkgconf
+          bash scripts/sandbox/build-macos.sh ${{ matrix.qemu }}
       - name: Install QEMU build dependency (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -119,7 +107,7 @@ jobs:
         shell: msys2 {0}
         run: |
           for attempt in 1 2 3; do
-            pacman -S --noconfirm --needed ${{ matrix.package }}-qemu && exit 0
+            pacman -S --noconfirm --needed ${{ matrix.package }}-qemu ${{ matrix.package }}-cc && exit 0
             sleep 5
           done
           exit 1
@@ -127,6 +115,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          cc -O2 -municode -static scripts/sandbox/host-windows.c -o apps/server/resources/agent-sandbox/runtime/legalwork-host.exe
           node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ matrix.prefix }}/bin/qemu-system-${{ matrix.qemu }}.exe)"
       - name: Build QEMU (Linux)
         if: runner.os == 'Linux'
@@ -146,7 +135,8 @@ jobs:
         shell: bash
         run: |
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
-          QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" node scripts/sandbox/package-runtime.mjs "$binary"
+          QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
+      - run: node --test scripts/sandbox/macos-compatibility.test.mjs
       - name: Exercise real isolation and permission enforcement
         timeout-minutes: 15
         env:
@@ -156,7 +146,7 @@ jobs:
           if [ '${{ runner.os }}' = macOS ]; then
             sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
           fi
-          bun test --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
+          bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .

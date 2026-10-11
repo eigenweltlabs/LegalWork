@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { bootWithFallback, canUseMacHypervisor, type Accelerator } from "./acceleration.js";
 
 test("physical Apple Silicon uses HVF for ARM, but not for a Rosetta x64 process", () => {
-  const flags = "kern.hv_support: 1\nkern.hv_vmm_present: 0\nhw.optional.arm64: 1\n";
+  const flags = "kern.hv_support: 1\nkern.hv_vmm_present: 0\nhw.optional.arm64: 1\nkern.osproductversion: 15.0\n";
   expect(canUseMacHypervisor("aarch64", flags)).toBe(true);
   expect(canUseMacHypervisor("x86_64", flags)).toBe(false);
 });
@@ -19,7 +19,7 @@ test("virtual Intel uses software emulation despite reported HVF support", () =>
 });
 
 test("missing hardware support or unknown Intel host status falls back to software", () => {
-  expect(canUseMacHypervisor("aarch64", "kern.hv_support: 0\nhw.optional.arm64: 1\n")).toBe(false);
+  expect(canUseMacHypervisor("aarch64", "kern.hv_support: 0\nhw.optional.arm64: 1\nkern.osproductversion: 15.0\n")).toBe(false);
   expect(canUseMacHypervisor("x86_64", "kern.hv_support: 1\n")).toBe(false);
   expect(canUseMacHypervisor("x86_64", "kern.hv_support: 1\nkern.hv_vmm_present: 0\nhw.optional.arm64: unknown\n")).toBe(false);
   expect(canUseMacHypervisor("aarch64", "")).toBe(false);
@@ -53,4 +53,8 @@ test("a failed software boot fails closed without another attempt", async () => 
   })).rejects.toThrow("Invalid guest");
   expect(attempts).toBe(1);
   expect(closed).toBe(1);
+});
+
+test("Apple Silicon macOS 12 avoids unavailable HVF VM configuration APIs", () => {
+  expect(canUseMacHypervisor("aarch64", "kern.hv_support: 1\nhw.optional.arm64: 1\nkern.osproductversion: 12.7.6\n")).toBe(false);
 });

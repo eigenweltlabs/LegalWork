@@ -1,5 +1,5 @@
 import { z } from "zod";
-import TurndownService from "turndown";
+import { convertHtml } from "./web-convert.js";
 import type { OutboundResponse } from "./network.js";
 
 export const webFetchArgs = z.object({
@@ -37,7 +37,8 @@ export function webRequest(input: WebInput): { url: string; method: string; head
   } })).toString("base64") };
 }
 
-export function webResult(input: WebInput, url: string, response: OutboundResponse) {
+export async function webResult(input: WebInput, url: string, response: OutboundResponse, signal = new AbortController().signal) {
+  signal.throwIfAborted();
   if (response.status < 200 || response.status >= 300) throw new Error(`Website returned HTTP ${response.status}.`);
   const bytes = Buffer.from(response.bodyBase64, "base64");
   const content = bytes.toString("utf8");
@@ -60,13 +61,7 @@ export function webResult(input: WebInput, url: string, response: OutboundRespon
     attachments: [{ type: "file", mime, url: `data:${mime};base64,${response.bodyBase64}` }],
   };
   if (mime === "text/html" && input.format !== "html") {
-    const converter = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
-    const hidden = ["script", "style", "meta", "link", "iframe", "object", "embed"];
-    converter.remove(node => hidden.includes(node.nodeName.toLowerCase()));
-    if (input.format === "text") converter.addRule("plainText", { filter: () => true,
-      replacement: (content, node) => hidden.includes(node.nodeName.toLowerCase()) ? "" : /^(?:P|DIV|H[1-6]|LI|PRE|BLOCKQUOTE|TR|BR|HR|SECTION|ARTICLE)$/.test(node.nodeName) ? `\n\n${content}\n\n` : content,
-    });
-    return { title: url, output: converter.turndown(content), metadata: {} };
+    return { title: url, output: await convertHtml(content, input.format, signal), metadata: {} };
   }
   return { title: url, output: content, metadata: {} };
 }

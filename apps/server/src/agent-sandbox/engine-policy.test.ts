@@ -26,3 +26,18 @@ test("existing chat web restrictions survive the managed tool migration", () => 
     { permission: "webfetch", pattern: "*", action: "deny" }, { permission: managedNetworkGuard, pattern: "*", action: "deny" }];
   expect(managedPermissionRules(agent, guarded)).toEqual(managedPermissionRules(agent, old));
 });
+
+test("legacy shell restrictions survive migration, including scoped and ask rules", () => {
+  const agent = [{ permission: "bash", pattern: "*", action: "deny" }, { permission: "legalwork_shell", pattern: "*", action: "allow" }];
+  for (const action of ["deny", "ask"]) {
+    const legacy = [{ permission: "bash", pattern: "*", action }];
+    expect(managedPermissionRules(agent, legacy)).toEqual([{ permission: "bash", pattern: "*", action: "allow" }, ...legacy]);
+  }
+  const scoped = { permission: "bash", pattern: "rm *", action: "deny" };
+  expect(managedPermissionRules(agent, [scoped, { permission: managedNetworkGuard, pattern: "*", action: "deny" }])).toContainEqual(scoped);
+  expect(managedPermissionRules(agent, [
+    { permission: "legalwork_shell", pattern: "*", action: "deny" },
+    { permission: "bash", pattern: "*", action: "deny" },
+    { permission: managedNetworkGuard, pattern: "*", action: "deny" },
+  ])).toEqual([{ permission: "bash", pattern: "*", action: "allow" }, { permission: "bash", pattern: "*", action: "deny" }]);
+});
