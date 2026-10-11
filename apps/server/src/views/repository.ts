@@ -64,6 +64,11 @@ export class ViewRepository {
     if (!item) throw new ApiError(404, "view_not_found", "This saved view is unavailable.");
     return item.record;
   }
+  async location(id: string): Promise<string> {
+    const item = await this.find(id);
+    if (!item) throw new ApiError(404, "view_not_found", "This saved view is unavailable.");
+    return item.path;
+  }
   private validate(input: ViewInput) {
     const parsed = ViewInputSchema.safeParse(input);
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
@@ -76,7 +81,7 @@ export class ViewRepository {
     const data = this.validate(input), id = randomUUID(), updatedAt = Date.now();
     const bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt }, null, 2) + "\n");
     if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
-    await this.files.write(`Views/${id}.view.json`, bytes, "");
+    await this.files.write(`${data.mode === "report" ? "Reports" : "Views"}/${id}.view.json`, bytes, "");
     return { ...data, id, updatedAt, owner: this.owner, revision: hash(bytes) };
   }
   async update(id: string, input: ViewInput, baseRevision: string): Promise<ViewRecord> {
@@ -126,7 +131,9 @@ export function workspaceViewFiles(root: string): ViewFiles {
       const parts = path.split("/"), name = parts.pop();
       if (!name || !isRecordPath(path)) throw new ApiError(400, "invalid_view_path", "Invalid saved view path.");
       if (revision === "") {
-        const base = await realpath(root), folder = join(base, "Views");
+        const destination = parts.join("/");
+        if (destination !== "Views" && destination !== "Reports") throw new ApiError(400, "invalid_view_path", "New views belong in Views or Reports.");
+        const base = await realpath(root), folder = join(base, destination);
         try { await mkdir(folder); } catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
         if ((await lstat(folder)).isSymbolicLink()) throw new ApiError(403, "invalid_view_path", "The view folder cannot be a symbolic link.");
         await importProjectFile(root, path, bytes);

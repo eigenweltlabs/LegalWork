@@ -89,6 +89,19 @@ test("startup preserves customized bundled workflows and attached templates", as
   expect(await readFile(join(folder, "resources/DD-Report-Template.docx"), "utf8")).toBe("Firm's customized template.");
 });
 
+test("firm knowledge workflow is discoverable in projects and preserves firm edits", async () => {
+  await ensureBundledWorkflows();
+  const name = "workflow-firm-knowledge";
+  for (const workspace of workspaces) {
+    expect((await listSkills(workspace, false)).find(item => item.name === name)).toMatchObject({ kind: "workflow", workflowType: "assistant", scope: "global" });
+  }
+  const file = join(globalSkillsDir(), name, "SKILL.md");
+  expect(await readFile(file, "utf8")).toContain("Skills/Build firm wiki.md");
+  await writeFile(file, "Firm's own knowledge procedure.\n");
+  await ensureBundledWorkflows();
+  expect(await readFile(file, "utf8")).toBe("Firm's own knowledge procedure.\n");
+});
+
 test("desktop Windows uses OpenCode's XDG folder after migration", () => {
   process.env.XDG_CONFIG_HOME = join(home, ".config");
   expect(globalSkillsDir()).toBe(join(home, ".config", "opencode", "skills"));

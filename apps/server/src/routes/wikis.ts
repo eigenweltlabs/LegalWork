@@ -160,7 +160,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
       const pages = await store.indexedPages(wiki.id);
       input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, queryWikiPages(pages, query)])) };
     }
-    await authorize(ctx, wiki, "wiki.view.create", ["Views"], input);
+    await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Views"], input);
     const result = await views(wiki.id).create(input);
     change(wiki.id);
     return jsonResponse(result, 201);
@@ -169,8 +169,9 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const wiki = await selected(ctx, true);
     const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the view before changing its definition.");
-    await authorize(ctx, wiki, "wiki.view.update", ["Views"], parsed.data);
-    const result = await views(wiki.id).update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
+    const repository = views(wiki.id);
+    await authorize(ctx, wiki, "wiki.view.update", [await repository.location(ctx.params.viewId)], parsed.data);
+    const result = await repository.update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
     change(wiki.id);
     return jsonResponse(result);
   });

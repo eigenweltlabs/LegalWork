@@ -13,10 +13,21 @@ const input: ViewInput = { version: 1, title: "Client review", mode: "report", c
 const repository = () => new ViewRepository({ kind: "workspace", id: "test-project" }, workspaceViewFiles(root));
 
 describe("saved view records", () => {
+  test("new dashboards and reports use their own folders while legacy report paths remain editable", async () => {
+    const repo = new ViewRepository({ kind: "wiki", id: "test-wiki" }, workspaceViewFiles(root));
+    const dashboard = await repo.create({ ...input, mode: "dashboard", datasets: undefined });
+    const report = await repo.create(input);
+    expect((await repo.list()).items.find(item => item.id === dashboard.id)?.path).toBe(`Views/${dashboard.id}.view.json`);
+    expect((await repo.list()).items.find(item => item.id === report.id)?.path).toBe(`Reports/${report.id}.view.json`);
+    await rename(join(root, "Reports", `${report.id}.view.json`), join(root, "Views", `${report.id}.view.json`));
+    await repo.update(report.id, { ...input, title: "Legacy report" }, report.revision);
+    expect(await repo.location(report.id)).toBe(`Views/${report.id}.view.json`);
+    expect((await repo.list()).items.find(item => item.id === report.id)?.path).toBe(`Views/${report.id}.view.json`);
+  });
   test("frozen report and identity survive reopen and file rename", async () => {
     const saved = await repository().create(input);
     expect(await repository().read(saved.id)).toEqual(saved);
-    await rename(join(root, "Views", `${saved.id}.view.json`), join(root, "Renamed.view.json"));
+    await rename(join(root, "Reports", `${saved.id}.view.json`), join(root, "Renamed.view.json"));
     expect((await repository().list()).items[0].path).toBe("Renamed.view.json");
     const next = await repository().update(saved.id, { ...input, title: "Renamed report" }, saved.revision);
     expect(next.id).toBe(saved.id);
@@ -32,10 +43,10 @@ describe("saved view records", () => {
   test("duplicate IDs and sync conflict copies remain visible as conflicts", async () => {
     const repo = repository(), saved = await repo.create(input);
     const unrelated = await repo.create({ ...input, title: "Unrelated report" });
-    const bytes = await readFile(join(root, "Views", `${saved.id}.view.json`));
-    await writeFile(join(root, "Views", `${saved.id}.view.conflict-0123456789ab.json`), bytes);
+    const bytes = await readFile(join(root, "Reports", `${saved.id}.view.json`));
+    await writeFile(join(root, "Reports", `${saved.id}.view.conflict-0123456789ab.json`), bytes);
     await expect(repo.read(saved.id)).rejects.toMatchObject({ code: "view_revision_conflict" });
-    expect(await readFile(join(root, "Views", `${saved.id}.view.json`))).toEqual(bytes);
+    expect(await readFile(join(root, "Reports", `${saved.id}.view.json`))).toEqual(bytes);
     expect((await repo.list()).issues[0].code).toBe("view_revision_conflict");
     expect((await repo.read(unrelated.id)).title).toBe("Unrelated report");
   });
@@ -50,7 +61,7 @@ describe("saved view records", () => {
   test("symlinked destination cannot write outside the workspace", async () => {
     const elsewhere = await mkdtemp(join(tmpdir(), "legalwork-outside-"));
     try {
-      await symlink(elsewhere, join(root, "Views"));
+      await symlink(elsewhere, join(root, "Reports"));
       await expect(repository().create(input)).rejects.toMatchObject({ status: 403 });
     } finally { await rm(elsewhere, { recursive: true, force: true }); }
   });

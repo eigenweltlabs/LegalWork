@@ -24,6 +24,28 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("external agent batches update the watched tree, relations and indexed fields without a manual refresh", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Import", template: "firm" });
+    const before = (await store.graph(wiki.id, undefined, true)).revision;
+    await writeFile(join(wiki.root, "Clients/C001.md"), "---\ntype: client\nclient_id: C001\n---\n# Example client\n");
+    await writeFile(join(wiki.root, "Matters/M001.md"), '---\ntype: matter\nclient: "[[Clients/C001.md]]"\nstage: active\n---\n# Example matter\n');
+    await mkdir(join(wiki.root, "Attachments/Batch 1"), { recursive: true });
+    await writeFile(join(wiki.root, "Attachments/Batch 1/source.pdf"), Buffer.from([0, 255, 1]));
+    let revision = before;
+    for (let attempt = 0; attempt < 100 && revision === before; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      revision = (await store.graph(wiki.id, undefined, true)).revision;
+    }
+    expect(revision).not.toBe(before);
+    const snapshot = await store.snapshot(wiki.id);
+    expect(snapshot.pages.find(page => page.path === "Matters/M001.md")?.properties.stage).toBe("active");
+    expect(snapshot.assets.some(file => file.path === "Attachments/Batch 1/source.pdf")).toBe(true);
+    expect(snapshot.folders).toContain("Attachments/Batch 1");
+    const graph = await store.graph(wiki.id);
+    if (graph.kind !== "snapshot") throw new Error("Expected graph snapshot");
+    expect(graph.edges.some(edge => edge.source === "Matters/M001.md" && edge.target === "Clients/C001.md")).toBe(true);
+  });
+
   test("graph polling observes edits, assets, folders and configuration without returning rich snapshots", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Graph", template: "blank" });
     const a = await store.write(wiki.id, "A.md", "# A\n[[B]]", "");
@@ -143,11 +165,11 @@ describe("Markdown wiki store", () => {
     const snapshot = await store.snapshot(wiki.id);
     expect(snapshot.pages.some((page) => page.path === "Structure.md")).toBe(true);
     expect(snapshot.pages.some((page) => page.path === "Skills/Bootstrap.md")).toBe(true);
-    expect(snapshot.views.some((view) => view.type === "table")).toBe(true);
+    expect(snapshot.pages.some((page) => page.path === "Skills/Build firm wiki.md")).toBe(true);
     const original = await store.write(wiki.id, "Recover.md", "# Recover\n", "");
     await store.forget(wiki.id);
     expect(await store.list()).toEqual([]);
-    expect(await readFile(join(wiki.root, "Structure.md"), "utf8")).toContain("Wiki structure");
+    expect(await readFile(join(wiki.root, "Structure.md"), "utf8")).toContain("Firm knowledge structure");
     const reattached = await store.create({ name: "Reattached", root: wiki.root, attach: true });
     expect(reattached.id).toBe(wiki.id);
     expect((await store.history(reattached.id, original.path))).toHaveLength(1);

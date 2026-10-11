@@ -2,6 +2,16 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Firm workflows and local Harvey S3 demonstration (2026-10-11)
+
+- Added the firm starter's folder procedures, source coverage/checkpoint workflow, client/matter page templates, relation-field conventions and indexed GenUI guidance. A bundled Build firm knowledge workflow is discoverable across workspaces and preserves subsequent firm edits.
+- Mirrored all 9,538 files from the pinned Harvey firm-knowledge subtree into a dedicated local MinIO bucket. Verified Git blob hashes, uploaded object checksums and complete listings. The app connection exposes its 9,288 DMS records across 266 matter folders, excluding benchmark questions/rubrics. Setup, provenance and prompts: [Harvey demo](wiki-harvey-demo.md).
+- Native Electron verified S3 browsing, source Word document rendering, automatic appearance of a file written outside the UI, and wiki state restoration after restart. Fixed stale workspace selection during a new wiki switch. Tree revision polling now also refreshes saved-view data/lists.
+- New reports save under Reports/; dashboards use Views/. Renamed and legacy view files remain supported.
+- `pnpm --filter @legalwork/app test`: 1,276 passed across 199 files. App typecheck and production build passed.
+- `pnpm exec bun test apps/server/src/wiki apps/server/src/views apps/server/src/global-skills.test.ts apps/server/src/opencode-plugins/legalwork-storage-tools.test.ts apps/server/src/wikis.e2e.test.ts apps/server/src/opencode-plugins/legalwork-wiki-tools.test.ts apps/server/src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts`: 158 passed across 20 files. Server build/typecheck passed.
+- Actual agent import attempted at 19:44 UTC with the existing OpenAI provider. It failed before any tools with the provider's no-credits error and zero input/output tokens. The new wiki has its template and setup verification note, not an agent-produced import. The live extraction and model-generated views remain blocked on that connection's credits.
+
 ## Demo, page UI, view files and agent write boundaries (2026-10-11)
 
 - Seeded **Northstar Law Demo** with 50 clients, 150 matters, 12 processes and four template pages with adjacent DOCX documents. Three live dashboards and wiki/project frozen reports use the real typed query implementation. Exact totals and four copyable agent prompts are in [demo flows](wiki-demo-flows.md).
