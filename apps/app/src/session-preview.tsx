@@ -4,6 +4,7 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
@@ -185,6 +186,23 @@ if (subagentApprovals) {
     const item = snapshot(id, title, running ? undefined : "Check the liability clauses.");
     saveSnapshot({ ...item, session: { ...item.session, parentID: "visual-review" }, status: { type: running ? "busy" : "idle" } });
   }
+  const parent = snapshots.get("visual-review");
+  if (parent) saveSnapshot({ ...parent, messages: parent.messages.map(message => {
+    if (message.info.role !== "assistant") return message;
+    const tools: ToolPart[] = [
+      { id: "visual-research", title: "Research contract history", completed: false },
+      { id: "visual-drafting", title: "Draft review summary", completed: false },
+      { id: "visual-completed", title: "Check liability clauses", completed: true },
+    ].map(agent => ({
+      type: "tool", id: `tool-${agent.id}`, callID: `call-${agent.id}`, messageID: message.info.id, sessionID: parent.session.id, tool: "task",
+      state: agent.completed ? {
+        status: "completed", input: { description: agent.title, prompt: "Review the assigned clauses", subagent_type: "general" }, metadata: { sessionId: agent.id }, title: agent.title, output: "Review completed.", time: { start: now - 60_000, end: now - 30_000 },
+      } : {
+        status: "running", input: { description: agent.title, prompt: "Review the assigned clauses", subagent_type: "general" }, metadata: { sessionId: agent.id }, time: { start: now - 60_000 },
+      },
+    }));
+    return { ...message, parts: [...tools, ...message.parts] };
+  }) });
   seedQuestionState(workspace.id, "visual-reference", [{
     id: "reference-question", sessionID: "visual-reference", questions: [{
       header: "Reference version", question: "Which policy version should I use for the comparison?",

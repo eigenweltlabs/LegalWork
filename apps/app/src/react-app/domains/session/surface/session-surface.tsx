@@ -105,7 +105,6 @@ import { PendingStatus } from "@/components/chat/pending-status";
 import { SessionScrollOverlay } from "./scroll-overlay";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store";
 import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permission-approval-modal";
-import { SessionSubagents } from "@/react-app/domains/session/chat/session-subagents";
 import { QuestionPanel } from "@/react-app/domains/session/modals/question-modal";
 import { useSessionMessageQueue } from "./use-session-message-queue";
 import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-messages-panel";
@@ -1959,7 +1958,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
-      <SessionSubagents key={`${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} sessionId={props.sessionId} pendingSessionIds={props.pendingInteractionSessionIds} onOpenSession={props.onOpenInteractionSession} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
@@ -2040,6 +2038,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
+                      onOpenSession={props.onOpenInteractionSession}
+                      pendingInteractionSessionIds={props.pendingInteractionSessionIds}
                       showThinking={showThinking}
                       developerMode={props.developerMode}
                       displaySuggestions={shellConfig.starterCards}
