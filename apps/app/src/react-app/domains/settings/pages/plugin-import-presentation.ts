@@ -15,16 +15,27 @@ export function pluginImportSkillName(skill: { name: string; path: string }): st
   return prefix ? pluginImportName({ name: prefix[1] }) : skill.name;
 }
 
+export function pluginImportConnectorName(name: string): string {
+  const imported = name.match(/^.+-[a-f0-9]{8}-plugin-(?:global|[a-f0-9]{8})-(.+)-[a-f0-9]{6}$/i);
+  return imported ? pluginImportName({ name: imported[1] }) : name;
+}
+
 /** One row per plugin; keep other copies available in the source details. */
 export function groupPluginImportCandidates(candidates: PluginImportCandidate[]) {
   const groups = new Map<string, PluginImportCandidate[]>();
   for (const candidate of candidates) {
-    const copies = groups.get(candidate.name) ?? [];
+    // Connectors sharing a name can point at different services or belong to different projects.
+    const key = candidate.connector ? pluginImportCandidateKey(candidate) : `${candidate.kind ?? "plugin"}:${candidate.name}`;
+    const copies = groups.get(key) ?? [];
     copies.push(candidate);
-    groups.set(candidate.name, copies);
+    groups.set(key, copies);
   }
   return [...groups.values()].flatMap(sources => {
     sources.sort((a, b) => (b.version ?? "").localeCompare(a.version ?? "", undefined, { numeric: true }) || Number(b.path.includes("/cache/")) - Number(a.path.includes("/cache/")) || a.path.localeCompare(b.path));
     return sources[0] ? [{ candidate: sources[0], sources }] : [];
   }).sort((a, b) => pluginImportName(a.candidate).localeCompare(pluginImportName(b.candidate)));
+}
+
+export function pluginImportCandidateKey(candidate: PluginImportCandidate): string {
+  return JSON.stringify([candidate.path, candidate.connector?.name, candidate.connector?.project]);
 }

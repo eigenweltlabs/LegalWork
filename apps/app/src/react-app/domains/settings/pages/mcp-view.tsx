@@ -43,6 +43,7 @@ import {
 import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import { pluginImportConnectorName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
@@ -460,7 +461,7 @@ export function McpView(props: McpViewProps) {
       );
     });
 
-  const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? name;
+  const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? pluginImportConnectorName(name);
 
   const quickConnectStatus = (entry: McpDirectoryInfo) =>
     props.mcpStatuses[getMcpIdentityKey(entry)];

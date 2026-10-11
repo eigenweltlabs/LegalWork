@@ -70,6 +70,7 @@
     "pdfjs-dist": "6.3.289",
     "polygon-clipping": "0.15.7",
     "smb3-client": "0.2.0",
+    "smol-toml": "1.8.0",
     "ssh2-sftp-client": "^12.1.1",
     "webdav": "^5.10.0",
     "yaml": "^2.6.1",

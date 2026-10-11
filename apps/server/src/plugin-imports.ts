@@ -8,12 +8,14 @@ import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, 
 import { ApiError } from "./errors.js";
 import { buildFrontmatter, parseFrontmatter } from "./frontmatter.js";
 import { pluginNamespace, resolveWorkspaceInstallPath, type CloudPluginResolved } from "./cloud-plugins.js";
+import { connectorImportBundle, discoverConnectorImports } from "./connector-imports.js";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
+const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional() });
 const sourceSchema = z.discriminatedUnion("provider", [
-  z.object({ provider: z.literal("chatgpt"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional() }),
-  z.object({ provider: z.literal("claude"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional() }),
+  z.object({ provider: z.literal("chatgpt"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
+  z.object({ provider: z.literal("claude"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
 ]);
 const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), digest: z.string().optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
@@ -21,7 +23,8 @@ export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
   const source = parsed.data.source;
   if (Boolean(source.path) === Boolean(source.zipBase64)) throw new ApiError(400, "invalid_plugin_import", "Provide exactly one folder path or ZIP.");
-  return { ...parsed.data, source: source.path ? { provider: source.provider, path: source.path } : { provider: source.provider, zipBase64: source.zipBase64 ?? "" } };
+  if (source.connector && (!source.path || source.provider === "chatgpt" && source.connector.project)) throw new ApiError(400, "invalid_plugin_import", "Choose a connector from a local configuration file.");
+  return { ...parsed.data, source: source.path ? { provider: source.provider, path: source.path, ...(source.connector ? { connector: source.connector } : {}) } : { provider: source.provider, zipBase64: source.zipBase64 ?? "" } };
 }
 function fail(message: string): never { throw new ApiError(400, "invalid_plugin_import", message); }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -171,7 +174,7 @@ function paths(value: unknown): string[] {
   return fail("Component paths must be a path string or an array of paths.");
 }
 
-function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string): PluginImportPlan {
+function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
   const portable = files.has("plugin.json");
   const legacyPath = request.source.provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
   const base = portable ? jsonFile(files, "plugin.json") : files.has(legacyPath) ? jsonFile(files, legacyPath) : {};
@@ -187,7 +190,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   const namespace = pluginNamespace(name, id);
   const bundlePath = `.opencode/imported-plugins/${namespace}`;
   const absoluteBundle = resolveWorkspaceInstallPath(workspaceRoot, bundlePath, request.scope === "global");
-  const warnings: string[] = [];
+  const warnings: string[] = [...connectorWarnings];
   const components: PluginImportPreview["components"] = [];
   const memberships: CloudPluginResolved["memberships"] = [];
   const resourceFiles: PackageFile[] = [...files.values()].map(file => ({ ...file, path: `${bundlePath}/${file.path}` }));
@@ -317,7 +320,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   if (components.length === 0) warnings.push("This package has no supported skills, agents, commands or MCP servers. Only its complete source will be stored.");
   const hash = createHash("sha256").update(JSON.stringify({ provider: request.source.provider, root, scope: request.scope, workspaceRoot: resolve(workspaceRoot) }));
   for (const file of [...files.values()].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update(String(file.mode)).update(file.bytes);
-  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
+  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: "path" in request.source && request.source.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
   let reportName = "LEGALWORK-IMPORT.json";
   for (let i = 2; files.has(reportName); i++) reportName = `LEGALWORK-IMPORT-${i}.json`;
   resourceFiles.push({ path: `${bundlePath}/${reportName}`, bytes: Buffer.from(JSON.stringify(preview, null, 2)), mode: 0o600 });
@@ -336,6 +339,12 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null }, memberships }, resourceFiles };
 }
 export async function resolvePluginImports(request: PluginImportRequest, workspaceRoot: string): Promise<PluginImportPlan[]> {
+  if ("path" in request.source && request.source.connector) {
+    if (request.root !== undefined && request.root !== "") fail("Selected connector root was not found.");
+    const bundle = await connectorImportBundle(request.source.provider, request.source.path, request.source.connector);
+    const files: PackageFiles = new Map(Object.entries(bundle.files).map(([path, text]) => [path, { path, bytes: Buffer.from(text), mode: 0o600 }]));
+    return [planPackage(files, "", request, workspaceRoot, bundle.warnings)];
+  }
   const files = await loadSource(request);
   const roots = packageRoots(files, request.source.provider);
   if (!roots.length) fail("No plugin manifest or SKILL.md found. Choose a plugin folder, skills folder, or their ZIP export.");
@@ -402,7 +411,7 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
       }
     } catch { /* Registry is optional. */ }
   }
-  return [...results.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...results.values(), ...await discoverConnectorImports(provider, workspaceRoot, home, codex, claude)].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Serialize package mutations, including removal, so update rollback is safe. */

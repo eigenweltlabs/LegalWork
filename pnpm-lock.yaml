@@ -600,6 +600,9 @@ importers:
       smb3-client:
         specifier: 0.2.0
         version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
+      smol-toml:
+        specifier: 1.8.0
+        version: 1.8.0
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
@@ -7777,6 +7780,10 @@ packages:
   smb3-client@0.2.0:
     resolution: {integrity: sha512-IqgVczNjD1CcUgA1u4VwXGYxH6mxgwUATYUM+QiSkpW662s/kiWlxs5xnYoilTqQFHg0Xe7GO+QDQZImORau8g==}
     engines: {node: '>=20'}
+
+  smol-toml@1.8.0:
+    resolution: {integrity: sha512-kCZr2V3ch9i00x8zXRhjUNVcjG9ijES5dDudkXvUVCT5QlJNQWElSJdZqyPemffHoLNUYwOcou0Fy+ojN0uHSQ==}
+    engines: {node: '>= 18'}
 
   solid-js@1.9.9:
     resolution: {integrity: sha512-A0ZBPJQldAeGCTW0YRYJmt7RCeh5rbFfPZ2aOttgYnctHE7HgKeHCBB/PVc2P7eOfmNXqMFFFoYYdm3S4dcbkA==}
@@ -16944,6 +16951,8 @@ snapshots:
   sisteransi@1.0.5: {}
 
   smb3-client@0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d): {}
+
+  smol-toml@1.8.0: {}
 
   solid-js@1.9.9:
     dependencies:

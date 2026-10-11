@@ -124,7 +124,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       ) : null}
 
-      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); selectTab("skills"); props.onRefresh(); }} /> : null}
+      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex flex-wrap items-center gap-2">

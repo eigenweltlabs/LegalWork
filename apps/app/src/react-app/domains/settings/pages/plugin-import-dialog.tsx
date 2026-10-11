@@ -11,7 +11,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
 import claudeLogo from "@/assets/claude-logo.svg";
-import { groupPluginImportCandidates, pluginImportName } from "./plugin-import-presentation";
+import { groupPluginImportCandidates, pluginImportCandidateKey, pluginImportName } from "./plugin-import-presentation";
 import { packageParts } from "./skill-packages";
 
 export type PluginImportStore = {
@@ -24,7 +24,7 @@ const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal
 const componentTitle = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "skills.title" : type === "mcp" ? "extensions.connectors_label" : type === "agent" ? "composer.agents_label" : "dashboard.commands");
 
-export function PluginImportDialog(props: { provider: PluginImportProvider; store: PluginImportStore; onClose: () => void; onImported: () => void }) {
+export function PluginImportDialog(props: { provider: PluginImportProvider; store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void }) {
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
   const [discovering, setDiscovering] = useState(true);
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
@@ -125,8 +125,8 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
     setError(null);
     try {
       await props.store.installPluginImport({ source, scope: "global", root: selected.root, digest: selected.digest });
-      toast.success(t("extensions.import_success", { name: pluginImportName(selected) }));
-      props.onImported();
+      toast.success(t(selected.format === "connectors" ? "extensions.import_connector_success" : "extensions.import_success", { name: pluginImportName(selected) }));
+      props.onImported(selected);
       props.onClose();
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); }
     finally { if (mounted.current) setInstalling(false); }
@@ -157,10 +157,10 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
               : discoveryFailed ? <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"><TriangleAlert className="size-6 text-muted-foreground" /><p className="text-muted-foreground">{t("extensions.import_discovery_failed")}</p><Button variant="outline" size="sm" onClick={() => setDiscoveryRevision(value => value + 1)}>{t("extensions.import_retry")}</Button></div>
               : filtered.length ? <div className="divide-y divide-border">{filtered.map(group => {
                 const item = group.candidate;
-                const Icon = item.kind === "skill" ? Blocks : Package;
-                return <Button key={item.path} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider: props.provider, path: item.path }, pluginImportName(item)); }}>
+                const Icon = item.kind === "connector" ? Plug : item.kind === "skill" ? Blocks : Package;
+                return <Button key={pluginImportCandidateKey(item)} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider: props.provider, path: item.path, connector: item.connector }, pluginImportName(item)); }}>
                   <Icon className="size-5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.description || t(item.kind === "skill" ? "extensions.import_skill" : "extensions.import_plugin")}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.kind === "connector" ? `${t("extensions.connectors_label")} · ` : ""}{item.description || t(item.kind === "skill" ? "extensions.import_skill" : "extensions.import_plugin")}</span></span>
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Button>;
@@ -172,7 +172,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
           </div>
         </> : busy ? <div className="flex min-h-72 flex-col items-center justify-center gap-3" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
           {previews.length > 1 ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("extensions.import_select_package")}</p><div className="flex flex-wrap gap-2">{previews.map(item => <Button key={item.root} size="sm" variant={selectedRoot === item.root ? "secondary" : "outline"} disabled={installing} aria-pressed={selectedRoot === item.root} onClick={() => setSelectedRoot(item.root)}>{pluginImportName(item)}</Button>)}</div></div> : null}
-          <div className="space-y-1"><div className="flex items-baseline gap-2"><h3 className="text-lg font-medium">{pluginImportName(selected)}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>{selected.description ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}<p className="pt-1 text-sm text-muted-foreground">{packageParts(selected.components.map(item => item.type)) || t("extensions.import_no_components")}</p></div>
+          <div className="space-y-1"><div className="flex items-baseline gap-2"><h3 className="text-lg font-medium">{pluginImportName(selected)}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>{selected.description ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}{selected.format === "connectors" ? <p className="pt-1 text-sm text-muted-foreground">{t("extensions.import_connector_paused")}</p> : null}<p className="pt-1 text-sm text-muted-foreground">{packageParts(selected.components.map(item => item.type)) || t("extensions.import_no_components")}</p></div>
           {selected.components.length ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border">
             {componentTypes.map(type => {
               const items = selected.components.filter(item => item.type === type);
@@ -182,7 +182,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
             })}
           </div> : null}
           {selected.warnings.length ? <details className="rounded-xl border border-border bg-muted/30 px-4 py-3"><summary className="cursor-pointer text-sm font-medium"><span className="inline-flex items-center gap-2"><TriangleAlert className="size-4 text-amber-11" />{t("extensions.import_compatibility", { count: selected.warnings.length })}</span></summary><ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-relaxed text-muted-foreground">{selected.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details> : null}
-          <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">{t("extensions.import_details")}</summary><div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3"><p className="break-all text-xs text-muted-foreground">{source && "path" in source ? source.path : sourceLabel}</p><p className="text-xs text-muted-foreground">{t("extensions.import_file_count", { count: selected.fileCount })} · {(selected.bytes / 1024 / 1024).toFixed(1)} MB</p><p className="text-xs leading-relaxed text-muted-foreground">{t("extensions.import_resources")}</p>{copies.length > 1 ? <div className="space-y-2"><p className="text-xs font-medium">{t("extensions.import_other_copies")}</p>{copies.map(copy => <Button key={copy.path} variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal text-start" disabled={installing} aria-pressed={source !== null && "path" in source && source.path === copy.path} onClick={() => void preview({ provider: props.provider, path: copy.path }, pluginImportName(copy))}><span className="min-w-0"><span className="block">{copy.version || pluginImportName(copy)}</span><span className="block break-all text-xs text-muted-foreground">{copy.path}</span></span></Button>)}</div> : null}</div></details>
+          <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">{t("extensions.import_details")}</summary><div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3"><p className="break-all text-xs text-muted-foreground">{source && "path" in source ? source.path : sourceLabel}</p><p className="text-xs text-muted-foreground">{t("extensions.import_file_count", { count: selected.fileCount })} · {(selected.bytes / 1024 / 1024).toFixed(1)} MB</p><p className="text-xs leading-relaxed text-muted-foreground">{t(selected.format === "connectors" ? "extensions.import_connector_resources" : "extensions.import_resources")}</p>{copies.length > 1 ? <div className="space-y-2"><p className="text-xs font-medium">{t("extensions.import_other_copies")}</p>{copies.map(copy => <Button key={copy.path} variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal text-start" disabled={installing} aria-pressed={source !== null && "path" in source && source.path === copy.path} onClick={() => void preview({ provider: props.provider, path: copy.path }, pluginImportName(copy))}><span className="min-w-0"><span className="block">{copy.version || pluginImportName(copy)}</span><span className="block break-all text-xs text-muted-foreground">{copy.path}</span></span></Button>)}</div> : null}</div></details>
         </> : null}
         {error ? <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
       </div>
