@@ -7,16 +7,7 @@
 #include <stdio.h>
 #include <wchar.h>
 
-static void trace(const wchar_t *stage) {
-    wchar_t enabled[2];
-    if (GetEnvironmentVariableW(L"LEGALWORK_HOST_DIAGNOSTICS", enabled, 2)) {
-        fwprintf(stderr, L"Native command %ls at %llu ms\n", stage, GetTickCount64());
-        fflush(stderr);
-    }
-}
-
 int wmain(int argc, wchar_t **argv) {
-    trace(L"starting");
     if (argc != 2) return 125;
     HANDLE job = CreateJobObjectW(NULL, NULL);
     if (!job) return 125;
@@ -45,12 +36,9 @@ int wmain(int argc, wchar_t **argv) {
         CloseHandle(child.hThread); CloseHandle(child.hProcess); CloseHandle(job); return 125;
     }
     CloseHandle(child.hThread);
-    trace(L"resumed");
     WaitForSingleObject(child.hProcess, INFINITE);
-    trace(L"exited");
     DWORD code = 1; GetExitCodeProcess(child.hProcess, &code);
     TerminateJobObject(job, code);
-    trace(L"terminating descendants");
     // A normal completion is acknowledged only after descendants have exited.
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION usage;
     do {
@@ -60,6 +48,5 @@ int wmain(int argc, wchar_t **argv) {
         if (usage.ActiveProcesses) Sleep(1);
     } while (usage.ActiveProcesses);
     CloseHandle(child.hProcess); CloseHandle(job);
-    trace(L"finished");
     return (int)code;
 }

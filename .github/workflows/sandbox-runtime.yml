@@ -10,21 +10,6 @@ on:
 permissions:
   contents: read
 jobs:
-  native-shell-diagnostics:
-    runs-on: windows-11-arm
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: node scripts/sandbox/diagnose-windows.mjs
-      - run: bun scripts/sandbox/diagnose-windows.mjs
   guest:
     strategy:
       fail-fast: false
@@ -156,7 +141,6 @@ jobs:
         timeout-minutes: 15
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
-          LEGALWORK_HOST_DIAGNOSTICS: ${{ runner.os == 'Windows' && '1' || '' }}
         shell: bash
         run: |
           if [ '${{ runner.os }}' = macOS ]; then

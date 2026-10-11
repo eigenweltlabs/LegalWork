@@ -13,7 +13,10 @@ $succeeded = $?
 if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }
 if (-not $succeeded) { exit 1 }
 `;
-  return `$ErrorActionPreference = 'Continue'
+  // Resolve core cmdlets directly. Automatic module discovery can scan every
+  // installed third-party module before finding even echo or Start-Process.
+  return `Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility'), ($PSHOME + '\\Modules\\Microsoft.PowerShell.Management') -ErrorAction Stop
+$ErrorActionPreference = 'Continue'
 & ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(command + "\n" + exitStatus).toString("base64")}'))))
 ${exitStatus}`;
 }
