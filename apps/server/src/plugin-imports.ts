@@ -342,7 +342,7 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
 }
 
 export async function discoverPluginImports(provider: PluginImportProvider, workspaceRoot: string): Promise<PluginImportCandidate[]> {
-  const home = homedir();
+  const home = process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME?.trim() || homedir();
   const codex = process.env.CODEX_HOME?.trim() || join(home, ".codex");
   const claude = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude");
   const roots = provider === "chatgpt" ? [join(codex, "plugins"), join(home, ".agents", "plugins"), join(home, ".agents", "skills"), join(workspaceRoot, ".agents", "skills"), join(workspaceRoot, ".agents", "plugins")] : [join(claude, "plugins"), join(claude, "skills"), join(workspaceRoot, ".claude", "skills"), join(workspaceRoot, ".claude", "plugins")];

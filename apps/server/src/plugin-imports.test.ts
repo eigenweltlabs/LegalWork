@@ -171,6 +171,27 @@ describe("complete plugin imports", () => {
     const [before] = await resolvePluginImports(req, root); await writeFile(join(source, "README.md"), "Changed");
     const [after] = await resolvePluginImports(req, root); expect(after!.preview.digest).not.toBe(before!.preview.digest);
   }));
+  test("desktop discovery reads the real user home when the runtime home is isolated", async () => temp(async root => {
+    const keys = ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "LEGALWORK_PLUGIN_DISCOVERY_HOME"];
+    const previous = new Map(keys.map(key => [key, process.env[key]]));
+    const home = join(root, "real-home");
+    const codex = join(home, ".codex/plugins/cache/vendor/patent/1.0");
+    const claude = join(home, ".claude/plugins/cache/vendor/patent/1.0");
+    const personalSkill = join(home, ".agents/skills/search");
+    try {
+      process.env.HOME = join(root, "isolated-home");
+      process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME = home;
+      delete process.env.CODEX_HOME;
+      delete process.env.CLAUDE_CONFIG_DIR;
+      await writeFixture(codex, { ".codex-plugin/plugin.json": '{"name":"codex-patent"}', "skills/search/SKILL.md": skill });
+      await writeFixture(claude, fixtures);
+      await writeFixture(personalSkill, { "SKILL.md": skill });
+      expect((await discoverPluginImports("chatgpt", root)).map(item => item.path).sort()).toEqual([codex, personalSkill].sort());
+      expect((await discoverPluginImports("claude", root)).map(item => item.path)).toEqual([claude]);
+    } finally {
+      for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
+  }));
   test("recognizes root manifests without optional fields and rejects using the wrong provider", async () => {
     const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive({ "plugin.json": '{"name":"plain"}', "skills/search/SKILL.md": skill, "mcp.json": '{"mcpServers":{"remote":{"url":"https://example.com/mcp"}}}' }) }, scope: "project" }, "/project");
     expect(plan!.preview.components).toHaveLength(2);
