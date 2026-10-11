@@ -36,6 +36,8 @@ type Props = {
   suppressHtmlProcessing?: boolean;
   /** Render typed properties outside the editor while keeping full-file Source editing. */
   externalFrontmatter?: boolean;
+  /** Reattach page content managed outside the rich-text body. Source stays complete. */
+  serializeRichText?: (previous: string, body: string) => string;
 };
 
 function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
@@ -61,7 +63,7 @@ function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const initialMode = useRef<ViewMode>(requiresMarkdownSource(value) ? "source" : viewModeRequest?.mode ?? "rich-text");
@@ -69,8 +71,8 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   const syncSource = useRef<((value: string, previous: string) => void) | null>(null);
   const lastViewRequest = useRef(viewModeRequest);
   const mode = useRef<ViewMode>(initialMode.current);
-  const currentProps = useRef({ onChange, externalFrontmatter });
-  currentProps.current = { onChange, externalFrontmatter };
+  const currentProps = useRef({ onChange, externalFrontmatter, serializeRichText });
+  currentProps.current = { onChange, externalFrontmatter, serializeRichText };
   const publish = (next: string) => {
     if (next === lastValue.current) return;
     lastValue.current = next;
@@ -101,7 +103,8 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
         fingerprint = nextFingerprint;
         if (changed && !realm.getValue(muteChange$) && !realm.getValue(markdownProcessingError$)) {
           const markdown = realm.getValue(markdown$);
-          publish(currentProps.current.externalFrontmatter ? preserveMarkdownFrontmatter(lastValue.current, markdown) : markdown);
+          const preserved = currentProps.current.externalFrontmatter ? preserveMarkdownFrontmatter(lastValue.current, markdown) : markdown;
+          publish(currentProps.current.serializeRichText?.(lastValue.current, preserved) ?? preserved);
         }
         // SourceEditor initializes from markdown$, not markdownSourceEditorValue$.
         // Nested table editors can serialize on blur, after a view switch. Restore

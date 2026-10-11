@@ -20,6 +20,15 @@ export function wikiPageHeading(content: string, fallback: string) {
   };
 }
 
+/** Rich text edits only the body; retain the exact title and metadata prefix. */
+export function preserveWikiPageHeading(previous: string, body: string): string {
+  const { heading } = wikiPageHeading(previous, "");
+  if (!heading) return body;
+  const offset = wikiFrontmatter(body)?.end ?? (body.startsWith("\uFEFF") ? 1 : 0);
+  const newline = previous.includes("\r\n") ? "\r\n" : "\n";
+  return previous.slice(0, heading.end) + newline + newline + body.slice(offset).trimStart();
+}
+
 /** A title edit changes only the title sources, never the remaining document. */
 export function setWikiPageHeading(content: string, title: string): string {
   const value = title.trim();

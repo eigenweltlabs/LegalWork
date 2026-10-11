@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { wikiPageHeading, setWikiPageHeading } from "../src/react-app/domains/wiki/wiki-page-heading";
+import { wikiPageHeading, setWikiPageHeading, preserveWikiPageHeading } from "../src/react-app/domains/wiki/wiki-page-heading";
 
 test("only the leading heading supplies the title", () => {
   expect(wikiPageHeading('---\ntitle: Old\n---\n\n# **Client** Alpha\n\nBody\n', "File").title).toBe("Client Alpha");
@@ -24,4 +24,12 @@ test("metadata-only and untitled pages keep their content when renamed", () => {
   const source = '---\ntitle: Before\n---\n\nBody\n';
   expect(setWikiPageHeading(source, "After")).toBe(source.replace('title: Before', 'title: "After"'));
   expect(setWikiPageHeading("\uFEFFBody\n", "New")).toBe("\uFEFF# New\n\nBody\n");
+});
+
+test("body edits retain the authored title and metadata without consuming body headings", () => {
+  const source = '\uFEFF---\r\ntitle: Client # comment\r\nunknown: {x: [1, 2]}\r\n---\r\n\r\nClient **A**\r\n========\r\n\r\nOriginal body';
+  const body = '---\nunknown: changed serialization\n---\n\n# Body heading\n\nNew body';
+  expect(preserveWikiPageHeading(source, body)).toBe(source.replace('Original body', '# Body heading\n\nNew body'));
+  expect(preserveWikiPageHeading('# Title\n\nBody', '')).toBe('# Title\n\n');
+  expect(preserveWikiPageHeading('No title\n', '# New heading\n')).toBe('# New heading\n');
 });

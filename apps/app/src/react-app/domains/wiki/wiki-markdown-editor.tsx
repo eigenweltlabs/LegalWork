@@ -2,11 +2,13 @@ import type { ComponentProps, MouseEvent } from "react";
 import { addMdastExtension$, addSyntaxExtension$, addToMarkdownExtension$, realmPlugin } from "@mdxeditor/editor";
 import { ArtifactMarkdownEditor } from "../session/artifacts/artifact-markdown-editor";
 import { wikiEditorLinkTarget, wikiLinkFromMarkdown, wikiLinkSyntax, wikiLinkToMarkdown } from "./wiki-markdown-syntax";
+import { preserveWikiPageHeading } from "./wiki-page-heading";
+import { wikiTitlePlugin } from "./wiki-title-plugin";
 
 const wikiLinksPlugin = realmPlugin({ init(realm) {
   realm.pubIn({ [addSyntaxExtension$]: wikiLinkSyntax, [addMdastExtension$]: wikiLinkFromMarkdown, [addToMarkdownExtension$]: wikiLinkToMarkdown });
 } });
-const extensions = [wikiLinksPlugin()];
+const extensions = [wikiLinksPlugin(), wikiTitlePlugin()];
 
 export function WikiMarkdownEditor(props: ComponentProps<typeof ArtifactMarkdownEditor>) {
   const pageLink = (event: MouseEvent<HTMLDivElement>) => {
@@ -24,5 +26,5 @@ export function WikiMarkdownEditor(props: ComponentProps<typeof ArtifactMarkdown
     event.preventDefault();
     event.stopPropagation();
     props.onOpenLink?.(wikiEditorLinkTarget(href));
-  }}><ArtifactMarkdownEditor {...props} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={extensions} suppressHtmlProcessing /></div>;
+  }}><ArtifactMarkdownEditor {...props} serializeRichText={preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={extensions} suppressHtmlProcessing /></div>;
 }

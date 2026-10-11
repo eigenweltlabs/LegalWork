@@ -268,8 +268,7 @@
 .wiki-page-title-input:focus-visible { box-shadow: 0 1px var(--border); }
 .wiki-page-header > .wiki-properties { margin: 0; padding: 0; border: 0; }
 .wiki-page-header .wiki-property-name > span::first-letter { text-transform: uppercase; }
-/* Keep the authored H1 in Markdown and Source; its editable page title is shown above properties. */
-.wiki-page-header[data-leading-heading="true"] ~ .wiki-markdown-editor .lw-markdown-page > h1:first-of-type,
+/* The read-only preview repeats the title already shown above properties. */
 .wiki-page-header[data-leading-heading="true"] ~ .wiki-reader .wiki-preview > h1:first-of-type { display: none; }
 .wiki-page-header ~ .wiki-markdown-editor .lw-markdown-page { padding-top: 28px; }
 .wiki-page-header ~ .wiki-reader { padding: 28px clamp(32px, 4vw, 56px) 48px; max-width: 880px; margin: 0 auto; }
