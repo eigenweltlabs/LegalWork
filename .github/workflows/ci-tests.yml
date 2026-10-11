@@ -44,7 +44,11 @@ jobs:
 
   sandbox-runtime:
     needs: sandbox-changes
-    if: needs.sandbox-changes.outputs.required == 'true'
+    # Maintainers can skip expensive runtime checks for an individual PR.
+    # Push, manual and release validation remain unaffected by PR labels.
+    if: >-
+      needs.sandbox-changes.outputs.required == 'true' &&
+      !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
   desktop-packaging:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
