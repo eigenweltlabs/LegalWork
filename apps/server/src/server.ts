@@ -1,4 +1,5 @@
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
+import { stopMessageQueue } from "./session-message-queue.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -1129,6 +1130,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
+      stopMessageQueue(config);
       await corpus.stop();
       reviews.stop();
       preparation.stop();
@@ -1803,6 +1805,7 @@ function createRoutes(
     parseOptionalPositiveInteger,
     parseOptionalNonNegativeInteger,
     readJsonBody,
+    readJsonBodyLimited,
     ensureWritable,
     requireClientScope,
     resolveWorkspace,

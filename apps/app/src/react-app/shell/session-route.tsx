@@ -1,3 +1,8 @@
+import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
+import { projectViewFromPath } from "./workspace-routes";
+import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import type { QueueInput } from "@legalwork/types/session-queue";
+import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -18,6 +23,7 @@ import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
+import { openTaskProject } from "../domains/tasks/task-project-navigation";
 import {
   TASKS_PANE_OPEN_EVENT,
   takePendingTasksPaneRequest,
@@ -47,6 +53,7 @@ import { useSessionManagementStore as sessionManagementStore } from "@/react-app
 import {
   buildLegalworkWorkspaceBaseUrl,
   createLegalworkServerClient,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerClient,
   type LegalworkWorkspaceInfo,
@@ -132,7 +139,7 @@ import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useHostApprovalSync } from "./use-host-approval-sync";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
+import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
@@ -455,7 +462,7 @@ export function SessionRoute() {
     setLegacySelectedWorkspaceId,
     retryingWorkspaceIds,
     setRetryingWorkspaceIds,
-    refreshInFlightRef,
+    forgetSession,
     startupRetryTimerRef,
     selectedWorkspaceId,
     selectedWorkspace,
@@ -485,7 +492,7 @@ export function SessionRoute() {
     }
   }, (workspaceIds) => {
     // Sync took these projects off this computer (access ended, or removed from Home).
-    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState());
+    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState()).catch(error => toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) }));
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
@@ -1293,7 +1300,7 @@ export function SessionRoute() {
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
   const surfaceProps = useMemo(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
+    if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !opencodeClient) {
       return null;
     }
 
@@ -1374,7 +1381,9 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
+        const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
+        const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1384,15 +1393,15 @@ export function SessionRoute() {
         // locked behind the connect-AI bar, so this only backstops programmatic
         // sends. Without it the prompt reaches the engine with no model and
         // fails there with a generic error.
-        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
-        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+        if (!sendModel) throw new Error(t("session_route.no_model"));
+        if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          provider_id: local.prefs.defaultModel?.providerID ?? null,
-          model_id: local.prefs.defaultModel?.modelID ?? null,
+          provider_id: sendModel?.providerID ?? null,
+          model_id: sendModel?.modelID ?? null,
           surface: analyticsSurface(),
           fusion_enabled: isFusionEnabled(targetSessionId),
           fusion_model_count: fusionModels.length,
@@ -1400,21 +1409,27 @@ export function SessionRoute() {
         });
         markTaskRunStart(targetSessionId);
 
+        const enqueue = async (execution: QueueInput["execution"]) => {
+          if (!options?.queue || !selectedWorkspaceEndpoint) throw new Error(t("session.loading_detail"));
+          await selectedWorkspaceEndpoint.client.updateSessionMessageQueue(selectedWorkspaceEndpoint.workspaceId, targetSessionId, { type: "enqueue", ...options.queue, execution });
+        };
         if (draft.mode === "shell") {
+          if (options?.queue) { await enqueue({ kind: "shell", command: text }); return; }
           await shellInSession(opencodeClient, targetSessionId, text);
           return;
         }
 
         if (draft.command) {
+          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${sendModel.providerID}/${sendModel.modelID}`, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined }); return; }
           const result = await opencodeClient.session.command({
             sessionID: targetSessionId,
             command: draft.command.name,
             arguments: draft.command.arguments,
-            model: local.prefs.defaultModel
-              ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
+            model: sendModel
+              ? `${sendModel.providerID}/${sendModel.modelID}`
               : undefined,
             agent: selectedAgent ?? undefined,
-            variant: modelVariantValue ?? undefined,
+            variant: sendVariant ?? undefined,
           });
           if (result.error) {
             throw new Error(serializeSDKError(result.error));
@@ -1432,6 +1447,14 @@ export function SessionRoute() {
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
 
+        if (options?.queue) {
+          if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId) && fusionModels.length) {
+            const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
+            parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
+          }
+          await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
+          return;
+        }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
           if (candidateModels.length === 0) {
@@ -1450,9 +1473,9 @@ export function SessionRoute() {
               parts,
               userText: text,
               candidateModels,
-              mainModel: local.prefs.defaultModel ?? undefined,
+              mainModel: sendModel ?? undefined,
               agent: selectedAgent ?? undefined,
-              variant: modelVariantValue ?? undefined,
+              variant: sendVariant ?? undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
@@ -1467,9 +1490,9 @@ export function SessionRoute() {
         const request = {
           sessionID: targetSessionId,
           parts,
-          model: local.prefs.defaultModel ?? undefined,
+          model: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
-          ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+          ...(sendVariant ? { variant: sendVariant } : {}),
         };
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
@@ -1587,6 +1610,7 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
+    providerListQuery.data,
     soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,
@@ -1665,7 +1689,7 @@ export function SessionRoute() {
   const forgetWorkspaceHere = useCallback(
     async (workspaceId: string) => {
       if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId).catch(() => undefined);
+        await workspaceForget(workspaceId);
       }
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
@@ -1686,17 +1710,25 @@ export function SessionRoute() {
           "Remove this workspace from the sidebar?";
         if (!window.confirm(message)) return;
       }
-      if (client) {
-        await client.deleteWorkspace(workspaceId).catch(() => undefined);
+      try {
+        const workspace = workspaces.find(item => item.id === workspaceId);
+        if (workspace?.workspaceType !== "remote") {
+          if (!client) throw new Error(t("session_route.create_server_unavailable"));
+          await client.deleteWorkspace(workspaceId).catch(error => {
+            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+          });
+        }
+        await forgetWorkspaceHere(workspaceId);
+        await refreshRouteState();
+      } catch (error) {
+        toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
       }
-      await forgetWorkspaceHere(workspaceId);
-      await refreshRouteState();
     },
-    [client, forgetWorkspaceHere, refreshRouteState],
+    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId: string }) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1720,6 +1752,7 @@ export function SessionRoute() {
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
+      registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
       // are: renaming the event or its source breaks funnel continuity against
       // every event already recorded.
@@ -1749,9 +1782,15 @@ export function SessionRoute() {
         );
         if (!shared) toast.error(useRecorderStore.getState().error || t("recorder.live_transcript_failed"));
       }
+      if (options?.paneId) {
+        usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), {
+          id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
+        }, options.paneId);
+      }
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
+      return session.id;
     } catch (error) {
       const message = describeTaskCreateError(error);
       setRouteError(message);
@@ -1769,7 +1808,6 @@ export function SessionRoute() {
         if (startupRetryTimerRef.current === null) {
           startupRetryTimerRef.current = window.setTimeout(() => {
             startupRetryTimerRef.current = null;
-            refreshInFlightRef.current = false;
             void refreshRouteState();
           }, 1_000);
         }
@@ -2071,6 +2109,7 @@ export function SessionRoute() {
         writeActiveWorkspaceId(targetWorkspaceId);
         captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
         if (session?.id) {
+          registerEmptySession(session.id);
           captureAnalyticsEvent("task_created", { source: "workspace_created", surface: analyticsSurface() });
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
@@ -2155,7 +2194,7 @@ export function SessionRoute() {
 
   const scheduledPage = mainPage === "scheduled";
   const calendarPage = mainPage === "calendar";
-  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
+  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
   const homeSending = useRef(false);
@@ -2260,6 +2299,9 @@ export function SessionRoute() {
       homeSending.current = false;
     }
   };
+
+  const workflowLibraryView = <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId}
+    onClose={() => { navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
 
   return (
     <WorkspaceProvider
@@ -2394,6 +2436,7 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      workflowLibraryView={workflowLibraryView}
       homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
@@ -2458,7 +2501,7 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectsPage={mainPage === "projects"}
-      projectPage={!mainPage && (location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews") || location.pathname.endsWith("/calendar")) ? location.pathname.endsWith("/calendar") ? "calendar" : location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      projectPage={projectViewFromPath(location.pathname)}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
@@ -2474,8 +2517,12 @@ export function SessionRoute() {
         } finally { recordingSessionStarting.current = false; }
       }}
       projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
-      projectTasksView={
-        <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} openTask={openTask} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      projectTasksView={(embedded, inWorkspace) =>
+        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => {
+          const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: (selectedWorkspaceEndpoint?.client ?? client)?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+          if (route) navigate(route);
+          else toast.error(t("tasks.linked_project_unavailable"));
+        }} baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
       }
       onStartProjectRecording={() => {
         const recorder = useRecorderStore.getState();
@@ -2517,9 +2564,6 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        // One reused SettingsSurface instance across the pages — it follows `initialPath`
-        // via an effect, so switching Workflows <-> Integrations is instant and doesn't
-        // re-fetch the workspace/stores.
         scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
@@ -2559,13 +2603,7 @@ export function SessionRoute() {
             onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
           />
         ) : showWorkflows ? (
-          <SettingsSurface
-            embedded
-            singleView
-            initialPath="workflows"
-            workspaceId={selectedWorkspaceId}
-            onClose={() => navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId))}
-          />
+          workflowLibraryView
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
         ) : showTasks ? (
@@ -2577,6 +2615,11 @@ export function SessionRoute() {
             workspaces={sidebarWorkspaces}
             defaultModel={local.prefs.defaultModel}
             openTask={openTask}
+            onOpenInProject={(projectId, task) => {
+              const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: client?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+              if (route) navigate(route);
+              else toast.error(t("tasks.linked_project_unavailable"));
+            }}
             onOpenSession={(workspaceId, sessionId) => {
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, sessionId);
@@ -2641,8 +2684,8 @@ export function SessionRoute() {
         newChatDisabled: !canCreateChat,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
-        onSelectWorkspace: async (workspaceId) => {
-          if (workspaceId === selectedWorkspaceId) { navigate(workspaceProjectRoute(workspaceId)); return true; }
+        onSelectWorkspace: async (workspaceId, options) => {
+          if (workspaceId === selectedWorkspaceId) { if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2669,7 +2712,7 @@ export function SessionRoute() {
               void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
-          navigate(workspaceProjectRoute(workspaceId));
+          if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId));
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
@@ -2679,9 +2722,7 @@ export function SessionRoute() {
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateChatInWorkspace: (workspaceId) => {
-          void handleCreateChatInWorkspace(workspaceId);
-        },
+        onCreateChatInWorkspace: handleCreateChatInWorkspace,
         onCreateChatWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2759,6 +2800,8 @@ export function SessionRoute() {
           ? async (sessionId) => {
               const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              usePanelTabStore.getState().clearSession(sessionId);
+              forgetSession(workspace.id, sessionId);
               await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
                 writeLastSessionFor(selectedWorkspaceId, null);
