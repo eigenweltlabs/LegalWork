@@ -139,6 +139,7 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useHostApprovalSync } from "./use-host-approval-sync";
+import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -651,9 +652,12 @@ export function SessionRoute() {
   useEffect(() => {
     for (const group of workspaceSessionGroups) {
       seedWorkspaceActivitySessions(group.workspace.id, group.sessions);
+      const sessions = group.sessions.map(session => ({ id: session.id, parentID: session.parentID ?? undefined, title: session.title ?? "" }));
+      seedInteractionSessions(group.workspace.id, sessions);
       const serverId = workspaceServerId(group.workspace);
       if (serverId && serverId !== group.workspace.id) {
         seedWorkspaceActivitySessions(serverId, group.sessions);
+        seedInteractionSessions(serverId, sessions);
       }
     }
   }, [seedWorkspaceActivitySessions, workspaceSessionGroups]);
