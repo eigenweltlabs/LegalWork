@@ -1,6 +1,7 @@
+import { IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { Blocks, Package, Trash2 } from "lucide-react";
+import { Blocks, Loader2, Package, Trash2 } from "lucide-react";
 
 import { t } from "@/i18n";
 import { toast } from "@/components/ui/sonner";
@@ -20,8 +21,7 @@ export type SkillPackagesStore = {
   removeImportedPackage: (pluginId: string) => Promise<void>;
 };
 
-const cardClass = "rounded-[16px] border border-dls-border bg-dls-surface p-3.5";
-const iconClass = "inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent";
+const cardClass = "flex items-start gap-3 py-4";
 
 const PART_COPY = {
   skill: "skills.package_skills",
@@ -44,20 +44,25 @@ export function ImportedPackages(props: {
   busy: boolean;
   /** Changes when a package was imported, so the list is read again. */
   revision: number;
+  searchQuery?: string;
+  showEmpty?: boolean;
 }) {
   const { extensions } = props;
   const [packages, setPackages] = useState<ImportedPlugin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [removing, setRemoving] = useState<ImportedPlugin | null>(null);
 
   useEffect(() => {
     let stopped = false;
+    setLoading(true);
+    setError("");
     extensions.importedPackages()
       .then((list) => {
         if (!stopped) setPackages(list);
       })
-      .catch(() => {
-        // The server is not reachable: nothing to show until it is.
-      });
+      .catch(cause => { if (!stopped) setError(cause instanceof Error ? cause.message : t("skills.unknown_error")); })
+      .finally(() => { if (!stopped) setLoading(false); });
     return () => {
       stopped = true;
     };
@@ -73,21 +78,22 @@ export function ImportedPackages(props: {
     }
   }
 
-  if (packages.length === 0) return null;
+  const query = props.searchQuery?.trim().toLowerCase() ?? "";
+  const visiblePackages = packages.filter(plugin => !query || [pluginImportName(plugin), plugin.description ?? "", packageParts(plugin.files.map(file => file.objectType))].join(" ").toLowerCase().includes(query));
+  if (loading) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>;
+  if (error) return <p role="alert" className="text-sm text-destructive">{error}</p>;
+  if (visiblePackages.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("skills.packages_title")}</span>
-        <span className="font-mono text-[11px] tabular-nums text-dls-secondary">{packages.length.toString().padStart(2, "0")}</span>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {packages.map((plugin) => (
-          <div key={plugin.pluginId} className={`${cardClass} group`}>
+      <IntegrationGroupHeading title={t("skills.packages_title")} count={visiblePackages.length} />
+      {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t("integrations.no_packages")} description={t(query ? "integrations.search_hint" : "integrations.import_description")} /> : null}
+      <div className="divide-y divide-border/60">
+        {visiblePackages.map((plugin) => (
+          <div key={plugin.pluginId} className="group flex items-start gap-3 py-4">
+            <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Package className="size-5 text-muted-foreground" /></span>
+            <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                <span className={iconClass}>
-                  <Package size={14} strokeWidth={1.75} />
-                </span>
                 <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{pluginImportName(plugin)}</h4>
               </div>
               <button
@@ -102,7 +108,8 @@ export function ImportedPackages(props: {
               </button>
             </div>
             {plugin.description ? <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{plugin.description}</p> : null}
-            <p className="mt-2 text-[12px] text-dls-secondary">{packageParts(plugin.files.map((file) => file.objectType))}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{packageParts(plugin.files.map((file) => file.objectType))}</p>
+            </div>
           </div>
         ))}
       </div>
@@ -124,24 +131,32 @@ export function ImportedPackages(props: {
   );
 }
 
-export function BuiltInSkills() {
+export function matchingBuiltInSkills(searchQuery = "") {
+  const query = searchQuery.trim().toLowerCase();
+  return BUILT_IN_SKILLS.filter(skill => !query || [skill.name, skill.description(), ...skill.commands].join(" ").toLowerCase().includes(query));
+}
+
+export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean } = {}) {
+  const skills = matchingBuiltInSkills(props.searchQuery);
+  if (skills.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("skills.built_in_title")}</span>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {BUILT_IN_SKILLS.map((skill) => (
+      <IntegrationGroupHeading title={t("skills.built_in_title")} count={skills.length} />
+      {skills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("integrations.no_skill_matches")} description={t("integrations.search_hint")} /> : null}
+      <div className="divide-y divide-border/60">
+        {skills.map((skill) => (
           <div key={skill.id} className={cardClass}>
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={iconClass}>
-                <Blocks size={14} strokeWidth={1.75} />
-              </span>
-              <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{skill.name}</h4>
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Blocks className="size-5 text-muted-foreground" /></span>
+            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <h4 className="truncate text-sm font-medium">{skill.name}</h4><span className="shrink-0 text-xs text-muted-foreground">{t("integrations.included")}</span>
             </div>
             <p className="mt-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description()}</p>
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               {skill.commands.map((command) => (
                 <span key={command} className="rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">{command}</span>
               ))}
+            </div>
             </div>
           </div>
         ))}

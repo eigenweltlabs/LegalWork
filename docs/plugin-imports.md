@@ -1,8 +1,18 @@
 # Import ChatGPT and Claude plugins
 
-On **Extensions**, choose **Import from ChatGPT** or **Import from Claude**. The dialog first shows a searchable list of plugins, skills and standalone MCP connectors found on this computer, using display names and descriptions from package metadata. **All / Plugins / Skills / Connectors** filters sit below the search field and work together with search; returning from a preview keeps both selections. Duplicate versions appear as one row, with other copies available in the source details. You can also choose a complete folder or ZIP with the native file picker. Selecting a source opens a separate review of its skills, connectors, agents, commands and compatibility notices before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
+On **Integrations**, choose **Import from ChatGPT** or **Import from Claude**. The dialog first shows a searchable list of plugins, skills and standalone MCP connectors found on this computer, using display names and descriptions from package metadata. **All / Plugins / Skills / Connectors** filters sit below the search field and work together with search; returning from a preview keeps both selections. Duplicate versions appear as one row, with other copies available in the source details. You can also choose a complete folder or ZIP with the native file picker. Selecting a source opens a separate review of its skills, connectors, agents, commands and compatibility notices before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
 
 Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
+
+## Integration libraries
+
+The Integrations page keeps **Connectors / Skills / Data storage** separate, with a shared header, category navigation, search and readable lists. Local/Team remains a library scope, not a project-scoped plugin setting. The ChatGPT and Claude import buttons keep their logos and sit below the connector/skill library so existing items take priority.
+
+- **Connectors:** saved connections and active built-in tools appear first; ready items precede paused/offline items. Paused connectors remain available to enable or inspect. Browse directory opens a separate, searchable catalog with All / Services / LegalWork tools filters. Closing a detail returns to the same directory search. Technical setup stays in details. Own connectors, sign-in, removal, sharing, policy restrictions and read-only global configuration retain the existing behavior.
+- **Skills:** the complete installed library uses compact rows with a management menu for editing, exporting, sharing and removal. All skills / Your skills / Included / Imported packages filters separate skill use from package management. Search includes readable imported names, descriptions and built-in commands. Ordinary skills no longer inherit the eight-item workflow page limit; workflows retain pagination. Package loading and failures have explicit states.
+- **Data storage:** the library shows connected accounts and search rather than all storage types. Add storage opens a searchable provider picker, then the existing configuration form. Change provider returns to the picker before saving. Empty/search/error states distinguish an empty library from missing matches. Team connections and existing access controls remain intact.
+
+This organization follows the installed-item management and separate discovery flows documented in [ChatGPT account management](https://help.openai.com/en/articles/20001494-connecting-and-managing-app-accounts-in-chatgpt), [Claude connectors](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities), and [Claude's directory](https://support.claude.com/en/articles/14328846-browse-skills-connectors-and-plugins-in-one-directory), reviewed October 11, 2026. LegalWork keeps its existing design-system tokens and the requested three-category split.
 
 ## Supported formats
 
@@ -65,3 +75,17 @@ Native Electron verification found existing installations for both providers, fi
 `pnpm --filter legalwork-server exec bun test src/connector-imports.test.ts src/plugin-imports.test.ts src/cloud-plugins.test.ts src/claude-plugin-bundle.e2e.test.ts src/runtime-opencode-config-store.test.ts src/validators.test.ts` exercises both providers, wrapped ZIP/folder imports, source assets and executable files, names/metadata, MCP precedence and exact arguments/environment/header values, global/project scope, cross-project removal, updates, rollback, source digests, ownership and malformed/oversized inputs.
 
 `pnpm --filter @legalwork/app test`, app/server `typecheck`, app `test:i18n`, and app/server builds cover the UI and integration. Native Windows folder selection and real third-party MCP OAuth flows require platform/credential testing separately.
+
+## Library redesign verification
+
+![Connected-first connector library in Electron](images/integrations-connectors-library.png)
+
+![Skills library in Electron](images/integrations-skills-library.png)
+
+![Connected storage library in Electron](images/integrations-storage-library.png)
+
+![Separate connector directory in Electron](images/integrations-connector-directory.png)
+
+![Storage provider picker in Electron](images/integrations-storage-picker.png)
+
+Native Electron checks cover tab navigation, connector search and clear, directory filters/search/detail return, custom connector setup, skills search by a built-in command and imported name, the management menu and editor, package filtering, storage provider search, configuration and Change provider. These checks did not add or remove a real connection. The application suite passed 940 tests; the final focused library/setup/import suite passed 20 tests. App type checking, production build and the English/German translation check passed. Regression coverage includes libraries with more than eight ordinary skills, built-in command search, configured connector ordering, read-only global connectors, separate provider discovery, and local/team storage membership.

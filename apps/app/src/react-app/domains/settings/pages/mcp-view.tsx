@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
@@ -14,7 +15,6 @@ import {
   MonitorSmartphone,
   Plug2,
   Plus,
-  Power,
   Search,
   Settings2,
   Share2,
@@ -24,7 +24,7 @@ import {
 
 import { isBuiltInLegalWorkExtension, getMcpServerName, type ExtensionKind, type McpDirectoryInfo } from "../../../../app/constants";
 import { evaluateEnablement } from "../../../../app/enablement";
-import type { EnablementResult } from "../../../../app/extensions";
+import { isTrustedBuiltInExtension, type EnablementResult } from "../../../../app/extensions";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
@@ -45,6 +45,9 @@ import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../.
 import { t } from "../../../../i18n";
 import { pluginImportConnectorName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import type { LegalworkMcpProbeResult, LegalworkMcpRegisterClientResult } from "../../../../app/lib/legalwork-server";
@@ -65,6 +68,7 @@ import {
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
+import { HubTabs, type HubTab } from "../segmented-tabs";
 
 export type ReactMcpStatus =
   | "connected"
@@ -142,9 +146,9 @@ const builtInExtensionDisabledReason = "Disabled by organization";
 // Workflows card grid (no accent bars).
 const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 const quickCardClass =
-  "group relative flex cursor-pointer flex-col text-left rounded-[16px] border border-dls-border bg-dls-surface p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.25)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.2)]";
+  "group relative flex cursor-pointer flex-col rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-foreground/20 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const quickCardFeaturedClass =
-  "border-[rgba(var(--dls-accent-rgb),0.55)] bg-[rgba(var(--dls-accent-rgb),0.06)] ring-1 ring-[rgba(var(--dls-accent-rgb),0.18)] shadow-[0_16px_38px_-22px_rgba(8,23,79,0.45)]";
+  "border-foreground/20 bg-muted/20";
 const featuredTagClass =
   "shrink-0 rounded-full bg-[rgba(var(--dls-accent-rgb),0.12)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-accent";
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
@@ -152,9 +156,6 @@ const rowIconBtnClass =
   "inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40";
 const ghostActionClass =
   "inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-50";
-
-const addAppButtonClass =
-  "inline-flex items-center gap-1.5 rounded-full border border-dls-border bg-dls-surface px-4 py-2 text-[13px] font-medium text-dls-text shadow-[0_1px_2px_rgba(2,6,23,0.05)] transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.45)] hover:bg-dls-hover disabled:cursor-not-allowed disabled:opacity-50";
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -287,7 +288,10 @@ function isToggleOnlyExtension(entry: McpDirectoryInfo) {
   ) === true;
 }
 
-type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
+// A browsing category only; enablement and organization policy retain their own checks.
+const isDirectoryTool = (entry: McpDirectoryInfo) => entry.kind === "ui-control" || isTrustedBuiltInExtension(entry.extensionManifest);
+
+type ExtensionFilter = "all" | "mcp" | "builtin" | "skill" | "plugin";
 
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
@@ -295,15 +299,29 @@ export function McpView(props: McpViewProps) {
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
   const [setupEntry, setSetupEntry] = useState<McpDirectoryInfo | null>(null);
-  useEffect(() => setSetupEntry(null), [props.workspaceKey, props.selectedWorkspaceRoot]);
   const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
   const [detailPlugin, setDetailPlugin] = useState<ImportedPlugin | null>(null);
   const [legalworkUiMcpCommand, setLegalworkUiMcpCommand] = useState<string[] | null>(null);
   const [legalworkUiMcpEnvironment, setLegalworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [detailsFromDirectory, setDetailsFromDirectory] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
+  const directoryFilters: HubTab<ExtensionFilter>[] = [
+    { id: "all", label: t("mcp.filter_all") },
+    { id: "mcp", label: t("integrations.services") },
+    { id: "builtin", label: t("integrations.builtin_tools") },
+  ];
+  if (props.installedSkills?.length) directoryFilters.push({ id: "skill", label: t("mcp.filter_skills") });
+  useEffect(() => {
+    setSetupEntry(null);
+    setDirectoryOpen(false);
+    setLibrarySearch("");
+    setSearch("");
+  }, [props.workspaceKey, props.selectedWorkspaceRoot]);
   // Local | Team toggle (see skills-view). Only meaningful with a Team view.
   const [hubScope, setHubScope] = useState<"local" | "team">("local");
   // A page-level owner (Integrations page) may control the scope via context; if
@@ -480,6 +498,27 @@ export function McpView(props: McpViewProps) {
     return null;
   };
 
+  const isEntryConfigured = (entry: McpDirectoryInfo) => {
+    if (policyDisabled(entry)) return false;
+    const enablement = enablementForEntry(entry);
+    if (enablement) return enablement.active;
+    if (isToggleOnlyExtension(entry)) return isLegalWorkExtensionEnabled(entry);
+    if (entry.kind === "extension" && !isMcpBackedExtension(entry)) return props.isExtensionConnected?.(entry) ?? false;
+    return isQuickConnectConfigured(entry);
+  };
+
+  const libraryQuery = librarySearch.trim().toLocaleLowerCase();
+  const matchesLibrary = (name: string, description?: string) =>
+    `${name} ${description ?? ""}`.toLocaleLowerCase().includes(libraryQuery);
+  const libraryServers = props.mcpServers.filter(entry => matchesLibrary(displayName(entry.name), resolveQuickConnectMatch(entry.name)?.description));
+  const libraryEntries = quickConnectList.filter(entry =>
+    !isQuickConnectConfigured(entry) && isEntryConfigured(entry) && !isLegalWorkExtensionHidden(entry) && matchesLibrary(entry.name, entry.description));
+  const openEntryDetails = (entry: McpDirectoryInfo) => {
+    setDetailsFromDirectory(directoryOpen);
+    setDirectoryOpen(false);
+    setDetailEntry(entry);
+  };
+
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
     if (entry.serverName === "legalwork-ui") return legalworkUiMcpCommand ?? undefined;
     if (entry.serverName === "computer-use") return computerUseMcpCommand ?? entry.command;
@@ -561,25 +600,12 @@ export function McpView(props: McpViewProps) {
   return (
     <section className="space-y-8 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-7">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
-            <OrgPolicyNote policyKey="connectors.allowCustom" />
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={async () => {
-                if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
-              }}
-              disabled={connectorsForbidden}
-              className={addAppButtonClass}
-            >
-              <Plus size={14} />
-              {t("mcp.add_modal_title")}
-            </button>
-          </div>
-        </div>
+        {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
+        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button>
+          <Button size="sm" disabled={props.busy || connectorsForbidden} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); }}><Plus className="size-4" />{t("mcp.add_modal_title")}</Button>
+        </div> : undefined} />
+        <OrgPolicyNote policyKey="connectors.allowCustom" />
 
         {showInternalToggle ? (
           <div className="flex items-center justify-between gap-3">
@@ -592,51 +618,7 @@ export function McpView(props: McpViewProps) {
           </div>
         ) : null}
 
-        {/* Search + filter */}
-        {showLocal ? (
-        <div className="space-y-3 border-t border-dls-border pt-5">
-          <div className="relative w-full">
-            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
-            <input
-              className="w-full rounded-[14px] border border-dls-border bg-transparent py-2.5 pl-10 pr-3 text-[14px] text-dls-text placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.4)] focus:outline-none"
-              placeholder={t("mcp.search_connectors")}
-              value={search}
-              onChange={(e) => setSearch(e.currentTarget.value)}
-            />
-          </div>
-          <div className="flex items-center justify-end gap-4 text-[13px]">
-            {(["all", "mcp", "skill"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                className={
-                  filter === f
-                    ? "font-medium text-dls-text transition-colors"
-                    : "text-dls-secondary transition-colors hover:text-dls-text"
-                }
-              >
-                {f === "all" ? t("mcp.filter_all") : f === "mcp" ? t("mcp.filter_mcps") : t("mcp.filter_skills")}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setShowHidden((current) => !current)}
-              className={
-                showHidden
-                  ? "font-medium text-dls-text transition-colors"
-                  : "text-dls-secondary transition-colors hover:text-dls-text"
-              }
-            >
-              {showHidden
-                ? t("mcp.showing_hidden")
-                : hiddenOrPolicyCount > 0
-                  ? t("mcp.show_hidden_count", { count: hiddenOrPolicyCount })
-                  : t("mcp.show_hidden")}
-            </button>
-          </div>
-        </div>
-        ) : null}
+        {showLocal ? <IntegrationSearch value={librarySearch} onChange={setLibrarySearch} label={t("mcp.search_connectors")} /> : null}
       </div>
 
       {showTeam ? props.firmDownloadView : null}
@@ -655,85 +637,12 @@ export function McpView(props: McpViewProps) {
         </div>
       ) : null}
 
-      <McpQuickConnectSection
-        entries={
-          quickConnectList.filter((entry) => {
-            if (!showHidden && (isLegalWorkExtensionHidden(entry) || (policyDisabled(entry)))) return false;
-            if (filter === "skill") return false;
-            if (filter === "mcp" && (entry.kind ?? "mcp") !== "mcp" && entry.kind !== "ui-control") return false;
-            if (!search.trim()) return true;
-            const q = search.toLowerCase();
-            return entry.name.toLowerCase().includes(q) || entry.description.toLowerCase().includes(q);
-          })
-        }
-        installedSkills={
-          (props.installedSkills ?? []).filter((skill) => {
-            if (!showHidden && isLegalWorkExtensionHidden(getSkillHiddenId(skill))) return false;
-            if (filter === "mcp") return false;
-            if (!search.trim()) return true;
-            const q = search.toLowerCase();
-            return skill.name.toLowerCase().includes(q) || (skill.description ?? "").toLowerCase().includes(q);
-          })
-        }
-        installedPlugins={
-          (props.installedPlugins ?? []).filter((plugin) => {
-            if (!showHidden && isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
-            if (filter === "mcp" || filter === "skill") return false;
-            if (!search.trim()) return true;
-            const q = search.toLowerCase();
-            return [plugin.name, plugin.description ?? "", ...plugin.files.map((file) => `${file.title} ${file.objectType} ${file.path}`)]
-              .join(" ")
-              .toLowerCase()
-              .includes(q);
-          })
-        }
-        busy={props.busy}
-        connectingName={props.mcpConnectingName}
-        isEntryHidden={(entry) => isLegalWorkExtensionHidden(entry)}
-        isSkillHidden={(skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))}
-        isPluginHidden={(plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
-        disabledReasonForEntry={(entry) =>
-          policyDisabled(entry)
-            ? builtInExtensionDisabledReason
-            : connectorsForbidden && !isBuiltInLegalWorkExtension(entry) && entry.kind !== "ui-control"
-              ? orgPolicyOffText("connectors.allowCustom")
-              : null
-        }
-        isConfigured={(entry) => {
-          if (policyDisabled(entry)) return false;
-          const result = enablementForEntry(entry);
-          if (result) return result.active;
-          // Fallback for entries without enablement context.
-          if (isToggleOnlyExtension(entry)) return isLegalWorkExtensionEnabled(entry);
-          if (entry.kind === "extension" && !isMcpBackedExtension(entry)) return props.isExtensionConnected?.(entry) ?? false;
-          return isQuickConnectConfigured(entry);
-        }}
-        enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
-        statusForEntry={quickConnectStatus}
-        onConnect={props.connectMcp}
-        onDetail={setDetailEntry}
-        shareRefForEntry={
-          props.canShareWithFirm && props.onShareWithFirm
-            ? (entry) => props.mcpServers.find((server) => server.name === getMcpIdentityKey(entry))?.name ?? null
-            : undefined
-        }
-        onShareMcp={props.onShareWithFirm}
-        onSkillDetail={(skill) => {
-          setDetailSkill(skill);
-          setDetailSkillContent(null);
-          if (props.readSkill) {
-            void props.readSkill(skill.name).then((result) => {
-              if (result?.content) {
-                setDetailSkillContent(result.content.slice(0, 2000));
-              }
-            });
-          }
-        }}
-        onPluginDetail={setDetailPlugin}
-      />
-
       <McpConfiguredServersSection
-        servers={props.mcpServers}
+        servers={libraryServers}
+        entries={libraryEntries}
+        searching={libraryQuery.length > 0}
+        directoryEntry={resolveQuickConnectMatch}
+        onEntryDetail={openEntryDetails}
         statuses={props.mcpStatuses}
         lastUpdatedAt={props.mcpLastUpdatedAt}
         selectedMcp={props.selectedMcp}
@@ -756,6 +665,111 @@ export function McpView(props: McpViewProps) {
         canShareWithFirm={props.canShareWithFirm}
         onShareWithFirm={props.onShareWithFirm}
       />
+
+      <Dialog open={directoryOpen} onOpenChange={setDirectoryOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-3rem)] flex-col gap-5 bg-background sm:max-w-4xl">
+          <DialogHeader className="shrink-0 pe-8">
+            <DialogTitle>{t("mcp.directory_title")}</DialogTitle>
+            <DialogDescription>{t("mcp.directory_description")}</DialogDescription>
+          </DialogHeader>
+          <div className="shrink-0 space-y-3">
+            <div className="relative w-full">
+              <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
+              <Input autoFocus className="ps-10" aria-label={t("mcp.search_directory")} placeholder={t("mcp.search_directory")} value={search} onChange={event => setSearch(event.target.value)} />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-[13px]">
+              <HubTabs items={directoryFilters} value={filter} onChange={setFilter} label={t("mcp.directory_title")} />
+              <button
+                type="button"
+                onClick={() => setShowHidden((current) => !current)}
+                className={
+                  showHidden
+                    ? "font-medium text-dls-text transition-colors"
+                    : "text-dls-secondary transition-colors hover:text-dls-text"
+                }
+              >
+                {showHidden
+                  ? t("mcp.showing_hidden")
+                  : hiddenOrPolicyCount > 0
+                    ? t("mcp.show_hidden_count", { count: hiddenOrPolicyCount })
+                    : t("mcp.show_hidden")}
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 overflow-y-auto pe-1">
+            <McpQuickConnectSection
+              entries={
+                quickConnectList.filter((entry) => {
+                  if (!showHidden && (isLegalWorkExtensionHidden(entry) || (policyDisabled(entry)))) return false;
+                  if (filter === "skill") return false;
+                  if (filter === "mcp" && isDirectoryTool(entry)) return false;
+                  if (filter === "builtin" && !isDirectoryTool(entry)) return false;
+                  if (!search.trim()) return true;
+                  const q = search.toLowerCase();
+                  return entry.name.toLowerCase().includes(q) || entry.description.toLowerCase().includes(q);
+                })
+              }
+              installedSkills={
+                (props.installedSkills ?? []).filter((skill) => {
+                  if (!showHidden && isLegalWorkExtensionHidden(getSkillHiddenId(skill))) return false;
+                  if (filter === "mcp" || filter === "builtin") return false;
+                  if (!search.trim()) return true;
+                  const q = search.toLowerCase();
+                  return skill.name.toLowerCase().includes(q) || (skill.description ?? "").toLowerCase().includes(q);
+                })
+              }
+              installedPlugins={
+                (props.installedPlugins ?? []).filter((plugin) => {
+                  if (!showHidden && isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
+                  if (filter === "mcp" || filter === "builtin" || filter === "skill") return false;
+                  if (!search.trim()) return true;
+                  const q = search.toLowerCase();
+                  return [plugin.name, plugin.description ?? "", ...plugin.files.map((file) => `${file.title} ${file.objectType} ${file.path}`)]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(q);
+                })
+              }
+              busy={props.busy}
+              connectingName={props.mcpConnectingName}
+              isEntryHidden={(entry) => isLegalWorkExtensionHidden(entry)}
+              isSkillHidden={(skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))}
+              isPluginHidden={(plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
+              disabledReasonForEntry={(entry) =>
+                policyDisabled(entry)
+                  ? builtInExtensionDisabledReason
+                  : connectorsForbidden && !isBuiltInLegalWorkExtension(entry) && entry.kind !== "ui-control"
+                    ? orgPolicyOffText("connectors.allowCustom")
+                    : null
+              }
+              isConfigured={isEntryConfigured}
+              enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
+              statusForEntry={quickConnectStatus}
+              onConnect={props.connectMcp}
+              onDetail={openEntryDetails}
+              shareRefForEntry={
+                props.canShareWithFirm && props.onShareWithFirm
+                  ? (entry) => props.mcpServers.find((server) => server.name === getMcpIdentityKey(entry))?.name ?? null
+                  : undefined
+              }
+              onShareMcp={props.onShareWithFirm}
+              onSkillDetail={(skill) => {
+                setDetailSkill(skill);
+                setDetailSkillContent(null);
+                if (props.readSkill) {
+                  void props.readSkill(skill.name).then((result) => {
+                    if (result?.content) {
+                      setDetailSkillContent(result.content.slice(0, 2000));
+                    }
+                  });
+                }
+              }}
+              onPluginDetail={setDetailPlugin}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
       </>
       ) : null}
 
@@ -830,7 +844,7 @@ export function McpView(props: McpViewProps) {
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
-            onClose={() => setDetailEntry(null)}
+            onClose={() => { setDetailEntry(null); if (detailsFromDirectory) setDirectoryOpen(true); }}
             name={detailEntry.name}
             description={detailEntry.description}
             setupNote={detailEntry.setupNote}
@@ -986,19 +1000,10 @@ function McpQuickConnectSection(props: {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("mcp.available_apps")}</span>
-        <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
-          {totalCount.toString().padStart(2, "0")}
-        </span>
-      </div>
+      <IntegrationGroupHeading title={t("mcp.available_apps")} count={totalCount} />
 
       {totalCount === 0 ? (
-        <div className="border-y border-dls-border py-16 text-center">
-          <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
-          <div className="text-[14px] font-medium text-dls-secondary">{t("mcp.no_extensions_found")}</div>
-          <div className="mt-1 text-[13px] text-dls-secondary/60">{t("mcp.no_extensions_hint")}</div>
-        </div>
+        <IntegrationEmptyState icon={Unplug} title={t("mcp.no_extensions_found")} description={t("mcp.no_extensions_hint")} />
       ) : (
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))]">
           {/* MCP entries */}
@@ -1013,7 +1018,7 @@ function McpQuickConnectSection(props: {
             const disabledReason = props.disabledReasonForEntry(entry);
             const kind = entry.kind ?? "mcp";
             const shareRef = props.shareRefForEntry?.(entry) ?? null;
-            const typeLabel = kind === "skill" ? "Skill" : kind === "extension" ? "Extension" : "MCP";
+            const typeLabel = isDirectoryTool(entry) ? t("integrations.builtin_tools") : t("extensions.connectors_label");
             const actionLabel = configured
               ? t("mcp.view_details")
               : entry.requestAccessUrl
@@ -1066,34 +1071,18 @@ function McpQuickConnectSection(props: {
                     <CircleAlert size={16} className="mt-1 shrink-0 text-amber-9" />
                   ) : null}
                 </div>
-                <p className={`text-[13px] leading-relaxed text-dls-secondary ${entry.brandWordmark ? "mt-3" : "mt-2"} ${entry.featured ? "line-clamp-4" : "line-clamp-2"}`}>{entry.description}</p>
-                {entry.setupNote ? (
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-dls-secondary/80">{entry.setupNote}</p>
-                ) : null}
-                {entry.learnMoreUrl ? (
-                  <button
-                    type="button"
-                    className="mt-2 self-start text-[12px] font-medium text-dls-accent underline-offset-2 hover:underline"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void openDesktopUrl(entry.learnMoreUrl!);
-                    }}
-                  >
-                    {t("mcp.quick_connect_learn_more")}
-                  </button>
-                ) : null}
+                <p className={`text-[13px] leading-relaxed text-dls-secondary ${entry.brandWordmark ? "mt-3" : "mt-2"} line-clamp-2`}>{entry.description}</p>
                 {disabledReason ? (
                   <p className="mt-1.5 text-[12px] font-medium text-amber-11">{disabledReason}</p>
                 ) : null}
-                <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="mt-auto flex items-center justify-between gap-2 pt-4">
                   <div className="flex flex-wrap items-center gap-2">
                     {configured ? (
-                      <span className={typeTagClass}>Connected</span>
+                      <span className="text-xs text-muted-foreground">{t("mcp.friendly_status_ready")}</span>
                     ) : someMet ? (
-                      <span className={typeTagClass}>Partial</span>
+                      <span className="text-xs text-muted-foreground">{t("mcp.friendly_status_needs_signin")}</span>
                     ) : (
-                      <span className={typeTagClass}>{typeLabel}</span>
+                      <span className="text-xs text-muted-foreground">{typeLabel}</span>
                     )}
                     {hidden ? <span className={typeTagClass}>Hidden</span> : null}
                     {entry.featured ? <span className={featuredTagClass}>{t("mcp.quick_connect_featured")}</span> : null}
@@ -1199,6 +1188,10 @@ function McpQuickConnectSection(props: {
 
 function McpConfiguredServersSection(props: {
   servers: McpServerEntry[];
+  entries: McpDirectoryInfo[];
+  searching: boolean;
+  directoryEntry: (name: string) => McpDirectoryInfo | undefined;
+  onEntryDetail: (entry: McpDirectoryInfo) => void;
   statuses: McpStatusMap;
   lastUpdatedAt: number | null;
   selectedMcp: string | null;
@@ -1218,57 +1211,66 @@ function McpConfiguredServersSection(props: {
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
+  type ConnectorRow = { kind: "server"; item: McpServerEntry } | { kind: "entry"; item: McpDirectoryInfo };
+  const rows: ConnectorRow[] = [
+    ...props.servers.map((item): ConnectorRow => ({ kind: "server", item })),
+    ...props.entries.map((item): ConnectorRow => ({ kind: "entry", item })),
+  ];
+  const connected = (row: ConnectorRow) => row.kind === "entry" || props.resolveStatus(row.item) === "connected";
+  rows.sort((a, b) => Number(connected(b)) - Number(connected(a)));
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("mcp.your_apps")}</span>
-        <div className="flex items-baseline gap-3">
-          {props.lastUpdatedAt ? (
-            <span className="font-mono text-[11px] tabular-nums text-dls-secondary/70">
-              {t("mcp.last_synced")} {formatRelativeTime(props.lastUpdatedAt)}
-            </span>
-          ) : null}
-          <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
-            {props.servers.length.toString().padStart(2, "0")}
-          </span>
-        </div>
-      </div>
+      <IntegrationGroupHeading title={t("mcp.your_apps")} count={rows.length}>
+        {props.lastUpdatedAt ? <span className="text-xs text-muted-foreground">{t("mcp.last_synced")} {formatRelativeTime(props.lastUpdatedAt)}</span> : null}
+      </IntegrationGroupHeading>
 
-      {props.servers.length ? (
-        <div className="divide-y divide-dls-border border-y border-dls-border">
-          {props.servers.map((entry) => (
-            <McpConfiguredServerRow
-              key={entry.name}
-              entry={entry}
-              status={props.resolveStatus(entry)}
-              errorInfo={readMcpErrorInfo(props.statuses[entry.name])}
-              selected={props.selectedMcp === entry.name}
-              busy={props.busy}
-              logoutBusy={props.logoutBusy}
-              logoutTarget={props.logoutTarget}
-              togglingMcp={props.togglingMcp}
-              displayName={props.displayName}
-              supportsOauth={props.supportsOauth}
-              onSelect={props.onSelect}
-              onAuthorize={props.onAuthorize}
-              onRequestLogout={props.onRequestLogout}
-              onRemove={props.onRemove}
-              onToggleEnabled={props.onToggleEnabled}
-              onToggleBusy={props.onToggleBusy}
-              canShareWithFirm={props.canShareWithFirm}
-              onShareWithFirm={props.onShareWithFirm}
-            />
-          ))}
+      {rows.length ? (
+        <div className="divide-y divide-border/60">
+          {rows.map(row => {
+            if (row.kind === "entry") return <McpConnectedToolRow key={`entry:${getMcpIdentityKey(row.item)}`} entry={row.item} busy={props.busy} onDetail={props.onEntryDetail} />;
+            const entry = row.item;
+            return (
+              <McpConfiguredServerRow
+                key={entry.name}
+                entry={entry}
+                directoryEntry={props.directoryEntry(entry.name)}
+                status={props.resolveStatus(entry)}
+                errorInfo={readMcpErrorInfo(props.statuses[entry.name])}
+                selected={props.selectedMcp === entry.name}
+                busy={props.busy}
+                logoutBusy={props.logoutBusy}
+                logoutTarget={props.logoutTarget}
+                togglingMcp={props.togglingMcp}
+                displayName={props.displayName}
+                supportsOauth={props.supportsOauth}
+                onSelect={props.onSelect}
+                onAuthorize={props.onAuthorize}
+                onRequestLogout={props.onRequestLogout}
+                onRemove={props.onRemove}
+                onToggleEnabled={props.onToggleEnabled}
+                onToggleBusy={props.onToggleBusy}
+                canShareWithFirm={props.canShareWithFirm}
+                onShareWithFirm={props.onShareWithFirm}
+              />
+            );
+          })}
         </div>
       ) : (
-        <div className="border-y border-dls-border py-16 text-center">
-          <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
-          <div className="text-[14px] font-medium text-dls-secondary">{t("mcp.no_apps_yet")}</div>
-          <div className="mt-1 text-[13px] text-dls-secondary/60">{t("mcp.no_apps_hint")}</div>
-        </div>
+        <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : "mcp.no_apps_yet")} description={t(props.searching ? "mcp.connector_search_hint" : "mcp.no_apps_hint")} />
       )}
     </div>
   );
+}
+
+function McpConnectedToolRow(props: { entry: McpDirectoryInfo; busy: boolean; onDetail: (entry: McpDirectoryInfo) => void }) {
+  const entry = props.entry;
+  return <div className="flex items-center gap-3 rounded-xl px-1 py-3 hover:bg-dls-hover/60">
+    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" onClick={() => props.onDetail(entry)}>
+      <LedgerBrandIcon name={entry.name} iconSlug={entry.iconSlug} iconSrc={entry.iconSrc} kind={entry.kind ?? "mcp"} />
+      <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-medium text-dls-text">{entry.name}</span><span className="mt-0.5 block truncate text-[13px] text-dls-secondary">{entry.description}</span></span>
+    </button>
+    {isToggleOnlyExtension(entry) ? <Switch checked disabled={props.busy} aria-label={`${t("mcp.disable_app")} ${entry.name}`} onCheckedChange={enabled => setLegalWorkExtensionEnabled(entry, enabled)} /> : <span className="shrink-0 text-xs text-dls-secondary">{t("mcp.friendly_status_ready")}</span>}
+  </div>;
 }
 
 function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
@@ -1278,6 +1280,7 @@ function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
 
 function McpConfiguredServerRow(props: {
   entry: McpServerEntry;
+  directoryEntry: McpDirectoryInfo | undefined;
   status: ReactMcpStatus;
   errorInfo: string | null;
   selected: boolean;
@@ -1298,50 +1301,53 @@ function McpConfiguredServerRow(props: {
 }) {
   const Icon = serviceIcon(props.entry.name);
   return (
-    <div className={`group relative transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={props.selected}
-        className="w-full py-4 pl-5 pr-3 text-left"
-        onClick={() => props.onSelect(props.selected ? null : props.entry.name)}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          props.onSelect(props.selected ? null : props.entry.name);
-        }}
-      >
-        <div className="flex items-center gap-4">
+    <div className={`group relative rounded-xl transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
+      <div className="flex items-center gap-3 px-1 py-3">
+        <button
+          type="button"
+          aria-expanded={props.selected}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          onClick={() => props.onSelect(props.selected ? null : props.entry.name)}
+        >
+          {props.directoryEntry ? <LedgerBrandIcon name={props.directoryEntry.name} iconSlug={props.directoryEntry.iconSlug} iconSrc={props.directoryEntry.iconSrc} kind={props.directoryEntry.kind ?? "mcp"} /> :
           <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
             <Icon size={16} className={props.status === "connected" ? "text-green-11" : serviceColor(props.entry.name)} />
-          </div>
+          </div>}
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
+            <div className="mt-0.5 truncate text-[13px] text-dls-secondary">{props.directoryEntry?.description ?? t("integrations.custom_connector")}</div>
           </div>
-          {props.canShareWithFirm && props.onShareWithFirm ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={props.busy}
-              onClick={(event) => {
-                event.stopPropagation();
-                void props.onShareWithFirm?.(props.entry.name);
-              }}
-              title={t("firm_hub.share_with_firm")}
-            >
-              <Share2 size={13} />
-              Share
-            </Button>
-          ) : null}
-          <div className="flex shrink-0 items-center gap-2">
-            <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70">{friendlyStatus(props.status)}</span>
-          </div>
-          <div className={`transition-transform ${props.selected ? "rotate-180" : ""}`}>
-            <ChevronDown size={14} className="text-dls-secondary/40" />
-          </div>
+          <ChevronDown size={14} className={`shrink-0 text-dls-secondary/40 transition-transform ${props.selected ? "rotate-180" : ""}`} />
+        </button>
+        {props.canShareWithFirm && props.onShareWithFirm ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={props.busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              void props.onShareWithFirm?.(props.entry.name);
+            }}
+            title={t("firm_hub.share_with_firm")}
+            aria-label={`${t("firm_hub.share_with_firm")}: ${props.displayName(props.entry.name)}`}
+          >
+            <Share2 size={13} />
+          </Button>
+        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
+          <span className="text-xs text-muted-foreground">{friendlyStatus(props.status)}</span>
         </div>
+        {props.onToggleEnabled && props.entry.source !== "config.global" ? <Switch
+          checked={props.entry.config.enabled !== false}
+          disabled={props.busy || props.togglingMcp !== null}
+          aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
+          onCheckedChange={enabled => {
+            if (props.togglingMcp) return;
+            props.onToggleBusy(props.entry.name);
+            void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
+          }}
+        /> : null}
       </div>
 
       {props.selected ? <McpConfiguredServerDetails {...props} /> : null}
@@ -1379,23 +1385,6 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </details>
       <McpConfiguredServerAuthActions {...props} />
       <div className="flex justify-end gap-2 pt-1">
-        {props.onToggleEnabled && props.entry.source !== "config.global" ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={props.busy || props.togglingMcp === props.entry.name}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (props.togglingMcp) return;
-              const next = props.entry.config.enabled !== false ? false : true;
-              props.onToggleBusy(props.entry.name);
-              void Promise.resolve(props.onToggleEnabled?.(props.entry.name, next)).finally(() => props.onToggleBusy(null));
-            }}
-          >
-            <Power size={13} />
-            {props.entry.config.enabled === false ? t("mcp.enable_app") : t("mcp.disable_app")}
-          </Button>
-        ) : null}
         <Button
           variant="destructive"
           size="sm"
