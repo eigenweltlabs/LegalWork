@@ -22,7 +22,14 @@ python3 -m venv "$work/sandbox-tools"
 source_archive() {
   local name="$1" url="$2" hash="$3"
   local file="$work/sandbox-source/${url##*/}"
-  if [ ! -f "$file" ]; then curl -fL --retry 3 "$url" -o "$file"; fi
+  if [ ! -f "$file" ]; then
+    if ! curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$url" -o "$file"; then
+      # GNU's primary server is intermittently unreachable from hosted Macs.
+      # A mirror serves the same pinned archive, still verified below.
+      [ -n "${4:-}" ] || return 1
+      curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$4" -o "$file"
+    fi
+  fi
   echo "$hash  $file" | shasum -a 256 -c -
   tar -xf "$file" -C "$work/sandbox-source"
   mkdir -p "$work/qemu-deps/share/licenses/$name"
@@ -34,7 +41,7 @@ source_archive libffi-3.8.0 https://github.com/libffi/libffi/releases/download/v
 (cd "$work/sandbox-source/libffi-3.8.0"; ./configure --prefix="$work/qemu-deps" --disable-static --disable-docs --disable-multi-os-directory; make -j3; make install)
 source_archive pcre2-10.49 https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.bz2 53c156e1ba416a20da8e65395daa132da0d80e76910424caca3fcdae7831d384
 (cd "$work/sandbox-source/pcre2-10.49"; ./configure --prefix="$work/qemu-deps" --disable-static --disable-pcre2grep --disable-pcre2test; make -j3; make install)
-source_archive gettext-1.0 https://ftp.gnu.org/gnu/gettext/gettext-1.0.tar.gz 85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a
+source_archive gettext-1.0 https://ftp.gnu.org/gnu/gettext/gettext-1.0.tar.gz 85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a https://mirrors.kernel.org/gnu/gettext/gettext-1.0.tar.gz
 (cd "$work/sandbox-source/gettext-1.0/gettext-runtime"; ./configure --prefix="$work/qemu-deps" --disable-static --disable-java --disable-csharp; make -j3; make install)
 export CFLAGS="$CFLAGS -I$work/qemu-deps/include"
 export CXXFLAGS="$CXXFLAGS -I$work/qemu-deps/include"
