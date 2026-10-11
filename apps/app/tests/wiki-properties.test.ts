@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setWikiProperty, wikiPageRelations, wikiPropertyFields } from "../src/react-app/domains/wiki/wiki-properties";
+import { setWikiProperty, wikiPageRelations, wikiPropertyFields, wikiPropertyType } from "../src/react-app/domains/wiki/wiki-properties";
 
 describe("wiki properties keep Markdown as the source of truth", () => {
   test("edits only a scalar range and preserves comments, Unicode, CRLF, and unknown mappings", () => {
@@ -71,5 +71,31 @@ describe("wiki properties keep Markdown as the source of truth", () => {
     }
     expect(() => setWikiProperty("Body", "__proto__", "x")).toThrow();
     expect(setWikiProperty("\uFEFFBody", "matters", [])).toStartWith('\uFEFF---\n"matters": []\n');
+  });
+
+  test("ordinary list chips preserve mixed scalar types, item comments and unrelated Markdown", () => {
+    const source = '---\r\ntags:\r\n  - competition # retained\r\n  - 2025\r\n  - false\r\n  - null\r\nunknown: {nested: [a, b]}\r\n---\r\n\r\nExact **body**\r\n';
+    const values = ["competition", 2025, false, null];
+    expect(wikiPropertyFields(source).fields[0]).toMatchObject({ editable: true, value: values });
+    expect(setWikiProperty(source, "tags", values)).toBe(source);
+    expect(setWikiProperty(source, "tags", ["polling", 2025, false, null])).toBe(source.replace("competition # retained", '"polling" # retained'));
+    expect(() => setWikiProperty(source, "tags", ["polling", 2025])).toThrow("comments");
+    const flat = '---\ntags: ["alpha", 0, false, null]\nother: keep\n---\nBody\n';
+    const changed = setWikiProperty(flat, "tags", ["alpha", 0, false, null, "new"]);
+    expect(wikiPropertyFields(changed).fields[0].value).toEqual(["alpha", 0, false, null, "new"]);
+    expect(changed).toEndWith("other: keep\n---\nBody\n");
+    expect(wikiPropertyFields('---\ntags: [[nested], value]\n---\nBody').fields[0].editable).toBe(false);
+    expect(() => setWikiProperty(flat, "tags", [NaN])).toThrow();
+  });
+
+  test("property types distinguish lists, relations, valid dates and false or zero", () => {
+    expect(wikiPropertyType(["tag", 2025])).toBe("list");
+    expect(wikiPropertyType([])).toBe("list");
+    expect(wikiPropertyType(["[[Client.md]]"])).toBe("pages");
+    expect(wikiPropertyType("[[Client.md]]")).toBe("page");
+    expect(wikiPropertyType("2026-10-11")).toBe("date");
+    expect(wikiPropertyType("2026-02-31")).toBe("text");
+    expect(wikiPropertyType(false)).toBe("boolean");
+    expect(wikiPropertyType(0)).toBe("number");
   });
 });

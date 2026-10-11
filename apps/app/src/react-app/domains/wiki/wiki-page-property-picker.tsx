@@ -32,15 +32,15 @@ export function WikiPagePropertyPicker(props: Props) {
     return found;
   }, [props.pages, query]);
   const remove = (value: string) => props.onChange(props.multiple ? values.filter(item => item !== value) : null);
-  return <div className="flex min-w-0 flex-wrap items-center gap-1 py-1">
-    {links.map(({ value, page }) => <span key={value} className="inline-flex max-w-full items-center rounded-md border bg-muted/30 text-xs">
-      <button type="button" className="flex min-w-0 items-center gap-1 rounded-l-md px-2 py-1 text-left hover:bg-muted disabled:cursor-default disabled:text-muted-foreground" disabled={!page} title={page?.path ?? value} onClick={() => { if (page) props.onOpen(page.path); }}>
+  return <div className="wiki-property-relations flex min-w-0 flex-wrap items-center gap-1 py-1">
+    {links.map(({ value, page }) => <span key={value} className="wiki-property-relation inline-flex max-w-full items-center rounded-md border bg-muted/30 text-xs">
+      <button type="button" className="wiki-property-link flex min-w-0 items-center gap-1 rounded-l-md px-2 py-1 text-left hover:bg-muted disabled:cursor-default disabled:text-muted-foreground" disabled={!page} title={page?.path ?? value} onClick={() => { if (page) props.onOpen(page.path); }}>
         <FileText className="size-3 shrink-0" /><span className="truncate">{page?.title ?? value.slice(2, -2).split("|").at(-1)}</span>
       </button>
-      <button type="button" aria-label={`${t("wiki.remove_property_page")}: ${page?.title ?? value}`} className="shrink-0 rounded-r-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => remove(value)}><X className="size-3" /></button>
+      <button type="button" aria-label={`${t("wiki.remove_property_page")}: ${page?.title ?? value}`} className="wiki-property-remove shrink-0 rounded-r-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => remove(value)}><X className="size-3" /></button>
     </span>)}
     <Popover open={open} onOpenChange={value => { setOpen(value); if (!value) setQuery(""); }}>
-      <PopoverTrigger render={<Button type="button" variant="ghost" size="sm" className="h-7 max-w-full gap-1 px-2 text-xs text-muted-foreground" />} aria-label={`${t("wiki.select_property_page")}: ${props.name}`}>
+      <PopoverTrigger render={<Button type="button" variant="ghost" size="sm" className="wiki-property-relation-add h-7 max-w-full gap-1 px-2 text-xs text-muted-foreground" />} aria-label={`${t("wiki.select_property_page")}: ${props.name}`}>
         <Plus className="size-3.5" />{!values.length && t("wiki.select_property_page")}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(360px,calc(100vw-32px))] gap-0 overflow-hidden p-0">
