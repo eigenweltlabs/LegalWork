@@ -914,7 +914,7 @@ function WorkspaceReorderItem({ group, showInitialLoading, canReorder }: {
       if (completedDrag.current) { event.preventDefault(); event.stopPropagation(); }
     }}
     layout="position" dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false}
-    className="relative isolate rounded-xl bg-sidebar"
+    className={cn("relative isolate rounded-xl", dragging && "bg-sidebar")}
     whileDrag={{ zIndex: 20, boxShadow: "0 12px 28px -8px rgb(0 0 0 / 0.2), 0 0 0 1px var(--border)" }}
     transition={{ layout: { type: "spring", stiffness: 420, damping: 38 } }}>
     <WorkspaceSidebarGroup group={group} showInitialLoading={showInitialLoading}
