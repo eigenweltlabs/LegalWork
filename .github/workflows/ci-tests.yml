@@ -8,14 +8,25 @@ on:
   push:
     branches:
       - dev
+  workflow_dispatch:
+    inputs:
+      package_desktop:
+        description: Build and launch desktop packages on Linux and Windows
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
   desktop-packaging:
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
   legalwork-tests:
