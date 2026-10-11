@@ -19,6 +19,7 @@ test('isolation, permissions, engine wiring and runtime dependencies retain real
     'apps/server/src/legalwork-runtime-config.ts', 'apps/server/src/opencode-plugins/legalwork-sandbox.ts',
     'apps/server/src/routes/agent-sandbox.ts', 'apps/desktop/electron/main.mjs',
     'apps/server/src/opencode-plugins/legalwork-skill-tools.ts', 'apps/server/src/skill-composition.ts',
+    'apps/server/src/calculations/python-runner.ts', 'apps/server/src/calculations/calculations.test.ts',
     'pnpm-lock.yaml', 'constants.json', '.github/workflows/sandbox-runtime.yml', '.github/workflows/ci-tests.yml',
     'scripts/ci/sandbox-changes.mjs', 'apps/server/package.json']) {
     assert.equal(needsSandboxRuntime([path]), true, path);

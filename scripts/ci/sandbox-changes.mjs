@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 // Unit tests always run. Only builds and real-VM tests use this filter.
 export function needsSandboxRuntime(paths) {
-  return paths.some(path => /^(?:scripts\/sandbox\/|apps\/server\/(?:resources\/agent-sandbox\/|src\/agent-sandbox\/)|\.github\/actions\/setup-opencode\/|scripts\/ci\/)/.test(path)
+  return paths.some(path => /^(?:scripts\/sandbox\/|apps\/server\/(?:resources\/agent-sandbox\/|src\/(?:agent-sandbox|calculations)\/)|\.github\/actions\/setup-opencode\/|scripts\/ci\/)/.test(path)
     || /^\.github\/workflows\/(?:ci-tests|sandbox-runtime|ci-desktop-packaging)\.yml$/.test(path)
     || /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|constants\.json)$/.test(path)
     || /^apps\/(?:server|desktop)\/package\.json$/.test(path)
