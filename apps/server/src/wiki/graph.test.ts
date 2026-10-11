@@ -14,6 +14,30 @@ describe("Compact wiki graph index", () => {
     expect(result.nodes).toHaveLength(3);
     expect(result.edges.map((edge) => [edge.source, edge.target, edge.relation])).toEqual([["B.md", "People/A.md", null], ["B.md", "People/A.md", "owner"]]);
   });
+  test("client, process and template metadata links form graph edges while plain status and stage values do not", () => {
+    const index = new WikiGraphIndex();
+    const matter = page("Matter.md", [
+      "---", "type: matter", "client: '[[Clients/Aster.md]]'", "process: ['[[Processes/Review.md]]']",
+      "template: '[Engagement](Templates/Engagement.md)'", "status: active", "stage: review", "---",
+      "# Aster review", "", "This body has no page links.",
+    ].join("\n"));
+    const targets = [page("Clients/Aster.md", "---\ntype: client\n---\n# Aster"),
+      page("Processes/Review.md", "---\ntype: process\n---\n# Review"),
+      page("Templates/Engagement.md", "---\ntype: template\n---\n# Engagement"),
+      page("active.md", "# active"), page("review.md", "# review")];
+    index.update([matter, ...targets]);
+    const result = index.response();
+    if (result.kind !== "snapshot") throw new Error("Expected snapshot");
+    expect(result.edges.map(edge => [edge.source, edge.target, edge.relation])).toEqual([
+      ["Matter.md", "Clients/Aster.md", "client"],
+      ["Matter.md", "Processes/Review.md", "process"],
+      ["Matter.md", "Templates/Engagement.md", "template"],
+    ]);
+    expect(matter.properties).toMatchObject({ status: "active", stage: "review" });
+    const revision = index.revision;
+    index.update([{ ...matter, properties: { ...matter.properties, status: "review", stage: "active" } }, ...targets]);
+    expect(index.response(revision)).toEqual({ kind: "unchanged", revision });
+  });
   test("body-only edits preserve the compact revision, while graph edits send only their delta", () => {
     const index = new WikiGraphIndex(), a = page("A.md", "# A\n[[B]]"), b = page("B.md", "# B");
     index.update([a, b]); const revision = index.revision;

@@ -217,7 +217,7 @@
 }
 
 .wiki-editor-content { display: flex; flex-direction: column; overflow: hidden; }
-.wiki-editor-content > .wiki-properties { box-sizing: border-box; width: 100%; max-width: 800px; margin: 8px auto 0; padding: 8px clamp(44px, 4vw, 56px) 12px; }
+.wiki-editor-content > .wiki-properties { box-sizing: border-box; width: 100%; max-width: 880px; margin: 20px auto 0; padding: 0 clamp(32px, 4vw, 56px); border: 0; flex-shrink: 0; max-height: 40%; overflow: auto; }
 .wiki-markdown-editor { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .wiki-markdown-editor > .lw-markdown-editor { flex: 1; }
 .wiki-editor-content > .wiki-backlinks { flex-shrink: 0; max-height: 160px; overflow: auto; margin: 0; padding: 8px 20px; }

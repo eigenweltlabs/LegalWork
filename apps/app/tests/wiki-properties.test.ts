@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setWikiProperty, wikiPropertyFields } from "../src/react-app/domains/wiki/wiki-properties";
+import { setWikiProperty, wikiPageRelations, wikiPropertyFields } from "../src/react-app/domains/wiki/wiki-properties";
 
 describe("wiki properties keep Markdown as the source of truth", () => {
   test("edits only a scalar range and preserves comments, Unicode, CRLF, and unknown mappings", () => {
@@ -32,5 +32,44 @@ describe("wiki properties keep Markdown as the source of truth", () => {
     const source = "---\n# Comment\nactive: false\n---\nBody";
     expect(setWikiProperty(source, "Follow up", "tomorrow")).toBe(source.replace("active: false\n", 'active: false\n"Follow up": "tomorrow"\n'));
     expect(wikiPropertyFields(setWikiProperty("Body", "With:colon", "yes")).fields[0].key).toBe("With:colon");
+  });
+
+  test("single page links can be selected and cleared without changing surrounding YAML or Markdown", () => {
+    const source = '---\r\n# Relationships\r\nclient: "[[Clients/Alpha.md]]" # keep\r\nunknown: {nested: true}\r\n---\r\n\r\n- Original body\r\n';
+    const selected = setWikiProperty(source, "client", "[[Clients/Beta.md]]");
+    expect(selected).toBe(source.replace("Clients/Alpha.md", "Clients/Beta.md"));
+    expect(wikiPageRelations(wikiPropertyFields(selected).fields[0].value)).toBe(true);
+    expect(setWikiProperty(selected, "client", null)).toBe(source.replace('"[[Clients/Alpha.md]]"', "null"));
+    expect(setWikiProperty(source, "client", "[[Clients/Alpha.md]]")).toBe(source);
+  });
+
+  test("page link arrays retain their representation when replacing a link and preserve the complete body", () => {
+    const source = '---\n# Client matters\nmatters:\n  - "[[Matters/Alpha.md]]" # first\n  - \'[[Matters/Beta.md]]\'\nunknown:\n  complex: [1, {keep: yes}]\n---\n\n# Body\n| a | b |\n| - | - |\n';
+    expect(wikiPropertyFields(source).fields[0]).toMatchObject({ editable: true, value: ["[[Matters/Alpha.md]]", "[[Matters/Beta.md]]"] });
+    const changed = setWikiProperty(source, "matters", ["[[Matters/Gamma.md]]", "[[Matters/Beta.md]]"]);
+    expect(changed).toBe(source.replace("Matters/Alpha.md", "Matters/Gamma.md"));
+    expect(() => setWikiProperty(source, "matters", [])).toThrow("comments");
+    expect(setWikiProperty(source, "matters", ["[[Matters/Alpha.md]]", "[[Matters/Beta.md]]"])).toBe(source);
+  });
+
+  test("page link arrays support adding, removing and clearing links without rewriting unrelated fields", () => {
+    const source = '---\r\nmatters: ["[[A.md]]"] # retain\r\nstage: draft\r\n---\r\nExact body\r\n';
+    const added = setWikiProperty(source, "matters", ["[[A.md]]", "[[B.md]]"]);
+    expect(added).toBe(source.replace('["[[A.md]]"]', '["[[A.md]]","[[B.md]]"]'));
+    expect(setWikiProperty(added, "matters", [])).toBe(source.replace('["[[A.md]]"]', "[]"));
+    expect(wikiPageRelations(wikiPropertyFields(setWikiProperty(added, "matters", [])).fields[0].value)).toBe(true);
+    const block = '---\nmatters:\n  - "[[A]]"\nother: 0\n---\nBody\n';
+    const blockChanged = setWikiProperty(block, "matters", ["[[A]]", "[[B]]"]);
+    expect(wikiPropertyFields(blockChanged).fields[0].value).toEqual(["[[A]]", "[[B]]"]);
+    expect(blockChanged).toEndWith("other: 0\n---\nBody\n");
+  });
+
+  test("complex arrays and reserved keys stay outside the typed editor", () => {
+    for (const yaml of ['matters: ["[[A]]", {nested: true}]', 'matters: &shared ["[[A]]"]', 'matters: [!!str "[[A]]"]']) {
+      expect(wikiPropertyFields(`---\n${yaml}\n---\nBody`).fields[0].editable).toBe(false);
+      expect(() => setWikiProperty(`---\n${yaml}\n---\nBody`, "matters", ["[[B]]"])).toThrow();
+    }
+    expect(() => setWikiProperty("Body", "__proto__", "x")).toThrow();
+    expect(setWikiProperty("\uFEFFBody", "matters", [])).toStartWith('\uFEFF---\n"matters": []\n');
   });
 });

@@ -23,25 +23,25 @@
   color: var(--foreground);
 }
 .lw-markdown-editor:not(.mdxeditor-popup-container) {
-  height: 100%; display: flex; flex-direction: column; min-height: 0;
+  position: relative; height: 100%; display: flex; flex-direction: column; min-height: 0; min-width: 0;
   background: var(--background);
 }
 .lw-markdown-editor .mdxeditor-toolbar {
-  flex: 0 0 auto; gap: 4px; border-radius: 0;
-  border: 0; padding: 4px 12px;
+  position: absolute; top: 10px; right: 14px; width: auto;
+  border-radius: 8px; border: 0; padding: 0;
   background: var(--background); z-index: 2;
 }
-.lw-markdown-tools { display: flex; align-items: center; gap: 3px; width: 100%; min-height: 28px; }
+.lw-markdown-tools { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
 .lw-markdown-tools-spacer { flex: 1; }
 .lw-markdown-tools > [role="group"] { gap: 1px; }
 .lw-markdown-editor .mdxeditor-diff-source-wrapper { flex: 1; min-height: 0; overflow: auto; }
 .lw-markdown-editor .mdxeditor-root-contenteditable { min-height: 100%; }
 .lw-markdown-editor .lw-markdown-page {
-  max-width: 800px; margin: 0 auto; min-height: 100%;
-  padding: clamp(24px, 4vw, 52px) clamp(44px, 4vw, 56px) 100px;
-  font-size: 15px; line-height: 1.8; outline: none; overflow-wrap: anywhere;
+  box-sizing: border-box; width: 100%; max-width: 880px; margin: 0 auto; min-height: 100%;
+  padding: 52px clamp(32px, 4vw, 56px) 100px;
+  font-size: 16px; line-height: 1.75; outline: none; overflow-wrap: anywhere;
 }
-.lw-markdown-page h1 { font-size: 2em; line-height: 1.2; letter-spacing: -.035em; font-weight: 650; margin: 0 0 1em; }
+.lw-markdown-page h1 { font-size: 2.25em; line-height: 1.2; letter-spacing: -.035em; font-weight: 650; margin: 0 0 1em; }
 .lw-markdown-page h2 { font-size: 1.5em; line-height: 1.35; letter-spacing: -.025em; font-weight: 600; margin: 1.6em 0 .6em; }
 .lw-markdown-page h3,.lw-markdown-page h4,.lw-markdown-page h5,.lw-markdown-page h6 { font-size: 1.15em; font-weight: 600; margin: 1.4em 0 .5em; }
 .lw-markdown-page p { margin: .75em 0; }
@@ -94,3 +94,13 @@
 }
 
 .lw-source-note { color: var(--muted-foreground); font-size: 11px; line-height: 1.4; max-width: 50ch; }
+
+.lw-image-dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; min-height: 170px; padding: 24px; border: 1px dashed var(--border);
+  border-radius: 12px; background: var(--muted); color: var(--foreground); cursor: pointer;
+}
+.lw-image-dropzone:hover { background: var(--accent); }
+.lw-image-dropzone svg, .lw-image-dropzone small { color: var(--muted-foreground); }
+.lw-image-dropzone span { max-width: 100%; overflow-wrap: anywhere; font-weight: 500; }
+.markdown-image-dialog label { font-size: 12px; font-weight: 500; }

@@ -1,7 +1,7 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
 import { useEffect, useMemo, useRef } from "react";
 import {
-  MDXEditor, type MDXEditorMethods, UndoRedo, BlockTypeSelect, InsertImage,
+  MDXEditor, type MDXEditorMethods,
   headingsPlugin, listsPlugin, quotePlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin,
   codeBlockPlugin, codeMirrorPlugin, diffSourcePlugin, toolbarPlugin, markdownShortcutPlugin,
@@ -9,8 +9,10 @@ import {
 } from "@mdxeditor/editor";
 import { EditorView } from "@codemirror/view";
 import { Transaction } from "@codemirror/state";
-import { Code, FileText, GitCompareArrows } from "lucide-react";
+import { Code, FileText, GitCompareArrows, Ellipsis } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { MarkdownImageDialog } from "./markdown-image-dialog";
 import "@mdxeditor/editor/style.css";
 import "./markdown-editor.css";
 import { markdownCodeTheme } from "./markdown-code-theme";
@@ -36,7 +38,7 @@ type Props = {
   externalFrontmatter?: boolean;
 };
 
-function MarkdownToolbar({ rawMarkdown, readOnly }: { rawMarkdown: () => string; readOnly: boolean }) {
+function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
   const mode = useCellValue(viewMode$);
   const sourceRequired = requiresMarkdownSource(rawMarkdown());
   const changeMode = usePublisher(viewMode$);
@@ -47,11 +49,15 @@ function MarkdownToolbar({ rawMarkdown, readOnly }: { rawMarkdown: () => string;
     if (next !== "rich-text") changeSource(raw);
   };
   return <div className="lw-markdown-tools">
-    {mode === "rich-text" && !readOnly ? <><UndoRedo /><BlockTypeSelect /><InsertImage /></> : null}
     {mode !== "rich-text" && sourceRequired && <span className="lw-source-note" role="status">{t("markdown.blocks.source_required")}</span>}
-    <div className="lw-markdown-tools-spacer" />
-    <Button size="icon-xs" variant="ghost" disabled={mode !== "rich-text" && sourceRequired} aria-label={t(mode === "rich-text" ? "markdown.toolbar.source" : "markdown.toolbar.richText")} title={t(mode === "rich-text" ? "markdown.toolbar.source" : "markdown.toolbar.richText")} aria-pressed={mode === "source"} onClick={() => selectMode(mode === "rich-text" ? "source" : "rich-text")}>{mode === "rich-text" ? <Code /> : <FileText />}</Button>
-    <Button size="icon-xs" variant="ghost" aria-label={t("markdown.toolbar.diffMode")} title={t("markdown.toolbar.diffMode")} aria-pressed={mode === "diff"} onClick={() => selectMode(mode === "diff" ? "rich-text" : "diff")}><GitCompareArrows /></Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("markdown.page.options")} />}><Ellipsis /></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={sourceRequired} onClick={() => selectMode("rich-text")}><FileText />{t("markdown.toolbar.richText")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => selectMode("source")}><Code />{t("markdown.toolbar.source")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => selectMode("diff")}><GitCompareArrows />{t("markdown.toolbar.diffMode")}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   </div>;
 }
 
@@ -121,7 +127,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   }), []);
   const plugins = useMemo(() => [
     headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
-    imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
+    imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
     tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
     viewMarkdownPlugin(),
@@ -131,7 +137,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     ...(extensions ?? []),
     markdownShortcutPlugin(),
     markdownBlocksPlugin(),
-    toolbarPlugin({ toolbarContents: () => <MarkdownToolbar rawMarkdown={() => lastValue.current} readOnly={readOnly} /> }),
+    toolbarPlugin({ toolbarContents: () => <MarkdownToolbar rawMarkdown={() => lastValue.current} /> }),
   ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, onOpenLink, externalFrontmatter, readOnly]);
 
   useEffect(() => {
