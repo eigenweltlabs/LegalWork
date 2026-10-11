@@ -30,7 +30,7 @@ import { SeatPlanUpgrade, pendingSeatUpgrade } from "./seat-plan-upgrade";
 import { AdminUsageIntent } from "./admin-usage-intent";
 import { usageIntentForReason, type UsageIntent } from "./usage-intent";
 import { usageBlockMessageKey, usageBlockNeedsSettings, usageRequestMessageKey } from "./usage-block";
-import { availableUsageMicros, isCardTopUpAction, planChangeRecovery, requestUsageBlockReason, usageIsAvailable, type TopUpRecovery } from "./usage-recovery";
+import { isCardTopUpAction, planChangeRecovery, requestUsageBlockReason, usageIsAvailable, type TopUpRecovery } from "./usage-recovery";
 
 const PROVIDER_NAMES: Record<string, string> = {
   openai: "ChatGPT / OpenAI",
@@ -196,14 +196,6 @@ export function ProviderLimitMessage({
                 : t("provider_limit.eigenwelt_unknown_body")
               : t("provider_limit.external_body", { provider })}
           </p>}
-          {!resolved && limit && <p className="text-muted-foreground">{t("limits.request_amounts", {
-            required: formatEuroCents(Math.ceil(limit.requiredMicros / 10_000), locale),
-            available: formatEuroCents(Math.floor((managed && limit.reason !== "service_limit" ? availableUsageMicros(managed) : limit.availableMicros) / 10_000), locale),
-          })}</p>}
-          {!resolved && managed?.isAdmin && managed.walletCents !== null && <p className="text-muted-foreground">{t("limits.wallet_balance", { balance: formatEuroCents(managed.walletCents, locale) })}</p>}
-          {!resolved && managed?.isAdmin && reason === "organization_limit" && managed.orgExtraLimitCents !== null && managed.orgExtraUsedCents !== null && <p className="text-muted-foreground">{t("limits.organization_spending", {
-            used: formatEuroCents(managed.orgExtraUsedCents, locale), limit: formatEuroCents(managed.orgExtraLimitCents, locale),
-          })}</p>}
         </div>
       </div>
       <div className="flex flex-wrap gap-2 empty:hidden">

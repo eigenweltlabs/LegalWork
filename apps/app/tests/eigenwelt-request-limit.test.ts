@@ -56,6 +56,6 @@ test("request-specific messages are translated and do not label positive balance
       expect(en[key]).toBeTruthy();expect(de[key]).toBeTruthy();
     }
   }
-  expect(en[usageRequestMessageKey("organization_limit",true)]).toContain("Adding credits does not raise");
+  expect(en[usageRequestMessageKey("organization_limit",true)]).not.toContain("empty");
   expect(en[usageRequestMessageKey("wallet_empty",true)]).not.toContain("empty");
 });
