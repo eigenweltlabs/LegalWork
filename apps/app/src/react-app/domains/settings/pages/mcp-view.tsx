@@ -1314,10 +1314,7 @@ function McpConfiguredServerRow(props: {
             <div className="mt-0.5 truncate text-[13px] text-dls-secondary">{props.directoryEntry?.description ?? t("integrations.custom_connector")}</div>
           </div>
         </button>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
-          <span className="text-xs text-muted-foreground">{friendlyStatus(props.status)}</span>
-        </div>
+        <McpConnectorStatus {...props} />
         <McpConnectorToggle {...props} />
       </div>
 
@@ -1331,6 +1328,11 @@ function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow
   const Icon = serviceIcon(props.entry.name);
   return directory ? <LedgerBrandIcon name={directory.name} iconSlug={directory.iconSlug} iconSrc={directory.iconSrc} kind={directory.kind ?? "mcp"} /> :
     <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted/30"><Icon className="size-4 text-muted-foreground" /></div>;
+}
+
+function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  if (props.onToggleEnabled && props.entry.source !== "config.global" && (props.status === "connected" || props.status === "disabled")) return null;
+  return <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><span className={`size-1.5 rounded-full ${statusDot(props.status)}`} />{friendlyStatus(props.status)}</span>;
 }
 
 function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0]) {
@@ -1356,7 +1358,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </DialogHeader>
       <div className="divide-y divide-border">
         <div className="flex items-center justify-between gap-4 pb-5">
-          <div className="space-y-2"><h3 className="text-sm font-medium">{t("integrations.connector_chat_access")}</h3><p className="flex items-center gap-2 text-sm text-muted-foreground"><span className={`size-1.5 rounded-full ${statusDot(props.status)}`} />{friendlyStatus(props.status)}</p></div>
+          <div className="space-y-2"><h3 className="text-sm font-medium">{t("integrations.connector_chat_access")}</h3><McpConnectorStatus {...props} /></div>
           <McpConnectorToggle {...props} />
         </div>
         {props.supportsOauth(props.entry) ? <div className="flex items-center justify-between gap-4 py-5">
