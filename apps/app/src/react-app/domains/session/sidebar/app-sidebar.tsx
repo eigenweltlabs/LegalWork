@@ -768,7 +768,7 @@ export function AppSidebar(props: AppSidebarProps) {
         {t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && sessions.some(({ session }) => unreadSession(inbox, session.id))} />
       </button>
       {!closedSections.has(key) && <SidebarMenu className="gap-0.5">
-        {visible.map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} showProject />)}
+        {visible.map(({ session, workspace }) => <GlobalSessionRow key={session.id} session={session} workspace={workspace} />)}
         {!visible.length && <li className="px-2 py-2 text-xs text-muted-foreground">{t("projects.no_sessions")}</li>}
         {key === "sectionRecent" && sessions.length > recentLimit && <li><Button variant="ghost" className="h-8 justify-start px-2 text-xs text-muted-foreground" onClick={() => setRecentLimit(count => count + 10)}>{t("sidebar.show_more")}</Button></li>}
       </SidebarMenu>}
@@ -1767,21 +1767,21 @@ function PinnedProjectRow({ workspace }: { workspace: WorkspaceInfo }) {
   </SidebarMenuItem>;
 }
 
-function GlobalSessionRow({ session, workspace, showProject = false }: { session: SessionListItem; workspace: WorkspaceInfo; showProject?: boolean }) {
+function GlobalSessionRow({ session, workspace }: { session: SessionListItem; workspace: WorkspaceInfo }) {
   const ctx = useSidebarContext();
   const pinned = usePinnedSessionIds();
   const status = ctx.sessionStatusById?.[session.id];
   const unread = useSessionInboxStore(state => unreadSession(state, session.id));
   return <SidebarMenuItem className="group/session-row" draggable onDragStart={event => startSessionDrag(event.dataTransfer, workspace.id, session.id)}>
     <SessionContextMenu sessionId={session.id} workspaceId={workspace.id} isPinned={pinned.has(session.id)} isArchived={false}>
-        <SidebarMenuButton className={cn("gap-1.5 pr-10 text-[13px]", showProject ? "h-11" : "h-8")} aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
+        <SidebarMenuButton className="h-8 gap-1.5 pr-10 text-[13px]" aria-current={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id ? "page" : undefined} isActive={ctx.selectedSessionId === session.id && ctx.selectedWorkspaceId === workspace.id} onClick={() => ctx.onOpenSession(workspace.id, session.id)} onDoubleClick={event => {
           if (!ctx.onOpenSessionWindow) return;
           event.preventDefault();
           event.stopPropagation();
           ctx.onOpenSessionWindow(workspace.id, session.id);
         }} onPointerEnter={() => ctx.onPrefetchSession?.(workspace.id, session.id)}>
           <ScheduledSessionIcon sessionId={session.id} />
-          <span className="min-w-0 flex-1" title={`${getDisplaySessionTitle(session.title)} · ${workspaceLabel(workspace)}`}><span className="block truncate">{getDisplaySessionTitle(session.title)}</span>{showProject && <span className="block truncate text-[11px] text-muted-foreground">{workspaceLabel(workspace)}</span>}</span>
+          <span className="min-w-0 flex-1 truncate" title={`${getDisplaySessionTitle(session.title)} · ${workspaceLabel(workspace)}`}>{getDisplaySessionTitle(session.title)}</span>
           <SessionInboxIndicators unread={unread} status={isSessionActivityStatus(status) ? status : undefined} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />
         </SidebarMenuButton>
     </SessionContextMenu>
