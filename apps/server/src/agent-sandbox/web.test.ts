@@ -33,3 +33,7 @@ test("a conversion deadline terminates the parser without blocking server timers
   await expect(convertHtml("<p>text</p>".repeat(9000), "markdown", signal, 5)).rejects.toThrow("timed out");
   expect(ticked).toBe(true);
 });
+
+test("deeply nested markup is rejected without exhausting the parser", async () => {
+  await expect(convertHtml("<blockquote>".repeat(160) + "text" + "</blockquote>".repeat(160), "markdown", signal)).rejects.toThrow("deeply nested");
+});

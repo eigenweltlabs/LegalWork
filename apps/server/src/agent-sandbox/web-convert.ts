@@ -28,7 +28,7 @@ export async function convertHtml(content: string, format: "text" | "markdown", 
     while (active.size >= 2) await Promise.race([...active, aborted]);
     signal.throwIfAborted();
     active.add(slot);
-    worker = new Worker(WEB_WORKER_CODE, { eval: true, workerData: { content, format },
+    worker = new Worker(WEB_WORKER_CODE, { eval: true, execArgv: [], workerData: { content, format },
       resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 16, stackSizeMb: 2 } });
     return await Promise.race([aborted, new Promise<string>((resolve, reject) => {
       worker!.once("message", value => typeof value === "string" ? resolve(value) : reject(new Error("Website conversion failed.")));

@@ -9,4 +9,13 @@ converter.remove(node => hidden.includes(node.nodeName.toLowerCase()));
 if (format === "text") converter.addRule("plainText", { filter: () => true,
   replacement: (content, node) => hidden.includes(node.nodeName.toLowerCase()) ? "" : /^(?:P|DIV|H[1-6]|LI|PRE|BLOCKQUOTE|TR|BR|HR|SECTION|ARTICLE)$/.test(node.nodeName) ? `\n\n${content}\n\n` : content,
 });
-parentPort?.postMessage(converter.turndown(content));
+converter.addRule("depthLimit", { filter: node => {
+  let depth = 0;
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (++depth > 128) throw new Error("This page is too deeply nested to convert. Request its HTML instead.");
+  }
+  return false;
+}, replacement: () => "" });
+const output = converter.turndown(content);
+if (Buffer.byteLength(output) > 4 * 1024 * 1024) throw new Error("The converted page is too large. Request its HTML instead.");
+parentPort?.postMessage(output);
