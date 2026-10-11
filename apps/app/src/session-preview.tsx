@@ -52,7 +52,7 @@ import { CalendarView } from "@/react-app/domains/calendar/calendar-view";
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
-import { usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
+import { organizationRequestLimit, usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
@@ -66,10 +66,11 @@ const subscriptionPreview = previewParams.get("subscription") === "ended";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
-const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
+const requestTooLarge = previewParams.has("requestTooLarge");
+const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup");
-const intentPreview = previewParams.get("intent");
+const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
@@ -167,7 +168,7 @@ if (limitParam) {
       ...message, parts: [], info: { ...message.info, error: subscriptionPreview ? {
         name: "APIError", data: { statusCode: 403, providerID: "eigenwelt", message: "Forbidden",
           responseBody: '{"error":{"message":"team not allowed to access model","type":"team_model_access_denied"}}' },
-      } : { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
+      } : { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID, requestTooLarge ? organizationRequestLimit : null) } } },
     } : message),
   });
   if (previewParams.has("continued")) {
@@ -402,6 +403,7 @@ const fixtureClient: LegalworkServerClient = {
       const orgLimit = organization ? action.limitCents : previous.orgExtraLimitCents;
       const wallet = previewParams.get("intentRecovery") === "blocked" ? 0 : previous.walletCents ?? 0;
       me.extraRemainingCents = Math.max(0, Math.min(me.extraLimitCents - me.extraUsedCents, orgLimit === null ? Infinity : orgLimit - (previous.orgExtraUsedCents ?? 0), wallet));
+      me.availableMicros = (me.remainingCents + me.extraRemainingCents) * 10_000;
       me.blockedReason = me.extraRemainingCents > 0 ? null : "wallet_empty";
       limitFixture.usage = { ...previous, me, members: [me], orgExtraLimitCents: orgLimit, walletCents: wallet,
         extraEnabled: action.action === "enableExtraUsage" || previous.extraEnabled };

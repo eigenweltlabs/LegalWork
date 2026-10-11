@@ -6,7 +6,7 @@ import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-cont
 import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
 import { hasEndedEigenweltSubscription, isEigenweltSubscriptionEndedErrorText } from "@/app/lib/eigenwelt-subscription";
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
-import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -2084,6 +2084,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             workspaceId={props.workspaceId}
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            limit={parseProviderUsageLimit(error)?.limit ?? (props.selectedModel.providerID === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null)}
                             onChoosePlan={props.onChooseAiPlan}
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
