@@ -287,3 +287,11 @@ pnpm --filter @legalwork/app exec bun test tests/wiki-graph-data.test.ts tests/w
 pnpm --filter legalwork-server exec bun test src/wiki/graph.test.ts src/wiki/store.test.ts src/wikis.e2e.test.ts
 pnpm --filter @legalwork/app typecheck
 ```
+
+### Native renderer follow-up
+
+Electron exposed a Sigma 4.0.0 glyph-picking compatibility fault: the glyph fragment shader discards every fragment in picking mode, so ANGLE removes its color output and rejects the redundant draw with `Active draw buffers with missing fragment shader outputs`. The graph-local compatibility module skips only the glyph picking pass. Node, edge and separate label-hitbox picking remain enabled. A dispatch regression verifies this distinction, and the native warning count stayed unchanged across a graph reload after the fix.
+
+Small-graph labels now use measured screen-space rectangles rather than forcing every title visible. Higher-degree nodes take priority, hovered labels win, and labels reappear as zoom creates space. Selection uses a spatial grid with collision checks across cell boundaries, so long page titles cannot overlap simply because their node centers occupy different cells. Cached layouts use their actual bounds on reopening; a fresh layout fits once after settling unless the user moves the camera. Fit uses Sigma's label-aware extent with 40px padding, explicitly refreshes normalization after changing bounds, then freezes the extent to prevent scale changes during layout. Separate label events enable direct navigation and hover.
+
+Focused renderer/data/physics/label checks pass eight tests with 30 assertions, and the app typecheck passes. Native Electron verification with 21 pages confirmed readable labels without overlap, the lowest Practice overview label fully inside the fitted canvas with margin, and a click on Aster's label opening or reusing its existing page tab. Node clicks also open or reuse that tab. The compatibility fix produced no additional GL warnings across the native graph reload.

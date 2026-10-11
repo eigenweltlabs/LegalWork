@@ -25,6 +25,21 @@ async function setup() {
 }
 
 describe("Automatic independent wiki sync across local folders", () => {
+  test("a save and explicit sync during an upload wait for the follow-up round", async () => {
+    const { fixture, a, wiki, remote, save, exchange } = await setup();
+    await save(a, wiki.id, "First.md", "# Initial\n"); await exchange();
+    await save(a, wiki.id, "First.md", "# Updated\n");
+    let joined: Promise<unknown> | undefined;
+    fixture.control.beforeCommit = async () => {
+      fixture.control.beforeCommit = null;
+      await save(a, wiki.id, "Second.md", "# Saved during upload\n");
+      a.sync.changed(wiki.id);
+      joined = a.sync.sync(wiki.id, true);
+    };
+    expect((await a.sync.sync(wiki.id)).state).toBe("idle");
+    await joined;
+    expect(fixture.wikis.get(remote.id)?.files.get("Second.md")?.data.toString()).toBe("# Saved during upload\n");
+  });
   test("all Markdown, views, templates and supporting files share without starter contamination; deletes propagate", async () => {
     const { a, b, wiki, joined, save, exchange, readB } = await setup();
     expect(await b.store.files(joined.id)).toEqual([]);

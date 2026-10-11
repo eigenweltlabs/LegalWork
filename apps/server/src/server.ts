@@ -1846,7 +1846,7 @@ function createRoutes(
       await wikiSync.ensureReadable(wiki, ownsWikis(ctx.actor));
     },
     ensureWikiWritable: (ctx, wiki) => wikiSync.ensureWritable(wiki, ownsWikis(ctx.actor)),
-    onChanged: (id) => wikiSync.changed(id), onWorkspacesChanged, getSyncStatus: (id) => wikiSync.status(id), syncWiki: (id) => wikiSync.sync(id),
+    onChanged: (id) => wikiSync.changed(id), onWorkspacesChanged, getSyncStatus: (id) => wikiSync.status(id), syncWiki: (id) => wikiSync.sync(id, true),
     team: () => wikiSync.team(), sharing: (id) => wikiSync.sharing(id), pendingSharing: (id) => wikiSync.pendingSharing(id), share: (id, input) => wikiSync.share(id, input),
     updateSharing: (id, input) => wikiSync.updateSharing(id, input), stopSharing: (id) => wikiSync.stopSharing(id),
     join: (input) => wikiSync.join(input), rename: (id, name) => wikiSync.rename(id, name) });

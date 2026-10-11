@@ -7,17 +7,20 @@ import type { WikiGraphData } from "@legalwork/types/wiki";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { wikiGraphSeed, type GraphLayoutPin, type GraphLayoutRequest, type GraphLayoutUpdate } from "./wiki-graph-data";
+import { disableSigmaGlyphPicking } from "./wiki-graph-sigma-compat";
+import { selectGraphLabels, type GraphLabelCandidate } from "./wiki-graph-labels";
 import { CanvasGraphRenderer, type GraphController, type GraphCallbacks } from "./wiki-graph-fallback";
 import { readGraphPositions, saveGraphPositions, type WikiGraphCamera, type WikiGraphPosition } from "./wiki-graph-state";
 
 type Node = { x: number; y: number; size: number; color: string; labelColor: string; backdropColor: string; label: string; path: string };
 type Edge = { color: string; size: number };
+type LabelState = { labelVisible: boolean };
 type Callbacks = GraphCallbacks;
 
 /** One renderer survives graph deltas, filter changes and camera movement. */
 class WikiGraphRenderer implements GraphController {
   readonly graph = new Graph<Node, Edge>({ multi: true, type: "directed", allowSelfLoops: false });
-  readonly sigma: Sigma<Node, Edge>;
+  readonly sigma: Sigma<Node, Edge, {}, LabelState>;
   private worker?: Worker;
   private generation = 0;
   private indices = new Map<string, number>();
@@ -37,23 +40,35 @@ class WikiGraphRenderer implements GraphController {
   private cachedPositionsLoaded = false;
   private latest?: WikiGraphData;
   private framed = false;
+  private autoFitPending: boolean;
+  private readonly labelWidths = new Map<string, number>();
+  private readonly labelMeasure = document.createElement("canvas").getContext("2d");
+  private visibleLabels = new Set<string>();
 
   constructor(private readonly container: HTMLElement, private readonly key: string, private readonly callbacks: Callbacks, camera?: WikiGraphCamera) {
-    this.sigma = new Sigma<Node, Edge>(this.graph, container, {
+    this.autoFitPending = !camera;
+    if (this.labelMeasure) this.labelMeasure.font = "14px Arial";
+    disableSigmaGlyphPicking();
+    this.sigma = new Sigma<Node, Edge, {}, LabelState>(this.graph, container, {
+      customNodeState: { labelVisible: false },
       primitives: { edges: { paths: [pathLine()] } },
       settings: {
-        allowInvalidContainer: true, itemSizesReference: "screen", autoRescale: true,
-        renderEdgeLabels: false, enableEdgeEvents: false, enableNodeDrag: true,
+        allowInvalidContainer: true, itemSizesReference: "screen", autoRescale: true, autoRescaleContent: "labels", stagePadding: 40,
+        renderEdgeLabels: false, enableEdgeEvents: false, enableNodeDrag: true, nodeLabelEvents: "separate",
         nodePickingPadding: 5, minCameraRatio: 0.002, maxCameraRatio: 20,
         labelDensity: 0.12, labelGridCellSize: 110, labelRenderedSizeThreshold: 6,
         zoomToSizeRatioFunction: (ratio) => Math.min(Math.sqrt(ratio), 1.6),
         hideLabelsOnMove: true, antialiasEdges: true, enableCameraRotation: false, enableCameraMouseRotation: false,
       },
       styles: {
-        nodes: { x: { attribute: "x" }, y: { attribute: "y" }, size: { attribute: "size" }, label: { attribute: "label" }, opacity: (_attrs, state, graph) => !graph.hasHighlighted || state.isHighlighted ? 1 : 0.2, labelVisibility: (_attrs, state) => this.graph.order < 100 || state.isHovered ? "visible" : "auto", color: { whenState: "isHighlighted", then: this.dark ? "#e4e4e7" : "#353c47", else: { attribute: "color" } }, labelSize: 14, labelColor: { attribute: "labelColor" }, labelPosition: "below", backdropColor: { attribute: "backdropColor" }, backdropShadowBlur: 0, backdropArea: "label" },
+        nodes: { x: { attribute: "x" }, y: { attribute: "y" }, size: { attribute: "size" }, label: { attribute: "label" }, opacity: (_attrs, state, graph) => !graph.hasHighlighted || state.isHighlighted ? 1 : 0.2, labelVisibility: (_attrs, state) => state.labelVisible ? "visible" : "hidden", color: { whenState: "isHighlighted", then: this.dark ? "#e4e4e7" : "#353c47", else: { attribute: "color" } }, labelSize: 14, labelFont: "Arial", labelColor: { attribute: "labelColor" }, labelPosition: "below", backdropColor: { attribute: "backdropColor" }, backdropShadowBlur: 0, backdropArea: "label" },
         edges: { opacity: (_attrs, state, graph) => !graph.hasHighlighted || state.isHighlighted ? 0.6 : 0.08, color: { whenState: "isHighlighted", then: this.dark ? "#a1a1aa" : "#6b7280", else: { attribute: "color" } }, size: { whenState: "isHighlighted", then: 1.4, else: 0.45 } },
       },
     });
+    this.sigma.on("beforeRender", this.selectLabels);
+    this.sigma.on("afterProcess", this.selectLabels);
+    container.addEventListener("pointerdown", this.cancelAutoFit);
+    container.addEventListener("wheel", this.cancelAutoFit, { passive: true });
     if (camera) this.sigma.getCamera().setState(camera);
     this.sigma.getCamera().on("updated", (state) => {
       clearTimeout(this.cameraTimer);
@@ -63,6 +78,8 @@ class WikiGraphRenderer implements GraphController {
     this.sigma.on("clickNodeLabel", ({ node }) => this.callbacks.onOpen(this.graph.getNodeAttribute(node, "path")));
     this.sigma.on("enterNode", ({ node }) => this.highlight(node));
     this.sigma.on("leaveNode", () => this.highlight(null));
+    this.sigma.on("enterNodeLabel", ({ node }) => this.highlight(node));
+    this.sigma.on("leaveNodeLabel", () => this.highlight(null));
     this.sigma.on("nodeDragStart", ({ node }) => { this.dragged = node; this.arrange(0.3); this.pin(node, true); });
     this.sigma.on("nodeDrag", ({ node }) => this.pin(node, true));
     this.sigma.on("nodeDragEnd", ({ node }) => { this.pin(node, false); this.dragged = null; this.persist(); });
@@ -87,6 +104,25 @@ class WikiGraphRenderer implements GraphController {
   }
 
   private visibility = () => { if (document.hidden) this.pause(); };
+  private cancelAutoFit = () => { this.autoFitPending = false; };
+
+  private selectLabels = () => {
+    const candidates: GraphLabelCandidate[] = [];
+    this.graph.forEachNode((id, attrs) => {
+      if (!this.sigma.getNodeDisplayData(id)) return;
+      const state = this.sigma.getNodeState(id);
+      const size = this.sigma.scaleSize(attrs.size);
+      if (this.graph.order >= 100 && size < 6 && !state.isHovered && !state.isLabelHovered) return;
+      const point = this.sigma.graphToViewport(attrs);
+      const width = this.labelWidths.get(id) ?? 0;
+      candidates.push({ id, x: point.x - width / 2 - 6, y: point.y + size + 2, width: width + 12, height: 24, priority: state.isHovered || state.isLabelHovered ? 1000 : attrs.size });
+    });
+    const { width, height } = this.sigma.getDimensions();
+    const next = selectGraphLabels(candidates, width, height);
+    for (const id of this.visibleLabels) if (!next.has(id) && this.graph.hasNode(id)) this.sigma.setNodeState(id, { labelVisible: false });
+    for (const id of next) if (!this.visibleLabels.has(id)) this.sigma.setNodeState(id, { labelVisible: true });
+    this.visibleLabels = next;
+  };
 
   private highlight(id: string | null) {
     for (const node of this.highlighted) if (this.graph.hasNode(node)) this.sigma.setNodeState(node, { isHighlighted: false });
@@ -115,6 +151,7 @@ class WikiGraphRenderer implements GraphController {
     for (const id of this.graph.edges()) if (!desiredEdges.has(id)) this.graph.dropEdge(id);
     let newPositions = 0;
     for (const [index, node] of data.nodes.entries()) {
+      this.labelWidths.set(node.id, this.labelMeasure?.measureText(node.title).width ?? node.title.length * 8);
       if (this.graph.hasNode(node.id)) this.graph.mergeNodeAttributes(node.id, { label: node.title, path: node.path });
       else {
         const saved = this.saved.get(node.id);
@@ -128,32 +165,43 @@ class WikiGraphRenderer implements GraphController {
     // New nodes may not have GPU indices yet. Do not use a size-only fast repaint hint here.
     this.graph.updateEachNodeAttributes((id, attrs) => ({ ...attrs, size: Math.min(12, (this.graph.order < 100 ? 5 : 2.5) + Math.log2(1 + this.graph.degree(id))) }));
     this.sigma.setSetting("labelRenderedSizeThreshold", this.graph.order < 100 ? 0 : 6);
-    this.sigma.setSetting("labelDensity", this.graph.order < 100 ? 10 : 0.12);
     this.sigma.setSetting("hideLabelsOnMove", this.graph.order >= 100);
-    if (!this.framed && this.graph.order) { this.frameGraph(true); this.framed = true; }
+    if (!this.framed && this.graph.order) { this.frameGraph(newPositions > 0); this.framed = true; }
     this.sigma.scheduleRefresh();
     if ((initial || newPositions) && this.layoutAllowed && !document.hidden) this.arrange(newPositions ? 1 : 0.2);
   }
 
   focus(id: string) {
     if (!this.graph.hasNode(id)) return;
+    this.cancelAutoFit();
     const node = this.graph.getNodeAttributes(id);
     const position = this.sigma.graphToFramedGraph(node);
     void this.sigma.getCamera().animate({ x: position.x, y: position.y, ratio: Math.min(0.15, this.sigma.getCamera().ratio) }, { duration: 280 });
     this.highlight(id);
   }
 
-  zoom(direction: number) { if (direction < 0) void this.sigma.getCamera().zoomIn(); else void this.sigma.getCamera().zoomOut(); }
+  zoom(direction: number) { this.cancelAutoFit(); if (direction < 0) void this.sigma.getCamera().zoomIn(); else void this.sigma.getCamera().zoomOut(); }
   private frameGraph(roomForLayout: boolean) {
+    if (!this.graph.order) return;
+    if (!roomForLayout) {
+      // Let Sigma fit node radii and label rectangles, then freeze that extent
+      // so worker updates cannot change the scale underneath the camera.
+      this.sigma.setCustomBBox(null);
+      this.sigma.refresh();
+      this.sigma.setCustomBBox(this.sigma.getBBox());
+      this.sigma.refresh();
+      return;
+    }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     this.graph.forEachNode((_id, point) => { minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x); minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y); });
-    if (!this.graph.order) return;
     const x = (minX + maxX) / 2, y = (minY + maxY) / 2;
-    const radius = Math.max(100, (maxX - minX) * 0.58, (maxY - minY) * 0.58, roomForLayout ? Math.sqrt(this.graph.order) * 90 : 0);
+    const radius = Math.max(100, (maxX - minX) * 0.58, (maxY - minY) * 0.58, Math.sqrt(this.graph.order) * 90);
     this.sigma.setCustomBBox({ x: [x - radius, x + radius], y: [y - radius, y + radius] });
+    // Sigma 4 setCustomBBox schedules a draw but leaves normalization stale.
+    this.sigma.refresh();
   }
-  fit() { this.frameGraph(false); void this.sigma.getCamera().reset(); }
-  pan(x: number, y: number) { const camera = this.sigma.getCamera(); camera.setState({ x: camera.x + x * camera.ratio, y: camera.y + y * camera.ratio }); }
+  fit() { this.cancelAutoFit(); this.frameGraph(false); void this.sigma.getCamera().reset(); }
+  pan(x: number, y: number) { this.cancelAutoFit(); const camera = this.sigma.getCamera(); camera.setState({ x: camera.x + x * camera.ratio, y: camera.y + y * camera.ratio }); }
 
   arrange(alpha = 1) {
     this.pause(false);
@@ -206,7 +254,7 @@ class WikiGraphRenderer implements GraphController {
       attrs.x += dx * blend; attrs.y += dy * blend; return attrs;
     }, { attributes: ["x", "y"] });
     if (interpolate && (movement > 0.05 || !this.targetFinished)) this.animation = requestAnimationFrame(this.animate);
-    else if (this.targetFinished) { this.pause(false); this.persist(); }
+    else if (this.targetFinished) { this.pause(false); this.persist(); if (this.autoFitPending) this.fit(); }
   };
 
   pause(manual = true) {
@@ -231,6 +279,8 @@ class WikiGraphRenderer implements GraphController {
     this.callbacks.onCamera(this.sigma.getCamera().getState());
     this.themeObserver.disconnect();
     document.removeEventListener("visibilitychange", this.visibility);
+    this.container.removeEventListener("pointerdown", this.cancelAutoFit);
+    this.container.removeEventListener("wheel", this.cancelAutoFit);
     this.sigma.kill();
   }
 }

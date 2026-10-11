@@ -32,6 +32,7 @@ const localStatus = (): WikiSyncStatus => ({ state: "local", lastSyncedAt: null,
 export class WikiSync {
   private statuses = new Map<string, WikiSyncStatus>();
   private pending = new Map<string, Promise<WikiSyncStatus>>();
+  private dirty = new Set<string>();
   private sharingPending = new Map<string, Promise<WikiTeamRecord>>();
   private joiningPending = new Map<string, Promise<WikiRegistration>>();
   private scheduled = new Map<string, ReturnType<typeof setTimeout>>();
@@ -152,6 +153,7 @@ export class WikiSync {
   }
   changed(id: string) {
     if (this.stopped) return;
+    this.dirty.add(id);
     const previous = this.scheduled.get(id);
     if (previous) clearTimeout(previous);
     const timer = setTimeout(() => { this.scheduled.delete(id); void this.sync(id); }, 350);
@@ -179,10 +181,18 @@ export class WikiSync {
       throw error;
     }
   }
-  async sync(id: string): Promise<WikiSyncStatus> {
+  async sync(id: string, fresh = false): Promise<WikiSyncStatus> {
+    if (fresh) this.dirty.add(id);
     const existing = this.pending.get(id);
     if (existing) return existing;
-    const run = this.perform(id).catch((error: unknown) => {
+    const run = (async () => {
+      let result: WikiSyncStatus;
+      do {
+        this.dirty.delete(id);
+        result = await this.perform(id);
+      } while (!this.stopped && this.dirty.has(id));
+      return result;
+    })().catch((error: unknown) => {
       const previous = this.status(id);
       const next: WikiSyncStatus = { ...previous, state: "error", error: error instanceof Error ? error.message : "Wiki sync failed. Local files are retained." };
       this.statuses.set(id, next);
