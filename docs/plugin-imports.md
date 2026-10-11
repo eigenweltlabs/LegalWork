@@ -1,6 +1,6 @@
 # Import ChatGPT and Claude plugins
 
-On **Extensions**, choose **Import from ChatGPT** or **Import from Claude**. Import a complete folder or ZIP, or select a discovered installation. Preview every detected component and compatibility notice before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
+On **Extensions**, choose **Import from ChatGPT** or **Import from Claude**. The dialog first shows a searchable list of plugins and skills found on this computer, using display names and descriptions from package metadata. Duplicate versions appear as one row, with other copies available in the source details. You can also choose a complete folder or ZIP with the native file picker. Selecting a source opens a separate review of its skills, connectors, agents, commands and compatibility notices before importing. A folder or archive containing multiple plugin manifests lets you choose the package to import. Import each package individually.
 
 Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
 
@@ -32,7 +32,7 @@ The desktop supplies the actual OS home directory for discovery, including in de
 
 ## Updates and limits
 
-Reimporting the same provider/package name replaces the installed package in the selected scope; the preview announces this. Complete package directories are replaced so deleted resources and connectors are pruned. On installation failure, the previous package directories, import record and package-owned connectors are restored. Uninstall removes the retained bundle, active components and registered MCP entries. Global package cards and removal dialogs state that they affect all projects.
+Reimporting the same provider/package name replaces the installed package in the selected scope; the preview announces this. Complete package directories are replaced so deleted resources and connectors are pruned. On installation failure, the previous package directories, import record and package-owned connectors are restored. Uninstall removes the retained bundle, active components and registered MCP entries. The import footer and removal dialogs state that packages affect all projects. Display names are retained in the installed library, and imported skill cards show readable component names; canonical package and execution identifiers remain unchanged for updates and removal. A successful import opens Skills and confirms the imported package.
 
 Installation requires the digest from the reviewed preview. Source, scope or target changes require another preview. Package names are hashed into namespaces to avoid overwriting other packages. Existing unowned destination files cause a conflict. Folder/ZIP inputs reject traversal, linked files/directories, duplicate archive paths (including case collisions), encrypted/multi-volume/ZIP64 archives and excessive sizes. Limits: 64 MB of source/expanded ZIP data, 5,000 source files, 128 MB/10,000 installed resource files, folder nesting up to 24 levels.
 
@@ -47,9 +47,11 @@ Installation requires the digest from the reviewed preview. Source, scope or tar
 
 ## Validation
 
-![Two test packages imported through the real Extensions UI](images/plugin-import-installed.jpg)
+![Desktop discovery with readable names and native folder/ZIP choices](images/plugin-import-desktop-dialog.png)
 
-Browser verification used disposable patent-workflow fixtures: discover a Claude installation, review/import it, upload a ChatGPT ZIP, review/import it, and verify both package cards. No real MCP service was connected.
+![Separate review of the detected package components](images/plugin-import-review.png)
+
+Native Electron verification found existing installations for both providers, filtered discovery by name, checked empty search and Back behavior, imported a Claude folder and a ChatGPT ZIP through the native pickers, and verified the resulting package cards and readable skill names. The ZIP fixture contained skills, a connector, an agent, a command and supporting files; its missing-credentials connector remained disabled with an explicit compatibility note. No real MCP service was connected.
 
 `pnpm --filter legalwork-server exec bun test src/plugin-imports.test.ts src/cloud-plugins.test.ts src/claude-plugin-bundle.e2e.test.ts src/runtime-opencode-config-store.test.ts src/validators.test.ts` exercises both providers, wrapped ZIP/folder imports, source assets and executable files, names/metadata, MCP precedence and exact arguments/environment/header values, global/project scope, cross-project removal, updates, rollback, source digests, ownership and malformed/oversized inputs.
 

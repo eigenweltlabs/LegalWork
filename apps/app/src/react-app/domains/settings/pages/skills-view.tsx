@@ -79,6 +79,7 @@ import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { pluginImportSkillName } from "./plugin-import-presentation";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
@@ -380,7 +381,7 @@ export function SkillsView(props: SkillsViewProps) {
     if (!query) return skills;
     return skills.filter((skill) => {
       const description = skill.description ?? "";
-      return skill.name.toLowerCase().includes(query) || description.toLowerCase().includes(query);
+      return skill.name.toLowerCase().includes(query) || pluginImportSkillName(skill).toLowerCase().includes(query) || description.toLowerCase().includes(query);
     });
   }, [searchQuery, skills]);
 
@@ -452,6 +453,7 @@ export function SkillsView(props: SkillsViewProps) {
 
   const refreshCatalogs = useCallback(() => {
     if (props.busy) return;
+    setPackagesRevision(revision => revision + 1);
     void extensions.refreshSkills({ force: true });
     if (SKILLS_HUB_UI_ENABLED) void extensions.refreshHubSkills({ force: true });
   }, [extensions, props.busy]);
@@ -839,7 +841,7 @@ export function SkillsView(props: SkillsViewProps) {
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 {pagedWorkflows.map((skill) => {
-                  const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
+                  const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : pluginImportSkillName(skill);
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
                   // The firm's skill follows its hub: members read it, but cannot change or remove it here.
@@ -1130,7 +1132,7 @@ export function SkillsView(props: SkillsViewProps) {
             <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-subtle py-4 pl-6 pr-14 space-y-0">
               <div className="min-w-0 space-y-1">
                 <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? t("skills.eyebrow_automation") : t("skills.eyebrow_skill")}</span>
-                <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill?.name}</DialogTitle>
+                <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill ? pluginImportSkillName(selectedSkill) : ""}</DialogTitle>
                 {selectedSkill?.description ? (
                   <p className="line-clamp-1 text-sm text-subtext">{selectedSkill.description}</p>
                 ) : null}
@@ -1188,7 +1190,7 @@ export function SkillsView(props: SkillsViewProps) {
       <ConfirmModal
         open={Boolean(uninstallTarget)}
         title={t("skills.uninstall_title")}
-        message={t("skills.uninstall_warning").replace("{name}", uninstallTarget?.name ?? "")}
+        message={t("skills.uninstall_warning").replace("{name}", uninstallTarget ? pluginImportSkillName(uninstallTarget) : "")}
         confirmLabel={t("skills.uninstall")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"

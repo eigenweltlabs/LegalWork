@@ -2,7 +2,7 @@ import type { PluginImportProvider } from "@legalwork/types/plugin-import";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
-import { Blocks, Cpu, HardDrive, Plug, type LucideIcon } from "lucide-react";
+import { Blocks, Cpu, HardDrive, Plug, RefreshCw, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -124,30 +124,28 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       ) : null}
 
-      {hubScope === "local" && props.pluginImports ? <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("chatgpt")}>
-          <ChatGptLogo className="size-5" />
-          {t("extensions.import_chatgpt")}
-        </Button>
-        <Button variant="outline" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("claude")}>
-          <img src={claudeLogo} alt="" aria-hidden="true" width={16} height={16} className="size-4 shrink-0" />
-          {t("extensions.import_claude")}
-        </Button>
-      </div> : null}
-      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); props.onRefresh(); }} /> : null}
+      {importProvider && props.pluginImports ? <PluginImportDialog provider={importProvider} store={props.pluginImports} onClose={() => setImportProvider(null)} onImported={() => { setImportVersion(value => value + 1); selectTab("skills"); props.onRefresh(); }} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
-        <div className="flex items-center gap-2">
-          {props.mcpConnectedAppsCount > 0 ? (
-            <div className="hidden items-center gap-2 rounded-full bg-green-3 px-3 py-1 sm:inline-flex">
+        <div className="flex flex-wrap items-center gap-2">
+          {tab === "connectors" && props.mcpConnectedAppsCount > 0 ? (
+            <div className="hidden items-center gap-2 rounded-full bg-green-3 px-3 py-1 xl:inline-flex">
               <div className="size-2 rounded-full bg-green-9" />
               <span className="text-xs font-medium text-green-11">
                 {t("extensions.app_count", { count: props.mcpConnectedAppsCount })}
               </span>
             </div>
           ) : null}
-          <Button variant="outline" onClick={props.onRefresh}>
-            {t("common.refresh")}
+          {hubScope === "local" && props.pluginImports ? <>
+            <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("chatgpt")}>
+              <ChatGptLogo className="size-4" />{t("extensions.import_chatgpt")}
+            </Button>
+            <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportProvider("claude")}>
+              <img src={claudeLogo} alt="" aria-hidden="true" width={16} height={16} className="size-4 shrink-0" />{t("extensions.import_claude")}
+            </Button>
+          </> : null}
+          <Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}>
+            <RefreshCw />
           </Button>
         </div>
       </div>

@@ -44,6 +44,7 @@ export type CloudPluginResolved = {
   plugin: {
     id: string;
     name: string;
+    displayName?: string;
     description: string | null;
     updatedAt: string | null;
   };
@@ -64,6 +65,7 @@ export type CloudImportedPlugin = {
   pluginId: string;
   marketplaceId: string | null;
   name: string;
+  displayName?: string;
   description: string | null;
   updatedAt: string | null;
   files: CloudImportedPluginFile[];
@@ -172,6 +174,7 @@ function normalizeCloudPluginResolved(value: unknown): CloudPluginResolved | nul
     plugin: {
       id: value.plugin.id,
       name: value.plugin.name,
+      ...(typeof value.plugin.displayName === "string" ? { displayName: value.plugin.displayName } : {}),
       description: typeof value.plugin.description === "string" ? value.plugin.description : null,
       updatedAt: typeof value.plugin.updatedAt === "string" ? value.plugin.updatedAt : null,
     },
@@ -440,6 +443,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
     if (!isRecord(value)) return [];
     const pluginId = readString(value.pluginId) ?? key.trim();
     const name = readString(value.name) ?? pluginId;
+    const displayName = readString(value.displayName);
     if (!pluginId || !name) return [];
     const files = Array.isArray(value.files) ? value.files.flatMap((file) => {
       if (!isRecord(file)) return [];
@@ -462,6 +466,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       pluginId,
       marketplaceId: readString(value.marketplaceId),
       name,
+      ...(displayName ? { displayName } : {}),
       description: readString(value.description),
       updatedAt: readString(value.updatedAt),
       files,
@@ -727,6 +732,7 @@ export async function installCloudPlugin(input: {
     pluginId: input.resolved.plugin.id,
     marketplaceId: input.marketplaceId,
     name: input.resolved.plugin.name,
+    ...(input.resolved.plugin.displayName ? { displayName: input.resolved.plugin.displayName } : {}),
     description: input.resolved.plugin.description,
     updatedAt: input.resolved.plugin.updatedAt,
     files,

@@ -7,6 +7,7 @@ import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
+import { pluginImportName } from "./plugin-import-presentation";
 
 /**
  * Two parts of the Skills tab: the packages imported into this workspace (a
@@ -66,7 +67,7 @@ export function ImportedPackages(props: {
     try {
       await extensions.removeImportedPackage(plugin.pluginId);
       setPackages((list) => list.filter((each) => each.pluginId !== plugin.pluginId));
-      toast.success(t("skills.package_removed", { name: plugin.name }));
+      toast.success(t("skills.package_removed", { name: pluginImportName(plugin) }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("skills.unknown_error"));
     }
@@ -87,8 +88,7 @@ export function ImportedPackages(props: {
                 <span className={iconClass}>
                   <Package size={14} strokeWidth={1.75} />
                 </span>
-                <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{plugin.name}</h4>
-                {plugin.scope === "global" ? <span className="text-xs text-dls-secondary">{t("extensions.import_all_projects")}</span> : null}
+                <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{pluginImportName(plugin)}</h4>
               </div>
               <button
                 type="button"
@@ -96,7 +96,7 @@ export function ImportedPackages(props: {
                 disabled={props.busy}
                 onClick={() => setRemoving(plugin)}
                 title={t("skills.package_remove")}
-                aria-label={t("skills.package_remove_named", { name: plugin.name })}
+                aria-label={t("skills.package_remove_named", { name: pluginImportName(plugin) })}
               >
                 <Trash2 size={14} />
               </button>
@@ -108,7 +108,7 @@ export function ImportedPackages(props: {
       </div>
       <ConfirmModal
         open={removing !== null}
-        title={t("skills.package_remove_title", { name: removing?.name ?? "" })}
+        title={t("skills.package_remove_title", { name: removing ? pluginImportName(removing) : "" })}
         message={t(removing?.scope === "global" ? "extensions.import_remove_global" : "skills.package_remove_message")}
         confirmLabel={t("skills.package_remove")}
         cancelLabel={t("common.cancel")}

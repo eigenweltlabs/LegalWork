@@ -47,6 +47,22 @@ async function temp(fn: (root: string, config: ServerConfig) => Promise<void>) {
 async function writeFixture(root: string, files: FixtureFiles) { for (const [path, value] of Object.entries(files)) { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), value, { mode: path === "bin/tool" ? 0o755 : 0o600 }); } }
 
 describe("complete plugin imports", () => {
+  test("discovery, preview and installed packages retain display metadata separately from identity", async () => temp(async (root, config) => {
+    const source = join(root, ".agents/plugins/clerk");
+    const files = { ".codex-plugin/plugin.json": JSON.stringify({ name: "app-internal", interface: { displayName: "Clerk", shortDescription: "Authentication tools" } }), "skills/search/SKILL.md": skill };
+    await writeFixture(source, files);
+    const candidate = (await discoverPluginImports("chatgpt", root)).find(item => item.path === source);
+    expect(candidate?.displayName).toBe("Clerk");
+    expect(candidate?.description).toBe("Authentication tools");
+    const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", path: source }, scope: "global" }, root);
+    expect(plan!.preview.name).toBe("app-internal");
+    expect(plan!.preview.displayName).toBe("Clerk");
+    expect(plan!.preview.id).toBe("import:chatgpt:app-internal:global");
+    await installPluginImport(config, "test", root, plan!, true);
+    const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[plan!.preview.id];
+    expect(installed?.name).toBe("app-internal");
+    expect(installed?.displayName).toBe("Clerk");
+  }));
   test("reads wrapped Claude ZIPs, supplemental skills, agents, commands and MCP precedence", async () => {
     const [plan] = await resolvePluginImports(request(), "/project");
     expect(plan!.preview.root).toBe("export/patent");

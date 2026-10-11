@@ -180,12 +180,14 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   const overlay = portable && request.source.provider === "chatgpt" && !openai && files.has(legacyPath) ? jsonFile(files, legacyPath) : openai;
   const manifest: Record<string, unknown> = { ...base, ...overlay, ...(portable ? { name: base.name, description: base.description, version: base.version } : {}) };
   const name = str(base.name) ?? str(manifest.name) ?? (files.has("SKILL.md") ? str(parseFrontmatter(textFile(files, "SKILL.md")).data.name) : null) ?? basename(root || ("path" in request.source ? request.source.path : "imported-plugin"));
-  const description = str(base.description) ?? str(manifest.description);
+  const presentation = record(manifest.interface) ? manifest.interface : {};
+  const displayName = str(presentation.displayName) ?? undefined;
+  const description = str(presentation.shortDescription) ?? str(base.description) ?? str(manifest.description);
   const id = `import:${request.source.provider}:${name}:${request.scope}`;
   const namespace = pluginNamespace(name, id);
   const bundlePath = `.opencode/imported-plugins/${namespace}`;
   const absoluteBundle = resolveWorkspaceInstallPath(workspaceRoot, bundlePath, request.scope === "global");
-  const warnings: string[] = ["All source files are preserved. Generated node_modules and .git folders are excluded; install dependencies separately if needed."];
+  const warnings: string[] = [];
   const components: PluginImportPreview["components"] = [];
   const memberships: CloudPluginResolved["memberships"] = [];
   const resourceFiles: PackageFile[] = [...files.values()].map(file => ({ ...file, path: `${bundlePath}/${file.path}` }));
@@ -315,7 +317,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   if (components.length === 0) warnings.push("This package has no supported skills, agents, commands or MCP servers. Only its complete source will be stored.");
   const hash = createHash("sha256").update(JSON.stringify({ provider: request.source.provider, root, scope: request.scope, workspaceRoot: resolve(workspaceRoot) }));
   for (const file of [...files.values()].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update(String(file.mode)).update(file.bytes);
-  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, description, version: str(manifest.version), format: portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
+  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
   let reportName = "LEGALWORK-IMPORT.json";
   for (let i = 2; files.has(reportName); i++) reportName = `LEGALWORK-IMPORT-${i}.json`;
   resourceFiles.push({ path: `${bundlePath}/${reportName}`, bytes: Buffer.from(JSON.stringify(preview, null, 2)), mode: 0o600 });
@@ -331,7 +333,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
       version.rawSourceText = buildFrontmatter(parsed.data) + "\n" + body + `\nComponent mapping: ${components.map(entry => `${entry.type} ${entry.name} → ${entry.installedName}`).join(", ")}.\n`;
     }
   }
-  return { preview, resolved: { plugin: { id, name, description, updatedAt: null }, memberships }, resourceFiles };
+  return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null }, memberships }, resourceFiles };
 }
 export async function resolvePluginImports(request: PluginImportRequest, workspaceRoot: string): Promise<PluginImportPlan[]> {
   const files = await loadSource(request);
@@ -359,10 +361,18 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
       if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink() || manifestInfo.size > 1024 * 1024) continue;
       try {
         const value: unknown = JSON.parse(await readFile(join(path, manifest), "utf8"));
-        if (record(value) && str(value.name)) { results.set(path, { path, name: str(value.name) ?? basename(path), version: str(value.version) }); return; }
+        if (record(value) && str(value.name)) {
+          const presentation = record(value.interface) ? value.interface : {};
+          results.set(path, { path, name: str(value.name) ?? basename(path), version: str(value.version), displayName: str(presentation.displayName) ?? undefined, description: str(presentation.shortDescription) ?? str(value.description), kind: "plugin" });
+          return;
+        }
       } catch { /* Other valid installations remain discoverable. */ }
     }
-    if (entries.some(entry => entry.name === "SKILL.md" && entry.isFile())) { results.set(path, { path, name: basename(path), version: null }); return; }
+    if (entries.some(entry => entry.name === "SKILL.md" && entry.isFile())) {
+      let description: string | null = null;
+      try { const info = await lstat(join(path, "SKILL.md")); if (info.size <= 1024 * 1024) description = str(parseFrontmatter(await readFile(join(path, "SKILL.md"), "utf8")).data.description); } catch { /* Metadata is optional; the preview validates the full skill. */ }
+      results.set(path, { path, name: basename(path), version: null, description, kind: "skill" }); return;
+    }
     for (const entry of entries) if (entry.isDirectory() && ![".git", "node_modules", ".claude-plugin", ".codex-plugin"].includes(entry.name)) await visit(join(path, entry.name), depth + 1);
   };
   for (const root of roots) await visit(root, 0);
