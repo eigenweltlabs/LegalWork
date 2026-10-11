@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { windowsHostScript } from '../../apps/server/src/agent-sandbox/host-windows.ts';
 
 const root = await mkdtemp(join(tmpdir(), 'legalwork-shell-diagnostic-'));
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'));
@@ -12,6 +13,7 @@ const commands = [
   ['echo', "echo native-shell; exit 7"],
   ['explicit-import', "[Console]::Error.WriteLine('before utility import'); Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility'); [Console]::Error.WriteLine('after utility import'); Write-Output native-import"],
   ['explicit-command', "Microsoft.PowerShell.Utility\\Write-Output native-qualified"],
+  ['wrapped-command', windowsHostScript('echo native-wrapped; exit 7')],
 ];
 try {
   for (const [name, command] of commands) {
