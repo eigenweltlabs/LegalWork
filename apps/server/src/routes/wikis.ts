@@ -176,6 +176,16 @@ export function registerWikiRoutes(options: Options): WikiStore {
     await options.stopSharing(ctx.params.wikiId);
     return sharedResult(ctx, ctx.params.wikiId);
   });
+  addRoute(routes, "GET", "/wikis/:wikiId/graph/revision", "client", async (ctx) => {
+    await selected(ctx);
+    return jsonResponse(await store.graph(ctx.params.wikiId, undefined, true));
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/graph", "client", async (ctx) => {
+    await selected(ctx);
+    const revision = ctx.url.searchParams.get("revision") ?? undefined;
+    if (revision && revision.length > 200) throw new ApiError(400, "invalid_graph_revision", "The graph revision is invalid.");
+    return jsonResponse(await store.graph(ctx.params.wikiId, revision));
+  });
   addRoute(routes, "GET", "/wikis/:wikiId", "client", async (ctx) => {
     await selected(ctx);
     const snapshot = await store.snapshot(ctx.params.wikiId);

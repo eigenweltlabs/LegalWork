@@ -1,3 +1,4 @@
+import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
 import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
@@ -402,6 +403,34 @@ describe("draft safety", () => {
 });
 
 describe("restoration and repeated moves", () => {
+  test("wiki pages, views, graph and chats survive reload with their own workspace layout", async () => {
+    const scope = "workspace:wiki-one";
+    const page = wikiPanelTab("local", "wiki-one", { kind: "page", path: "Clients/Acme.md", anchor: "sources", mode: "source" }, "Acme");
+    const view = wikiPanelTab("local", "wiki-one", { kind: "view", name: "Clients" }, "Clients");
+    const graph = wikiPanelTab("local", "wiki-one", { kind: "graph", focus: "Clients/Acme.md" }, "Graph");
+    store().openTab(scope, page, "main");
+    store().openTab(scope, view, "main");
+    store().openTab(scope, graph, "main");
+    store().openTab(scope, { id: "chat:wiki-chat", type: "chat", sessionId: "wiki-chat", label: "Wiki chat" }, "main", "right");
+    store().selectTab(scope, page.id);
+    store().openTab("workspace:project", wikiPanelTab("local", "wiki-two", { kind: "page", path: "Guide.md" }, "Guide"));
+    const before = store().sessions[scope];
+    const project = store().sessions["workspace:project"];
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    const after = store().sessions[scope];
+    expect(after.tabs).toEqual(before.tabs);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.panes).toEqual(before.panes);
+    expect(after.focusedPaneId).toBe(before.focusedPaneId);
+    expect(after.activeTabId).toBe(page.id);
+    expect(store().sessions["workspace:project"]).toEqual(project);
+    store().adoptChat(scope, "another-chat", "New chat");
+    expect(store().sessions[scope].tabs).toHaveLength(5);
+    expect(store().sessions["workspace:project"]).toEqual(project);
+  });
   test("reload preserves arbitrary geometry and removes transient leaves locally", async () => {
     add("A"); add("B", "A", "left"); add("C", "B", "bottom");
     const originalTree = session().tree;

@@ -1,3 +1,4 @@
+import { setWikiProperty } from "./wiki-properties";
 import type { WikiPage, WikiValue, WikiView } from "@legalwork/types/wiki";
 
 export function wikiValueText(value: WikiValue | undefined): string {
@@ -11,21 +12,43 @@ function normalize(value: string) {
   return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\.md$/i, "").trim().toLocaleLowerCase();
 }
 
-/** Ambiguous titles stay unresolved; never silently pick a different page. */
+/** Build once per immutable snapshot; ambiguous titles never select an arbitrary page. */
+export function createWikiPageResolver(pages: WikiPage[]) {
+  const paths = new Map<string, WikiPage>();
+  const names = new Map<string, Set<WikiPage>>();
+  const add = (key: string, page: WikiPage) => {
+    const normalized = normalize(key);
+    if (!normalized) return;
+    let matches = names.get(normalized);
+    if (!matches) { matches = new Set(); names.set(normalized, matches); }
+    matches.add(page);
+  };
+  for (const page of pages) {
+    paths.set(normalize(page.path), page);
+    add(page.title, page);
+    add(page.path.split("/").at(-1) ?? "", page);
+    if (typeof page.properties.id === "string") add(page.properties.id, page);
+    const aliases = page.properties.aliases;
+    if (typeof aliases === "string") add(aliases, page);
+    if (Array.isArray(aliases)) for (const alias of aliases) if (typeof alias === "string") add(alias, page);
+  }
+  return (target: string, fromPath = ""): WikiPage | undefined => {
+    const clean = target.replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].split("#")[0];
+    const key = normalize(clean);
+    if (!key) return paths.get(normalize(fromPath));
+    const directory = fromPath.includes("/") ? fromPath.slice(0, fromPath.lastIndexOf("/")) : "";
+    const relative = wikiRelativePath(clean, directory);
+    const pathMatch = (relative ? paths.get(normalize(relative)) : undefined) ?? paths.get(key);
+    if (pathMatch) return pathMatch;
+    const matches = names.get(key);
+    return matches?.size === 1 ? matches.values().next().value : undefined;
+  };
+}
+const wikiResolvers = new WeakMap<WikiPage[], ReturnType<typeof createWikiPageResolver>>();
 export function resolveWikiPage(pages: WikiPage[], target: string, fromPath = ""): WikiPage | undefined {
-  const clean = target.replace(/^\[\[/, "").replace(/\]\]$/, "").split("|")[0].split("#")[0];
-  const key = normalize(clean);
-  if (!key) return pages.find((page) => page.path === fromPath);
-  const directory = fromPath.includes("/") ? fromPath.slice(0, fromPath.lastIndexOf("/")) : "";
-  const relative = normalize(wikiRelativePath(clean, directory) ?? clean);
-  const pathMatch = pages.find((page) => normalize(page.path) === relative)
-    ?? pages.find((page) => normalize(page.path) === key);
-  if (pathMatch) return pathMatch;
-  const named = pages.filter((page) => normalize(page.title) === key
-    || normalize(page.path.split("/").at(-1) ?? "") === key
-    || wikiValueText(page.properties.id).toLocaleLowerCase() === key
-    || (Array.isArray(page.properties.aliases) && page.properties.aliases.some((alias) => normalize(wikiValueText(alias)) === key)));
-  return named.length === 1 ? named[0] : undefined;
+  let resolver = wikiResolvers.get(pages);
+  if (!resolver) { resolver = createWikiPageResolver(pages); wikiResolvers.set(pages, resolver); }
+  return resolver(target, fromPath);
 }
 
 export function wikiBacklinks(pages: WikiPage[], path: string): WikiPage[] {
@@ -43,24 +66,7 @@ export function wikiViewPages(pages: WikiPage[], view: WikiView): WikiPage[] {
 /** Keep the source byte-for-byte except the selected top-level scalar. */
 export function updateWikiProperty(content: string, key: string, value: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) throw new Error("This property name cannot be edited on the board. Edit it in Markdown.");
-  const newline = content.includes("\r\n") ? "\r\n" : "\n";
-  const header = /^(\uFEFF?---\r?\n)([\s\S]*?)^((?:---|\.\.\.)(?:\r?\n|$))/m.exec(content);
-  const replacement = `${key}: ${JSON.stringify(value)}`;
-  if (!header || header.index !== 0) return `---${newline}${replacement}${newline}---${newline}${newline}${content}`;
-  const yaml = header[2].replace(/\r?\n$/, "");
-  const lines = yaml ? yaml.split(/\r?\n/) : [];
-  const matchesKey = (line: string) => new RegExp(`^["']?${key}["']?\\s*:`).test(line);
-  const index = lines.findIndex(matchesKey);
-  if (index >= 0) {
-    const current = lines[index].slice(lines[index].indexOf(":") + 1).trim();
-    const next = lines[index + 1];
-    if (/^[>|&*!\[{]/.test(current) || (next && /^\s+\S|^-\s/.test(next))) {
-      throw new Error("This property has a complex value. Edit it in Markdown.");
-    }
-    if (lines.filter(matchesKey).length > 1) throw new Error("This property appears more than once. Edit it in Markdown.");
-    lines[index] = replacement;
-  } else lines.push(replacement);
-  return `${header[1]}${lines.join(newline)}${newline}${header[3]}${content.slice(header[0].length)}`;
+  return setWikiProperty(content, key, value);
 }
 
 export function wikiMarkdownBody(content: string) {
@@ -75,25 +81,45 @@ export function wikiNewPagePath(value: string): string {
   return /\.md$/i.test(path) ? path : `${path}.md`;
 }
 
-export function wikiGraph(pages: WikiPage[], focus: string | null, limit = 60) {
-  const neighbors = new Set<string>();
+/** Linear graph construction and breadth-first local neighborhoods, without a display cap. */
+export function wikiGraph(pages: WikiPage[], focus: string | null, limit = Infinity, depth = 1) {
+  const byPath = new Map(pages.map((page) => [page.path, page]));
+  const resolve = createWikiPageResolver(pages);
+  const adjacent = new Map<string, Set<string>>();
+  const edges: { from: string; to: string; label: string | null }[] = [];
+  const seen = new Set<string>();
+  const connect = (from: string, to: string) => {
+    let neighbors = adjacent.get(from);
+    if (!neighbors) { neighbors = new Set(); adjacent.set(from, neighbors); }
+    neighbors.add(to);
+  };
+  for (const page of pages) for (const link of page.links) {
+    const target = link.resolved ? byPath.get(link.target) : resolve(link.target, page.path);
+    if (!target || target.path === page.path) continue;
+    const key = JSON.stringify([page.path, target.path, link.property]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ from: page.path, to: target.path, label: link.property });
+    connect(page.path, target.path); connect(target.path, page.path);
+  }
+  let selected: Set<string> | undefined;
   if (focus) {
-    neighbors.add(focus);
-    for (const page of wikiBacklinks(pages, focus)) neighbors.add(page.path);
-    for (const link of pages.find((page) => page.path === focus)?.links ?? []) {
-      const target = resolveWikiPage(pages, link.target, focus); if (target) neighbors.add(target.path);
+    selected = new Set(byPath.has(focus) ? [focus] : []);
+    let frontier = [focus];
+    for (let step = 0; step < depth && frontier.length; step++) {
+      const next: string[] = [];
+      for (const source of frontier) for (const target of adjacent.get(source) ?? []) {
+        if (!selected.has(target)) { selected.add(target); next.push(target); }
+      }
+      frontier = next;
     }
   }
-  const candidates = focus ? pages.filter((page) => neighbors.has(page.path)) : pages;
-  const focusedPage = focus ? candidates.find((page) => page.path === focus) : undefined;
+  const candidates = selected ? pages.filter((page) => selected.has(page.path)) : pages;
+  const focusedPage = focus ? byPath.get(focus) : undefined;
   const ordered = focusedPage ? [focusedPage, ...candidates.filter((page) => page !== focusedPage)] : candidates;
   const visible = ordered.slice(0, limit);
   const paths = new Set(visible.map((page) => page.path));
-  const edges = visible.flatMap((page) => page.links.flatMap((link) => {
-    const target = resolveWikiPage(pages, link.target, page.path)?.path;
-    return target && paths.has(target) && target !== page.path ? [{ from: page.path, to: target, label: link.property }] : [];
-  }));
-  return { pages: visible, edges, truncated: candidates.length > visible.length };
+  return { pages: visible, edges: edges.filter((edge) => paths.has(edge.from) && paths.has(edge.to)), truncated: candidates.length > visible.length };
 }
 
 export function wikiRelativePath(target: string, directory: string): string | null {

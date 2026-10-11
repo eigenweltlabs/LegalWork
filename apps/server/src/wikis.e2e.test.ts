@@ -42,6 +42,22 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+  test("compact graph and revision endpoints retain private wiki authorization", async () => {
+    const { request } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private graph" })).json());
+    for (const suffix of ["graph", "graph/revision"]) {
+      const path = `/wikis/${wiki.id}/${suffix}`;
+      expect((await request(path, "anonymous")).status).toBe(401);
+      expect((await request(path, "collaborator")).status).toBe(404);
+      expect((await request(path, "viewer")).status).toBe(404);
+      expect((await request(path, "owner")).status).toBe(200);
+    }
+    const graph = z.object({ kind: z.literal("snapshot"), revision: z.string(), nodes: z.array(z.object({ id: z.string(), path: z.string(), title: z.string(), type: z.string() })) }).parse(await (await request(`/wikis/${wiki.id}/graph`, "owner")).json());
+    expect(graph.nodes.length).toBeGreaterThan(0);
+    expect(await (await request(`/wikis/${wiki.id}/graph?revision=${encodeURIComponent(graph.revision)}`, "owner")).json()).toEqual({ kind: "unchanged", revision: graph.revision });
+    expect((await request(`/wikis/${wiki.id}/graph?revision=${"x".repeat(201)}`, "owner")).status).toBe(400);
+  });
+
   test("explorer actions require wiki access and revisions, and expose recoverable trash", async () => {
     const { request, config } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Explorer", template: "blank" })).json());

@@ -10,9 +10,9 @@ function page(path: string, patch: Partial<WikiPage> = {}): WikiPage {
 describe("Markdown wiki views and editing", () => {
   test("property moves preserve all other source, including CRLF and HTML", () => {
     const input = '---\r\ntype: deal\r\nstage: draft # old\r\nowner: "Team A"\r\n---\r\n\r\n<div>Keep me</div>\r\n[[Client]]\r\n';
-    expect(updateWikiProperty(input, "stage", "signed")).toBe(input.replace('stage: draft # old', 'stage: "signed"'));
-    expect(updateWikiProperty('---\n---\nBody\n', 'stage', 'x')).toBe('---\nstage: "x"\n---\nBody\n');
-    expect(updateWikiProperty('# Body\n', 'stage', 'x')).toBe('---\nstage: "x"\n---\n\n# Body\n');
+    expect(updateWikiProperty(input, "stage", "signed")).toBe(input.replace('stage: draft # old', 'stage: "signed" # old'));
+    expect(updateWikiProperty('---\n---\nBody\n', 'stage', 'x')).toBe('---\n"stage": "x"\n---\nBody\n');
+    expect(updateWikiProperty('# Body\n', 'stage', 'x')).toBe('---\n"stage": "x"\n---\n\n# Body\n');
   });
   test("refuses complex YAML properties instead of corrupting source", () => {
     for (const yaml of ['stage: |\n  draft', 'stage:\n  - draft', 'stage: [a,b]', 'stage: draft\nstage: active']) {
@@ -30,14 +30,14 @@ describe("Markdown wiki views and editing", () => {
     expect(resolveWikiPage(all, 'page-a')).toBe(client);
     expect(resolveWikiPage(all, 'Clients/A#Overview')).toBe(client);
   });
-  test("backlinks include property links and graph stays bounded", () => {
+  test("backlinks include property links and the graph includes every page", () => {
     const target = page('Client.md');
     const from = page('Deal.md', { links: [{ target: 'Client.md', label: 'client', property: 'client', resolved: true }] });
     const all = [target, from, ...Array.from({ length: 100 }, (_, index) => page(`Note-${index}.md`))];
     expect(wikiBacklinks(all, target.path)).toEqual([from]);
     expect(wikiGraph(all, target.path).pages).toEqual([target, from]);
-    expect(wikiGraph(all, null).pages).toHaveLength(60);
-    expect(wikiGraph(all, null).truncated).toBe(true);
+    expect(wikiGraph(all, null).pages).toHaveLength(all.length);
+    expect(wikiGraph(all, null).truncated).toBe(false);
   });
   test("dynamic view filtering supports typed properties and tags", () => {
     const a = page('A.md', { type: 'deal', properties: { tags: ['VC', 'Firm'], active: true } });

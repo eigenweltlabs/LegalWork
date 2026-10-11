@@ -16,6 +16,12 @@ describe("wiki links in the shared Markdown editor", () => {
     expect(roundTrip(input)).toBe(input);
     expect(roundTrip(input + '\nNew **body**.\n')).toContain(input);
   });
+  test("uses a safe fragment URL in the editor and restores wiki syntax on save", () => {
+    const tree = fromMarkdown("[[Clients/Überblick.md#Sources|Evidence]]", { extensions: [wikiLinkSyntax], mdastExtensions: [wikiLinkFromMarkdown] });
+    expect(tree.children[0]).toMatchObject({ type: "paragraph", children: [{ type: "link", url: "#wiki:Clients%2F%C3%9Cberblick.md%23Sources" }] });
+    expect(toMarkdown(tree, { extensions: [wikiLinkToMarkdown] })).toBe("[[Clients/Überblick.md#Sources|Evidence]]\n");
+    expect(roundTrip("[Acme](#wiki:Clients%2FAcme.md)\n")).toBe("[[Clients/Acme.md|Acme]]\n");
+  });
   test("keeps nested YAML definitions unchanged while editing the body", () => {
     const yaml = '---\ntype: page\naliases: [One, Two]\nviews:\n  - name: Deals\n    filter:\n      type: deal\n    columns: [title, status]\nsummary: |\n  Keep this multiline text.\n---\n';
     expect(roundTrip(yaml + '\n# Views\n\n[[Client]]\n')).toStartWith(yaml);
@@ -41,7 +47,15 @@ describe("wiki links in the shared Markdown editor", () => {
   test("treats incomplete or empty wiki links as text", () => {
     for (const source of ['[[', '[[]]', '[[|Alias]]', '[[One\nTwo]]']) {
       const tree = fromMarkdown(source, { extensions: [wikiLinkSyntax], mdastExtensions: [wikiLinkFromMarkdown] });
-      expect(JSON.stringify(tree)).not.toContain('"url":"wiki:');
+      expect(JSON.stringify(tree)).not.toContain('"type":"link"');
     }
   });
+});
+
+
+test("relative attachment links retain their original destination in the editor and on save", () => {
+  const source = '[Edit](Attachments/Editable.txt "Original")\n';
+  const tree = fromMarkdown(source, { extensions: [wikiLinkSyntax], mdastExtensions: [wikiLinkFromMarkdown] });
+  expect(tree.children[0]).toMatchObject({ type: "paragraph", children: [{ type: "link", url: "#wiki-path:Attachments%2FEditable.txt", title: "Original" }] });
+  expect(roundTrip(source)).toBe(source);
 });

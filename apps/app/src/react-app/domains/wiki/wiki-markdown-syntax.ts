@@ -1,4 +1,4 @@
-import type { Link } from "mdast";
+import type { Link, Nodes } from "mdast";
 import type { Extension as MdastExtension } from "mdast-util-from-markdown";
 import { defaultHandlers, type Options } from "mdast-util-to-markdown";
 import type { Extension, State, Tokenizer } from "micromark-util-types";
@@ -33,14 +33,27 @@ const tokenizeWikiLink: Tokenizer = function (effects, ok, nok) {
 };
 
 export const wikiLinkSyntax: Extension = { text: { 91: { name: "wikiLink", tokenize: tokenizeWikiLink } } };
+/** Lexical normalizes bare relative links to https URLs; use a lossless editor fragment. */
+export function wikiEditorLinkTarget(url: string): string {
+  if (!url.startsWith("#wiki-path:")) return url;
+  try { return decodeURIComponent(url.slice("#wiki-path:".length)); }
+  catch { return url; }
+}
+
+function preserveRelativeLinks(node: Nodes) {
+  if (node.type === "link" && node.url && !node.url.startsWith("[[") && !/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(node.url)) node.url = `#wiki-path:${encodeURIComponent(node.url)}`;
+  if ("children" in node) node.children.forEach(preserveRelativeLinks);
+}
+
 export const wikiLinkFromMarkdown: MdastExtension = {
+  transforms: [preserveRelativeLinks],
   enter: {
     wikiLink(token) {
       const source = this.sliceSerialize(token).slice(2, -2);
       const separator = source.indexOf("|");
       const target = separator < 0 ? source : source.slice(0, separator);
       const label = separator < 0 ? target : source.slice(separator + 1);
-      this.enter({ type: "link", url: `wiki:${encodeURIComponent(target)}`, children: [{ type: "text", value: label }] }, token);
+      this.enter({ type: "link", url: `#wiki:${encodeURIComponent(target)}`, children: [{ type: "text", value: label }] }, token);
     },
   },
   exit: { wikiLink(token) { this.exit(token); } },
@@ -49,14 +62,15 @@ export const wikiLinkFromMarkdown: MdastExtension = {
 export const wikiLinkToMarkdown: Options = {
   handlers: {
     link(node: Link, parent, state, info) {
+      if (node.url.startsWith("#wiki-path:")) return defaultHandlers.link({ ...node, url: wikiEditorLinkTarget(node.url) }, parent, state, info);
       // Markdown links with a hover title or formatting retain the full Markdown form.
       if (node.title || node.children.some((child) => child.type !== "text")) return defaultHandlers.link(node, parent, state, info);
       // The standard Create Link dialog also accepts [[Page]] as its destination.
       const authoredWikiLink = /^\[\[([^\]\n]+)\]\]$/.exec(node.url);
       let target: string;
       if (authoredWikiLink) target = authoredWikiLink[1].split("|")[0];
-      else if (node.url.startsWith("wiki:")) {
-        try { target = decodeURIComponent(node.url.slice(5)); }
+      else if (/^#?wiki:/.test(node.url)) {
+        try { target = decodeURIComponent(node.url.replace(/^#?wiki:/, "")); }
         catch { return defaultHandlers.link(node, parent, state, info); }
       } else return defaultHandlers.link(node, parent, state, info);
       let label = node.children.map((child) => child.type === "text" ? child.value : "").join("");

@@ -2,6 +2,27 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Editor, files, and graph baseline (2026-10-11)
+
+- Added hover block controls, slash insertion, selection formatting and editable tables. Source mode preserves the original Markdown. Merely opening, focusing, or switching editor modes does not save parser-normalized content. Real rich-text edits can normalize Markdown spacing. Metadata edits preserve unknown fields and comments.
+- Native Electron verification imported DOCX, XLSX, PPTX, PDF, PNG and TXT through the system file picker. All six stored files were byte-identical to their sources. Word, Excel and slides opened in the existing editable tabs; PDF opened in its existing viewer. A property-only edit changed just the selected frontmatter value, preserving the body, table spacing, comments and final newline.
+- System file/folder drops copy into the selected wiki folder, including empty directories. Cross-project drops resolve the source through the existing project-file provider. Occupied paths receive a new name; imports never replace an existing file. Folder recursion and the wiki drop target's precedence over the surrounding workspace target have regression coverage. Native cross-window drag gestures were not separately verified.
+- Replaced the static graph with interactive pan, zoom, hover, drag and force motion; retained page navigation and automatic Canvas rendering when GPU initialization fails. The running Obsidian application was inspected to distinguish its actual Pixi/worker/WASM implementation from assumptions. Large fixtures, GPU traces and remaining layout limits are documented in [graph research](wiki-graph-research.md).
+- `pnpm --filter @legalwork/app test`: **1,260 passed, 0 failed**, across 196 files. `pnpm --filter legalwork-server exec bun test src/wiki src/wikis.e2e.test.ts src/wikis-team.e2e.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts`: **70 passed, 0 failed**, across 12 files.
+- App typecheck, app and server production builds, i18n validation (6,209 keys per language), and `git diff --check` passed. The app build retains existing large-chunk warnings.
+- OpenUI remains a separate follow-on layer. The [storage comparison](wiki-openui-research.md) distinguishes the current file-backed implementation from the proposed structured record model. No wiki storage migration is part of this baseline.
+
+## Global wiki workspace (2026-10-11)
+
+- Wiki now opens from the left global rail. Each wiki uses its folder-backed workspace with independent tabs, split panes and chats. Project workspaces can open wiki pages from the tab `+` menu.
+- Wiki page, graph and view tabs now persist through reload. The global Wiki entry restores the last selected wiki and focused pane. Folder expansion and navigation width are saved separately per wiki. Old right-sidebar routes open the global wiki page.
+- A normal link click opens the destination in the originating tab group. Internal wiki links use a safe editor URL and serialize back to `[[...]]`. Alt-click remains available for link editing. Removed the redundant page header, save/options row and file-path footer around the Markdown editor.
+- Native Electron checks: opened Wiki from the left rail; opened Instructions in a standard tab; followed Structure and Templates links directly; created a wiki chat; opened a page beside that chat; reloaded and verified both panes and tabs; switched to a project, opened `+ → Wiki page…`, and selected a page; returned to Wiki and verified its independent layout and selected page.
+- Read-only inspection of the new session's database record confirmed its `directory` exactly matched the registered wiki workspace path. No model prompt was sent for this check.
+- `pnpm --filter @legalwork/app test`: **1,230 passed, 0 failed** across 191 files. New regressions cover wiki tab persistence with chats and split panes, wiki routes, and editor-safe wiki-link round trips.
+- `pnpm --filter @legalwork/app typecheck`, `pnpm --filter @legalwork/app build`, `pnpm --filter @legalwork/app test:i18n`, and `git diff --check` passed. i18n validates 6,158 keys in both shipped languages. Existing production-build chunk-size notices remain.
+- This earlier workspace phase did not replace the graph renderer or add block controls. Those subsequent changes and their measured limits are recorded above, in [block editor findings](wiki-block-editor-research.md) and [graph findings](wiki-graph-research.md).
+
 ## Rebase verification (2026-10-11)
 
 Rebased all 17 feature commits onto `origin/dev` at `69ab8f3d9305beb186cd6e4f1acf3bb070f17727`. The previous head is retained locally as `backup/wiki-246-before-rebase-20261011` (`0054465d`).

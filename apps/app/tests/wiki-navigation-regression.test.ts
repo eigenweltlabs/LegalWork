@@ -11,12 +11,12 @@ describe("Wiki navigation through large collections", () => {
     const hub = page("Hub.md");
     const neighbors = Array.from({ length: 80 }, (_, index) => page(`Notes/${index}.md`, [{ target: hub.path, label: "Hub", property: null, resolved: true }]));
     const graph = wikiGraph([...neighbors, hub], hub.path);
-    expect(graph.pages).toHaveLength(60);
+    expect(graph.pages).toHaveLength(81);
     expect(graph.pages[0]).toBe(hub);
-    expect(graph.edges).toHaveLength(59);
+    expect(graph.edges).toHaveLength(80);
     expect(graph.edges.every((edge) => edge.to === hub.path)).toBe(true);
-    expect(graph.truncated).toBe(true);
-    expect(wikiGraph([...neighbors, hub], null).pages).toEqual(neighbors.slice(0, 60));
+    expect(graph.truncated).toBe(false);
+    expect(wikiGraph([...neighbors, hub], null).pages).toEqual([...neighbors, hub]);
   });
 
   test("a page opened through a link beyond the sidebar limit is still selected", () => {

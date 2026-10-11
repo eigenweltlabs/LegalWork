@@ -1,15 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, watch, type FSWatcher } from "node:fs";
 import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import type { WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiView } from "@legalwork/types/wiki";
+import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiView } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { workspaceIdForPath } from "../workspaces.js";
 import { markdownData, markdownWithData, parseWikiPage, parseWikiViews, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
+import { WikiGraphIndex } from "./graph.js";
 import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-safety.js";
 
 export const WIKI_MAX_PAGE_BYTES = 2 * 1024 * 1024;
@@ -31,6 +32,7 @@ const indexRowSchema = z.object({
 });
 const trashSchema = z.object({ id: z.string().uuid(), path: z.string().refine(isWikiPath), kind: z.enum(["file", "folder"]), deletedAt: z.number() });
 type IndexedPage = Omit<z.infer<typeof indexRowSchema>, "warning"> & ReturnType<typeof parseWikiPage>;
+type GraphState = { index: WikiGraphIndex; watcher?: FSWatcher; changed: Set<string>; reconcile: boolean; dirty: boolean; lastScan: number; contentRevision: string; configuration: string };
 type SqlValue = string | number | null;
 type Sqlite = { run(sql: string, values?: SqlValue[]): void; all(sql: string, values?: SqlValue[]): unknown[]; close(): void; exec(sql: string): void };
 const pending = new Map<string, Promise<unknown>>();
@@ -75,6 +77,8 @@ export class WikiStore {
   private readonly config: ServerConfig;
   private database: Promise<Sqlite> | undefined;
   private readonly indexes = new Map<string, Map<string, IndexedPage>>();
+  private readonly graphs = new Map<string, GraphState>();
+  private readonly inventoryRevisions = new Map<string, string>();
 
   constructor(config: ServerConfig) {
     this.config = config;
@@ -97,7 +101,7 @@ export class WikiStore {
     })();
     return this.database;
   }
-  async close(): Promise<void> { if (this.database) (await this.database).close(); this.database = undefined; this.indexes.clear(); }
+  async close(): Promise<void> { if (this.database) (await this.database).close(); this.database = undefined; this.indexes.clear(); for (const state of this.graphs.values()) state.watcher?.close(); this.graphs.clear(); this.inventoryRevisions.clear(); }
 
   private registerWorkspace(wiki: WikiRegistration): void {
     if (!this.config.workspaces.some((workspace) => workspace.id === wiki.workspaceId)) {
@@ -188,6 +192,9 @@ export class WikiStore {
       await this.saveRegistrations(items.filter((item) => item.id !== id));
       this.config.workspaces = this.config.workspaces.filter((item) => item.id !== wiki.workspaceId || item.preset !== "wiki");
       this.indexes.delete(id);
+      this.graphs.get(id)?.watcher?.close();
+      this.graphs.delete(id);
+      this.inventoryRevisions.delete(id);
     });
   }
 
@@ -233,7 +240,7 @@ export class WikiStore {
       if (depth > 32) { warnings.push("Folders deeper than 32 levels were skipped."); return; }
       const canonical = await realpath(directory);
       if (canonical !== directory || (canonical !== wiki.root && !canonical.startsWith(`${wiki.root}${sep}`))) throw new ApiError(403, "unsafe_wiki_path", "Wiki folders cannot follow symbolic links.");
-      if (files.length + folders.length >= 20_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 20,000 files and folders. Split this folder into smaller wikis.");
+      if (files.length + folders.length >= 250_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 250,000 files and folders. Split this folder into smaller wikis.");
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         if (entry.name.startsWith(".")) continue;
         const absolute = join(directory, entry.name), path = relative(wiki.root, absolute).split(sep).join("/");
@@ -244,7 +251,7 @@ export class WikiStore {
         try {
           const info = await lstat(absolute);
           if (info.isSymbolicLink() || !info.isFile()) continue;
-          if (files.length >= 20_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 20,000 files.");
+          if (files.length >= 250_000) throw new ApiError(413, "wiki_too_many_files", "A wiki can index up to 250,000 files.");
           files.push({ path, size: info.size, updatedAt: info.mtimeMs, changedAt: info.ctimeMs });
         } catch (error) { if (!missing(error)) throw error; }
       }
@@ -285,17 +292,31 @@ export class WikiStore {
       db.run("INSERT INTO wiki_search(wiki,path,title,body) VALUES(?,?,?,?)", [id, path, parsed.page.title, content]);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
-    (await this.index(id)).set(path, row);
+    const index = await this.index(id);
+    if (index.get(path)?.revision !== revision) {
+      const graph = this.graphs.get(id);
+      if (graph) { graph.dirty = true; graph.contentRevision = randomUUID(); }
+    }
+    index.set(path, row);
     return row;
   }
   private async drop(id: string, path: string): Promise<void> {
     const db = await this.db();
     db.run("DELETE FROM wiki_pages WHERE wiki=? AND path=?", [id, path]);
     db.run("DELETE FROM wiki_search WHERE wiki=? AND path=?", [id, path]);
-    (await this.index(id)).delete(path);
+    if ((await this.index(id)).delete(path)) {
+      const graph = this.graphs.get(id);
+      if (graph) { graph.dirty = true; graph.contentRevision = randomUUID(); }
+    }
   }
   private async refresh(id: string): Promise<{ files: WikiAsset[]; folders: string[]; warnings: string[] }> {
     const wiki = await this.get(id), inventory = await this.inventory(wiki), index = await this.index(id);
+    const inventoryRevision = hash(JSON.stringify([inventory.files, inventory.folders]));
+    if (this.inventoryRevisions.get(id) !== inventoryRevision) {
+      this.inventoryRevisions.set(id, inventoryRevision);
+      const graph = this.graphs.get(id);
+      if (graph) graph.contentRevision = randomUUID();
+    }
     const existing = new Set<string>();
     for (const file of inventory.files) {
       if (!isMarkdown(file.path)) continue;
@@ -317,6 +338,75 @@ export class WikiStore {
       await this.drop(id, path);
     }
     return inventory;
+  }
+  /** Graph polling refreshes changed files, not full rich snapshots. Explicit snapshots still reconcile. */
+  async graph(id: string, since?: string, revisionOnly = false): Promise<WikiGraphResponse> {
+    return serial(`${this.path}:${id}`, async () => {
+      const wiki = await this.get(id);
+      await this.safeRoot(wiki.root);
+      let state = this.graphs.get(id);
+      if (!state) {
+        const created: GraphState = { index: new WikiGraphIndex(), changed: new Set(), reconcile: true, dirty: true, lastScan: 0, contentRevision: randomUUID(), configuration: JSON.stringify(wiki) };
+        this.graphs.set(id, created);
+        try {
+          created.watcher = watch(wiki.root, { recursive: true, persistent: false }, (_event, filename) => {
+            if (!filename) { created.reconcile = true; return; }
+            const path = String(filename).split(sep).join("/");
+            if (path.split("/").some((part) => part.startsWith("."))) return;
+            if (!isWikiPath(path)) { created.reconcile = true; return; }
+            created.changed.add(path);
+            created.contentRevision = randomUUID();
+          });
+          created.watcher.on("error", () => { created.watcher?.close(); created.watcher = undefined; created.reconcile = true; });
+        } catch { /* Periodic reconciliation works on filesystems without recursive watching. */ }
+        state = created;
+      }
+      const configuration = JSON.stringify(wiki);
+      if (state.configuration !== configuration) { state.configuration = configuration; state.contentRevision = randomUUID(); }
+      const scanInterval = state.watcher ? 60_000 : 5_000;
+      if (state.reconcile || Date.now() - state.lastScan >= scanInterval) {
+        state.reconcile = false;
+        state.changed.clear();
+        try { await this.refresh(id); state.lastScan = Date.now(); }
+        catch (error) { state.reconcile = true; throw error; }
+      } else if (state.changed.size) {
+        const changed = [...state.changed];
+        state.changed.clear();
+        for (const path of changed) {
+          let info;
+          try { info = await lstat(await this.safePath(wiki, path)); }
+          catch (error) {
+            if (!missing(error)) { state.reconcile = true; continue; }
+            if (isMarkdown(path)) {
+              const previous = (await this.index(id)).get(path);
+              if (previous) { await this.record(id, path, previous.content, "delete"); await this.drop(id, path); }
+            } else state.reconcile = true;
+            continue;
+          }
+          if (info.isDirectory()) { state.reconcile = true; continue; }
+          if (!isMarkdown(path)) continue;
+          if (!info.isFile() || info.size > WIKI_MAX_PAGE_BYTES) { await this.drop(id, path); continue; }
+          const previous = (await this.index(id)).get(path);
+          if (previous && previous.mtime === info.mtimeMs && previous.ctime === info.ctimeMs && previous.size === info.size) continue;
+          try {
+            const content = (await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)).toString("utf8");
+            if (previous && previous.revision !== hash(content)) await this.record(id, path, previous.content, "write");
+            await this.record(id, path, content, "write");
+            await this.remember(id, path, content, wiki, { path, size: info.size, updatedAt: info.mtimeMs, changedAt: info.ctimeMs });
+          } catch (error) { state.reconcile = true; throw error; }
+        }
+        if (state.reconcile) {
+          state.reconcile = false;
+          try { await this.refresh(id); state.lastScan = Date.now(); }
+          catch (error) { state.reconcile = true; throw error; }
+        }
+      }
+      if (state.dirty) {
+        state.index.update([...(await this.index(id)).values()].map((row) => row.page));
+        state.dirty = false;
+      }
+      return revisionOnly ? { kind: "unchanged", revision: state.contentRevision } : state.index.response(since);
+    });
   }
   async snapshot(id: string): Promise<WikiSnapshot> {
     return serial(`${this.path}:${id}`, async () => {
@@ -452,6 +542,8 @@ export class WikiStore {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
     return serial(`${this.path}:${id}`, async () => {
       const wiki = await this.get(id);
+      const graph = this.graphs.get(id);
+      if (graph) { graph.reconcile = true; graph.contentRevision = randomUUID(); }
       if (operation.action === "restore") {
         const item = (await this.trash(id)).find((entry) => entry.id === operation.trashId);
         if (!item) throw new ApiError(404, "wiki_trash_not_found", "This trash entry is unavailable.");
@@ -535,6 +627,8 @@ export class WikiStore {
       try { previous = await this.fileBytes(wiki, path, WIKI_MAX_ASSET_BYTES); } catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
       this.conflict(baseRevision, previous === null ? null : hash(previous));
       await this.atomicWrite(wiki, path, data, previous === null ? "" : hash(previous));
+      const graph = this.graphs.get(id);
+      if (graph) graph.contentRevision = randomUUID();
     });
     return { path };
   }

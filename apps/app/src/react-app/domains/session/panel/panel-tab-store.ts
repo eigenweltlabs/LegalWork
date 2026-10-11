@@ -93,12 +93,20 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
+type PersistedPanelTab = WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function restoredTab(value: unknown): PanelTab | null {
   if (!record(value) || typeof value.id !== "string") return null;
+  if (value.type === "wiki" && typeof value.label === "string" && typeof value.serverUrl === "string" && typeof value.wikiId === "string" && value.wikiId && record(value.location)) {
+    const location = value.location;
+    if (location.kind === "page" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "page", path: location.path, anchor: typeof location.anchor === "string" ? location.anchor : undefined, mode: location.mode === "source" ? "source" : undefined }, value.label);
+    if (location.kind === "asset" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "asset", path: location.path }, value.label);
+    if (location.kind === "view" && typeof location.name === "string") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "view", name: location.name }, value.label);
+    if (location.kind === "graph") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "graph", focus: typeof location.focus === "string" ? location.focus : undefined }, value.label);
+    return null;
+  }
   if (value.type === "artifact" && value.sourceProject) {
     const source = projectFileSourceSchema.safeParse(value.sourceProject);
     return source.success ? { ...projectFileTab(source.data), id: value.id } : null;
@@ -436,7 +444,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           const renamed = new Map<string, string>();
           const tabs: PanelTab[] = [];
           for (const tab of session.tabs) {
-            if (tab.type !== "wiki" || tab.serverUrl !== serverUrl || tab.wikiId !== wikiId || tab.location.kind !== "page"
+            if (tab.type !== "wiki" || tab.serverUrl !== serverUrl || tab.wikiId !== wikiId || (tab.location.kind !== "page" && tab.location.kind !== "asset")
               || (tab.location.path !== path && !tab.location.path.startsWith(`${path}/`))) { tabs.push(tab); continue; }
             if (destination === null) { if (tab.id === activeTabId) activeTabId = null; continue; }
             const nextPath = destination + tab.location.path.slice(path.length);
@@ -677,7 +685,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
-                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view") return [tab];
+                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];

@@ -6,6 +6,21 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("attachments retain original wiki identity through restore and folder moves", () => {
+    const store = usePanelTabStore.getState();
+    const asset = wikiPanelTab("local", "firm", { kind: "asset", path: "Attachments/Contract.docx" }, "Contract.docx");
+    const samePathOtherWiki = wikiPanelTab("local", "other", { kind: "asset", path: "Attachments/Contract.docx" }, "Contract.docx");
+    store.openTab("workspace:project", asset);
+    store.openTab("workspace:project", samePathOtherWiki);
+    const saved = usePanelTabStore.getState().sessions["workspace:project"];
+    expect(store.readLayout(JSON.parse(JSON.stringify(saved)))?.tabs).toEqual([asset, samePathOtherWiki]);
+    store.updateWikiPaths("local", "firm", "Attachments", "Files");
+    expect(usePanelTabStore.getState().sessions["workspace:project"].tabs).toEqual([
+      wikiPanelTab("local", "firm", { kind: "asset", path: "Files/Contract.docx" }, "Contract.docx"), samePathOtherWiki,
+    ]);
+    store.updateWikiPaths("local", "firm", "Files", null);
+    expect(usePanelTabStore.getState().sessions["workspace:project"].tabs).toEqual([samePathOtherWiki]);
+  });
   test("renaming a wiki page preserves its split pane and trash leaves unrelated panes intact", () => {
     const store = usePanelTabStore.getState();
     const scope = "workspace:wiki-layout";

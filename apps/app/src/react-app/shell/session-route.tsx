@@ -25,6 +25,8 @@ import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
 import { openTaskProject } from "../domains/tasks/task-project-navigation";
+import { useQuery } from "@tanstack/react-query";
+import { WikiPane } from "../domains/wiki/wiki-pane";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { useComposerStateStore } from "../domains/session/surface/composer-state-store";
 import {
@@ -185,6 +187,8 @@ import {
   forgetWorkspaceMemory,
   readActiveWorkspaceId,
   readLastSessionFor,
+  readLastWikiWorkspaceId,
+  writeLastWikiWorkspaceId,
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
   writeLastSessionFor,
@@ -217,7 +221,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
+import { wikiWorkspaceRoute, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
@@ -378,7 +382,6 @@ export function SessionRoute() {
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
   const showWikis = mainPage === "wikis";
-  useEffect(() => { if (showWikis) navigate("/home?panel=wiki", { replace: true }); }, [showWikis, navigate]);
   const showEvals = mainPage === "evals";
   const showWorkflows = mainPage === "workflows";
   const showRecorder = mainPage === "recorder";
@@ -491,6 +494,33 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  const wikis = useQuery({
+    queryKey: ["wikis", baseUrl],
+    queryFn: () => client!.listWikis(),
+    enabled: Boolean(client),
+  });
+  const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
+  const openWikiWorkspace = useCallback((wiki: WikiVault) => {
+    writeLastWikiWorkspaceId(baseUrl, wiki.workspaceId);
+    const panel = usePanelTabStore.getState().sessions[workspacePanelKey(wiki.workspaceId)];
+    const activeId = panel?.panes.find(pane => pane.id === panel.focusedPaneId)?.activeTabId ?? panel?.activeTabId;
+    const active = panel?.tabs.find(tab => tab.id === activeId);
+    navigate(wikiWorkspaceRoute(wiki.workspaceId, active?.type === "chat" ? active.sessionId : null));
+  }, [baseUrl, navigate]);
+  useEffect(() => {
+    if (!wikis.data) return;
+    // Canonicalize old wiki chat links without changing their session.
+    if (!showWikis && selectedWorkspace?.preset === "wiki" && (isSessionIndexRoute(location.pathname) || location.pathname.startsWith(`/workspace/${encodeURIComponent(selectedWorkspace.id)}/session/`))) {
+      navigate(wikiWorkspaceRoute(selectedWorkspace.id, selectedSessionId) + location.search, { replace: true });
+      return;
+    }
+    if (!showWikis) return;
+    if (activeWiki) { writeLastWikiWorkspaceId(baseUrl, activeWiki.workspaceId); return; }
+    const remembered = readLastWikiWorkspaceId(baseUrl);
+    const wiki = wikis.data.items.find(item => item.workspaceId === remembered) ?? wikis.data.items[0];
+    if (wiki) openWikiWorkspace(wiki);
+    else if (routeWorkspaceId) navigate("/wikis", { replace: true });
+  }, [wikis.data, showWikis, activeWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
@@ -646,6 +676,10 @@ export function SessionRoute() {
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
+    () => toSessionGroups(showWikis && activeWiki ? workspaces.filter(workspace => workspace.id === activeWiki.workspaceId) : sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
+    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces, showWikis, activeWiki, workspaces],
+  );
+  const fileWorkspaceGroups = useMemo(
     () => toSessionGroups(sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
@@ -2482,6 +2516,7 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      fileWorkspaceGroups={fileWorkspaceGroups}
       workflowLibraryView={workflowLibraryView}
       homePage={homePage}
       selectedSessionId={selectedSessionId}
@@ -2501,7 +2536,8 @@ export function SessionRoute() {
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
-      wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession }}
+      wikiWorkspace={activeWiki}
+      wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined }}
       legalworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
       headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
@@ -2611,7 +2647,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        scheduledPage ? (
+        showWikis && !activeWiki ? <WikiPane client={client} serverUrl={baseUrl} workspaceId="" workspaces={sidebarWorkspaces} display="navigation" onWikisChanged={() => void refreshRouteState()} onOpenWikiSession={handleOpenWikiSession} onSelectWiki={openWikiWorkspace} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
@@ -2712,7 +2748,7 @@ export function SessionRoute() {
         onNewChat: () => setNewChatOpen(true),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
-        onShowWikis: () => navigate("/home?panel=wiki"),
+        onShowWikis: () => navigate("/wikis"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),

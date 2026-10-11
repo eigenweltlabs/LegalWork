@@ -61,6 +61,7 @@ import { PanelEmptyState, PanelHeaderPortal } from "@/react-app/design-system/pa
 import { cn } from "@/lib/utils";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
+import { classifyOpenTarget } from "../artifacts/open-target";
 import { confirmDiscardSessionDocuments, waitForDocumentDiscardPrompt } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { ExpandedDocumentBar } from "../artifacts/expanded-document-bar";
@@ -110,6 +111,7 @@ type SidePanelProps = {
   onFocusChat?: (sessionId: string) => void;
   onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
   onNewChat?: (pane: string) => void;
+  onOpenWiki?: (pane: string) => void;
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
@@ -413,7 +415,7 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
           ) : tab.type === "workflow-resource" ? (
             <FileText />
           ) : tab.type === "wiki" ? (
-            <BookOpen />
+            tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
@@ -727,7 +729,7 @@ function SidePanelContent({
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
-  onNewChat, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  onNewChat, onOpenWiki, renderProjectView, onOpenTabWindow, onDropChat, projectId,
   renderWikiTab,
 }: SidePanelProps) {
   const controlSessionIds = useDocumentControlSessions(sessionId);
@@ -1041,6 +1043,7 @@ function SidePanelContent({
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
             {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
               const store = usePanelTabStore.getState();
@@ -1137,7 +1140,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10) } : { kind: "evals" }}>{body}</PanelTabDestinationProvider>
+            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: pane?.id } : { kind: "evals" }}>{body}</PanelTabDestinationProvider>
           </div></ControlActionScope>
         </DocumentPane>];
       })}

@@ -80,6 +80,8 @@ export function AppRoot() {
                 }
               />
               <Route path="/wikis" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId/session/:sessionId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/evals"
                 element={

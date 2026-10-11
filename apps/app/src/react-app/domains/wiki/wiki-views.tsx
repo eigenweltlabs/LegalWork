@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { Columns3, FileText, GripVertical, Network, Settings2, Table2 } from "lucide-react";
+import { Columns3, FileText, GripVertical, Settings2, Table2 } from "lucide-react";
 import type { WikiPage, WikiValue, WikiView } from "@legalwork/types/wiki";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import { resolveWikiPage, wikiGraph, wikiValueText, wikiViewPages } from "./wiki-model";
+import { resolveWikiPage, wikiValueText, wikiViewPages } from "./wiki-model";
 import { wikiSelectClass } from "./wiki-dialogs";
 
 export function WikiPropertyValue(props: { value: WikiValue | undefined; pages: WikiPage[]; fromPath: string; onOpen: (path: string) => void }) {
@@ -47,25 +47,4 @@ export function WikiViewPane(props: { view: WikiView; pages: WikiPage[]; onOpen:
   </div>;
 }
 
-export function WikiGraphPane(props: { pages: WikiPage[]; focus: string | null; onOpen: (path: string) => void }) {
-  const [global, setGlobal] = useState(!props.focus);
-  const graph = useMemo(() => wikiGraph(props.pages, global ? null : props.focus), [props.pages, global, props.focus]);
-  const surrounding = graph.pages.filter((page) => global || page.path !== props.focus);
-  const points = new Map(graph.pages.map((page) => {
-    const isCenter = graph.pages.length === 1 || (!global && page.path === props.focus);
-    const index = surrounding.findIndex((candidate) => candidate.path === page.path);
-    const angle = (index / Math.max(surrounding.length, 1)) * Math.PI * 2 - Math.PI / 2;
-    const radius = graph.pages.length <= 12 ? 210 : 190 + (index % 3) * 40;
-    return [page.path, { x: isCenter ? 400 : 400 + Math.cos(angle) * radius, y: isCenter ? 300 : 300 + Math.sin(angle) * radius }];
-  }));
-  return <div className="wiki-view"><header className="wiki-view-header"><div className="wiki-view-heading"><Network className="wiki-view-icon" aria-hidden="true" /><div><h2>{t("wiki.graph")}</h2><p className="wiki-view-meta">{t("wiki.graph_summary", { count: graph.pages.length, links: graph.edges.length })}</p></div></div><label className="wiki-graph-toggle"><input type="checkbox" checked={global} onChange={(event) => setGlobal(event.target.checked)} />{t("wiki.whole_wiki")}</label></header>
-    {graph.pages.length > 0 ? <div className="wiki-graph-layout"><div className="wiki-graph-canvas"><svg className="wiki-graph" viewBox="0 0 800 600" role="img" aria-label={t("wiki.graph")}>{graph.edges.map((edge, index) => {
-      const from = points.get(edge.from); const to = points.get(edge.to);
-      return from && to ? <line key={index} x1={from.x} y1={from.y} x2={to.x} y2={to.y}><title>{edge.label ?? `${edge.from} → ${edge.to}`}</title></line> : null;
-    })}{graph.pages.map((page) => {
-      const point = points.get(page.path); if (!point) return null;
-      return <g key={page.path} role="button" tabIndex={0} aria-label={page.title} className={`wiki-graph-node${page.path === props.focus ? " wiki-graph-node-focused" : ""}`} onClick={() => props.onOpen(page.path)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onOpen(page.path); } }}><title>{page.title}</title><circle cx={point.x} cy={point.y} r={page.path === props.focus ? 14 : 9} /><text x={point.x} y={point.y + 29} textAnchor="middle">{page.title.length > 24 ? `${page.title.slice(0, 22)}…` : page.title}</text></g>;
-    })}</svg>{graph.edges.length === 0 ? <p className="wiki-graph-guidance">{t("wiki.graph_empty_hint")}</p> : null}</div><aside className="wiki-graph-page-list"><h3>{t("wiki.graph_pages")}</h3>{graph.pages.map((page) => <button type="button" key={page.path} className={`wiki-graph-page${page.path === props.focus ? " wiki-graph-page-focused" : ""}`} onClick={() => props.onOpen(page.path)}><FileText className="size-3.5 shrink-0" aria-hidden="true" /><span><span className="wiki-graph-page-title">{page.title}</span><span className="wiki-graph-page-type">{page.type}</span></span></button>)}</aside></div> : <div className="wiki-view-empty"><Network aria-hidden="true" /><h3>{t("wiki.graph_empty")}</h3><p>{t("wiki.graph_empty_hint")}</p></div>}
-    {graph.truncated ? <p className="text-xs text-muted-foreground">{t("wiki.graph_limit", { count: graph.pages.length })}</p> : null}
-  </div>;
-}
+export { WikiGraphPane } from "./wiki-graph-pane";

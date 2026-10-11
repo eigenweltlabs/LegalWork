@@ -55,7 +55,7 @@ import {
   writeActiveWorkspaceId,
   writeWorkspaceOrderIds,
 } from "./session-memory";
-import { isSessionIndexRoute, legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
+import { isSessionIndexRoute, legacySessionRoute, wikiWorkspaceRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
@@ -67,7 +67,7 @@ export type UseWorkspaceRouteStateInput = {
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
-  const globalWikiRoute = pathname === "/wikis";
+  const globalWikiRoute = pathname === "/wikis" || pathname.startsWith("/wikis/");
   const local = useLocal();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
@@ -78,7 +78,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigate(legacySessionRoute(sessionId), options);
       return;
     }
-    navigate(workspaceSessionRoute(id, sessionId), options);
+    const wiki = workspacesRef.current.some(workspace => workspace.id === id && workspace.preset === "wiki");
+    navigate(wiki ? wikiWorkspaceRoute(id, sessionId) : workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();

@@ -24,6 +24,44 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("graph polling observes edits, assets, folders and configuration without returning rich snapshots", async () => {
+    const { store } = await fixture(), wiki = await store.create({ name: "Graph", template: "blank" });
+    const a = await store.write(wiki.id, "A.md", "# A\n[[B]]", "");
+    await store.write(wiki.id, "B.md", "# B", "");
+    const first = await store.graph(wiki.id);
+    if (first.kind !== "snapshot") throw new Error("Expected initial graph");
+    expect(first.nodes.map((node) => node.path)).toContain("A.md");
+    expect(first.edges.some((edge) => edge.source === "A.md" && edge.target === "B.md")).toBe(true);
+    expect(first.nodes.every((node) => !("properties" in node) && !("excerpt" in node))).toBe(true);
+    const contentBefore = (await store.graph(wiki.id, undefined, true)).revision;
+    await store.write(wiki.id, "A.md", "# A\n[[B]]\nChanged body", a.revision);
+    expect((await store.graph(wiki.id, undefined, true)).revision).not.toBe(contentBefore);
+    expect(await store.graph(wiki.id, first.revision)).toEqual({ kind: "unchanged", revision: first.revision });
+    let contentRevision = (await store.graph(wiki.id, undefined, true)).revision;
+    await store.writeAsset(wiki.id, "scan.png", Buffer.from([0, 255]), "");
+    expect((await store.graph(wiki.id, undefined, true)).revision).not.toBe(contentRevision);
+    contentRevision = (await store.graph(wiki.id, undefined, true)).revision;
+    await store.changeEntry(wiki.id, { action: "create-folder", path: "Empty" });
+    expect((await store.graph(wiki.id, undefined, true)).revision).not.toBe(contentRevision);
+    contentRevision = (await store.graph(wiki.id, undefined, true)).revision;
+    await store.update(wiki.id, { name: "Renamed wiki" });
+    expect((await store.graph(wiki.id, undefined, true)).revision).not.toBe(contentRevision);
+    await writeFile(join(wiki.root, "B.md"), "# External edit");
+    let external = await store.graph(wiki.id, first.revision);
+    for (let attempt = 0; attempt < 30 && external.kind === "unchanged"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 20)); external = await store.graph(wiki.id, first.revision);
+    }
+    expect(external.kind).toBe("delta");
+    if (external.kind !== "delta") throw new Error("Expected external change delta");
+    expect(external.nodes.some((node) => node.title === "External edit")).toBe(true);
+    await rm(join(wiki.root, "B.md"));
+    // Explicit snapshots still reconcile immediately, even before a watcher event arrives.
+    expect((await store.snapshot(wiki.id)).pages.some((page) => page.path === "B.md")).toBe(false);
+    const removed = await store.graph(wiki.id, external.revision);
+    if (removed.kind !== "delta") throw new Error("Expected removal delta");
+    expect(removed.removedNodes).toContain("B.md"); expect(removed.removedEdges).toHaveLength(1);
+  });
+
   test("file explorer creates empty nested folders and copies or moves complete folder contents", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Explorer", template: "blank" });
     await store.changeEntry(wiki.id, { action: "create-folder", path: "Research/Empty" });

@@ -43,6 +43,14 @@ export type WikiVault = WikiRegistration & {
   pendingSharing?: WikiSharingInput | null;
 };
 export type WikiLink = { target: string; label: string; property: string | null; resolved: boolean };
+/** Compact graph projection. Page bodies, excerpts and arbitrary metadata stay on the server. */
+export type WikiGraphNode = { id: string; path: string; title: string; type: string };
+export type WikiGraphEdge = { id: string; source: string; target: string; relation: string | null };
+export type WikiGraphData = { revision: string; nodes: WikiGraphNode[]; edges: WikiGraphEdge[] };
+export type WikiGraphResponse =
+  | (WikiGraphData & { kind: "snapshot" })
+  | (WikiGraphData & { kind: "delta"; baseRevision: string; removedNodes: string[]; removedEdges: string[] })
+  | { kind: "unchanged"; revision: string };
 export type WikiPage = {
   path: string;
   title: string;
