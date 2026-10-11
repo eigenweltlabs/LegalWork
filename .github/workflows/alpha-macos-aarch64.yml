@@ -18,6 +18,11 @@ on:
   # until Apple signing secrets are added + MACOS_NOTARIZE=true (see the
   # signed/unsigned package steps below).
   workflow_dispatch:
+    inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -29,6 +34,9 @@ concurrency:
 jobs:
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: darwin-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-macos-aarch64:
     needs: sandbox-runtime
     name: Build + Publish alpha (aarch64-apple-darwin)
