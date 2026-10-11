@@ -51,7 +51,10 @@ export async function runHostCommand(input: { command: string; cwd: string; time
         clearTimeout(timer);
         input.signal.removeEventListener("abort", abort);
         await stopping;
-        if (error ?? failure) reject(error ?? failure);
+        if (error ?? failure) {
+          if (process.env.LEGALWORK_HOST_DIAGNOSTICS) console.error("Native command failure:", Buffer.concat(chunks).toString("utf8"));
+          reject(error ?? failure);
+        }
         else resolve({ output: Buffer.concat(chunks).toString("utf8"), exitCode: code ?? 1, truncated });
       };
       const abort = () => { failure = new Error("Command cancelled because the request or permissions changed."); kill(true); };
