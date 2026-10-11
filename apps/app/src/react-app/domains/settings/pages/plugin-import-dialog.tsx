@@ -11,6 +11,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
 import claudeLogo from "@/assets/claude-logo.svg";
+import { HubTabs } from "../segmented-tabs";
 import { groupPluginImportCandidates, pluginImportCandidateKey, pluginImportName } from "./plugin-import-presentation";
 import { packageParts } from "./skill-packages";
 
@@ -20,6 +21,7 @@ export type PluginImportStore = {
   installPluginImport(request: PluginImportRequest): Promise<PluginImportPreview>;
 };
 const componentTypes: PluginImportPreview["components"][number]["type"][] = ["skill", "mcp", "agent", "command"];
+type ImportFilter = "all" | "plugin" | "skill" | "connector";
 const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal };
 const componentTitle = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "skills.title" : type === "mcp" ? "extensions.connectors_label" : type === "agent" ? "composer.agents_label" : "dashboard.commands");
@@ -30,6 +32,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
   const [discoveryRevision, setDiscoveryRevision] = useState(0);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ImportFilter>("all");
   const [step, setStep] = useState<"choose" | "review">("choose");
   const [source, setSource] = useState<PluginImportSource | null>(null);
   const [sourceLabel, setSourceLabel] = useState("");
@@ -45,7 +48,10 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
   const selected = previews.find(item => item.root === selectedRoot);
   const groups = groupPluginImportCandidates(candidates);
   const search = query.trim().toLocaleLowerCase();
-  const filtered = groups.filter(({ candidate }) => [pluginImportName(candidate), candidate.name, candidate.description].some(value => value?.toLocaleLowerCase().includes(search)));
+  const narrowed = search.length > 0 || filter !== "all";
+  const filtered = groups.filter(({ candidate }) =>
+    (filter === "all" || (candidate.kind ?? "plugin") === filter) &&
+    [pluginImportName(candidate), candidate.name, candidate.description].some(value => value?.toLocaleLowerCase().includes(search)));
 
   useEffect(() => {
     mounted.current = true;
@@ -152,6 +158,17 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
             <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input autoFocus className="ps-9" aria-label={t("extensions.import_search")} placeholder={t("extensions.import_search")} value={query} onChange={event => setQuery(event.target.value)} />
           </div>
+          <HubTabs<ImportFilter>
+            label={t("extensions.import_filter")}
+            items={[
+              { id: "all", label: t("extensions.filter_all") },
+              { id: "plugin", label: t("extensions.filter_plugins") },
+              { id: "skill", label: t("skills.title") },
+              { id: "connector", label: t("extensions.connectors_label") },
+            ]}
+            value={filter}
+            onChange={setFilter}
+          />
           <div className="h-72 min-h-28 overflow-y-auto rounded-xl border border-border">
             {discovering ? <div className="flex h-full items-center justify-center gap-2 text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("extensions.import_discovering")}</div>
               : discoveryFailed ? <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"><TriangleAlert className="size-6 text-muted-foreground" /><p className="text-muted-foreground">{t("extensions.import_discovery_failed")}</p><Button variant="outline" size="sm" onClick={() => setDiscoveryRevision(value => value + 1)}>{t("extensions.import_retry")}</Button></div>
@@ -164,7 +181,7 @@ export function PluginImportDialog(props: { provider: PluginImportProvider; stor
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Button>;
-              })}</div> : <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"><Package className="size-6 text-muted-foreground" /><p className="font-medium">{t(search ? "extensions.import_no_matches" : "extensions.import_none_found")}</p><p className="text-sm text-muted-foreground">{t(search ? "extensions.import_search_hint" : "extensions.import_file_hint")}</p></div>}
+              })}</div> : <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"><Package className="size-6 text-muted-foreground" /><p className="font-medium">{t(narrowed ? "extensions.import_no_matches" : "extensions.import_none_found")}</p><p className="text-sm text-muted-foreground">{t(narrowed ? "extensions.import_search_hint" : "extensions.import_file_hint")}</p></div>}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{t("extensions.import_file_source")}</span>
