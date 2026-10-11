@@ -3036,7 +3036,6 @@ export default {
   "session.subagents": "Subagents",
   "session.subagent_started": "Started subagent {name}",
   "session.subagent_completed": "Completed",
-  "session.subagent_starting": "Starting",
   "session.requesting_subagent": "Request from subagent: {name}",
   "session.open_subagent_chat": "Open subagent chat",
   "session.workspace_fallback": "Workspace",

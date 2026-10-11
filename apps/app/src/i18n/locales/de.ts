@@ -3211,7 +3211,6 @@ const de = {
   "session.subagents": "Unteragenten",
   "session.subagent_started": "Unteragent {name} gestartet",
   "session.subagent_completed": "Abgeschlossen",
-  "session.subagent_starting": "Wird gestartet",
   "session.requesting_subagent": "Anfrage vom Unteragenten: {name}",
   "session.open_subagent_chat": "Unteragenten-Chat öffnen",
   "session.workspace_fallback": "Workspace",
