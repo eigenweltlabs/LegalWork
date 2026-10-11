@@ -6,6 +6,34 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("renaming a wiki page preserves its split pane and trash leaves unrelated panes intact", () => {
+    const store = usePanelTabStore.getState();
+    const scope = "workspace:wiki-layout";
+    const other = wikiPanelTab("local", "other", { kind: "page", path: "Guide.md" }, "Other guide");
+    const page = wikiPanelTab("local", "firm", { kind: "page", path: "Old/Guide.md" }, "Guide");
+    store.openTab(scope, other, "main");
+    store.openTab(scope, page, "main", "right");
+    const before = usePanelTabStore.getState().sessions[scope];
+    const wikiPane = before.panes.find(pane => pane.tabIds.includes(page.id));
+    expect(before.panes).toHaveLength(2);
+    expect(wikiPane?.activeTabId).toBe(page.id);
+
+    store.updateWikiPaths("local", "firm", "Old", "New");
+    const moved = wikiPanelTab("local", "firm", { kind: "page", path: "New/Guide.md" }, "Guide");
+    const after = usePanelTabStore.getState().sessions[scope];
+    expect(after.tree).toEqual(before.tree);
+    expect(after.sizes).toEqual(before.sizes);
+    expect(after.focusedPaneId).toBe(before.focusedPaneId);
+    expect(after.panes.find(pane => pane.id === wikiPane?.id)).toEqual({ ...wikiPane, tabIds: [moved.id], activeTabId: moved.id });
+    expect(after.panes.find(pane => pane.id === "main")).toEqual(before.panes.find(pane => pane.id === "main"));
+
+    store.updateWikiPaths("local", "firm", "New", null);
+    const remaining = usePanelTabStore.getState().sessions[scope];
+    expect(remaining.tabs).toEqual([other]);
+    expect(remaining.panes).toHaveLength(1);
+    expect(remaining.panes[0].tabIds).toEqual([other.id]);
+    expect(remaining.tree).toEqual({ type: "pane", id: "main" });
+  });
   test("moving a folder updates open wiki tabs across chats and trash closes only its pages", () => {
     const store = usePanelTabStore.getState();
     const page = wikiPanelTab("local", "firm", { kind: "page", path: "Old/Guide.md", anchor: "sources", mode: "source" }, "Guide");

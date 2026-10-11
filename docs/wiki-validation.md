@@ -2,6 +2,19 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Rebase verification (2026-10-11)
+
+Rebased all 17 feature commits onto `origin/dev` at `69ab8f3d9305beb186cd6e4f1acf3bb070f17727`. The previous head is retained locally as `backup/wiki-246-before-rebase-20261011` (`0054465d`).
+
+- Integrated wiki tabs with dev's unified split-pane workspace, preserving pane layout, project navigation, policy controls, file dragging, and sandbox/runtime registration. Wiki rename and trash now update pane references without discarding unrelated panes. A regression covers both operations across split panes.
+- Installed the worktree's dependencies with `pnpm install --frozen-lockfile` before validation.
+- `pnpm --filter @legalwork/app test`: **1,227 passed, 0 failed** across 191 files. The focused wiki/navigation checks also passed.
+- `pnpm --filter legalwork-server exec bun test src/wiki src/wikis.e2e.test.ts src/wikis-team.e2e.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts src/legalwork-runtime-config.test.ts`: **80 passed, 0 failed** across 12 files.
+- App and server typechecks, both production builds, and app i18n validation passed (6,156 keys in each language). The app production build used `NODE_OPTIONS=--max-old-space-size=8192`; existing large-chunk notices remain.
+- The full server suite and native Electron smoke checks were not rerun for this rebase. Older native screenshots and validation results below describe their stated dates, not this rebased head. A live firm deployment and real model extraction still require verification.
+
+Before merge, run `pnpm dev:electron`: open a wiki page in a standard tab, split it beside another document, rename/move it, then trash it and confirm the other pane remains intact. Check project navigation, file dragging, and sidebar width after opening/closing pages. With the reconciled companion API deployed, repeat the two-host sharing, revocation, and overlapping/offline-edit flows below.
+
 ## Stable sidebar width (2026-10-08)
 
 - Opening or closing the document viewer restored a different cached panel layout and changed the wiki sidebar's width. The shared file sidebar now preserves its current pixel width across viewer changes and group resizing; manual resizing remains available.
