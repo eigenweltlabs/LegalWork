@@ -5,7 +5,6 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   CircleAlert,
   Cloud,
   Code2,
@@ -1314,7 +1313,6 @@ function McpConfiguredServerRow(props: {
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
             <div className="mt-0.5 truncate text-[13px] text-dls-secondary">{props.directoryEntry?.description ?? t("integrations.custom_connector")}</div>
           </div>
-          <ChevronRight size={14} className="shrink-0 text-muted-foreground/50" />
         </button>
         <div className="flex shrink-0 items-center gap-2">
           <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
