@@ -55,11 +55,12 @@ test("each row exposes its task and status as a native chat-opening button witho
   expect(html).toMatch(/^<button\b/);
   expect(html).toContain("Open subagent chat: Review liability clauses");
   expect(html).toContain("Started subagent Review liability clauses");
-  expect(html).toContain("Completed");
+  expect(html).toContain('aria-label="Completed"');
+  expect(html).not.toContain(">Completed<");
   expect(html).not.toContain("aria-expanded=");
   expect(html).not.toContain("Private instructions");
-  const starting = renderToStaticMarkup(<SubagentRow title="Research" status="thinking" starting />);
-  expect(starting).toContain("Starting");
+  const starting = renderToStaticMarkup(<SubagentRow title="Research" status="thinking" />);
+  expect(starting).toContain('aria-label="Thinking"');
   expect(starting).toContain("disabled");
 });
 
