@@ -1,6 +1,5 @@
 /** @jsxImportSource react */
 import { IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
-import { HubTabs } from "../segmented-tabs";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
@@ -16,6 +15,7 @@ import {
   Blocks,
   Bot,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -60,7 +60,7 @@ import {
   pillSecondaryClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
@@ -89,6 +89,7 @@ import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
+type SkillLibraryFilter = "all" | "custom" | "built-in" | "packages";
 const SKILLS_HUB_UI_ENABLED = false;
 // Workflows grid: 2 columns × 4 rows of compact cards before paging.
 const WORKFLOWS_PER_PAGE = 8;
@@ -343,7 +344,13 @@ export function SkillsView(props: SkillsViewProps) {
 
 
   const isWorkflowsView = props.kind === "workflows";
-  const [libraryFilter, setLibraryFilter] = useState<"all" | "custom" | "built-in" | "packages">("all");
+  const [libraryFilter, setLibraryFilter] = useState<SkillLibraryFilter>("all");
+  const libraryFilterLabels: Record<SkillLibraryFilter, string> = {
+    all: t("integrations.all_skills"),
+    custom: t("integrations.your_skills"),
+    "built-in": t("integrations.included"),
+    packages: t("skills.packages_title"),
+  };
   const [skillsImportOpen, setSkillsImportOpen] = useState(false);
   const [teamSkillsOpen, setTeamSkillsOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
@@ -763,14 +770,16 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         ) : null}
 
-        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")}>
-          {!isWorkflowsView ? <HubTabs label={t("skills.title")} value={libraryFilter} onChange={setLibraryFilter} items={[
-            { id: "all", label: t("integrations.all_skills") },
-            { id: "custom", label: t("integrations.your_skills") },
-            { id: "built-in", label: t("skills.built_in_title") },
-            { id: "packages", label: t("skills.packages_title") },
-          ]} /> : null}
-        </IntegrationSearch> : null}
+        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")} filter={!isWorkflowsView ? <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground" aria-label={t("integrations.filter_skills", { filter: libraryFilterLabels[libraryFilter] })} />}>
+            {libraryFilterLabels[libraryFilter]}<ChevronDown className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup value={libraryFilter} onValueChange={value => { if (value === "all" || value === "custom" || value === "built-in" || value === "packages") setLibraryFilter(value); }}>
+              {Object.entries(libraryFilterLabels).map(([value, label]) => <DropdownMenuRadioItem key={value} value={value} closeOnClick>{label}</DropdownMenuRadioItem>)}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu> : undefined} /> : null}
       </div>
 
       {showTeam ? props.firmDownloadView : null}

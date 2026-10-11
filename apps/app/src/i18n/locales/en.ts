@@ -9,6 +9,7 @@ export default {
   "integrations.builtin_tools": "LegalWork tools",
   "integrations.search_skills": "Search skills…",
   "integrations.all_skills": "All skills",
+  "integrations.filter_skills": "Filter skills: {filter}",
   "integrations.description": "Manage connectors, skills and file storage.",
   "integrations.add_connector": "Add connector",
   "integrations.team_optional": "Shared by your team · Optional",

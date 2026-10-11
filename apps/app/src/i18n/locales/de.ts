@@ -19,6 +19,7 @@ const de = {
   "integrations.builtin_tools": "LegalWork-Tools",
   "integrations.search_skills": "Skills durchsuchen…",
   "integrations.all_skills": "Alle Skills",
+  "integrations.filter_skills": "Skills filtern: {filter}",
   "integrations.description": "Verwalten Sie Konnektoren, Skills und Dateispeicher.",
   "integrations.add_connector": "Konnektor hinzufügen",
   "integrations.team_optional": "Von Ihrem Team geteilt · Optional",

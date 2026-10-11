@@ -111,7 +111,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
-          <div ref={setSearchTarget} className="w-full empty:hidden sm:w-64" />
+          <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />
         </div>
 
         <HubScopeContext.Provider key={importVersion} value="local">
