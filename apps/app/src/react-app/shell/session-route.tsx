@@ -501,12 +501,14 @@ export function SessionRoute() {
   });
   const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
   const openWikiWorkspace = useCallback((wiki: WikiVault) => {
+    // Wikis created by another window or API can precede the workspace list.
+    if (!workspacesRef.current.some(workspace => workspace.id === wiki.workspaceId)) void refreshRouteState();
     writeLastWikiWorkspaceId(baseUrl, wiki.workspaceId);
     const panel = usePanelTabStore.getState().sessions[workspacePanelKey(wiki.workspaceId)];
     const activeId = panel?.panes.find(pane => pane.id === panel.focusedPaneId)?.activeTabId ?? panel?.activeTabId;
     const active = panel?.tabs.find(tab => tab.id === activeId);
     navigate(wikiWorkspaceRoute(wiki.workspaceId, active?.type === "chat" ? active.sessionId : null));
-  }, [baseUrl, navigate]);
+  }, [baseUrl, navigate, refreshRouteState, workspacesRef]);
   useEffect(() => {
     if (!wikis.data) return;
     // Canonicalize old wiki chat links without changing their session.

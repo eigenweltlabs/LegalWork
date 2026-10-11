@@ -67,7 +67,7 @@ function WikiContentPane(props: WikiPaneProps) {
   const navigationOnly = props.display === "navigation";
   const tabOnly = props.display === "tab";
   const queryClient = useQueryClient();
-  const [wikiId, setWikiId] = useState(props.selectedWikiId ?? props.tab?.wikiId ?? "");
+  const [wikiId, setWikiId] = useState(tabOnly ? props.tab?.wikiId ?? "" : props.selectedWikiId ?? props.tab?.wikiId ?? "");
   const [path, setPath] = useState((props.tab?.location.kind === "page" || props.tab?.location.kind === "asset") ? props.tab.location.path : props.tab?.location.kind === "graph" ? props.tab.location.focus ?? "" : "");
   const [pageAnchor, setPageAnchor] = useState(props.tab?.location.kind === "page" ? props.tab.location.anchor ?? "" : "");
   const [viewModeRequest, setViewModeRequest] = useState<{ mode: "source" | "rich-text" }>({ mode: props.tab?.location.kind === "page" && props.tab.location.mode === "source" ? "source" : "rich-text" });
@@ -107,9 +107,11 @@ function WikiContentPane(props: WikiPaneProps) {
       void queryClient.invalidateQueries({ queryKey: ["wiki-snapshot", props.serverUrl, wikiId] });
       void queryClient.invalidateQueries({ queryKey: ["wikis", props.serverUrl] });
       void queryClient.invalidateQueries({ queryKey: ["wiki-search", props.serverUrl, wikiId] });
+      void queryClient.invalidateQueries({ queryKey: ["view-data", props.serverUrl, "wiki", wikiId] });
+      void queryClient.invalidateQueries({ queryKey: ["ui-views", props.serverUrl, "wiki", wikiId] });
     }
     return next;
-  }, enabled: Boolean(props.client && wikiId), refetchInterval: 5000 });
+  }, enabled: Boolean(props.client && wikiId), refetchInterval: 2000 });
   const searchResult = useQuery({ queryKey: ["wiki-search", props.serverUrl, wikiId, debouncedSearch], queryFn: async () => {
     if (!props.client) throw new Error(t("wiki.offline"));
     return props.client.searchWiki(wikiId, debouncedSearch);
@@ -135,12 +137,14 @@ function WikiContentPane(props: WikiPaneProps) {
   const viewFiles = useMemo(() => Object.fromEntries((savedViews.data?.items ?? []).map(view => [view.path ?? `Views/${view.id}.view.json`, { title: view.title, mode: view.mode }])), [savedViews.data?.items]);
   const currentPage = pages.find((page) => page.path === path);
   useEffect(() => {
-    if (!props.tab || props.tab.location.kind !== "page" || !currentPage?.title) return;
+    // Navigation can receive the previous workspace's active tab during a
+    // switch. Only the matching document pane may rename its tab.
+    if (!tabOnly || !props.tab || props.tab.location.kind !== "page" || props.tab.wikiId !== wikiId || props.tab.location.path !== path || !currentPage?.title) return;
     const store = usePanelTabStore.getState();
     for (const [scope, session] of Object.entries(store.sessions)) {
       if (session.tabs.some(tab => tab.id === props.tab?.id && tab.label !== currentPage.title)) store.updateTabLabel(scope, props.tab.id, currentPage.title);
     }
-  }, [props.tab?.id, props.tab?.location.kind, currentPage?.title]);
+  }, [tabOnly, props.tab, wikiId, path, currentPage?.title]);
   const draft = wikiId && path ? drafts.get(wikiId, path) : undefined;
   const backlinks = useMemo(() => wikiBacklinks(pages, path), [pages, path]);
   const linkSuggestions = useMemo(() => pages.map((page) => `[[${page.path}]]`), [pages]);

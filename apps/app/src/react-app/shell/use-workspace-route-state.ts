@@ -97,9 +97,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
-  const selectedWorkspaceId = hasLoadedServerWorkspaces
-    ? resolveRouteWorkspaceId(workspaces, [routeWorkspaceId, legacySelectedWorkspaceId])
-    : routeWorkspaceId || legacySelectedWorkspaceId;
+  // An explicit route may point at a wiki just created on the server. Never
+  // borrow another workspace's tabs, connection or agent directory while loading it.
+  const selectedWorkspaceId = routeWorkspaceId || (hasLoadedServerWorkspaces
+    ? resolveRouteWorkspaceId(workspaces, [legacySelectedWorkspaceId])
+    : legacySelectedWorkspaceId);
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
