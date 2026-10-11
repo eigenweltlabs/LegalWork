@@ -7,6 +7,7 @@ import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains
 import { BuiltInSkills } from "../src/react-app/domains/settings/pages/skill-packages";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
+import { IntegrationLibraryLayoutContext } from "../src/react-app/domains/settings/pages/integration-library";
 
 const noop = () => {};
 const ok = async () => ({ ok: true, message: "" });
@@ -72,4 +73,21 @@ test("storage empty and team states preserve scope and offer the right next acti
   expect(teamHtml).not.toContain("Office documents");
   expect(teamHtml).not.toContain(">Add storage<");
   expect(teamHtml).toContain("No shared storage yet");
+});
+
+test("the unified storage library includes optional team sources without granting local edit controls", () => {
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const local = { ...storageInputSchema.parse({ name: "Personal files", config: { kind: "webdav", endpoint: "https://example.invalid/files" } }), id: "local", updatedAt: 1, configuredSecrets: [] };
+  const shared = { ...local, id: "shared", name: "Team documents", teamInstallation: "optional", team: { orgId: "firm", version: 1, installed: false } };
+  queries.setQueryData(["storage-connections", "test"], { connections: [local, shared] });
+  queries.setQueryData(["storage-oauth-providers", "test"], { providers: [] });
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null }}><HubScopeContext.Provider value="local"><FileStorageView client={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} workspaceId="test" /></HubScopeContext.Provider></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
+  expect(html).toContain("Personal files");
+  expect(html).toContain("Team documents");
+  expect(html).toContain(">Team<");
+  expect(html).toContain(">Add to Memory Drive<");
+  expect(html).toContain('aria-label="Edit Personal files"');
+  expect(html).not.toContain('aria-label="Edit Team documents"');
+  expect(html).not.toContain('aria-label="Disconnect Team documents"');
+  queries.clear();
 });

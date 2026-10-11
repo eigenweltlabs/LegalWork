@@ -5,10 +5,10 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { t } from "@/i18n";
 
 export function SkillLibraryRow(props: { name: string; description: string; source?: ReactNode; busy: boolean; onOpen: () => void; onExport?: () => void; onShare?: () => void; onRemove?: () => void }) {
-  return <div className="flex items-center gap-3 py-4">
+  return <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-muted/30">
     <button type="button" onClick={props.onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Blocks className="size-5 text-muted-foreground" /></span>
-      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{props.name}</span><span className="mt-1 block line-clamp-2 text-sm leading-5 text-muted-foreground">{props.description}</span></span>
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>
+      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{props.name}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{props.description}</span></span>
     </button>
     {props.source ? <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">{props.source}</span> : null}
     {props.onExport || props.onShare || props.onRemove ? <DropdownMenu>

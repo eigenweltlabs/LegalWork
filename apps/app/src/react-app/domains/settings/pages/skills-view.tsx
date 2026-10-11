@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { HubTabs } from "../segmented-tabs";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
@@ -23,6 +23,7 @@ import {
   FileArchive,
   FolderOpen,
   Loader2,
+  MoreHorizontal,
   Package,
   Plus,
   RefreshCw,
@@ -59,6 +60,7 @@ import {
   pillSecondaryClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
@@ -270,6 +272,7 @@ function skillsViewLocalReducer(
 }
 
 export function SkillsView(props: SkillsViewProps) {
+  const libraryLayout = useIntegrationLibraryLayout();
   const { extensions } = props;
   const [localState, dispatchLocal] = useReducer(
     skillsViewLocalReducer,
@@ -341,6 +344,8 @@ export function SkillsView(props: SkillsViewProps) {
 
   const isWorkflowsView = props.kind === "workflows";
   const [libraryFilter, setLibraryFilter] = useState<"all" | "custom" | "built-in" | "packages">("all");
+  const [skillsImportOpen, setSkillsImportOpen] = useState(false);
+  const [teamSkillsOpen, setTeamSkillsOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
   // view is provided (firm-connected + entitled).
@@ -644,10 +649,10 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className="space-y-8 w-full max-w-5xl">
-      <div className="space-y-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 basis-64">
+    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : "space-y-6 w-full max-w-5xl"}>
+      <div className={isWorkflowsView ? "space-y-7" : "space-y-5"}>
+        <div className={libraryLayout ? "contents" : "flex flex-wrap items-start justify-between gap-4"}>
+          <div className={libraryLayout ? "hidden" : "min-w-0 flex-1 basis-64"}>
             {props.showHeader !== false ? (
               <>
                 <span className="lw-section-eyebrow uppercase text-dls-secondary">
@@ -663,7 +668,7 @@ export function SkillsView(props: SkillsViewProps) {
             ) : !isWorkflowsView ? <IntegrationLibraryHeader title={t("skills.title")} description={t("integrations.skills_description")} /> : null}
           </div>
 
-          {showLocal ? <div className="flex max-w-full flex-wrap items-center gap-2">
+          {showLocal ? <IntegrationLibraryActions><div className="flex max-w-full flex-wrap items-center gap-2">
             {isWorkflowsView ? (
               <>
                 <ImportSkillsButton
@@ -708,6 +713,8 @@ export function SkillsView(props: SkillsViewProps) {
             ) : (
               <>
                 <ImportSkillsButton
+                  open={libraryLayout ? skillsImportOpen : undefined}
+                  onOpenChange={libraryLayout ? setSkillsImportOpen : undefined}
                   asWorkflow={false}
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
@@ -715,7 +722,7 @@ export function SkillsView(props: SkillsViewProps) {
                   extensions={extensions}
                   onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
                 />
-                <button
+                {!libraryLayout ? <button
                   type="button"
                   onClick={() => runDesktopAction(extensions.revealSkillsFolder)}
                   disabled={props.busy || !props.canUseDesktopTools}
@@ -724,17 +731,25 @@ export function SkillsView(props: SkillsViewProps) {
                   title={t("skills.reveal_folder")}
                 >
                   <FolderOpen size={14} />
-                </button>
+                </button> : null}
                 <SkillCreatorButton
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
                   saveSkillResource={extensions.saveSkillResource}
                 />
+                {libraryLayout ? <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.more_skill_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("skills.import_skills_title")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={!props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+                    {props.firmDownloadView ? <DropdownMenuItem onClick={() => setTeamSkillsOpen(true)}><Share2 />{t("integrations.browse_team_skills")}</DropdownMenuItem> : null}
+                  </DropdownMenuContent>
+                </DropdownMenu> : null}
               </>
             )}
             {isWorkflowsView || props.showHeader !== false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} onClick={refreshCatalogs} title={t("common.refresh")} aria-label={t("common.refresh")}><RefreshCw className="size-4" /></Button> : null}
-          </div> : null}
+          </div></IntegrationLibraryActions> : null}
         </div>
 
         {showInternalToggle ? (
@@ -748,7 +763,7 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         ) : null}
 
-        {showLocal ? <IntegrationSearch value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")}>
+        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")}>
           {!isWorkflowsView ? <HubTabs label={t("skills.title")} value={libraryFilter} onChange={setLibraryFilter} items={[
             { id: "all", label: t("integrations.all_skills") },
             { id: "custom", label: t("integrations.your_skills") },
@@ -759,6 +774,12 @@ export function SkillsView(props: SkillsViewProps) {
       </div>
 
       {showTeam ? props.firmDownloadView : null}
+      {libraryLayout && props.firmDownloadView ? <Dialog open={teamSkillsOpen} onOpenChange={setTeamSkillsOpen}>
+        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader className="pe-8"><DialogTitle>{t("integrations.browse_team_skills")}</DialogTitle></DialogHeader>
+          {props.firmDownloadView}
+        </DialogContent>
+      </Dialog> : null}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
@@ -797,13 +818,13 @@ export function SkillsView(props: SkillsViewProps) {
             <IntegrationEmptyState icon={Blocks} title={t(searchQuery.trim() ? "integrations.no_skill_matches" : isWorkflowsView ? "skills.no_workflows" : "integrations.no_skills_title")} description={t(searchQuery.trim() ? "integrations.search_hint" : "integrations.no_skills_description")} />
           ) : (
             <div className="space-y-5">
-              <div className={isWorkflowsView ? "grid gap-3 sm:grid-cols-2" : "divide-y divide-border/60"}>
+              <div className={isWorkflowsView ? "grid gap-3 sm:grid-cols-2" : "space-y-1"}>
                 {(isWorkflowsView ? pagedWorkflows : filteredSkills).map((skill) => {
 
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : pluginImportSkillName(skill);
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
-                  if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? <FirmItemNote added={skill.firm === "optional"} /> : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
+                  if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? t("firm_hub.scope_team") : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
                     onExport={!skill.firm && props.canUseDesktopTools ? () => void exportSkill(skill) : undefined}
                     onShare={!skill.firm && props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(skill.name, "skill") : undefined}
                     onRemove={!skill.firm && props.canUseDesktopTools ? () => setUninstallTarget(skill) : undefined} />;

@@ -1,14 +1,15 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
-import { Blocks, Cpu, Download, HardDrive, Plug, RefreshCw, type LucideIcon } from "lucide-react";
+import { Download, RefreshCw, Share2 } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { SectionHeading } from "@/react-app/design-system/surface";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
-import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
+import { HubScopeContext } from "./hub-scope-context";
+import { HubTabs, type HubTab } from "../segmented-tabs";
+import { IntegrationLibraryLayoutContext } from "./integration-library";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -46,13 +47,9 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
-  /** Connectors tab, Local: the firm's connectors on this computer, with sign-in and own keys. */
-  firmConnectorsView?: ReactNode;
   storageView?: ReactNode;
   /** Skills tab — built-in, installed and imported skills, with add/import. */
   skillsView: ReactNode;
-  /** Whether the firm is connected + entitled (shows the Local/Team toggle). */
-  hasTeamHub?: boolean;
   /** Opens the multi-select "Share with your firm" dialog. */
   onOpenTeamShare?: () => void;
   onRefresh: () => void;
@@ -65,13 +62,15 @@ export type ExtensionsViewProps = {
 // developer mode also the engine's plugins (code it loads).
 // Built per render, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze the tabs in whatever language loaded first.
-const tabs = (developerMode: boolean): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
-  { id: "connectors", label: t("extensions.connectors_label"), icon: Plug, subtitle: t("extensions.apps_subtitle_short") },
-  { id: "skills", label: "Skills", icon: Blocks, subtitle: t("extensions.skills_subtitle") },
-  { id: "storage", label: t("storage.tab"), icon: HardDrive, subtitle: t("storage.intro") },
-  ...(developerMode ? [{ id: "plugins" as const, label: t("extensions.engine_plugins"), icon: Cpu, subtitle: t("extensions.engine_plugins_subtitle") }] : []),
-];
-
+const tabs = (developerMode: boolean): HubTab<ExtensionsTab>[] => {
+  const items: HubTab<ExtensionsTab>[] = [
+    { id: "connectors", label: t("extensions.connectors_label") },
+    { id: "skills", label: "Skills" },
+    { id: "storage", label: t("storage.tab") },
+  ];
+  if (developerMode) items.push({ id: "plugins", label: t("extensions.engine_plugins") });
+  return items;
+};
 
 export function ExtensionsView(props: ExtensionsViewProps) {
   // An old link to the Plugins tab opens Skills, where the built-in ones are now.
@@ -84,14 +83,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importOpen, setImportOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
+  const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
+  const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setTab(initialTab), [initialTab]);
-  // Local | Team is the OUTER toggle for the whole Integrations page; the
-  // Connectors/Skills tabs sit inside it. The sub-views follow this scope via
-  // HubScopeContext. The firm hands out no engine plugins: that tab is local.
-  const [selectedScope, setHubScope] = useState<HubScope>("local");
-  const teamHub = props.hasTeamHub === true && tab !== "plugins";
-  const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
-
   const selectTab = (next: ExtensionsTab) => {
     setTab(next);
     props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
@@ -100,47 +94,46 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const TABS = tabs(props.developerMode);
 
   return (
-    <section className="w-full min-w-0 max-w-5xl space-y-6">
-      {props.showHeader !== false ? <SectionHeading size="page" title={t("extensions.eyebrow_integrations")} description={t("integrations.description")} action={
-        <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw /></Button>
-      } /> : null}
-      {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border">
-        <div role="group" aria-label={t("extensions.eyebrow_integrations")} className="flex flex-wrap gap-5">
-          {TABS.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-pressed={tab === id} onClick={() => selectTab(id)} className={`inline-flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${tab === id ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}><Icon className="size-4" />{label}</button>)}
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget }}>
+      <section className="w-full min-w-0 max-w-4xl space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className={props.showHeader === false ? "sr-only" : "text-xl font-medium tracking-tight"}>{t("extensions.eyebrow_integrations")}</h2>
+            {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
+          </div>
+          <div className="flex max-w-full flex-wrap items-center gap-2">
+            <div ref={setActionsTarget} className="flex flex-wrap items-center gap-2 empty:hidden" />
+            {tab !== "storage" && props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            {tab !== "storage" && props.onOpenTeamShare ? <Button size="icon-sm" variant="ghost" onClick={props.onOpenTeamShare} aria-label={t("extensions.share_with_firm")} title={t("extensions.share_with_firm")}><Share2 className="size-3.5" /></Button> : null}
+            <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw className="size-3.5" /></Button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 pb-2">
-          {hubScope === "local" && tab !== "storage" && props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-4" />{t("integrations.import_action")}</Button> : null}
-          {teamHub || tab === "storage" ? <HubScopeToggle scope={hubScope} onChange={setHubScope} /> : null}
-          {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button size="sm" variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}
-          {props.showHeader === false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("common.refresh")} title={t("common.refresh")} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw /></Button> : null}
+        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
+          <div ref={setSearchTarget} className="w-full empty:hidden sm:w-64" />
         </div>
-      </div>
 
-      <HubScopeContext.Provider key={importVersion} value={hubScope}>
-      {tab === "connectors" ? (
-        <div className="space-y-8">
-          {props.mcpView}
-          {hubScope === "local" ? props.firmConnectorsView : null}
-        </div>
-      ) : null}
+        <HubScopeContext.Provider key={importVersion} value="local">
+          {tab === "connectors" ? props.mcpView : null}
 
-      {tab === "storage" ? props.storageView : null}
+          {tab === "storage" ? props.storageView : null}
 
-      {tab === "skills" ? props.skillsView : null}
+          {tab === "skills" ? props.skillsView : null}
 
-      {tab === "plugins" ? (
-        <PluginsView
-          extensions={props.extensions}
-          busy={props.busy}
-          selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-          canEditPlugins={props.canEditPlugins}
-          canUseGlobalScope={props.canUseGlobalScope}
-          accessHint={props.accessHint}
-          suggestedPlugins={props.suggestedPlugins}
-        />
-      ) : null}
-      </HubScopeContext.Provider>
-    </section>
+          {tab === "plugins" ? (
+            <PluginsView
+              extensions={props.extensions}
+              busy={props.busy}
+              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+              canEditPlugins={props.canEditPlugins}
+              canUseGlobalScope={props.canUseGlobalScope}
+              accessHint={props.accessHint}
+              suggestedPlugins={props.suggestedPlugins}
+            />
+          ) : null}
+        </HubScopeContext.Provider>
+      </section>
+    </IntegrationLibraryLayoutContext.Provider>
   );
 }

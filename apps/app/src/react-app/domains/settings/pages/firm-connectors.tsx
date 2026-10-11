@@ -1,99 +1,76 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LogIn, Plug } from "lucide-react";
+import { KeyRound, Loader2, LogIn, Plug } from "lucide-react";
 import type { FirmHubItem } from "@legalwork/types/firm-hub";
-
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { McpStatusMap } from "@/app/types";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { FIRM_HUB_QUERY_KEY, useFirmHub } from "../../connections/firm-hub";
-import { FirmItemNote, MemberKeyDialog } from "../../connections/org-policy-ui";
+import { MemberKeyDialog } from "../../connections/org-policy-ui";
 
-/** "nda-review" -> "Nda Review", as the Team tab names hub items. */
-const prettify = (slug: string) => slug.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, (letter) => letter.toUpperCase());
+export const firmConnectorName = (slug: string) => slug.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, letter => letter.toUpperCase());
 
-/**
- * The firm's connectors on this computer (server firm-hub.ts): what the admin
- * installed for everyone and what the member added. They follow the hub, so
- * there is nothing to remove here; a member signs in, or adds their own key,
- * where the firm asks each member for theirs.
- */
-export function FirmConnectors(props: {
-  client: LegalworkServerClient | null;
-  statuses: McpStatusMap;
-  /** Opens the sign-in for a connector the engine runs under `name`. */
-  onSignIn: (name: string, url: string) => void;
-}) {
-  const queryClient = useQueryClient();
+/** Team entries join the personal rows, rather than creating a second library. */
+export function FirmConnectorLibrary(props: { client: LegalworkServerClient; children: (items: FirmHubItem[]) => ReactNode }) {
   const firmHub = useFirmHub(props.client);
-  const [keyFor, setKeyFor] = useState<FirmHubItem | null>(null);
-  const connectors = (firmHub.data?.items ?? []).filter(
-    (item) => item.kind === "mcp" && item.connector && (item.installation === "automatic" || item.added),
-  );
-  if (connectors.length === 0) return null;
+  return <>
+    {firmHub.isLoading ? <p role="status" className="text-xs text-muted-foreground">{t("firm_hub.loading")}</p> : null}
+    {firmHub.error ? <p role="alert" className="text-sm text-destructive">{firmHub.error.message}</p> : null}
+    {props.children((firmHub.data?.items ?? []).filter(item => item.kind === "mcp"))}
+  </>;
+}
 
-  async function saveKey(item: FirmHubItem, key: string) {
-    if (!props.client) return;
-    queryClient.setQueryData(FIRM_HUB_QUERY_KEY, await props.client.setFirmHubKey(item.id, key));
-    toast.success(t("firm_hub.key_saved", { name: prettify(item.name) }));
+/** Team-owned config stays managed by the hub; only optional membership and the member's account can change here. */
+export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkServerClient; statuses: McpStatusMap; busy: boolean; onSignIn: (name: string, url: string) => void; onChanged?: () => void }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [confirmAdd, setConfirmAdd] = useState(false);
+  const { item } = props;
+  const name = firmConnectorName(item.name);
+  const installed = item.installation === "automatic" || item.added;
+  const connector = item.connector;
+  const status = connector ? props.statuses[connector.serverName]?.status : undefined;
+  const needsKey = installed && connector?.access === "member" && !connector.hasOwnKey;
+  const canSignIn = installed && connector?.access === "oauth" && connector.url && status !== "connected";
+  const state = !installed ? null : needsKey ? t("firm_hub.connector_needs_key")
+    : status === "needs_auth" || status === "needs_client_registration" ? t("firm_hub.connector_needs_sign_in")
+    : status === "failed" ? t("firm_hub.connector_failed") : null;
+
+  async function setAdded(added: boolean) {
+    setBusy(true);
+    try {
+      queryClient.setQueryData(FIRM_HUB_QUERY_KEY, await props.client.setFirmHubAdded(item.id, added));
+      props.onChanged?.();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : t("firm_hub.add_failed"));
+    } finally { setBusy(false); }
   }
 
-  return (
-    <div className="space-y-4">
-      <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("firm_hub.from_firm_title")}</span>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-3">
-        {connectors.map((item) => {
-          const connector = item.connector;
-          if (!connector) return null;
-          const status = props.statuses[connector.serverName]?.status;
-          const needsKey = connector.access === "member" && !connector.hasOwnKey;
-          const canSignIn = connector.access === "oauth" && connector.url !== null && status !== "connected";
-          const state = needsKey
-            ? t("firm_hub.connector_needs_key")
-            : status === "connected"
-              ? t("firm_hub.connector_connected")
-              : status === "needs_auth" || status === "needs_client_registration"
-                ? t("firm_hub.connector_needs_sign_in")
-                : status === "failed"
-                  ? t("firm_hub.connector_failed")
-                  : null;
-          return (
-            <div key={item.id} className="flex flex-col rounded-[16px] border border-dls-border bg-dls-surface p-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-dls-border bg-dls-hover text-dls-accent">
-                  <Plug size={15} strokeWidth={1.75} />
-                </span>
-                <h4 className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{prettify(item.name)}</h4>
-              </div>
-              {item.description ? <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{item.description}</p> : null}
-              <div className="mt-3 flex flex-col gap-1">
-                <FirmItemNote added={item.installation === "optional"} />
-                {state ? <span className="text-[12px] text-dls-secondary">{state}</span> : null}
-              </div>
-              {connector.access === "member" || canSignIn ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {connector.access === "member" ? (
-                    <Button variant="outline" size="sm" onClick={() => setKeyFor(item)}>
-                      <KeyRound className="size-3.5" />
-                      {t(connector.hasOwnKey ? "firm_hub.change_key" : "firm_hub.add_key")}
-                    </Button>
-                  ) : null}
-                  {canSignIn && connector.url ? (
-                    <Button variant="outline" size="sm" onClick={() => connector.url && props.onSignIn(connector.serverName, connector.url)}>
-                      <LogIn className="size-3.5" />
-                      {t("firm_hub.sign_in")}
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      {keyFor ? <MemberKeyDialog name={prettify(keyFor.name)} onSave={(key) => saveKey(keyFor, key)} onClose={() => setKeyFor(null)} /> : null}
+  async function saveKey(key: string) {
+    queryClient.setQueryData(FIRM_HUB_QUERY_KEY, await props.client.setFirmHubKey(item.id, key));
+    toast.success(t("firm_hub.key_saved", { name }));
+    props.onChanged?.();
+  }
+
+  return <div className="flex flex-wrap items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30">
+    <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border"><Plug className="size-4 text-muted-foreground" /></span>
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-sm font-medium">{name}</p>
+      <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.description}</p>
     </div>
-  );
+    <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={t(item.installation === "automatic" ? "firm_hub.installed_for_everyone" : "integrations.team_optional")}>{t("firm_hub.scope_team")}</span>
+    {state ? <span className="text-xs text-muted-foreground">{state}</span> : null}
+    {installed && connector?.access === "member" ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => setKeyOpen(true)}><KeyRound className="size-3.5" />{t(connector.hasOwnKey ? "firm_hub.change_key" : "firm_hub.add_key")}</Button> : null}
+    {canSignIn && connector?.url ? <Button variant="outline" size="sm" disabled={props.busy || busy} onClick={() => connector.url && props.onSignIn(connector.serverName, connector.url)}><LogIn className="size-3.5" />{t("firm_hub.sign_in")}</Button> : null}
+    {item.installation === "optional" ? <Switch checked={installed} disabled={props.busy || busy} aria-label={t(installed ? "mcp.disable_app" : "mcp.enable_app") + " " + name} onCheckedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} /> : null}
+    {busy ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+    {keyOpen ? <MemberKeyDialog name={name} onSave={saveKey} onClose={() => setKeyOpen(false)} /> : null}
+    <ConfirmModal open={confirmAdd} title={t("firm_hub.add_review_title", { name })} message={t("integrations.team_add_review")} confirmLabel={t("firm_hub.add")} cancelLabel={t("common.cancel")} variant="warning" onCancel={() => setConfirmAdd(false)} onConfirm={() => { setConfirmAdd(false); void setAdded(true); }} />
+  </div>;
 }

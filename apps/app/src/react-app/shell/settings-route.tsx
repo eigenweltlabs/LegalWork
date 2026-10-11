@@ -89,7 +89,6 @@ import { captureAnalyticsEvent, discardPendingAnalytics } from "@/app/lib/analyt
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
-import { FirmConnectors } from "@/react-app/domains/settings/pages/firm-connectors";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
@@ -2328,7 +2327,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <ExtensionsView
             busy={busy}
-            showHeader={props.singleView === true}
+            showHeader
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
             developerMode={developerMode}
@@ -2348,17 +2347,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
+              void extensionsStore.refreshSkills({ force: true });
+              void getReactQueryClient().invalidateQueries({ queryKey: ["firm-hub"] });
             }}
             storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
-            firmConnectorsView={
-              <FirmConnectors
-                client={legalworkClient}
-                statuses={connectionsSnapshot.mcpStatuses}
-                onSignIn={(name, url) => connectionsStore.authorizeMcp({ name, config: { type: "remote", url } })}
-              />
-            }
             mcpView={
               <McpView
+                firmClient={legalworkClient}
+                onFirmConfigApplied={() => {
+                  void connectionsStore.refreshMcpServers();
+                  void reloadWorkspaceEngineFromUi();
+                }}
                 busy={busy}
                 workspaceKey={selectedWorkspace?.id}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2403,18 +2402,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   setTeamShareInitial(null);
                   setTeamShareOpen(true);
                 } : undefined}
-                firmDownloadView={
-                  <HubDownloadSection
-                    legalworkClient={legalworkClient}
-                    workspaceId={hubWorkspaceId}
-                    kind="mcp"
-                    onConfigApplied={() => {
-                      void extensionsStore.refreshSkills({ force: true });
-                      void extensionsStore.refreshPlugins();
-                      void reloadWorkspaceEngineFromUi();
-                    }}
-                  />
-                }
               />
             }
             skillsView={
@@ -2428,7 +2415,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 extensions={extensionsStore}
                 canShareWithFirm={canShareWithFirm}
                 onShareWithFirm={shareWorkflowWithFirm}
-                firmDownloadView={
+                firmDownloadView={hubWorkspaceId ?
                   <HubDownloadSection
                     legalworkClient={legalworkClient}
                     workspaceId={hubWorkspaceId}
@@ -2437,7 +2424,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                       void extensionsStore.refreshSkills({ force: true });
                       void reloadWorkspaceEngineFromUi();
                     }}
-                  />
+                  /> : undefined
                 }
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
@@ -2447,7 +2434,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
-            hasTeamHub={Boolean(hubWorkspaceId)}
             onOpenTeamShare={canShareWithFirm ? () => {
               setTeamShareInitial(null);
               setTeamShareOpen(true);

@@ -21,8 +21,6 @@ export type SkillPackagesStore = {
   removeImportedPackage: (pluginId: string) => Promise<void>;
 };
 
-const cardClass = "flex items-start gap-3 py-4";
-
 const PART_COPY = {
   skill: "skills.package_skills",
   mcp: "skills.package_connectors",
@@ -87,7 +85,7 @@ export function ImportedPackages(props: {
     <div className="space-y-4">
       <IntegrationGroupHeading title={t("skills.packages_title")} count={visiblePackages.length} />
       {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t("integrations.no_packages")} description={t(query ? "integrations.search_hint" : "integrations.import_description")} /> : null}
-      <div className="divide-y divide-border/60">
+      <div className="space-y-1">
         {visiblePackages.map((plugin) => (
           <div key={plugin.pluginId} className="group flex items-start gap-3 py-4">
             <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Package className="size-5 text-muted-foreground" /></span>
@@ -143,20 +141,16 @@ export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean
     <div className="space-y-4">
       <IntegrationGroupHeading title={t("skills.built_in_title")} count={skills.length} />
       {skills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("integrations.no_skill_matches")} description={t("integrations.search_hint")} /> : null}
-      <div className="divide-y divide-border/60">
+      <div className="space-y-1">
         {skills.map((skill) => (
-          <div key={skill.id} className={cardClass}>
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30"><Blocks className="size-5 text-muted-foreground" /></span>
+          <div key={skill.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30" title={skill.commands.join(" · ")}>
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>
             <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center justify-between gap-2">
               <h4 className="truncate text-sm font-medium">{skill.name}</h4><span className="shrink-0 text-xs text-muted-foreground">{t("integrations.included")}</span>
             </div>
-            <p className="mt-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description()}</p>
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {skill.commands.map((command) => (
-                <span key={command} className="rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">{command}</span>
-              ))}
-            </div>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={skill.description()}>{skill.description()}</p>
+            <span className="sr-only">{skill.commands.join(" ")}</span>
             </div>
           </div>
         ))}

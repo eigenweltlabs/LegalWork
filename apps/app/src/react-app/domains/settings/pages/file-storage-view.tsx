@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -63,6 +63,7 @@ export function FileStorageView({
   workspaceId: string | null;
 }) {
   const queryClient = useQueryClient();
+  const libraryLayout = useIntegrationLibraryLayout();
   const scope = useHubScope() ?? "local";
   const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
@@ -84,7 +85,8 @@ export function FileStorageView({
     queryFn: () => client!.storageOAuthProviders(workspaceId!),
     enabled: Boolean(client && workspaceId),
   });
-  const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
+  const allConnections = connections.data?.connections ?? [];
+  const visibleConnections = libraryLayout ? allConnections : storageConnectionsForScope(allConnections, scope);
   const storageProviderName = (connection: StorageConnection) => connection.config.kind === "oauth" ? providers.data?.providers.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind);
   const query = search.trim().toLowerCase();
   const matchingConnections = visibleConnections.filter(connection => !query || `${connection.name} ${storageProviderName(connection)}`.toLowerCase().includes(query));
@@ -125,10 +127,10 @@ export function FileStorageView({
       </div>
     );
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={canAdd ? <Button size="sm" onClick={() => { setProviderSearch(""); setPickerOpen(true); }}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
       {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
-      <IntegrationSearch value={search} onChange={setSearch} label={t("integrations.search_storage")} />
+      <IntegrationSearch toolbar value={search} onChange={setSearch} label={t("integrations.search_storage")} />
       {(error || connections.error) && (
         <p
           role="alert"
@@ -138,7 +140,7 @@ export function FileStorageView({
           {error || connections.error?.message}
         </p>
       )}
-      {scope === "team" && connections.data?.team?.error ? (
+      {(libraryLayout || scope === "team") && connections.data?.team?.error ? (
         <p role="alert" className="text-sm text-destructive">
           {connections.data.team.error}
         </p>
@@ -151,18 +153,18 @@ export function FileStorageView({
       ) : null}
       {matchingConnections.length ? (
         <section className="space-y-3">
-          <IntegrationGroupHeading title={t(scope === "team" ? "integrations.shared_storage" : "integrations.your_storage")} count={matchingConnections.length} />
-          <div className="divide-y divide-border/60">
+          <IntegrationGroupHeading hideInLibrary title={t(scope === "team" ? "integrations.shared_storage" : "integrations.your_storage")} count={matchingConnections.length} />
+          <div className="space-y-1">
             {matchingConnections.map((connection) => {
               const Icon = storageIcons[connection.config.kind];
               return (
-                <div key={connection.id} className="flex flex-wrap items-center gap-3 py-4">
-                  <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/30">
-                    <Icon className="size-5 text-muted-foreground" />
+                <div key={connection.id} className="flex flex-wrap items-center gap-3 rounded-xl px-1 py-2.5 hover:bg-muted/30">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border">
+                    <Icon className="size-4 text-muted-foreground" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{connection.name}</p>
-                    {connection.team ? (
+                    {connection.team && !libraryLayout ? (
                       <p className="mt-1 text-xs text-muted-foreground">
                         {t(
                           connection.teamInstallation === "optional"
@@ -176,6 +178,7 @@ export function FileStorageView({
                       {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
                     </p>
                   </div>
+                  {connection.team && libraryLayout ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground" title={t(connection.teamInstallation === "optional" ? "storage.team_optional" : "storage.team_automatic")}>{t("firm_hub.scope_team")}</span> : null}
                   {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
                     <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
                   )}

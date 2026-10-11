@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { McpView, type McpViewProps } from "../src/react-app/domains/settings/pages/mcp-view";
 import type { McpDirectoryInfo } from "../src/app/constants";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { FirmHubItem } from "@legalwork/types/firm-hub";
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
+import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
 
 const noop = () => {};
 const attioUrl = "https://example.invalid/attio";
@@ -22,7 +26,7 @@ const props: McpViewProps = {
 test("connector library leads with saved connectors and keeps available entries behind Browse directory", () => {
   const html = renderToStaticMarkup(<McpView {...props} />);
   expect(html).toContain("Browse directory");
-  expect(html).toContain("Add own connector");
+  expect(html).toContain("Add connector");
   expect(html).toContain("Your connectors");
   expect(html).toContain("Manage your CRM");
   expect(html).not.toContain("Directory-only tool");
@@ -52,4 +56,43 @@ test("global config file connectors retain their existing read-only toggle behav
   ]} />);
   expect(html).toContain("managed");
   expect(html).not.toContain('role="switch"');
+});
+
+function renderTeamLibrary(items: FirmHubItem[], overrides: Partial<McpViewProps> = {}) {
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  queries.setQueryData(FIRM_HUB_QUERY_KEY, { connected: true, items });
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><McpView {...props} {...overrides} firmClient={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} /></QueryClientProvider>);
+  queries.clear();
+  return html;
+}
+
+const teamResearch: FirmHubItem = { id: "research", kind: "mcp", name: "team-research", description: "Search the firm's research library", installation: "automatic", added: false, connector: { serverName: "research", url: "https://example.invalid/research", access: "firm", keyName: null, hasOwnKey: false } };
+
+test("team connectors share the personal list, deduplicate engine config and retain managed ownership", () => {
+  const html = renderTeamLibrary([teamResearch], {
+    mcpServers: [...props.mcpServers, { name: "research", source: "config.remote", config: { type: "remote", url: "https://example.invalid/research" } }],
+    mcpStatuses: { ...props.mcpStatuses, research: { status: "connected" } },
+  });
+  expect(html).toContain("Team Research");
+  expect(html).toContain("Manage your CRM");
+  expect(html).toContain(">Team<");
+  expect(html.match(/Search the firm&#x27;s research library/g)).toHaveLength(1);
+  expect(html).not.toContain('aria-label="Disable research"');
+  expect(html).not.toContain('aria-label="Disable Team Research"');
+  expect(html).not.toContain("Installed for everyone</");
+});
+
+test("optional team connectors remain discoverable without exposing account actions before adding", () => {
+  const html = renderTeamLibrary([{ ...teamResearch, installation: "optional", connector: { ...teamResearch.connector!, access: "oauth" } }]);
+  expect(html).toContain('aria-label="Enable Team Research"');
+  expect(html).toContain('aria-checked="false"');
+  expect(html).not.toContain(">Sign in<");
+});
+
+test("added team connectors retain their own account and key controls", () => {
+  const oauth = renderTeamLibrary([{ ...teamResearch, installation: "optional", added: true, connector: { ...teamResearch.connector!, access: "oauth" } }], { mcpStatuses: { research: { status: "needs_auth" } } });
+  expect(oauth).toContain(">Sign in<");
+  expect(oauth).toContain('aria-label="Disable Team Research"');
+  const member = renderTeamLibrary([{ ...teamResearch, connector: { ...teamResearch.connector!, access: "member" } }]);
+  expect(member).toContain("Add your key");
 });
