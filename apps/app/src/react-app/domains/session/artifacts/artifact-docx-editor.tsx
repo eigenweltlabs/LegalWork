@@ -92,6 +92,14 @@ const EDITOR_LABELS = {
 
 const REVIEW_TOOL_NAMES = new Set(["accept_changes", "reject_changes"]);
 
+/** Native document/comment updates must reach the React editor ref before a
+ * save reads it, otherwise a delayed callback leaves an already-saved edit dirty. */
+function flushEditorUpdate<T>(update: () => T): T {
+  let result!: T;
+  flushSync(() => { result = update(); });
+  return result;
+}
+
 function requestedChangeIds(args: Record<string, unknown>): number[] | null {
   if (!Array.isArray(args.changeIds)) return null;
   const ids = args.changeIds.filter(
@@ -390,11 +398,11 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           const view = editorRef.current?.getEditorRef()?.getView();
           if (!view) return { success: false, error: t("docx.editor_not_ready") };
           const existing = templateRevisionIds(view.state);
-          result = executeToolCall("suggest_change", { paraId: args.paraId, search: args.placeholder, replaceWith: args.value });
+          result = flushEditorUpdate(() => executeToolCall("suggest_change", { paraId: args.paraId, search: args.placeholder, replaceWith: args.value }));
           if (result.success) {
             const normalized = normalizeDocxLineBreaks(view.state);
-            if (normalized) view.dispatch(normalized);
-            const accepted = acceptTemplateRevisions(view, existing);
+            if (normalized) flushEditorUpdate(() => view.dispatch(normalized));
+            const accepted = flushEditorUpdate(() => acceptTemplateRevisions(view, existing));
             if (!accepted) return { success: false, error: "The replacement could not be finalized. Read the current draft before continuing." };
             result = { success: true, data: { placeholder: args.placeholder, value: args.value } };
           }
@@ -406,28 +414,27 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           // before serializing, otherwise the save can omit the new reply.
           const commentId = args.commentId;
           const text = args.text;
-          let id: number | null | undefined;
-          flushSync(() => { id = editorRef.current?.replyToComment(commentId, text, "LegalWork AI"); });
+          const id = flushEditorUpdate(() => editorRef.current?.replyToComment(commentId, text, "LegalWork AI"));
           result = id === null || id === undefined ? { success: false, error: "The comment no longer exists. Read the comments again." } : { success: true, data: { commentId: id, parentId: args.commentId } };
         } else if (isReviewDecision) {
           const changeIds = requestedChangeIds(args);
           if (!changeIds) {
             return { success: false, error: t("docx.change_ids_required") };
           }
-          result = decideTrackedChanges(
+          result = flushEditorUpdate(() => decideTrackedChanges(
             editorRef.current,
             toolName === "accept_changes" ? "accept" : "reject",
             changeIds,
-          );
+          ));
         } else {
-          result = executeToolCall(toolName, args);
+          result = isDocumentReadTool("docx", toolName) ? executeToolCall(toolName, args) : flushEditorUpdate(() => executeToolCall(toolName, args));
         }
         if (!result.success) return result;
         const mutatesDocument = toolName === "suggest_change" || toolName === "add_comment" || toolName === "reply_comment" || toolName === "fill_template" || isReviewDecision;
         if (!mutatesDocument) return result;
         const view = editorRef.current?.getEditorRef()?.getView();
         const normalized = view && normalizeDocxLineBreaks(view.state);
-        if (normalized) view.dispatch(normalized);
+        if (normalized) flushEditorUpdate(() => view.dispatch(normalized));
         markDirty();
         const saved = await save();
         if (!saved) return { success: false, error: t("docx.changed_not_saved") };
@@ -479,11 +486,12 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           !("paraId" in args) || typeof args.paraId !== "string" ||
           !("search" in args) || typeof args.search !== "string" ||
           !("replaceWith" in args) || typeof args.replaceWith !== "string") throw new Error(t("docx.read_draft_again"));
-        const applied = editorRef.current?.proposeChange({ paraId: args.paraId, search: args.search, replaceWith: args.replaceWith, author: "LegalWork AI" });
+        const proposal = { paraId: args.paraId, search: args.search, replaceWith: args.replaceWith, author: "LegalWork AI" };
+        const applied = flushEditorUpdate(() => editorRef.current?.proposeChange(proposal));
         if (!applied) throw new Error(t("docx.target_ambiguous"));
         const view = editorRef.current?.getEditorRef()?.getView();
         const normalized = view && normalizeDocxLineBreaks(view.state);
-        if (normalized) view.dispatch(normalized);
+        if (normalized) flushEditorUpdate(() => view.dispatch(normalized));
         markDirty();
         if (!await save()) throw new Error(t("docx.changed_not_saved"));
         return { applied: true, saved: true, draftRevision: revision.current };
@@ -576,7 +584,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           setReviewDecision(null);
           if (!pending || readOnly || interactionLocked) return;
           if (pending.revision !== revision.current) { toast.error(t("docx.read_draft_again")); return; }
-          const result = decideTrackedChanges(editorRef.current, pending.decision, pending.ids);
+          const result = flushEditorUpdate(() => decideTrackedChanges(editorRef.current, pending.decision, pending.ids));
           if (!result.success) { toast.error(result.error); return; }
           markDirty();
           void save().then(saved => { if (!saved) toast.error(t("docx.changed_not_saved")); }).catch(error => toast.error(error instanceof Error ? error.message : t("docx.changed_not_saved")));
