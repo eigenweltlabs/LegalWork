@@ -46,7 +46,7 @@ Requests requiring approval must fit in a 16,000-character review, including the
 
 Changing the mode persists it and cancels running commands, including pending approvals and active connections. The save response waits for their cleanup. An unresponsive cleanup shuts down its VM after ten seconds. Community calculation scripts remain offline regardless of the agent network setting.
 
-Writes are staged in private temporary files on the host, with no changes to originals during execution. After the command finishes, the guest supervisor kills any remaining command processes, verifies that its cgroup is empty, and closes its broker channel before the host applies staged changes. Publication is serialized within the server so concurrent commands cannot silently overwrite an intervening edit. The filesystem broker rejects unauthorized paths, symlinks, Windows device aliases, alternate data streams, protected execution settings, and concurrent host edits. Atomic replacement of individual files preserves external hard-link targets. Cancellation or a runtime failure discards staged changes. Applying changes is not a transaction across all files: an I/O failure partway through may leave earlier validated changes applied.
+Writes are staged in private temporary files on the host, with no changes to originals during execution. After the command finishes, the guest supervisor kills any remaining command processes, verifies that its cgroup is empty, and closes its broker channel before the host applies staged changes. Publication locks overlapping destinations so concurrent commands cannot silently overwrite an intervening edit; unrelated destinations and read-only commands proceed independently. The filesystem broker rejects unauthorized paths, symlinks, Windows device aliases, alternate data streams, protected execution settings, and concurrent host edits. Atomic replacement of individual files preserves external hard-link targets. Cancellation or a runtime failure discards staged changes. Applying changes is not a transaction across all files: an I/O failure partway through may leave earlier validated changes applied.
 
 Files that will be changed or deleted receive content fingerprints, checked again before publication. This detects same-size edits even when the host reports unchanged timestamps. Files that are only read do not require a full content scan.
 
@@ -104,10 +104,15 @@ On a Mac development machine:
 
 ```sh
 node scripts/sandbox/build-guest.mjs arm64
-node scripts/sandbox/package-runtime.mjs "$(command -v qemu-system-aarch64)"
-LEGALWORK_SANDBOX_INTEGRATION=1 bun test --timeout 180000 apps/server/src/agent-sandbox
+brew install ninja pkgconf
+sandbox_build="$(mktemp -d)"
+RUNNER_TEMP="$sandbox_build" bash scripts/sandbox/build-macos.sh aarch64
+QEMU_SOURCE_DIR="$sandbox_build/qemu-11.1.2" \
+  SANDBOX_DEPENDENCY_LICENSES="$sandbox_build/qemu-deps/share/licenses" \
+  node scripts/sandbox/package-runtime.mjs "$sandbox_build/qemu/bin/qemu-system-aarch64"
+LEGALWORK_SANDBOX_INTEGRATION=1 bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox
 pnpm --filter legalwork-server build
-LEGALWORK_SANDBOX_INTEGRATION=1 LEGALWORK_TEST_OPENCODE_BIN=/path/to/opencode bun test apps/server/src/agent-sandbox/engine.integration.test.ts
+LEGALWORK_SANDBOX_INTEGRATION=1 LEGALWORK_TEST_OPENCODE_BIN=/path/to/opencode bun test --preload ./apps/server/test-preload.ts apps/server/src/agent-sandbox/engine.integration.test.ts
 ```
 
 The macOS workflow builds QEMU and every bundled dependency from pinned source archives targeting macOS 12.0. Packaging and verification inspect every Mach-O minimum OS version, including library and architecture slices, and reject newer requirements. `bash scripts/sandbox/build-macos.sh aarch64` performs that build; pass `x86_64` for Intel. This compatibility audit does not substitute for a real macOS 12 machine test.
