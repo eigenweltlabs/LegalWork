@@ -1,3 +1,6 @@
+import { ViewHostProvider } from "../views/view-host";
+import { ViewList } from "../views/view-list";
+import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, FileText, History, LayoutList, ListFilter, Loader2, LockKeyhole, PanelLeft, PenLine, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
@@ -117,7 +120,8 @@ function WikiContentPane(props: WikiPaneProps) {
     void queryClient.invalidateQueries({ queryKey: ["wiki-search", props.serverUrl] });
     void queryClient.invalidateQueries({ queryKey: ["wiki-team", props.serverUrl] });
     void queryClient.invalidateQueries({ queryKey: ["wiki-trash", props.serverUrl] });
-  }, [queryClient, props.serverUrl]);
+    void queryClient.invalidateQueries({ queryKey: ["view-data", props.serverUrl, "wiki", wikiId] });
+  }, [queryClient, props.serverUrl, wikiId]);
   const acceptWiki = (updated: WikiVault) => {
     queryClient.setQueryData<WikiSnapshot>(["wiki-snapshot", props.serverUrl, updated.id], (current) => current ? { ...current, wiki: updated } : undefined);
     queryClient.setQueryData<{ items: WikiVault[] }>(["wikis", props.serverUrl], (current) => current ? { items: [...current.items.filter((item) => item.id !== updated.id), updated] } : { items: [updated] });
@@ -126,13 +130,13 @@ function WikiContentPane(props: WikiPaneProps) {
   const drafts = useWikiDrafts(props.client, props.serverUrl, refresh);
   const wiki = snapshot.data?.wiki ?? list.data?.items.find((item) => item.id === wikiId);
   const pages = snapshot.data?.pages ?? EMPTY_PAGES;
-  const assets = snapshot.data?.assets ?? EMPTY_ASSETS;
+  const assets = useMemo(() => (snapshot.data?.assets ?? EMPTY_ASSETS).filter(asset => !/\.view\.json$/i.test(asset.path)), [snapshot.data?.assets]);
   const currentPage = pages.find((page) => page.path === path);
   const draft = wikiId && path ? drafts.get(wikiId, path) : undefined;
   const backlinks = useMemo(() => wikiBacklinks(pages, path), [pages, path]);
   const linkSuggestions = useMemo(() => pages.map((page) => `[[${page.path}]]`), [pages]);
   const files = useMemo(() => [...pages.map((page) => page.path), ...assets.map((asset) => asset.path)], [pages, assets]);
-  const folders = useMemo(() => [...new Set([...(snapshot.data?.folders ?? []), ...files.flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); })])].sort(), [snapshot.data?.folders, files]);
+  const folders = useMemo(() => [...new Set([...(snapshot.data?.folders ?? []), ...files.flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); })])].filter(folder => !(folder === "Views" || folder.startsWith("Views/")) || files.some(file => file.startsWith(`${folder}/`))).sort(), [snapshot.data?.folders, files]);
   const searchFiles = useMemo(() => [...new Set([...(searchResult.data?.items.map((page) => page.path) ?? []), ...files.filter((path) => path.toLowerCase().includes(debouncedSearch.trim().toLowerCase()))])], [searchResult.data, files, debouncedSearch]);
   const selectedView = snapshot.data?.views.find((view) => `view:${view.name}` === surface);
   const sharingError = sharingActionError?.wikiId === wikiId ? sharingActionError.message : wiki?.pendingSharing ? wiki.syncStatus.error ?? t("wiki.sharing_pending") : null;
@@ -288,6 +292,8 @@ function WikiContentPane(props: WikiPaneProps) {
     return () => window.cancelAnimationFrame(frame);
   }, [pageAnchor, path, wikiId, Boolean(draft), documentLoading, scrollToHeading]);
   const openEditorLink = (href: string) => {
+    const view = parseViewReference(href);
+    if (view) { requestPanelTab(viewPanelTab(props.serverUrl, view)); return; }
     if (/^https?:|^mailto:|^tel:/i.test(href)) { void openDesktopUrl(href); return; }
     let target: string;
     try { target = decodeURIComponent(href.replace(/^#?wiki:/, "").replace(/^\[\[|\]\]$/g, "").split("|")[0]); } catch { return; }
@@ -356,6 +362,7 @@ function WikiContentPane(props: WikiPaneProps) {
               <div className="wiki-section-label"><span>{t("wiki.views")}</span></div>
               {snapshot.data.views.map((view) => <FileBrowserRow key={view.name} selected={surface === `view:${view.name}`} style={{ paddingLeft: 6 }} aria-current={surface === `view:${view.name}` ? "page" : undefined} onClick={() => openSurface(`view:${view.name}`)} leading={<span className="size-3.5 shrink-0" />} icon={<LayoutList className="size-5 shrink-0 text-muted-foreground" />}>{view.name}</FileBrowserRow>)}
             </div> : null}
+            {!debouncedSearch.trim() && <ViewList client={props.client} owner={{ kind: "wiki", id: wikiId }} />}
           </WikiExplorer>
           {props.children}
           <div className="wiki-sidebar-footer">
@@ -393,13 +400,13 @@ function WikiContentPane(props: WikiPaneProps) {
           }} /> : <>
             {draft?.error ? <div role="alert" className="wiki-notice wiki-error-notice"><span>{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
             {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <WikiLoading /> : draft ? <>
-              <div ref={editorRegion} className={cn("wiki-page-content", wiki?.writable && "wiki-editor-content")} key={`${wikiId}:${path}`} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (wiki?.writable) void drafts.save(wikiId, path); } }}>
+              <ViewHostProvider client={props.client} owner={{ kind: "wiki", id: wikiId }} openSource={openPage}><div ref={editorRegion} className={cn("wiki-page-content", wiki?.writable && "wiki-editor-content")} key={`${wikiId}:${path}`} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (wiki?.writable) void drafts.save(wikiId, path); } }}>
                 {wiki?.writable ? <><WikiPropertiesEditor content={draft.content} pages={pages} path={path} onChange={content => drafts.change(wikiId, path, content)} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} /><Suspense fallback={<WikiLoading />}><MarkdownEditor externalFrontmatter value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} imageUpload={uploadImage} imagePreview={imagePreview} viewModeRequest={viewModeRequest} linkSuggestions={linkSuggestions} onOpenLink={openEditorLink} /></Suspense></> : <>
                   {currentPage && Object.keys(currentPage.properties).some((key) => key !== "id") ? <details className="wiki-properties"><summary><ListFilter size={14} /><span>{t("wiki.properties")}</span><span className="wiki-count">{Object.keys(currentPage.properties).filter((key) => key !== "id").length}</span></summary><dl>{Object.entries(currentPage.properties).filter(([key]) => key !== "id").map(([key, value]) => <div key={key}><dt>{key}</dt><dd><WikiPropertyValue value={value} pages={pages} fromPath={path} onOpen={openPage} /></dd></div>)}</dl></details> : null}
                   <WikiPreview content={draft.content} path={path} anchor={pageAnchor} pages={pages} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
                 </>}
                 {backlinks.length ? <details className="wiki-backlinks"><summary>{t("wiki.backlinks")} <span className="wiki-count">{backlinks.length}</span></summary>{backlinks.map((page) => <button key={page.path} onClick={() => openPage(page.path)}><FileText size={14} /><span>{page.title}</span><ArrowUpRight size={13} /></button>)}</details> : null}
-              </div>
+              </div></ViewHostProvider>
             </> : <EmptyWiki message={t("wiki.empty_pages")} action={<Button disabled={!wiki?.writable} onClick={() => setNewPage("")}>{t("wiki.new_page")}</Button>} />}
           </>}
           {snapshot.data?.warnings.length ? <details className="wiki-warnings"><summary>{t("wiki.warnings", { count: snapshot.data.warnings.length })}</summary><ul>{snapshot.data.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details> : null}

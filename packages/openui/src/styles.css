@@ -1,0 +1,38 @@
+@import "@openuidev/react-ui/layered/styles/index.css";
+.lw-openui { min-width: 0; color: var(--foreground); font-family: var(--font-sans, sans-serif); }
+.lw-view-stack { display: grid; gap: 20px; }
+.lw-view-stack-item { min-width: 0; }
+.lw-openui .lw-view-card, .lw-openui .lw-view-metric, .lw-openui .lw-view-board-card { box-sizing: border-box; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 14px; background: var(--card, var(--background)); padding: 20px; gap: 0; }
+.lw-openui .lw-view-metric { gap: 8px; height: 100%; }
+.lw-openui .lw-view-metric .openui-metric-indicator__main-value { font: 600 32px/1.15 var(--font-sans, sans-serif); letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.lw-openui .lw-view-board-card { padding: 14px 16px; border-radius: 10px; font-size: 14px; }
+.lw-view-card-body { display: grid; min-width: 0; gap: 16px; padding-top: 12px; }
+.lw-view-card-body > * { min-width: 0; }
+.lw-openui .lw-view-title { font-size: clamp(24px, 3vw, 36px); font-weight: 650; line-height: 1.2; letter-spacing: -.025em; margin: 0 0 4px; }
+.lw-openui .lw-view-heading { font-size: 21px; font-weight: 600; letter-spacing: -.015em; margin: 0; }
+.lw-openui .lw-view-prose { white-space: pre-wrap; line-height: 1.7; margin: 0; }
+.lw-view-metric-label { color: var(--muted-foreground); font-size: 13px; }
+.lw-view-source { cursor: pointer; text-align: left; color: inherit; }
+.lw-view-source:hover { text-decoration: underline; text-underline-offset: 3px; }
+.lw-view-source:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 3px; }
+.lw-view-table { display: grid; gap: 12px; min-width: 0; }
+.lw-view-table table { font-size: 13px; }
+.lw-view-table td { max-width: 360px; overflow-wrap: anywhere; }
+.lw-view-table th button { cursor: pointer; text-align: inherit; }
+/* Markdown prose rules must not turn the stock widget table into an editor table. */
+.lw-inline-view .lw-openui table { display: table; margin: 0; }
+.lw-inline-view .lw-openui table th, .lw-inline-view .lw-openui table td { border: 0; padding: 12px; height: auto; vertical-align: middle; }
+.lw-inline-view .lw-openui table th { border-bottom: 1px solid var(--border); }
+.lw-view-muted { color: var(--muted-foreground); font-size: 13px; }
+.lw-view-board { display: flex; min-width: 0; max-width: 100%; gap: 16px; overflow-x: auto; padding: 2px 2px 12px; }
+.lw-view-board-column { display: flex; flex-direction: column; gap: 10px; min-width: 200px; flex: 1; }
+.lw-view-board-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12px; color: var(--muted-foreground); }
+.lw-view-board-field { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 12px; }
+.lw-view-board-field > :first-child { color: var(--muted-foreground); }
+.lw-view-chart { min-width: 0; }
+.lw-openui .lw-view-chart h3 { font-size: 15px; font-weight: 600; margin: 0 0 16px; }
+.lw-view-chart details { font-size: 12px; margin-top: 10px; color: var(--muted-foreground); }
+.lw-view-chart summary { cursor: pointer; margin-bottom: 8px; }
+.lw-view-query-status { font-size: 11px; color: var(--muted-foreground); }
+@container (max-width: 520px) { .lw-view-stack { grid-template-columns: 1fr !important; } }
+@media (prefers-reduced-motion: reduce) { .lw-openui *, .lw-openui *::before, .lw-openui *::after { animation: none !important; transition: none !important; } }

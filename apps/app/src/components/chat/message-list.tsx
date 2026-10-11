@@ -1,5 +1,6 @@
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
 import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
+import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
@@ -170,6 +171,7 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
 }
 
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
+  if (part.type === "dynamic-tool" && ["view_create", "view_update", "view_read"].includes(part.toolName)) return <ViewToolCard part={part} />;
   if (isBashToolPart(part)) {
     return <BashTool part={part} />
   }

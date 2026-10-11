@@ -1,3 +1,4 @@
+import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
 import { useEffect, useMemo, useRef } from "react";
 import {
   MDXEditor, type MDXEditorMethods, UndoRedo, BlockTypeSelect, InsertImage,
@@ -123,6 +124,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
     tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
+    viewMarkdownPlugin(),
     codeMirrorPlugin({ codeMirrorExtensions: markdownCodeTheme, codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
     diffSourcePlugin({ codeMirrorExtensions: sourceExtensions, viewMode: initialMode.current, diffMarkdown: baseline }),
     requestedViewPlugin(viewModeRequest),

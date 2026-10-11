@@ -1,3 +1,5 @@
+import { ViewMenu } from "../../views/view-menu";
+import { ViewHostProvider } from "../../views/view-host";
 import { documentControlTarget } from "./document-control-target";
 import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { isFileIntakeTarget, isFileSidebarDrag } from "./file-drop-intent";
@@ -166,6 +168,8 @@ type TabDropZoneProps = {
   className?: string;
   children: React.ReactNode;
 };
+
+const ViewPanel = React.lazy(() => import("../../views/view-panel").then(module => ({ default: module.ViewPanel })));
 
 function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, shieldFileDrops = true, workspaceId, onChatDrop, onProjectViewDrop, onProjectItemDrop, onTabInsert, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
   const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentDropEdge | null } | null>(null);
@@ -414,7 +418,7 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
-          ) : tab.type === "wiki" ? (
+          ) : tab.type === "view" ? <TableProperties /> : tab.type === "wiki" ? (
             tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
@@ -1043,6 +1047,7 @@ function SidePanelContent({
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            {client && workspaceId && renderProjectView && <ViewMenu client={client} workspaceId={workspaceId} onOpen={tab => usePanelTabStore.getState().openTab(sessionId, tab, pane.id)} />}
             {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
             {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
@@ -1130,6 +1135,7 @@ function SidePanelContent({
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
         const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
@@ -1140,7 +1146,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: pane?.id } : { kind: "evals" }}>{body}</PanelTabDestinationProvider>
+            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: pane?.id } : { kind: "evals" }}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>
           </div></ControlActionScope>
         </DocumentPane>];
       })}

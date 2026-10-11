@@ -28,6 +28,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -1711,6 +1712,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     stopWikiSharing: (id: string) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "DELETE", timeoutMs: 30_000 }),
     createWiki: (input: WikiCreateInput) => requestJson<{ wiki: WikiVault; sharingError?: string }>(baseUrl, "/wikis", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     wikiSnapshot: (id: string) => requestJson<WikiSnapshot>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, timeoutMs: 30_000 }),
+    listViews: (owner: ViewOwner) => requestJson<{ items: ViewSummary[]; issues: ViewIssue[] }>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken }),
+    readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
+    createView: (owner: ViewOwner, input: ViewInput) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken, method: "POST", body: input }),
+    updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken, method: "PUT", body: input }),
+    queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query }),
+    wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),
     wikiGraphRevision: (id: string) => requestJson<{ revision: string }>(baseUrl, `/wikis/${encodeURIComponent(id)}/graph/revision`, { token, hostToken, timeoutMs: 120_000 }),
     wikiGraph: (id: string, revision?: string) => requestJson<WikiGraphResponse>(baseUrl, `/wikis/${encodeURIComponent(id)}/graph${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`, { token, hostToken, timeoutMs: 120_000 }),
     wikiEntry: (id: string, path: string) => requestJson<WikiEntry>(baseUrl, `/wikis/${encodeURIComponent(id)}/entry?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: 30_000 }),

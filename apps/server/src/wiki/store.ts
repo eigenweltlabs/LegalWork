@@ -11,6 +11,7 @@ import { workspaceIdForPath } from "../workspaces.js";
 import { markdownData, markdownWithData, parseWikiPage, parseWikiViews, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
 import { WikiGraphIndex } from "./graph.js";
+import { patchWikiProperties, type WikiPropertiesPatch } from "./properties.js";
 import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-safety.js";
 
 export const WIKI_MAX_PAGE_BYTES = 2 * 1024 * 1024;
@@ -428,6 +429,10 @@ export class WikiStore {
       return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, views: views.views, warnings: [...warnings, ...views.warnings] };
     });
   }
+  async indexedPages(id: string) {
+    await this.graph(id, undefined, true);
+    return [...(await this.index(id)).values()].map(row => row.page);
+  }
   async search(id: string, query: string, type?: string) {
     const snapshot = await this.snapshot(id);
     if (!query.trim()) return snapshot.pages.filter((page) => !type || page.type === type);
@@ -482,6 +487,20 @@ export class WikiStore {
   }
   async write(id: string, path: string, content: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, () => this.writePage(id, path, content, baseRevision, "write"));
+  }
+  async updateProperties(id: string, path: string, patch: WikiPropertiesPatch, baseRevision: string): Promise<WikiDocument> {
+    wikiPath(path);
+    if (!isMarkdown(path)) throw new ApiError(400, "invalid_wiki_page", "Properties belong to a Markdown page.");
+    return serial(`${this.path}:${id}`, async () => {
+      const wiki = await this.get(id), original = (await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)).toString("utf8");
+      this.conflict(baseRevision, hash(original));
+      const content = patchWikiProperties(original, patch);
+      if (content === original) {
+        const row = await this.remember(id, path, original);
+        return { path, content, revision: row.revision, updatedAt: row.updatedAt };
+      }
+      return this.writePage(id, path, content, baseRevision, "write");
+    });
   }
   async remove(id: string, path: string, baseRevision: string): Promise<void> {
     return serial(`${this.path}:${id}`, async () => {

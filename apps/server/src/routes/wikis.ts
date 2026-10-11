@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { ViewInputSchema, WikiDataQuerySchema } from "../views/schema.js";
+import { ViewRepository } from "../views/repository.js";
+import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
+import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
 import type { WikiRegistration, WikiSharingInput, WikiSnapshot, WikiSyncStatus, WikiTeamOverview, WikiTeamRecord, WikiVault } from "@legalwork/types/wiki";
 import { ApiError } from "../errors.js";
 import type { ApprovalRequest, ServerConfig, TokenScope } from "../types.js";
@@ -86,6 +90,63 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+  const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
+    list: async () => (await store.files(id)).map(file => file.path),
+    read: path => store.readAsset(id, path),
+    write: async (path, bytes, revision) => { await store.writeAsset(id, path, bytes, revision); },
+  });
+  const viewInput = async (ctx: RequestContext) => {
+    const result = ViewInputSchema.safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    if (!result.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
+    return result.data;
+  };
+  addRoute(routes, "POST", "/wikis/:wikiId/query", "client", async ctx => {
+    const wiki = await selected(ctx);
+    const parsed = WikiDataQuerySchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_query", "Check the selected fields, filters and page size.");
+    return jsonResponse({ ...queryWikiPages(await store.indexedPages(wiki.id), parsed.data), sourceOwner: { kind: "wiki", id: wiki.id } });
+  });
+  addRoute(routes, "PATCH", "/wikis/:wikiId/properties", "client", async ctx => {
+    const wiki = await selected(ctx, true);
+    const parsed = z.object({ path: z.string().min(1).max(4096), baseRevision: z.string().min(1).max(200), patch: wikiPropertiesPatchSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 128 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_wiki_properties", "Choose fields to set or remove and provide the current page revision.");
+    await authorize(ctx, wiki, "wiki.properties.update", [parsed.data.path]);
+    const document = await store.updateProperties(wiki.id, parsed.data.path, parsed.data.patch, parsed.data.baseRevision);
+    change(wiki.id);
+    return jsonResponse(document);
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/fields", "client", async ctx => {
+    const wiki = await selected(ctx);
+    return jsonResponse(wikiPageFields(await store.indexedPages(wiki.id)));
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/ui-views", "client", async ctx => {
+    const wiki = await selected(ctx);
+    return jsonResponse(await views(wiki.id).list());
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/ui-views/:viewId", "client", async ctx => {
+    const wiki = await selected(ctx);
+    return jsonResponse(await views(wiki.id).read(ctx.params.viewId));
+  });
+  addRoute(routes, "POST", "/wikis/:wikiId/ui-views", "client", async ctx => {
+    const wiki = await selected(ctx, true), input = await viewInput(ctx);
+    if (input.mode === "report" && Object.keys(input.queries).length) {
+      const pages = await store.indexedPages(wiki.id);
+      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, queryWikiPages(pages, query)])) };
+    }
+    await authorize(ctx, wiki, "wiki.view.create", ["Views"]);
+    const result = await views(wiki.id).create(input);
+    change(wiki.id);
+    return jsonResponse(result, 201);
+  });
+  addRoute(routes, "PUT", "/wikis/:wikiId/ui-views/:viewId", "client", async ctx => {
+    const wiki = await selected(ctx, true);
+    const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the view before changing its definition.");
+    await authorize(ctx, wiki, "wiki.view.update", ["Views"]);
+    const result = await views(wiki.id).update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
+    change(wiki.id);
+    return jsonResponse(result);
+  });
 
   addRoute(routes, "GET", "/wikis/team", "client", async (ctx) => {
     requireClientScope(ctx, "owner");

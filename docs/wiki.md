@@ -55,7 +55,21 @@ Connection ID, relative source path, version, and a section/page locator.
 
 Use wiki links (`[[Processes/Financing.md]]`) or relative Markdown links. Links in properties also connect pages. Missing or ambiguous destinations remain visible. Search, backlinks, and the graph help navigate the collection. The rendered preview treats content as Markdown; it does not run arbitrary embedded scripts.
 
-## Define views in Markdown
+## Reports, dashboards, and inline widgets
+
+The bundled OpenUI experiment provides live dashboards and frozen reports in ordinary workspace tabs. Saved wiki views appear under **Reports & dashboards** in the wiki sidebar. Project reports appear under **+ → Reports**. A project report belongs to that project; creating it does not publish its contents into a shared wiki.
+
+Agents use `view_catalog` to discover the available components, `wiki_fields` to discover typed fields, and `wiki_query` to inspect data. `view_create` and `view_update` accept a validated layout with named query bindings or frozen datasets. Users and agents do not need to write YAML or reconstruct a storage file. The bundled catalog includes OpenUI cards, metrics, tables, charts, inputs and supporting components, plus a board and source navigation. Data access stays within the task's current wiki and project permissions.
+
+Dashboard queries read indexed wiki properties and refresh after local saves or periodic refresh. Report creation resolves its queries into a frozen snapshot with source revisions and an as-of time. Updating a report's layout retains that snapshot. Source links open the original page or file in a standard tab, including when a project report refers to a wiki page. Boards currently navigate to editable source pages; moving cards to change a field is supported by the older board below, not yet by the OpenUI board.
+
+Inline widgets use a `legalwork-view` code fence containing only the saved view's UUID. They render between ordinary editable Markdown blocks and offer **Open view in tab**. The layout and its data live in one versioned record; copying the reference does not duplicate that record. Agents can insert the returned reference into page prose through the existing revision-checked wiki write tool.
+
+This layer is intentionally separate from a future page/block storage migration. View records currently use `Views/<uuid>.view.json` through the server repository and existing revision-checked file sync. That transport is an implementation detail; the public contract is the typed record API. Markdown and its existing frontmatter remain authoritative for page content and properties. Malformed or conflicting view files are retained and reported individually without preventing unrelated views from opening.
+
+OpenUI runs locally with the existing model connection. No Thesys gateway, Autofix service, cloud observability or remote development inspector is enabled. The renderer can preview partial tool arguments while an agent creates a view; incomplete previews cannot execute queries or actions. Parser and transport regressions cover partial output, but end-to-end model streaming latency has not been measured. See the [research and architecture comparison](wiki-openui-research.md) and [validation results](wiki-validation.md).
+
+## Existing Markdown-defined views
 
 Edit `Views.md` to add or change views:
 
@@ -87,6 +101,9 @@ Open a wiki session to work directly in its folder. An agent can read and reorga
 - `wiki_read`: bounded page text, its revision, and bounded content/layout guidance.
 - `wiki_write`: create with `base_revision: null`, or replace with the exact revision returned by reading.
 - `wiki_delete`: delete a page with its current revision.
+- `wiki_properties_update`: update typed property values with the page revision, preserving unrelated frontmatter and body text.
+- `wiki_fields` and `wiki_query`: inspect indexed fields and query rows or aggregates without parsing page bodies in the client.
+- `view_catalog`, `view_list`, `view_read`, `view_create`, and `view_update`: discover and manage reports and dashboards through typed records.
 
 Project access is an explicit wiki setting, available to all known projects or selected projects. A wiki's own session still has access when that switch is off. Tools resolve the task's actual directory against current server state on every call and refuse an unknown directory. The managed engine uses a narrow, ephemeral wiki credential, bound to a session origin recorded from the authenticated user. It never receives a host or owner token; a collaborator's session retains collaborator visibility and an unknown session cannot read private wikis. Server authentication and storage permissions remain authoritative. Page content and imported sources are data; named wiki guidance can describe layout but cannot expand authorization.
 

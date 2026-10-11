@@ -1,3 +1,7 @@
+import { useViewPortals } from "../views/view-portals";
+import { useViewHost } from "../views/view-host";
+import { parseViewReference, viewPanelTab } from "../views/view-reference";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Marked } from "marked";
 import DOMPurify from "dompurify";
@@ -12,6 +16,7 @@ function escapeHtml(value: string) {
 }
 
 const parser = new Marked({ gfm: true, breaks: false, renderer: {
+  code(token) { if (token.lang === "legalwork-view") return `<div data-legalwork-view-block="${escapeHtml(token.text)}"></div>`; return false; },
   checkbox(token) { return token.checked ? "☑ " : "☐ "; },
   image(token) { return `<img data-wiki-image="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}" loading="lazy" />`; },
 } });
@@ -31,7 +36,7 @@ parser.use({ extensions: [{
 
 export function renderWikiMarkdown(content: string) {
   return DOMPurify.sanitize(parser.parse(wikiMarkdownBody(content), { async: false }), {
-    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|wiki):|[^a-z]|[a-z+.-]+(?:[^a-z+.:\-]|$))/i,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|wiki|legalwork-view):|[^a-z]|[a-z+.-]+(?:[^a-z+.:\-]|$))/i,
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "svg", "math", "video", "audio", "source", "track", "picture"],
     FORBID_ATTR: ["style", "srcset", "src"],
   });
@@ -52,6 +57,8 @@ export function WikiPreview(props: {
   imagePreview: (path: string) => Promise<string>;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const host = useViewHost();
+  const requestTab = useRequestPanelTab();
   const { html, outline, anchors } = useMemo(() => {
     const document = new DOMParser().parseFromString(renderWikiMarkdown(props.content), "text/html");
     const occurrences = new Map<string, number>();
@@ -77,6 +84,7 @@ export function WikiPreview(props: {
     }
     return { html: document.body.innerHTML, outline: headings, anchors };
   }, [props.content]);
+  const viewPortals = useViewPortals(element, html);
   const scrollToHeading = useCallback((id: string) => {
     const exact = element.current?.querySelector(`[id="${CSS.escape(id)}"]`);
     const heading = exact ?? element.current?.querySelector(`[id="${CSS.escape(anchors.get(id) ?? `wiki-heading-${headingSlug(id)}`)}"]`);
@@ -109,6 +117,8 @@ export function WikiPreview(props: {
       const href = anchor?.getAttribute("href");
       if (!href) return;
       event.preventDefault();
+      const view = parseViewReference(href);
+      if (view && host?.client) { requestTab(viewPanelTab(host.client.baseUrl, view, anchor?.textContent ?? "Report")); return; }
       if (/^https?:|^mailto:|^tel:/i.test(href)) { void openDesktopUrl(href); return; }
       if (href.startsWith("#")) {
         let id: string;
@@ -127,5 +137,5 @@ export function WikiPreview(props: {
       else if (href.startsWith("wiki:") || /\.md(?:#.*)?$/i.test(href)) props.onMissing(target);
       else props.onAsset(target);
     }}
-  />{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
+  />{viewPortals}{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
 }

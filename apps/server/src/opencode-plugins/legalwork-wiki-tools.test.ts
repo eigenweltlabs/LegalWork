@@ -93,6 +93,13 @@ afterEach(async () => {
 });
 
 describe("wiki agent access", () => {
+  test("team synced wikis remain discoverable to agents", async () => {
+    wikis[0]!.sync = { kind: "team", wikiId: "c925776b-e784-485a-acd7-53d37f3d196e", orgId: "firm" };
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const result = JSON.parse(await tool.wiki_list.execute({}));
+    expect(result.wikis.map((wiki: { id: string }) => wiki.id)).toEqual(["wiki-1"]);
+    expect(result.wikis[0].sync.kind).toBe("team");
+  });
   test("managed engine tools require a session origin and transmit narrow runtime auth", async () => {
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-secret";
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });

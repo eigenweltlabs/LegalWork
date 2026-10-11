@@ -78,6 +78,7 @@
     "@fontsource/tinos": "5.3.0",
     "@heroicons/react": "^2.2.0",
     "@legalwork/types": "workspace:*",
+    "@legalwork/openui": "workspace:*",
     "@legalwork/ui": "workspace:*",
     "@lexical/react": "0.48.0",
     "@lexical/rich-text": "0.48.0",

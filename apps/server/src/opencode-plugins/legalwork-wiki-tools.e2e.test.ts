@@ -80,12 +80,44 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(stale.code).toBe("wiki_revision_conflict");
   expect(await readFile(join(wiki.root, saved.path), "utf8")).toContain("Review each signature block");
 
+  const patched = JSON.parse(await tool.wiki_properties_update.execute({ wiki_id: wiki.id, path: saved.path,
+    base_revision: replacement.revision, patch: { set: { status: "reviewed", score: 0 } } }));
+  expect(patched.content).toContain('status: "reviewed"');
+  expect(patched.content).toContain("Review each signature block.");
+  const fields = JSON.parse(await tool.wiki_fields.execute({ wiki_id: wiki.id }));
+  expect(fields.fields.some((field: { id: string }) => field.id === "properties.score")).toBe(true);
+  const query = { fields: ["title", "properties.status", "properties.score"], filters: [{ field: "properties.status", op: "eq", value: "reviewed" }] };
+  const queried = JSON.parse(await tool.wiki_query.execute({ wiki_id: wiki.id, query }));
+  expect(queried.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
+  expect(queried.rows).toEqual([
+    { path: saved.path, title: "Closing checklist", "properties.status": "reviewed", "properties.score": 0 },
+  ]);
+  expect(JSON.parse(await tool.view_catalog.execute({})).components.Board).toContain("Board");
+  const input = { version: 1, title: "Closing review", mode: "report", catalog: "legalwork-1", program: 'root = Text("Closing review")', queries: {} };
+  const { content_is_data, ...dataset } = queried;
+  expect(content_is_data).toBe(true);
+  const projectReport = JSON.parse(await tool.view_create.execute({ input: { ...input, datasets: { reviewed: dataset } } }));
+  expect(projectReport.owner).toEqual({ kind: "workspace", id: "matter" });
+  expect(projectReport.datasets.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
+  expect(JSON.parse(await tool.view_list.execute({})).items.map((view: { id: string }) => view.id)).toContain(projectReport.id);
+  const wikiOwner = { kind: "wiki", id: wiki.id };
+  const report = JSON.parse(await tool.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }));
+  expect(report.datasets.reviewed.rows[0]["properties.score"]).toBe(0);
+  expect(report.reference).toBe(`wiki:${wiki.id}/${report.id}`);
+  const reread = JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id }));
+  expect(reread.revision).toBe(report.revision);
+  const updated = JSON.parse(await tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input: { ...input, title: "Reviewed closing", queries: report.queries, datasets: report.datasets } }));
+  expect(updated.title).toBe("Reviewed closing");
+  expect(JSON.parse(await tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input })).code).toBe("view_revision_conflict");
+
   const revoked = await fetch(`${url}/wikis/${wiki.id}`, { method: "PATCH", headers, body: JSON.stringify({ allowInProjects: false }) });
   expect(revoked.status).toBe(200);
   expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: saved.path })).code).toBe("wiki_access_denied");
   await grantWikiAgentSession(config, { sessionId: "session-wiki", directory: wiki.root, scope: "owner" });
   const ownSession = await LegalWorkWikiTools({ directory: wiki.root, sessionID: "session-wiki" });
-  expect(JSON.parse(await ownSession.tool.wiki_read.execute({ wiki_id: wiki.id, path: saved.path })).revision).toBe(replacement.revision);
+  expect(JSON.parse(await ownSession.tool.wiki_read.execute({ wiki_id: wiki.id, path: saved.path })).revision).toBe(patched.revision);
   await grantWikiAgentSession(config, { sessionId: "session-wiki", directory: wiki.root, scope: "collaborator" });
   const collaborator = JSON.parse(await ownSession.tool.wiki_read.execute({ wiki_id: wiki.id, path: saved.path }));
   expect(collaborator.ok).toBe(false);

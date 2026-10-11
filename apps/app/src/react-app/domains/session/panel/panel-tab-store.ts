@@ -1,3 +1,4 @@
+import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views/view-reference";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
@@ -78,7 +79,7 @@ export type TaskPanelTab = {
 export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
 export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
 
-export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab;
+export type PanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab | WikiPanelTab | ViewPanelTab;
 
 export type DocumentPaneState = { id: string; tabIds: string[]; activeTabId: string | null; previewTabId?: string };
 export type SessionPanelState = {
@@ -93,12 +94,16 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
+type PersistedPanelTab = ViewPanelTab | WikiPanelTab | ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function restoredTab(value: unknown): PanelTab | null {
   if (!record(value) || typeof value.id !== "string") return null;
+  if (value.type === "view" && typeof value.label === "string" && typeof value.serverUrl === "string" && record(value.owner) && typeof value.owner.id === "string" && typeof value.viewId === "string") {
+    const ref = parseViewReference(`${value.owner.kind}:${encodeURIComponent(value.owner.id)}/${value.viewId}`);
+    return ref ? viewPanelTab(value.serverUrl, ref, value.label) : null;
+  }
   if (value.type === "wiki" && typeof value.label === "string" && typeof value.serverUrl === "string" && typeof value.wikiId === "string" && value.wikiId && record(value.location)) {
     const location = value.location;
     if (location.kind === "page" && typeof location.path === "string" && location.path) return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "page", path: location.path, anchor: typeof location.anchor === "string" ? location.anchor : undefined, mode: location.mode === "source" ? "source" : undefined }, value.label);
@@ -235,6 +240,9 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   // the file was opened locally, from connected storage, or through a source link.
   if (existing?.type === "artifact" && tab.type === "artifact" && existing.id !== tab.id) {
     tab = { ...existing, ...tab, id: existing.id, value: existing.value, storage: existing.storage, sourceProject: existing.sourceProject, preview: existing.preview };
+  } else if (existing?.type === "view" && tab.type === "view") {
+    // Link labels are hints. The mounted viewer updates its authoritative record title.
+    tab = { ...existing, ...tab, label: existing.label };
   } else if (existing) tab = { ...existing, ...tab };
   else if (session.tabs.some(entry => entry.id === tab.id)) {
     // Older layouts lowercased file IDs. Keep their mounted drafts intact when
@@ -274,7 +282,7 @@ function openInSession(scope: string, session: SessionPanelState, tab: PanelTab,
   if (!id) return next;
   const destination = next.panes.find(item => item.tabIds.includes(id));
   if (!destination) return next;
-  const eligible = tab.type === "artifact" || tab.type === "task" || tab.type === "review";
+  const eligible = tab.type === "view" || tab.type === "artifact" || tab.type === "task" || tab.type === "review";
   if (preview && eligible && !existing && !edge) {
     const previous = destination.previewTabId;
     if (previous && previous !== id && !hasUnsavedSessionDocument(scope, previous)) {
@@ -339,6 +347,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
 
   if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
   if (left.type === "workflow-resource" && right.type === "workflow-resource") return left.label === right.label;
+  if (left.type === "view" && right.type === "view") return left.label === right.label && left.serverUrl === right.serverUrl && left.viewId === right.viewId && left.owner.kind === right.owner.kind && left.owner.id === right.owner.id;
   if (left.type === "wiki" && right.type === "wiki") return left.label === right.label && left.serverUrl === right.serverUrl && left.wikiId === right.wikiId && JSON.stringify(left.location) === JSON.stringify(right.location);
 
   return false;
@@ -685,7 +694,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           Object.entries(state.sessions).map(([sessionId, session]) => {
             const tabs = session.tabs
               .flatMap<PersistedPanelTab>((tab) => {
-                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki") return [tab];
+                if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view" || tab.type === "wiki" || tab.type === "view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
                 if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];

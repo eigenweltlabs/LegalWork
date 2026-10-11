@@ -50,7 +50,8 @@
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",
     "./firm-hub": "./src/firm-hub.ts",
-    "./wiki": "./src/wiki.ts"
+    "./wiki": "./src/wiki.ts",
+    "./views": "./src/views.ts"
   },
   "files": [
     "src",

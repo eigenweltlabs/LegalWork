@@ -123,6 +123,7 @@ import { registerDocumentPreparationRoutes } from "./routes/document-preparation
 import { registerOcrRoutes } from "./routes/ocr.js";
 import { OcrManager } from "./ocr/manager.js";
 import { registerWikiRoutes } from "./routes/wikis.js";
+import { registerViewRoutes } from "./routes/views.js";
 import { WikiStore } from "./wiki/store.js";
 import { WikiSync } from "./wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiForDirectory, wikiAgentCanAccess } from "./wiki/access.js";
@@ -1839,6 +1840,8 @@ function createRoutes(
       }
     },
   });
+  registerViewRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace,
+    isWikiWorkspace: async id => (await wikiStore.list()).some(wiki => wiki.workspaceId === id) });
   registerWikiRoutes({ routes, config, store: wikiStore, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope,
     ensureWikiReadable: async (ctx, wiki) => {
       const agent = await authenticateWikiAgentRequest(config, ctx.request);

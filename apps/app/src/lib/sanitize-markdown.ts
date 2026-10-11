@@ -22,6 +22,8 @@ export function sanitizeMarkdownHtml(value: string) {
       "data-legalwork-link-chevron",
       "data-legalwork-shiki",
       "data-legalwork-task-ref",
+      "data-legalwork-view-ref",
+      "data-legalwork-view-block",
       "decoding",
       "disabled",
       "hidden",

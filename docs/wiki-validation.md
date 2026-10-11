@@ -2,6 +2,30 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## OpenUI experiment and final technical checks (2026-10-11)
+
+The OpenUI layer is a separate commit above the wiki workspace/editor/graph baseline. Reverting that layer removes its UI, typed view/query tools and bundled dependencies without reverting the baseline. Existing Markdown and saved view files are not migrated or deleted.
+
+- Native Electron: opened a saved dashboard in a normal tab, followed a board source into its editable wiki page, changed its typed value from 12,000 to 13,000 and then 14,000, and observed the live aggregate change from 42,000 to 43,000 and then 44,000. The final save invalidated the dashboard immediately. Reload restored the active dashboard and other workspace tabs. The board fits its three columns; the stock OpenUI chart and sortable table render below it.
+- Native Electron: a project report retained the original frozen value of 12,000 while its source button opened the wiki page containing the newer value. Inline widgets rendered inside editable Markdown; editing adjacent prose retained the exact UUID reference fence. **Open view in tab** reused the saved dashboard tab without replacing its title.
+- Server regressions exercise typed property patches and preservation, indexed fields, filtering, aggregate-before-pagination behavior, stale cursors, invalid definitions, stable view identity across renames, revision conflicts, malformed/conflicting files, project ownership, nested-workspace isolation, two-host shared-view sync and revocation. A sync follow-up ensures explicit refresh waits for writes arriving during an existing sync pass.
+- The actual OpenUI parser and component catalog render incomplete streamed content in tests. The existing agent tool transport forwards partial arguments. An actual model session's streaming cadence and latency are still unverified in the isolated signed-out profile; no speed improvement is claimed from the vendor's token benchmark alone.
+- Packaging: the server schemas are bundled into a standalone runtime module. The server plugin output has no unresolved bare imports, the server distribution has no unbundled `@legalwork` runtime imports, and desktop/server dependency checks pass. The OpenUI development inspector is stubbed locally in both app builds; runtime cloud observability is off. No paid service or new model provider is introduced. Third-party notices are included under `public/third-party/openui`; regenerate them with `pnpm exec node apps/app/scripts/openui-license-notices.mjs` after dependency changes.
+
+| Command | Result |
+| --- | --- |
+| `pnpm --filter @legalwork/app test` | 1,266 passed, 0 failed, 198 files |
+| `pnpm --filter legalwork-server exec bun test src/wiki/properties.test.ts src/wiki/data-query.test.ts src/views/repository.test.ts src/wikis.e2e.test.ts src/wikis-team.e2e.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts src/wiki/agent-access.test.ts src/wiki/sync.test.ts` | 78 passed, 0 failed, 544 assertions |
+| `pnpm exec bun test packages/openui/src/catalog.test.tsx apps/app/tests/views.test.ts apps/app/tests/wiki-graph-sigma-compat.test.ts apps/app/tests/wiki-graph-labels.test.ts apps/app/tests/wiki-graph-data.test.ts apps/app/tests/wiki-graph-physics.test.ts` | 16 passed, 0 failed, 77 assertions |
+| App and server typechecks | Passed |
+| App, Word add-in and server production builds | Passed; existing large-chunk notices remain |
+| `pnpm --filter @legalwork/app test:i18n` | 6,209 keys in each of two shipped languages |
+| `node apps/desktop/scripts/check-server-deps.mjs` | Passed |
+
+Evidence uses only synthetic records: [dashboard](wiki-evidence/openui-dashboard.png), [chart and table](wiki-evidence/openui-chart-table.png), [inline widget](wiki-evidence/openui-inline-widget.png).
+
+Current limits: page content/properties still use Markdown/frontmatter as canonical storage, while views use stable typed records over the existing file-sync adapter. A full Notion-style canonical block/record store needs its own migration and synchronization work. OpenUI boards navigate to editable records but do not yet write fields by dragging cards. The 100,000-node graph benchmark measures the production renderer with synthetic data, not complete cold disk indexing through the app. Native cross-window drag gestures and a real provider-generated streaming report remain unverified.
+
 ## Editor, files, and graph baseline (2026-10-11)
 
 - Added hover block controls, slash insertion, selection formatting and editable tables. Source mode preserves the original Markdown. Merely opening, focusing, or switching editor modes does not save parser-normalized content. Real rich-text edits can normalize Markdown spacing. Metadata edits preserve unknown fields and comments.

@@ -89,6 +89,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // OpenUI's optional development overlay loads remote code. Keep rendering fully bundled.
+      "@openuidev/devtools": resolve(appRoot, "../../packages/openui/src/devtools-disabled.ts"),
       "@": resolve(appRoot, "src"),
     },
   },

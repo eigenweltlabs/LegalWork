@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwork/types/views";
 import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
 import { TokenService } from "./tokens.js";
@@ -42,6 +43,54 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+  test("typed queries and frozen reports retain wiki authorization and revision checks", async () => {
+    const { request, config } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Views", template: "blank" })).json());
+    const base = `/wikis/${wiki.id}`;
+    const page = documentSchema.parse(await (await request(`${base}/page`, "owner", "PUT", { path: "Client.md", content: "---\ntype: client\namount: 0\nactive: false\n---\n# Client\n", baseRevision: null })).json());
+    for (const path of ["fields", "ui-views"]) expect((await request(`${base}/${path}`, "viewer")).status).toBe(404);
+    const query = { fields: ["amount", "active"], pageType: "client" };
+    expect((await request(`${base}/query`, "viewer", "POST", query)).status).toBe(404);
+    const data = WikiDataResultSchema.parse(await (await request(`${base}/query`, "owner", "POST", query)).json());
+    expect(data.rows[0]).toMatchObject({ path: "Client.md", amount: 0, active: false });
+    const input: ViewInput = { version: 1, title: "Client report", mode: "report", catalog: "legalwork-1", program: 'root = Text("Client report")', queries: { clients: query } };
+    const view = ViewRecordSchema.parse(await (await request(`${base}/ui-views`, "owner", "POST", input)).json());
+    expect(view.datasets?.clients.rows[0].amount).toBe(0);
+    expect((await request(`/workspace/${wiki.workspaceId}/ui-views`, "owner")).status).toBe(403);
+    await request(`${base}/page`, "owner", "PUT", { path: page.path, content: page.content.replace("amount: 0", "amount: 50"), baseRevision: page.revision });
+    const frozen = ViewRecordSchema.parse(await (await request(`${base}/ui-views/${view.id}`, "owner")).json());
+    expect(frozen.datasets?.clients.rows[0].amount).toBe(0);
+    expect(WikiDataResultSchema.parse(await (await request(`${base}/query`, "owner", "POST", query)).json()).rows[0].amount).toBe(50);
+    expect((await request(`${base}/ui-views/${view.id}`, "owner", "PUT", { baseRevision: "stale", input })).status).toBe(409);
+    config.readOnly = true;
+    expect((await request(`${base}/ui-views`, "owner", "POST", input)).status).toBe(403);
+  });
+
+  test("agent reports remain in their originating project and cannot cross into a wiki through workspace endpoints", async () => {
+    const { request, config, root, base } = await fixture();
+    const { workspace: project } = await registerLocalProject(config, { folderPath: join(root, "project-a"), name: "A", preset: "starter" });
+    const { workspace: other } = await registerLocalProject(config, { folderPath: join(root, "project-b"), name: "B", preset: "starter" });
+    const token = await ensureWikiAgentToken(config);
+    await grantWikiAgentSession(config, { sessionId: "view-agent", directory: project.path, scope: "owner" });
+    const headers = { "content-type": "application/json", "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": "view-agent", "x-legalwork-wiki-agent-directory": encodeURIComponent(project.path) };
+    const input: ViewInput = { version: 1, title: "Private report", mode: "report", catalog: "legalwork-1", program: 'root = Text("Project review")', queries: {} };
+    const response = await fetch(`${base}/workspace/${project.id}/ui-views`, { method: "POST", headers, body: JSON.stringify(input) });
+    expect(response.status).toBe(201);
+    const view = ViewRecordSchema.parse(await response.json());
+    expect(view.owner).toEqual({ kind: "workspace", id: project.id });
+    expect((await fetch(`${base}/workspace/${other.id}/ui-views`, { headers })).status).toBe(403);
+    expect((await request(`/workspace/${project.id}/ui-views/${view.id}`, "viewer", "PUT", { baseRevision: view.revision, input })).status).toBe(403);
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private wiki" })).json());
+    expect((await fetch(`${base}/workspace/${wiki.workspaceId}/ui-views`, { headers })).status).toBe(403);
+    const { workspace: child } = await registerLocalProject(config, { folderPath: join(project.path, "nested"), name: "Nested", preset: "starter" });
+    await grantWikiAgentSession(config, { sessionId: "child-agent", directory: child.path, scope: "owner" });
+    const childHeaders = { ...headers, "x-legalwork-wiki-agent-session": "child-agent", "x-legalwork-wiki-agent-directory": encodeURIComponent(child.path) };
+    expect((await fetch(`${base}/workspace/${project.id}/ui-views`, { headers: childHeaders })).status).toBe(403);
+    expect((await fetch(`${base}/workspace/${project.id}/ui-views`, { method: "POST", headers: childHeaders, body: JSON.stringify(input) })).status).toBe(403);
+    expect((await fetch(`${base}/workspace/${project.id}/ui-views/${view.id}`, { method: "PUT", headers: childHeaders, body: JSON.stringify({ baseRevision: view.revision, input }) })).status).toBe(403);
+    expect((await fetch(`${base}/workspace/${child.id}/ui-views`, { method: "POST", headers: childHeaders, body: JSON.stringify(input) })).status).toBe(201);
+  });
+
   test("compact graph and revision endpoints retain private wiki authorization", async () => {
     const { request } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Private graph" })).json());
