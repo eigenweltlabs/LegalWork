@@ -789,7 +789,7 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
@@ -947,6 +947,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
   };
 
+  let ready = false;
   const serverOptions: {
     hostname: string;
     port: number;
@@ -1006,6 +1007,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (request.method === "OPTIONS") {
         return finalize(new Response(null, { status: 204 }));
       }
+      if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
         const addinResponse = await handleWordAddinRequest({ request, url, config });
@@ -1145,6 +1147,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     idleTimeout: 120,
   });
 
+  config.port = server.port;
+
   if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
 
   // Optional HTTPS listener for the Word add-in. It shares the exact same
@@ -1183,7 +1187,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   }
 
   const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
-  return {
+  const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
@@ -1212,6 +1216,16 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       await server.stop();
     },
   };
+  try {
+    // Bind first: a busy preferred port can move the listener. Agent tools
+    // must receive this listener's actual address and matching credentials.
+    await runtimeOptions.onListening?.(server.port);
+    ready = true;
+    return startedServer;
+  } catch (error) {
+    await startedServer.stop();
+    throw error;
+  }
 }
 
 function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
