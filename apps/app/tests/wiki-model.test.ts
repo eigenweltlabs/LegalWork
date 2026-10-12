@@ -68,9 +68,10 @@ describe("Markdown wiki views and editing", () => {
     for (const path of ['../Private', '/etc/file', 'Folder//Page', 'a/./b', 'a\\..\\b']) expect(() => wikiNewPagePath(path)).toThrow();
   });
   test("agent procedures adapt to an existing wiki without starter files", () => {
-    expect(wikiProcedurePrompt([page("Skills/Bootstrap.md")], "Skills/Bootstrap.md", "help build knowledge.")).toStartWith("Read Skills/Bootstrap.md");
-    const fallback = wikiProcedurePrompt([page("Structure.md")], "Skills/Bootstrap.md", "help build knowledge.");
-    expect(fallback).toStartWith("Read Structure.md"); expect(fallback).not.toContain("Skills/Bootstrap.md");
+    const fallback = wikiProcedurePrompt("help build knowledge.");
+    expect(fallback).toStartWith("Help build knowledge.");
+    expect(fallback).toContain("wiki_guidance");
+    expect(fallback).not.toContain("Skills/Bootstrap.md");
   });
   test("an autosave response preserves edits typed while saving", () => {
     const draft: WikiDraft = { wikiId: 'wiki', path: 'A.md', content: 'Newer edit', baseline: 'Original', revision: 'a', updatedAt: 1, saving: true, error: null };

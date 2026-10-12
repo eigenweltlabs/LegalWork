@@ -88,9 +88,22 @@ test("an agent captures an authorized source into real Markdown through the serv
   await reader.cancel().catch(() => {});
   expect(await listApprovals(url, config.hostToken)).toEqual([]);
   const skills = JSON.parse(await tool.wiki_read.execute({ wiki_id: wiki.id, path: "Skills/Capture.md" }));
-  expect(skills.content).toContain("Capture learning after a matter");
-  expect(skills.guidance.some((entry: { path: string }) => entry.path === "Structure.md")).toBe(true);
+  expect(skills.content).toContain("Capture reusable knowledge");
+  expect(skills.guidance.some((entry: { path: string }) => entry.path === "AGENTS.md")).toBe(true);
+  const guidance = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: wiki.id }));
+  expect(guidance.access_mode).toBe("approval");
+  expect(guidance.guidance[0].content).toContain("Skills/Capture.md");
   expect(await listApprovals(url, config.hostToken)).toEqual([]);
+
+  const proposal = "# General research finding\n\nA reusable finding with its scope, exceptions and public sources.\n";
+  const proposed = tool.wiki_write.execute({ wiki_id: wiki.id, path: "Research/Proposed finding.md", content: proposal, base_revision: null });
+  const [review] = await waitForApprovals(url, config.hostToken);
+  expect(review).toMatchObject({ action: "wiki.write", workspaceId: "matter", sessionID: "session-capture" });
+  expect(JSON.parse(review.description!)).toMatchObject({ path: "Research/Proposed finding.md", content: proposal });
+  expect(await Bun.file(join(wiki.root, "Research/Proposed finding.md")).exists()).toBe(false);
+  await respondApproval(url, config.hostToken, review, "deny");
+  expect(JSON.parse(await proposed).code).toBe("write_denied");
+  expect(await Bun.file(join(wiki.root, "Research/Proposed finding.md")).exists()).toBe(false);
 
   // A source read is required before capture. No model or remote document system
   // is simulated here: this fixture tests the actual tool -> HTTP -> file/index path.

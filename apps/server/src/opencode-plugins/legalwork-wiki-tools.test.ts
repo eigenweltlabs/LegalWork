@@ -168,6 +168,34 @@ describe("wiki agent access", () => {
 });
 
 describe("wiki agent content and revisions", () => {
+  test("a wiki's custom entry point replaces legacy guidance and can designate procedures anywhere", async () => {
+    documents.set("AGENTS.md", document("AGENTS.md", "# Our wiki\nUse [[Playbooks/Contribute.md]]; knowledge belongs in Topics/."));
+    documents.set("Playbooks/Contribute.md", document("Playbooks/Contribute.md", "# Our contribution procedure\nUpdate the existing topic before adding another."));
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const result = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" }));
+    expect(result.access_mode).toBe("approval");
+    expect(result.guidance.map((file: { path: string }) => file.path)).toEqual(["AGENTS.md"]);
+    expect(result.guidance[0].content).toContain("Playbooks/Contribute.md");
+    expect(requests.some(request => request.path.includes("Instructions.md") || request.path.includes("Structure.md"))).toBe(false);
+    const procedure = JSON.parse(await tool.wiki_read.execute({ wiki_id: "wiki-1", path: "Playbooks/Contribute.md" }));
+    expect(procedure.content).toContain("Update the existing topic");
+    expect(procedure.guidance[0].path).toBe("AGENTS.md");
+    expect(requests.every(request => request.method === "GET")).toBe(true);
+  });
+
+  test("guidance reports direct editing only for the current writable wiki and reflects revisions", async () => {
+    const { tool } = await LegalWorkWikiTools({ directory: wikiRoot });
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" })).access_mode).toBe("direct");
+    wikis[1]!.allowInProjects = true;
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-2" })).access_mode).toBe("approval");
+    wikis[0]!.writable = false;
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" })).access_mode).toBe("read_only");
+    documents.set("AGENTS.md", document("AGENTS.md", "New wiki conventions"));
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" })).guidance[0].content).toContain("New wiki conventions");
+    wikis[1]!.allowInProjects = false;
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-2" })).code).toBe("wiki_access_denied");
+  });
+
   test("read bounds source data and guidance without putting imported text in the system prompt", async () => {
     documents.set("Instructions.md", document("Instructions.md", "layout ".repeat(2_000)));
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });

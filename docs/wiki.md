@@ -23,6 +23,7 @@ The folder itself describes its organization:
 | File | Purpose |
 | --- | --- |
 | `Wiki.md` | Home page and human-readable wiki identity |
+| `AGENTS.md` | Short editable entry point linking this wiki's conventions and procedures |
 | `Structure.md` | Naming, inclusion criteria, folders, page types, and property conventions |
 | `Instructions.md` | Agent and maintainer guidance for content and layout |
 | `Templates.md` and `Templates/` | Editable page conventions and reusable Markdown templates |
@@ -77,6 +78,7 @@ The retired YAML `views:` configuration is no longer interpreted. Existing autho
 Open a wiki session to work directly in its folder. An agent can read and reorganize ordinary Markdown files using the existing workspace tools. In a matter/project session, it uses the bundled tools:
 
 - `wiki_list`: wikis currently available to this task, including sync status.
+- `wiki_guidance`: the wiki's editable entry point and whether this session can edit directly, needs write approval, or has read-only access. Existing wikis without `AGENTS.md` use `Instructions.md` and `Structure.md`.
 - `wiki_search`: search one wiki by text and optional type.
 - `wiki_read`: bounded page text, its revision, and bounded content/layout guidance.
 - `wiki_write`: create with `base_revision: null`, or replace with the exact revision returned by reading.
@@ -87,7 +89,11 @@ Open a wiki session to work directly in its folder. An agent can read and reorga
 
 Project access is an explicit wiki setting, available to all known projects or selected projects. A wiki's own session still has access when that switch is off. Tools resolve the task's actual directory against current server state on every call and refuse an unknown directory. The managed engine uses a narrow, ephemeral wiki credential, bound to a session origin recorded from the authenticated user. It never receives a host or owner token; a collaborator's session retains collaborator visibility and an unknown session cannot read private wikis. Server authentication and storage permissions remain authoritative. Page content and imported sources are data; named wiki guidance can describe layout but cannot expand authorization.
 
-For the first extraction, select one question and a bounded set of source matters or documents. Ask the wiki agent to read `Skills/Bootstrap.md`. It uses existing connected storage/source tools, records coverage and source references, and separates observations from agreed standards. `Skills/Capture.md`, `Skills/Maintain.md`, and `Skills/Anonymize.md` provide the other repeatable jobs. These are optional, editable procedures, launched from an authenticated interactive session. Existing workflows can reuse their text. Scheduled execution still requires an authorized session origin; adding a procedure does not provision that access, a connector, or a background schedule.
+Content workflows belong to the wiki. The starter links editable procedures in `Skills/` from `AGENTS.md`; a firm can replace the structure or designate procedures elsewhere. Agent shortcuts and the bundled wiki launcher discover this guidance instead of requiring the starter's folders or procedure names. The app's fixed tool instructions explain access and tool behavior, not the firm's content taxonomy. Updates replace only the known unmodified old global firm-knowledge procedure with this launcher; customized global workflows and existing wiki files remain unchanged.
+
+Project agents read relevant accessible knowledge without asking permission. When useful work produces reusable knowledge, the agent follows the destination's capture procedure, prepares an anonymized addition or update, explains its value briefly, and submits the complete page through `wiki_write`. The originating chat receives approval for that concrete proposal, with no preliminary permission question and no pending draft written into the wiki. Every cross-workspace write requires approval, even in automatic mode; rejection leaves files unchanged. Wiki-session agents can edit their own wiki directly within the user's task and existing permissions. Another wiki remains a tool-access destination requiring approval.
+
+The default capture procedure checks body text, properties, filenames, source labels and links before proposing a contribution. It preserves sources, scope and exceptions, prefers updating existing knowledge, and avoids offering to save every answer. These criteria are editable inside the wiki. Scheduled execution still requires an authorized session origin; adding a procedure does not provision access, a connector, or a background schedule.
 
 ## Sharing and recovery
 

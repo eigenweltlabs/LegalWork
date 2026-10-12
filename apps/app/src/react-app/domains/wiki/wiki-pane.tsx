@@ -391,9 +391,9 @@ function WikiContentPane(props: WikiPaneProps) {
                 <DropdownMenuContent align="end" className="min-w-60">
                   <DropdownMenuItem onClick={() => void run(() => startSession())}><PenLine size={15} strokeWidth={1.5} />{t("wiki.agent_session")}</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Bootstrap.md", "help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Capture.md", "help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt(pages, "Skills/Maintain.md", "maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
