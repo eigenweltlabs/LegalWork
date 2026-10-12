@@ -119,3 +119,5 @@ The source-tab underline now sits closer to the text, with less bottom padding a
 The team connectors explanatory paragraph is removed from the library empty state and shared connector browser. Native Electron verification confirms only the empty-state heading remains. `pnpm --filter @legalwork/app typecheck` and the focused library/import check passed (19 tests).
 
 ![Team connectors without the explanatory paragraph](images/integrations-connectors-team-empty.png)
+
+The corresponding explanatory paragraphs are also removed from Team Skills and Team File storage. Their headings and search-result hints remain. The focused library/import check passed again (19 tests).

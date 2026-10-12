@@ -979,7 +979,7 @@ export function SkillsView(props: SkillsViewProps) {
       {showLocal && !isWorkflowsView ? (
         <>
           {libraryLayout && props.firmDownloadView ? <IntegrationLibrarySearchContext.Provider value={{ query: searchQuery, hasOtherResults: filteredSkills.length > 0 || (source === "all" && matchingBuiltInSkills(searchQuery).length > 0) }}>{props.firmDownloadView}</IntegrationLibrarySearchContext.Provider> : null}
-          {source === "team" && !props.firmDownloadView && filteredSkills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("firm_hub.empty_skills")} description={t("firm_hub.skills_desc")} /> : null}
+          {source === "team" && !props.firmDownloadView && filteredSkills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("firm_hub.empty_skills")} /> : null}
           {source === "all" ? <BuiltInSkills searchQuery={searchQuery} /> : null}
         </>
       ) : null}

@@ -86,7 +86,6 @@ function kindMeta(kind: EigenweltHubKind): {
         feature: "admin_hub",
         icon: <Blocks className="size-4" />,
         title: t("firm_hub.skills"),
-        description: t("firm_hub.skills_desc"),
         empty: t("firm_hub.empty_skills"),
       };
     case "mcp":
