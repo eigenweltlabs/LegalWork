@@ -27,6 +27,7 @@ const registrationSchema = z.object({
   id: z.string().uuid(), name: z.string().min(1).max(200), root: z.string().min(1),
   workspaceId: z.string().min(1), allowInProjects: z.boolean(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(), sync: wikiSyncSchema.nullable(),
 });
+const deletedWikiSchema = z.object({ wiki: registrationSchema, deletedAt: z.number() });
 const indexRowSchema = z.object({
   path: z.string(), content: z.string(), revision: z.string(), mtime: z.number(), ctime: z.number(),
   size: z.number(), updatedAt: z.number(), warning: z.string().nullable(),
@@ -130,13 +131,23 @@ export class WikiStore {
     if (!wiki) throw new ApiError(404, "wiki_not_found", "This wiki is no longer registered on this server.");
     return wiki;
   }
-  private async saveRegistrations(items: WikiRegistration[]): Promise<void> {
+  async deleted() {
+    try {
+      const { data, warning } = markdownData(await readFile(this.path, "utf8"));
+      if (warning) throw new Error(warning);
+      return z.array(deletedWikiSchema).parse(data.deleted ?? []);
+    } catch (error) {
+      if (missing(error)) return [];
+      throw new ApiError(500, "wiki_registry_unreadable", "The saved wiki registry could not be read.");
+    }
+  }
+  private async saveRegistrations(items: WikiRegistration[], deleted?: z.infer<typeof deletedWikiSchema>[]): Promise<void> {
     await mkdir(this.baseDir, { recursive: true, mode: 0o700 });
     let original = "# Wikis\n\nThis file registers wiki folders on this computer. The content remains in those folders.\n";
     try { original = await readFile(this.path, "utf8"); } catch (error) { if (!missing(error)) throw error; }
     const temporary = `${this.path}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, markdownWithData(original, { wikis: items }), { mode: 0o600 });
+      await writeFile(temporary, markdownWithData(original, { wikis: items, ...(deleted ? { deleted } : {}) }), { mode: 0o600 });
       await rename(temporary, this.path);
     } finally { await rm(temporary, { force: true }); }
   }
@@ -151,6 +162,8 @@ export class WikiStore {
         throw new ApiError(409, "wiki_root_registered", "This folder, or a containing folder, is already a wiki.");
       }
       const pendingRoot = await canonicalFolderPath(root);
+      if ((await this.deleted()).some(item => item.wiki.root === pendingRoot || pendingRoot.startsWith(`${item.wiki.root}${sep}`) || item.wiki.root.startsWith(`${pendingRoot}${sep}`)))
+        throw new ApiError(409, "wiki_root_deleted", "Restore this wiki from Recently deleted before using its folder again.");
       await assertWikiFoldersIndependent([...items, { id: newId, name, root: pendingRoot, workspaceId: workspaceIdForPath(pendingRoot), allowInProjects: true, sync: input.sync ?? null }], this.config.workspaces);
       await mkdir(root, { recursive: true });
       if ((await lstat(root)).isSymbolicLink()) throw new ApiError(403, "unsafe_wiki_path", "Wiki folders cannot be symbolic links.");
@@ -191,11 +204,44 @@ export class WikiStore {
       const items = await this.list(), wiki = items.find((item) => item.id === id);
       if (!wiki) throw new ApiError(404, "wiki_not_found", "This wiki is no longer registered.");
       await this.saveRegistrations(items.filter((item) => item.id !== id));
-      this.config.workspaces = this.config.workspaces.filter((item) => item.id !== wiki.workspaceId || item.preset !== "wiki");
-      this.indexes.delete(id);
-      this.graphs.get(id)?.watcher?.close();
-      this.graphs.delete(id);
-      this.inventoryRevisions.delete(id);
+      this.unregisterWorkspace(wiki);
+    });
+  }
+
+  private unregisterWorkspace(wiki: WikiRegistration) {
+    this.config.workspaces = this.config.workspaces.filter(item => item.id !== wiki.workspaceId || item.preset !== "wiki");
+    this.indexes.delete(wiki.id);
+    this.graphs.get(wiki.id)?.watcher?.close();
+    this.graphs.delete(wiki.id);
+    this.inventoryRevisions.delete(wiki.id);
+  }
+
+  /** Soft deletion retains the authored files, workspace identity and history for restoration. */
+  async archive(id: string): Promise<void> {
+    await serial(this.path, async () => {
+      const items = await this.list(), deleted = await this.deleted();
+      const wiki = items.find(item => item.id === id);
+      if (!wiki) {
+        if (deleted.some(item => item.wiki.id === id)) return;
+        throw new ApiError(404, "wiki_not_found", "This wiki is no longer registered.");
+      }
+      await this.saveRegistrations(items.filter(item => item.id !== id), [...deleted, { wiki, deletedAt: Date.now() }]);
+      this.unregisterWorkspace(wiki);
+    });
+  }
+
+  async restoreWiki(id: string): Promise<WikiRegistration> {
+    return serial(this.path, async () => {
+      const items = await this.list(), deleted = await this.deleted();
+      const entry = deleted.find(item => item.wiki.id === id);
+      if (!entry) throw new ApiError(404, "wiki_not_found", "This wiki is no longer in Recently deleted.");
+      await this.safeRoot(entry.wiki.root);
+      if (items.some(wiki => wiki.id === id || wiki.root === entry.wiki.root || wiki.root.startsWith(`${entry.wiki.root}${sep}`) || entry.wiki.root.startsWith(`${wiki.root}${sep}`)))
+        throw new ApiError(409, "wiki_root_registered", "This folder, or a containing folder, is already a wiki.");
+      await assertWikiFoldersIndependent([...items, entry.wiki], this.config.workspaces);
+      await this.saveRegistrations([...items, entry.wiki], deleted.filter(item => item.wiki.id !== id));
+      this.registerWorkspace(entry.wiki);
+      return entry.wiki;
     });
   }
 

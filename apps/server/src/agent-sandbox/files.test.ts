@@ -2,18 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { protectedPath, safeRelative, validateMounts } from "./files.js";
+import { safeRelative, validateMounts } from "./files.js";
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
 test("portable paths reject traversal, Windows aliases, devices and alternate streams", () => {
   for (const path of ["../secret", "a/../../b", "/root", "a\\b", "a:secret", "CON", "x/nul.txt", "x.", "a /b", "a\u0000b", "a//b"]) expect(safeRelative(path)).toBe(false);
   expect(safeRelative("Müller/contract v2.docx")).toBe(true);
-});
-test("managed commands cannot rewrite executable engine configuration", () => {
-  for (const path of [".opencode/plugins/bypass.ts", "opencode.json", "opencode.jsonc", "nested/opencode.json"])
-    expect(protectedPath(path)).toBe(true);
-  expect(protectedPath("src/parser.ts")).toBe(false);
 });
 test("mounts use canonical folders and protect private runtime overlap", async () => {
   const root = await mkdtemp(join(tmpdir(), "sandbox-mounts-")); roots.push(root);

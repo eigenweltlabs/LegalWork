@@ -3,9 +3,7 @@ import { ViewInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
 import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
-import { buildWikiFilePolicy } from "../wiki/file-access-policy.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
-import { runtimeStorageDir } from "../runtime-opencode-config-store.js";
 import { approveWikiWrite } from "../wiki/write-approval.js";
 import type { WikiRegistration, WikiSharingInput, WikiSnapshot, WikiSyncStatus, WikiTeamOverview, WikiTeamRecord, WikiVault } from "@legalwork/types/wiki";
 import { ApiError } from "../errors.js";
@@ -101,22 +99,37 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
-  addRoute(routes, "GET", "/wikis/file-policy", "client", async ctx => {
-    const agent = await authenticateWikiAgentRequest(config, ctx.request);
-    if (!agent) throw new ApiError(403, "wiki_agent_session_required", "File access policy requires an authenticated agent session.");
-    const wikis = await store.list();
-    const policy = await buildWikiFilePolicy(wikis, agent.directory, [store.baseDir, runtimeStorageDir(config)]);
-    if (policy.ownRoot) {
-      const wiki = wikis.find(item => item.root === policy.ownRoot);
-      if (!wiki || !visible(ctx, wiki)) throw new ApiError(404, "wiki_not_found", "This wiki is not available to this client.");
-      await options.ensureWikiReadable?.(ctx, wiki);
-      policy.ownWritable = !config.readOnly && editor(ctx);
-      if (policy.ownWritable && options.ensureWikiWritable) {
-        try { await options.ensureWikiWritable(ctx, wiki); } catch { policy.ownWritable = false; }
-      }
-    }
-    return jsonResponse(policy);
+  addRoute(routes, "GET", "/wikis/deleted", "client", async ctx => {
+    requireClientScope(ctx, "owner");
+    return jsonResponse({ items: await store.deleted() });
   });
+  addRoute(routes, "POST", "/wikis/:wikiId/archive", "client", async ctx => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const input = z.object({ removeOnly: z.boolean().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success) throw new ApiError(400, "invalid_wiki_deletion", "Choose whether to delete this wiki or remove your local copy.");
+    const wiki = await store.get(ctx.params.wikiId);
+    if (wiki.sync && !input.data.removeOnly) {
+      if (!("kind" in wiki.sync) || (await options.sharing?.(wiki.id))?.role !== "owner")
+        throw new ApiError(403, "wiki_owner_required", "Only the wiki owner can delete a shared wiki. You can remove your local copy.");
+      if (!options.stopSharing) throw sharingUnavailable();
+      await options.stopSharing(wiki.id);
+    }
+    await store.archive(wiki.id);
+    options.onWorkspacesChanged?.(); change(wiki.id);
+    return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "POST", "/wikis/:wikiId/restore-wiki", "client", async ctx => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const entry = (await store.deleted()).find(item => item.wiki.id === ctx.params.wikiId);
+    if (!entry) throw new ApiError(404, "wiki_not_found", "This wiki is no longer in Recently deleted.");
+    await options.ensureWikiReadable?.(ctx, entry.wiki);
+    const wiki = await store.restoreWiki(entry.wiki.id);
+    options.onWorkspacesChanged?.(); change(wiki.id);
+    return jsonResponse({ wiki: await vault(ctx, await store.snapshot(wiki.id)) });
+  });
+
   const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
     dashboardFolder: async () => (await store.snapshot(id)).folders?.includes("Dashboards") ? "Dashboards" : "Views",
     list: async () => (await store.files(id)).map(file => file.path),

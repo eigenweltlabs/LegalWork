@@ -12,7 +12,7 @@ import type { ServerConfig } from "../types.js";
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
 
-test("real file-tool hook protects disabled wikis and unmanaged proxy shell endpoints", async () => {
+test("wiki tools respect project access without overriding host file access", async () => {
   const root = await mkdtemp(join(tmpdir(), "wiki-file-policy-api-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const config: ServerConfig = {
@@ -37,28 +37,9 @@ test("real file-tool hook protects disabled wikis and unmanaged proxy shell endp
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   const project = await LegalWorkWikiTools({ directory: workspace.path });
-  for (const tool of ["write", "edit"]) {
-    await expect(project["tool.execute.before"]({ tool, sessionID: "project-session" }, { args: { filePath: `${wiki.root}/Page.md` } }))
-      .rejects.toMatchObject({ code: "wiki_direct_write_denied" });
-    await project["tool.execute.before"]({ tool, sessionID: "project-session" }, { args: { filePath: "Draft.md" } });
-  }
-  await expect(project["tool.execute.before"]({ tool: "apply_patch", sessionID: "project-session" }, { args: { patchText: `*** Begin Patch\n*** Add File: ${wiki.root}/Page.md\n+text\n*** End Patch` } }))
-    .rejects.toMatchObject({ code: "wiki_direct_write_denied" });
-  await expect(project["tool.execute.before"]({ tool: "bash", sessionID: "project-session" }, { args: { command: "true" } }))
-    .rejects.toMatchObject({ code: "wiki_protected_execution_required" });
-  const own = await LegalWorkWikiTools({ directory: wiki.root });
-  await own["tool.execute.before"]({ tool: "edit", sessionID: "wiki-session" }, { args: { filePath: "Page.md" } });
-  await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: `${wiki.root}/Page.md` } }))
-    .rejects.toMatchObject({ code: "wiki_direct_read_denied" });
-  await grantWikiAgentSession(config, { sessionId: "private-collaborator", directory: wiki.root, scope: "collaborator" });
-  await expect(own["tool.execute.before"]({ tool: "read", sessionID: "private-collaborator" }, { args: { filePath: "Page.md" } }))
-    .rejects.toThrow("not available");
-  config.readOnly = true;
-  await own["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: "Page.md" } });
-  await expect(own["tool.execute.before"]({ tool: "edit", sessionID: "wiki-session" }, { args: { filePath: "Page.md" } }))
-    .rejects.toMatchObject({ code: "wiki_read_only" });
-  config.readOnly = false;
-  expect((await fetch(`${base}/wikis/file-policy`, { headers: { authorization: `Bearer ${config.token}` } })).status).toBe(403);
+  expect(project).not.toHaveProperty("tool.execute.before");
+  expect(project).not.toHaveProperty("shell.env");
+  expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
   for (const path of ["/session/project-session/shell", "/pty"]) {
     const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: "{}" });

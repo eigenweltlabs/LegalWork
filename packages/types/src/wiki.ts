@@ -42,6 +42,7 @@ export type WikiVault = WikiRegistration & {
   /** Audience of an incomplete sharing request, for a safe retry. */
   pendingSharing?: WikiSharingInput | null;
 };
+export type DeletedWiki = { wiki: WikiRegistration; deletedAt: number };
 export type WikiLink = { target: string; label: string; property: string | null; resolved: boolean };
 /** Compact graph projection. Page bodies, excerpts and arbitrary metadata stay on the server. */
 export type WikiGraphNode = { id: string; path: string; title: string; type: string };

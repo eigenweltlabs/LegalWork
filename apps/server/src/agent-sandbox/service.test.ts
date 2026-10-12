@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
@@ -72,13 +72,18 @@ test("shell denial prevents runtime launch", async () => {
 
 const networkRequest = () => prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: Buffer.from("test body").toString("base64") });
 
-test("external wikis require protected shell execution without changing the saved preference", async () => {
+test("sandbox off permits host reads and writes with external wikis registered", async () => {
   const f = await fixture({ bash: "allow", read: "allow", edit: "allow", webfetch: "allow" });
   const store = new WikiStore(f.config);
   try {
-    await store.create({ name: "External", template: "blank" });
+    const wiki = await store.create({ name: "External", template: "blank" });
+    const file = join(wiki.root, "host-access.txt");
+    await writeFile(file, "host-read");
     await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
-    for (const write of [false, true]) await expect(f.run(write)).rejects.toMatchObject({ code: "wiki_protected_execution_required" });
+    const quoted = `'${file.replaceAll("'", "'\\''")}'`;
+    const result = await f.service.run(f.workspace, { command: `cat ${quoted} && printf host-write > ${quoted}`, write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
+    expect(result).toMatchObject({ sandbox: "host", output: "host-read", exitCode: 0 });
+    expect(await readFile(file, "utf8")).toBe("host-write");
     expect((await effectiveSandbox(f.config, f.workspace.id, [])).enabled).toBe(false);
     expect(f.executions).toHaveLength(0);
     expect(f.prompts).toHaveLength(0);

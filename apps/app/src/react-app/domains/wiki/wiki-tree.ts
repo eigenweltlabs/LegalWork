@@ -1,6 +1,11 @@
 export type WikiTreeEntry = { path: string; kind: "file" | "folder" };
 export type WikiTreeNode = WikiTreeEntry & { name: string; children: WikiTreeNode[] };
 
+export function wikiFileLabel(path: string, title?: string) {
+  const filename = path.split("/").at(-1) ?? path;
+  return /^AGENTS\.md$/i.test(filename) ? filename : title ?? filename.replace(/\.md$/i, "");
+}
+
 /** Folders are ordinary directories, including empty directories from the server. */
 export function wikiTree(files: string[], folders: string[]): WikiTreeNode[] {
   const nodes = new Map<string, WikiTreeNode>();

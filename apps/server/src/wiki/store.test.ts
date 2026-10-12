@@ -322,3 +322,29 @@ describe("Markdown wiki store", () => {
     expect((await store.snapshot(wiki.id)).warnings.some((warning) => warning.startsWith("Broken.md:"))).toBe(true);
   });
 });
+
+test("deleted wikis restore their files, history, identity and settings after restart", async () => {
+  const { store, config } = await fixture();
+  const wiki = await store.create({ name: "Restore me", template: "firm" });
+  await store.write(wiki.id, "Note.md", "# Retained content", "");
+  await store.writeAsset(wiki.id, "scan.pdf", Buffer.from([0, 1, 255]), "");
+  await store.update(wiki.id, { allowInProjects: false });
+  await store.archive(wiki.id);
+  expect(await store.list()).toEqual([]);
+  expect(config.workspaces.some(item => item.id === wiki.workspaceId)).toBe(false);
+  await expect(store.read(wiki.id, "Note.md")).rejects.toMatchObject({ status: 404 });
+  expect(await store.deleted()).toMatchObject([{ wiki: { id: wiki.id, allowInProjects: false } }]);
+  await expect(store.create({ name: "Duplicate", root: wiki.root, attach: true })).rejects.toMatchObject({ status: 409 });
+  const other = await store.create({ name: "Unrelated" });
+  await store.forget(other.id);
+  await store.close();
+  const reopened = new WikiStore(config); stores.push(reopened);
+  const restored = await reopened.restoreWiki(wiki.id);
+  expect(restored.workspaceId).toBe(wiki.workspaceId);
+  expect(restored.root).toBe(wiki.root);
+  expect(restored.allowInProjects).toBe(false);
+  expect((await reopened.read(wiki.id, "Note.md")).content).toBe("# Retained content");
+  expect(await readFile(join(wiki.root, "scan.pdf"))).toEqual(Buffer.from([0, 1, 255]));
+  expect((await reopened.history(wiki.id, "Note.md")).length).toBeGreaterThan(0);
+  expect(await reopened.deleted()).toEqual([]);
+});

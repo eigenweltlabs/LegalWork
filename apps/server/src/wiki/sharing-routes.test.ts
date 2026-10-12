@@ -135,3 +135,37 @@ test("stopping sharing retries the owner endpoint when the remote read is alread
   expect((await request(`/wikis/${wiki.id}/share`, "DELETE")).status).toBe(200);
   expect((await store.get(wiki.id)).sync).toBeNull();
 });
+
+test("wiki deletion is recoverable and management is owner-only", async () => {
+  const { request, store } = await fixture();
+  const wiki = await store.create({ name: "Delete and restore" });
+  await expect(request(`/wikis/${wiki.id}/archive`, "POST", {}, "collaborator")).rejects.toMatchObject({ status: 403 });
+  await expect(request('/wikis/deleted', "GET", undefined, "viewer")).rejects.toMatchObject({ status: 403 });
+  await request(`/wikis/${wiki.id}/archive`, "POST", {});
+  expect(await (await request('/wikis/deleted')).json()).toMatchObject({ items: [{ wiki: { id: wiki.id } }] });
+  expect(await store.list()).toEqual([]);
+  await request(`/wikis/${wiki.id}/restore-wiki`, "POST");
+  expect((await store.get(wiki.id)).name).toBe(wiki.name);
+});
+
+test("deleting an owned shared wiki stops sharing but restoring does not republish it", async () => {
+  const { request, store, remote } = await fixture();
+  const result = await (await request('/wikis', "POST", { name: "Shared", sharing: { access: "org", memberIds: [] } })).json();
+  const id = result.wiki.id;
+  await request(`/wikis/${id}/archive`, "POST", {});
+  expect(remote.has(id)).toBe(false);
+  await request(`/wikis/${id}/restore-wiki`, "POST");
+  expect((await store.get(id)).sync).toBeNull();
+});
+
+test("members can remove their copy but cannot delete the shared wiki", async () => {
+  const { request, store, remote, record } = await fixture();
+  const shared: WikiTeamRecord = { ...record("Member wiki"), role: "member" };
+  const wiki = await store.create({ name: shared.name, sync: { kind: "team", wikiId: shared.id, orgId: "firm" } });
+  remote.set(wiki.id, shared);
+  await expect(request(`/wikis/${wiki.id}/archive`, "POST", {})).rejects.toMatchObject({ status: 403 });
+  await request(`/wikis/${wiki.id}/archive`, "POST", { removeOnly: true });
+  expect(remote.has(wiki.id)).toBe(true);
+  await request(`/wikis/${wiki.id}/restore-wiki`, "POST");
+  expect((await store.get(wiki.id)).sync).toEqual(wiki.sync);
+});

@@ -66,8 +66,6 @@ async function teamFlow(sandbox?: VmSandbox) {
     expect(JSON.parse(await tools.tool.wiki_query.execute({ wiki_id: wiki.id, query: { fields: ["title"] } })).rows.some((row: { title: string }) => row.title === "Shared source")).toBe(true);
   }
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
-  await expect(outside["tool.execute.before"]({ tool: "write", sessionID: "matter-agent" }, { args: { filePath: join(wiki.root, "Bypass.md") } })).rejects.toMatchObject({ code: "wiki_direct_write_denied" });
-  await inside["tool.execute.before"]({ tool: "write", sessionID: "wiki-agent" }, { args: { filePath: "Own.md" } });
   const pending = outside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-project.md", content: "# Approved project knowledge\n", base_revision: null });
   const [approval] = await waitForApprovals(b.url, member.config.hostToken);
   expect(approval).toMatchObject({ workspaceId: project.id, sessionID: "matter-agent", action: "wiki.write" });

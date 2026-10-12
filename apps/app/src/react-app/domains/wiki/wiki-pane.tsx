@@ -49,6 +49,7 @@ export type WikiPaneProps = {
   headerTarget?: HTMLElement | null;
   selectedWikiId?: string;
   onSelectWiki?: (wiki: WikiVault) => void;
+  onManageWikis?: () => void;
   hideHeader?: boolean;
   onCloseNavigation?: () => void;
   onCloseTab?: () => void;
@@ -352,7 +353,7 @@ function WikiContentPane(props: WikiPaneProps) {
     </DropdownMenuTrigger>
     <DropdownMenuContent side="bottom" align="start" className="w-72 max-w-[calc(100vw-2rem)]">
       {list.data?.items.map((item) => <DropdownMenuItem key={item.id} onClick={() => chooseWiki(item.id)}>{item.sync ? <Users size={15} /> : <LockKeyhole size={15} />}<span className="min-w-0 flex-1 truncate">{item.name}</span>{wikiId === item.id ? <Check size={14} /> : null}</DropdownMenuItem>)}
-      <DropdownMenuSeparator /><DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
+      <DropdownMenuSeparator />{props.onManageWikis ? <DropdownMenuItem onClick={props.onManageWikis}><BookOpen size={15} />{t("wiki.manage_all")}</DropdownMenuItem> : null}<DropdownMenuItem onClick={() => setNewWiki(true)}><Plus size={15} />{t("wiki.new_wiki")}</DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>{wiki ? <span className="wiki-switcher-settings"><WikiIconButton label={t("wiki.settings")} onClick={() => openSettings()}><Settings2 size={15} /></WikiIconButton></span> : null}</span>;
 
@@ -367,6 +368,7 @@ function WikiContentPane(props: WikiPaneProps) {
       <div ref={workbenchBody} className="wiki-workbench-body">
         {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
           <div className="wiki-sidebar-header">
+            {props.onManageWikis ? <button className="wiki-nav-row" onClick={props.onManageWikis}><BookOpen size={15} /><span>{t("wiki.manage_all")}</span></button> : null}
             <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
             <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>

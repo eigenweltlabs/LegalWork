@@ -42,6 +42,11 @@ export function wikiDraftHasChanges(scope: string, wikiId: string, path: string)
   return Boolean(draft && (draft.saving || draft.content !== draft.baseline));
 }
 
+export function wikiHasUnsavedChanges(scope: string, wikiId: string) {
+  restoreDrafts(scope);
+  return [...retained.entries()].some(([key, draft]) => key.startsWith(`[${JSON.stringify(scope)},`) && draft.wikiId === wikiId && (draft.saving || draft.content !== draft.baseline));
+}
+
 export function acceptWikiSave(draft: WikiDraft, sent: string, saved: WikiDocument): WikiDraft {
   return { ...draft, revision: saved.revision, updatedAt: saved.updatedAt, baseline: saved.content,
     content: draft.content === sent ? saved.content : draft.content, saving: false, error: null };

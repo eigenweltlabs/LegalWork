@@ -110,9 +110,9 @@ async function descendantFixture() {
   return { ...f, sessions, engineRequests, child, pendingChild };
 }
 
-test("engine-created child agents read wikis and file policy, with writes approved in the actual child chat", async () => {
+test("engine-created child agents read wikis, with writes approved in the actual child chat", async () => {
   const f = await descendantFixture();
-  for (const path of ["/wikis", "/wikis/file-policy", `${f.base}/page?path=Client.md`, `${f.base}/fields`])
+  for (const path of ["/wikis", `${f.base}/page?path=Client.md`, `${f.base}/fields`])
     expect((await f.child(path)).status).toBe(200);
   expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
   expect(f.engineRequests).toContain("child-chat");
@@ -157,7 +157,7 @@ test("a revoked ancestor and changed engine lineage cannot retain child wiki acc
   f.sessions.set("child-chat", { ...original, parentID: "unregistered-parent" });
   expect((await f.child(`${f.base}/page?path=Client.md`)).status).toBe(403);
   f.sessions.set("child-chat", { ...original, directory: f.root });
-  expect((await f.child("/wikis/file-policy")).status).toBe(403);
+  expect((await f.child("/wikis")).status).toBe(403);
   f.sessions.set("child-chat", original);
   await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: join(f.root, "unavailable"), scope: "owner" });
   expect((await f.child(`${f.base}/page?path=Client.md`)).status).toBe(403);

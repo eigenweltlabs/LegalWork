@@ -381,7 +381,7 @@ test("opens workspace and connected files in the engine session, then exposes li
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
   expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("Inspect reference documents in the background with file-reading tools");
+  expect(output.system.join("\n")).toContain("Source reading, extraction and wiki imports never require opening a viewer");
 });
 
 describe("PowerPoint visual feedback", () => {

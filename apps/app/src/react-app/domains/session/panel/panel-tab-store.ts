@@ -13,6 +13,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
 import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
+import { isLoopbackLegalworkServerUrl } from "@/app/lib/legalwork-server";
 import { storageFileSourceSchema, storageFileTab } from "./storage-file-tab";
 import { MAX_DOCUMENT_PANES, legacyLayout, legacyLayoutSizes, layoutLeaves, findLayoutNode, pruneLayout, reconcileLayoutSizes, restoreLayout, splitLayout, type DocumentDropEdge, type DocumentLayoutNode } from "./document-layout";
 
@@ -148,6 +149,7 @@ export type PanelTabStore = {
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
+  reconnectWikiTabs: (serverUrl: string, wikiIds: string[]) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   restoreNavigationTab: (scope: string, tab: unknown, paneId: string) => void;
@@ -447,6 +449,36 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         const sessions = { ...state.sessions, [scope]: session };
         if (scope !== sessionId) delete sessions[sessionId];
         return { sessions };
+      }),
+      reconnectWikiTabs: (serverUrl, wikiIds) => set(state => {
+        if (!isLoopbackLegalworkServerUrl(serverUrl)) return state;
+        const known = new Set(wikiIds);
+        const sessions = { ...state.sessions };
+        let changed = false;
+        for (const [scope, session] of Object.entries(sessions)) {
+          const renamed = new Map<string, string>();
+          const tabs = session.tabs.map(tab => {
+            if (tab.type !== "wiki" && tab.type !== "view") return tab;
+            const wikiId = tab.type === "wiki" ? tab.wikiId : tab.owner.kind === "wiki" ? tab.owner.id : null;
+            // A desktop restart can change its port. Reconnect only wiki IDs
+            // confirmed by the current local server, never remote tabs.
+            if (!wikiId || !known.has(wikiId) || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
+            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
+            renamed.set(tab.id, next.id);
+            return next;
+          });
+          if (!renamed.size) continue;
+          changed = true;
+          sessions[scope] = normalizeSession({ ...session, tabs: [...new Map(tabs.map(tab => [tab.id, tab])).values()],
+            activeTabId: session.activeTabId ? renamed.get(session.activeTabId) ?? session.activeTabId : null,
+            panes: session.panes.map(pane => ({ ...pane,
+              tabIds: [...new Set(pane.tabIds.map(id => renamed.get(id) ?? id))],
+              activeTabId: pane.activeTabId ? renamed.get(pane.activeTabId) ?? pane.activeTabId : null,
+              previewTabId: pane.previewTabId ? renamed.get(pane.previewTabId) ?? pane.previewTabId : undefined,
+            })),
+          });
+        }
+        return changed ? { sessions } : state;
       }),
       updateWikiPaths: (serverUrl, wikiId, path, destination) => set((state) => {
         const sessions: Record<string, SessionPanelState> = {};

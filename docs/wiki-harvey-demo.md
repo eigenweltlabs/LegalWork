@@ -48,22 +48,20 @@ This intentionally does not remove or replace other containers, volumes or bucke
 
 Open Wiki in the global navigation, choose **Harvey · Firm knowledge**, and use the tab plus button to start a chat. Memory Drive contains the source tree. The chat's working directory is the wiki root. The earlier **Build firm wiki from local S3** chat is also retained.
 
-The submitted first-run prompt asks the agent to inventory the connection, review the first three matter folders, save supported client/matter pages incrementally, create relations through indexed fields, extract useful reusable knowledge, and save a live dashboard and frozen report. It must retain a checkpoint for the remaining scope. It cannot claim that inventorying 9,288 files means reviewing their content.
+Setup treats the named source as the requested scope. It inventories the connection, reads documents, saves supported client/matter pages incrementally, creates indexed relations, extracts useful reusable knowledge, and creates dashboards when the populated data supports them. Batching is an execution detail, not an arbitrary three-matter limit. Listing 9,288 files is not reviewing their content.
 
 For a new chat in this wiki:
 
-> Set up this wiki from Harvey firm records · local S3. Start with three matters so I can inspect the result.
+> Set up this wiki from Harvey firm records · local S3.
 
-After inspecting that batch:
-
-> Continue the import from where you stopped.
-
-The local setup skill supplies the source checks, coverage ledger, indexed relations and dashboard procedure. The user does not need to specify tool names. A new wiki needs its own source connection; choosing the law firm starter does not copy credentials or another workspace's access.
+The local setup skill supplies source checks, indexed relations and dashboard guidance. Progress and tool problems stay in chat. If a large job needs durable execution state, it uses the hidden `.legalwork/wiki-setup/` directory, outside the wiki's indexed knowledge. The user does not need to specify tool names. Harvey uses the existing automatic team connection, so Memory Drive and storage tools expose it in existing and newly created wikis and projects. No per-workspace connection setup or new connection system is required.
 
 ## What was actually verified
 
 - The running Electron server lists all 266 matter folders across three pages from the connected S3 bucket.
+- On 12 October, the original local-only connection was promoted through the existing connection API with automatic installation. Verified the same connection and source browsing in all eight existing workspaces, then in a newly created wiki and project without installing or copying connections. The verification registrations were removed afterwards. Source access remains read-only; this verification did not start an import.
 - A source matter-opening memorandum downloads byte-for-byte identically to the pinned Git file and opens in the app's existing Word tab. The source connection is read-only; editable working copies remain local.
+- After rebasing onto `dev` at `7499125b`, the running app read all 47,814 characters of that DOCX through the existing storage checkout/text reader. A host shell command also read its downloaded bytes with sandboxing off. Source reading requires neither an open viewer nor shell execution. A real VM integration test passed for wiki and project file access and team synchronization.
 - A new `Sources/Connection check.md` written on disk appears in the open native wiki tree without clicking refresh. This is a setup verification note, explicitly not agent-generated imported knowledge.
 - Wiki tree revision polling now runs every two seconds and invalidates saved-view data and lists along with the tree. Automated tests cover external batch writes, binary files, nested folders, indexed fields and relation edges.
 - The wiki's own tabs, expanded folders and Memory Drive state survive an Electron restart. A discovered stale-workspace selection bug was fixed so a newly created wiki does not borrow another workspace's tabs or agent directory.

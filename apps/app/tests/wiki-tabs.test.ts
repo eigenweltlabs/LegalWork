@@ -7,6 +7,30 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("desktop restart reconnects known local wiki pages and views while preserving split panes", () => {
+    const store = usePanelTabStore.getState();
+    const old = "http://127.0.0.1:4001", current = "http://127.0.0.1:4002";
+    const page = wikiPanelTab(old, "firm", { kind: "page", path: "Guide.md", mode: "source" }, "Guide");
+    const view = viewPanelTab(old, { owner: { kind: "wiki", id: "firm" }, viewId: "31c119ce-672f-4e8b-a036-127609e3b56a" }, "Dashboard");
+    const remote = wikiPanelTab("https://example.com", "firm", { kind: "graph" }, "Remote");
+    const unknown = wikiPanelTab(old, "other", { kind: "graph" }, "Other");
+    store.openTab("chat", page, "main");
+    store.openTab("chat", remote, "main");
+    store.openTab("chat", unknown, "main");
+    store.openTab("chat", view, "main", "right");
+    const before = usePanelTabStore.getState().sessions.chat;
+    store.reconnectWikiTabs(current, ["firm"]);
+    const after = usePanelTabStore.getState().sessions.chat;
+    const nextPage = wikiPanelTab(current, "firm", page.location, page.label);
+    const nextView = viewPanelTab(current, view, view.label);
+    expect(after.tabs).toEqual([nextPage, remote, unknown, nextView]);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.focusedPaneId).toBe(before.focusedPaneId);
+    expect(after.panes.find(pane => pane.id === after.focusedPaneId)?.activeTabId).toBe(nextView.id);
+    expect(after.panes.some(pane => pane.tabIds.includes(page.id) || pane.tabIds.includes(view.id))).toBe(false);
+    store.reconnectWikiTabs(current, ["firm"]);
+    expect(usePanelTabStore.getState().sessions.chat).toBe(after);
+  });
   test("restoring a workspace drops retired YAML view tabs without losing pages, graphs or saved dashboards", () => {
     const store = usePanelTabStore.getState();
     const tabs = [

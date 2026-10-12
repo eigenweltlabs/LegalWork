@@ -15,6 +15,10 @@ describe("portable wiki starters", () => {
     expect(Object.keys(files).filter(path => path.endsWith("AGENTS.md")).sort()).toEqual(["AGENTS.md", "Knowledge/AGENTS.md", "Templates/AGENTS.md"]);
     expect(Object.keys(files).filter(path => path.endsWith("/SKILL.md"))).toHaveLength(4);
     expect(files["Skills/wiki-setup/SKILL.md"]).toContain("next folder/cursor");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("Continue through the full requested scope");
+    expect(files["Skills/wiki-setup/SKILL.md"]).not.toContain("initially up to three matters");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("Never create Sources/Import.md");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("Reading source documents never requires opening an in-app viewer");
     expect(files["Skills/wiki-setup/SKILL.md"]).toContain("do not crawl connected storage");
     expect(files["Firm/About.md"]).toBeUndefined();
     expect(files["Sources/Import.md"]).toBeUndefined();

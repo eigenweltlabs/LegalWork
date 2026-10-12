@@ -27,7 +27,7 @@ import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
-import type { WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -1739,6 +1739,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     changeWikiEntry: (id: string, input: WikiEntryOperation) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}/entries`, { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 }),
     wikiTrash: (id: string) => requestJson<{ items: WikiTrashEntry[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/trash`, { token, hostToken }),
     updateWiki: (id: string, input: WikiUpdateInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: input }),
+    deletedWikis: () => requestJson<{ items: DeletedWiki[] }>(baseUrl, "/wikis/deleted", { token, hostToken }),
+    archiveWiki: (id: string, removeOnly = false) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}/archive`, { token, hostToken, method: "POST", body: { removeOnly }, timeoutMs: 30_000 }),
+    restoreWiki: (id: string) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/restore-wiki`, { token, hostToken, method: "POST" }),
     forgetWiki: (id: string) => requestJson<{ ok: true }>(baseUrl, `/wikis/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
     readWikiPage: (id: string, path: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/page?path=${encodeURIComponent(path)}`, { token, hostToken }),
     writeWikiPage: (id: string, input: { path: string; content: string; baseRevision?: string }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/page`, { token, hostToken, method: "PUT", body: input }),

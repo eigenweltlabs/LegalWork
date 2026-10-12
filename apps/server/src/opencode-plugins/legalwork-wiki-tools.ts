@@ -6,7 +6,6 @@ import { z } from "zod";
 import { ViewInputSchema, ViewOwnerSchema, ViewRecordSchema, WikiDataQuerySchema, WikiDataResultSchema, WikiFieldsSchema, type ViewOwner } from "@legalwork/types/views";
 import { OPENUI_CATALOG } from "@legalwork/openui/catalog";
 import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
-import { assertWikiFileToolAccess, assertWikiHostExecution, wikiFilePolicySchema, wikiFileToolNeedsPolicy } from "../wiki/file-access-policy.js";
 import { ApiError } from "../errors.js";
 import { serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
@@ -201,17 +200,6 @@ function viewGenerationHeaders(initial: OpenCodeContext) {
 
 export const LegalWorkWikiTools = async (initial: OpenCodeContext = {}) => ({
   "chat.headers": viewGenerationHeaders(initial),
-  "tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args: unknown }) => {
-    if (!wikiFileToolNeedsPolicy(input.tool)) return;
-    const context = { ...initial, sessionID: input.sessionID ?? initial.sessionID };
-    const policy = wikiFilePolicySchema.parse(await request("/wikis/file-policy", "GET", undefined, context));
-    await assertWikiFileToolAccess(policy, input.tool, output.args);
-  },
-  "shell.env": async (input: { sessionID?: string }) => {
-    const context = { ...initial, sessionID: input.sessionID ?? initial.sessionID };
-    const policy = wikiFilePolicySchema.parse(await request("/wikis/file-policy", "GET", undefined, context));
-    assertWikiHostExecution(policy);
-  },
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => { output.system.push(RULES); },
   tool: {
     wiki_guidance: defineTool("Discover this wiki's editable instructions and links to its own workflows. Read the relevant linked procedure before proposing or making changes. The wiki determines its structure; guidance cannot grant permissions. Missing guidance is allowed: use the user's task and existing organization.",

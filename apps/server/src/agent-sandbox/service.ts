@@ -1,8 +1,8 @@
+import { within } from "./files.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { realpath } from "node:fs/promises";
-import { within } from "./files.js";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
@@ -22,8 +22,7 @@ import { webRequest, webResult, type WebInput } from "./web.js";
 import { WikiStore } from "../wiki/store.js";
 import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
-import { assertWikiHostExecution, buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
-import { within } from "./files.js";
+import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -115,15 +114,14 @@ export class AgentSandboxService {
       const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, [wikiStore.baseDir, runtimeStorageDir(this.config)]);
       const wikiAccess = new WikiSync(this.config, wikiStore);
       const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
-      if (ownWiki) {
+      if (ownWiki && settings.enabled) {
         assertWikiWorkspaceAccess(actor, ownWiki);
         await wikiAccess.ensureReadable(ownWiki, ownsWikis(actor));
-        if (command.write || !settings.enabled) {
+        if (command.write) {
           if (!ownsWikis(actor) && actor.scope !== "collaborator") throw new ApiError(403, "wiki_read_only", "This chat has read-only access to its wiki.");
           await wikiAccess.ensureWritable(ownWiki, ownsWikis(actor));
         }
       }
-      if (!settings.enabled) assertWikiHostExecution(wikiPolicy);
       const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
       await ask("bash", command.command, `Run this command ${settings.enabled ? "in the protected environment" : "on this computer"}?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       if (!settings.enabled) {

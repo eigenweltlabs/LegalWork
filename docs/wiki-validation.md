@@ -2,6 +2,34 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Sandbox settings, source reading and wiki management (2026-10-12)
+
+- Rebased onto `origin/dev` at `7499125b`, retaining its sandbox file, copied attachment, skill-directory and background document-reading fixes. Removed the wiki-specific host execution/file-tool override. Sandbox off uses normal host execution; sandbox on uses the existing VM and file broker. Project writes made through wiki tools still require approval.
+- Extended the existing storage reader with the existing document extraction code. DOCX, PDF, XLSX, PPTX, OpenDocument and image reads return bounded text, continuation offsets and extraction coverage. No viewer, Word session or shell is required. No new provider or connection system was added.
+- In the running Electron server, the actual Harvey memorandum returned 47,814 characters of complete native extraction. Its downloaded DOCX also read successfully through the host shell endpoint with sandboxing off. The source remained read-only. A real VM integration test passed inside a team wiki and a project, including file reads/writes, project wiki-write approval, synchronization and revoked access.
+- Removed the three-matter starter cap. Source scope comes from the user's request, with internal batches continuing until completion or a real interruption. Setup progress and failures stay in chat or hidden execution state. Removed the generated failure pages from **Harvey Chris Test**, restored its original home and source hub, and refreshed unchanged starter instructions. The user's import was not resumed.
+- All wikis provides search, settings, deletion and Recently deleted. Native Electron deletion/restoration preserved the verification wiki's identity and file content. Shared deletion and management authorization have route tests. [Restored wiki overview](wiki-evidence/wiki-manager-restored.png). `AGENTS.md` displays its filename in the tree.
+- Desktop restart exposed tabs retaining the previous local server port. Known wiki tabs now reconnect to the current server after its wiki list loads, preserving split panes. Remote tabs remain bound to their server.
+
+Validation: server build, app typecheck, production build and i18n validation passed. The following server command passed 227 tests and 1,928 assertions across 23 files, including the real local VM. Nine optional external storage-reference tests were skipped; the actual local Harvey S3 connection was checked separately above. App wiki-tab tests passed 8 tests; wiki tree and management/store/access tests passed 40 tests. The complete Harvey import remains for the user to run.
+
+```sh
+LEGALWORK_WIKI_VM_RESOURCES="$PWD/apps/server/resources/agent-sandbox/runtime" pnpm exec bun test \
+  apps/server/src/wiki \
+  apps/server/src/opencode-plugins/legalwork-wiki-tools.test.ts \
+  apps/server/src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts \
+  apps/server/src/opencode-plugins/legalwork-storage-tools.test.ts \
+  apps/server/src/opencode-plugins/legalwork-extensions-preview.test.ts \
+  apps/server/src/file-storage.e2e.test.ts \
+  apps/server/src/agent-sandbox/service.test.ts \
+  apps/server/src/agent-sandbox/files.test.ts
+pnpm exec bun test apps/app/tests/wiki-tabs.test.ts apps/app/tests/wiki-tree.test.ts
+pnpm --filter legalwork-server build
+pnpm --filter @legalwork/app typecheck
+pnpm --filter @legalwork/app build
+pnpm --filter @legalwork/app test:i18n
+```
+
 ## Native law firm setup and prepared Harvey import (2026-10-12)
 
 - New Wiki → Law firm now creates the agreed folder structure and four editable native skills in `Skills/`: setup, capture, use and maintain. The 22 starter pages contain guidance and templates, without fabricated client or matter records. Root instructions and two regional instruction files keep the defaults replaceable by the firm.
@@ -62,7 +90,7 @@ pnpm exec bun test \
 - Removed the persistent Markdown toolbar, replaced the vendor image dialog with the app dialog, and aligned page content and properties. Native Electron verified image insertion, dashboard source navigation, the editable Word template tab, and searchable multi-page metadata selection/removal. Metadata link values contribute graph edges; ordinary stage strings do not.
 - Dashboard/report `.view.json` files now open their dedicated viewer from wiki and project file trees. Generation previews have their own temporary tab and resolve to the saved file in place. Unit tests cover incomplete input, successful save, failure, duplicate saved tabs and persistence. Native Electron verified full-tab/embedded data and wiki tab restoration after restarting.
 - Project-agent wiki writes always request a fresh approval in the originating chat, including when ordinary approvals are automatic. Tests cover page/property/view writes, deletes, refusal, disconnect/timeout, incorrect session/workspace, actor downgrade and revoked wiki access. Reads use authorized wiki tools without approval. Delegated agents inherit live scope through engine-verified ancestry, never caller-supplied parent claims.
-- Bundled file tools block direct cross-wiki reads/writes and runtime/configuration bypasses. Unsandboxed host shell execution is blocked when external wikis require protection; sandbox mounts keep those wikis read-only. These guards do not turn arbitrary host-loaded third-party plugins, formatters or language servers into an OS sandbox.
+- Sandbox mounts keep external wikis read-only. The earlier host-execution and file-tool guards were removed on 12 October: choosing sandbox off permits host access. Wiki-tool writes from projects retain their own approval boundary.
 - Real HTTP regressions exposed and fixed Bun cancellation behavior, long approval waits and transport limits for supported wiki uploads. The Electron Node adapter remains in use on desktop.
 - A real model test was attempted at 19:25 UTC. The configured OpenAI API returned **“You have no credits remaining. Add credits to continue using the API”**, with zero input/output tokens and no tool calls. Model-generated streaming cadence, model-triggered native approvals and the four prompts' model execution remain unverified. The seeded programs, production query/renderer path and authenticated tool/HTTP approval behavior are tested; no provider was changed and no billing action was taken.
 

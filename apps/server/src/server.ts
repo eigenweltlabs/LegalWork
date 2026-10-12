@@ -1802,7 +1802,7 @@ function createRoutes(
   });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
-  const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
+  const projectFolders = registerStorageRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
   const readCustomProviders = async (workspace: WorkspaceInfo): Promise<Record<string, unknown>> => {
     const persisted = mergeOpencodeConfigs(await readOpencodeConfig(workspace.path), await readRuntimeOpencodeConfig(config, workspace.id));
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
