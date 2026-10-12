@@ -5,6 +5,7 @@ import { t } from "@/i18n";
 
 export type OfficeAgentResult = { success: boolean; data?: unknown; saved?: boolean; error?: string };
 export type OfficeEditorApi = {
+  isReady: () => boolean;
   save: () => Promise<boolean>;
   drain: () => Promise<void>;
   getBuffer: () => Promise<ArrayBuffer | null>;
@@ -27,6 +28,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
   const serialize = useRef<(() => Promise<ArrayBuffer>) | null>(null);
   const agentTool = useRef<((name: string, args: Record<string, unknown>) => Promise<{ data: unknown; mutated?: boolean }>) | null>(null);
   const afterSave = useRef<(() => void) | null>(null);
+  const ready = useRef<() => boolean>(() => true);
   const latest = useRef(props);
   latest.current = props;
   const revision = useRef(0);
@@ -98,7 +100,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         if (!reading) { setSaving(false); latest.current.onSavingChange?.(false); }
       }
     };
-    const api = { save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
+    const api = { isReady: () => Boolean(serialize.current && agentTool.current) && ready.current(), save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
     props.apiRef.current = api;
     const element = host.current;
     const keydown = (event: KeyboardEvent) => {
@@ -111,5 +113,5 @@ export function useOfficeEditor(props: OfficeEditorProps) {
     element?.addEventListener("keydown", keydown, true);
     return () => { if (props.apiRef.current === api) props.apiRef.current = null; element?.removeEventListener("keydown", keydown, true); };
   }, [props.apiRef, changed]);
-  return { host, serialize, agentTool, afterSave, changed, saving, error, setError };
+  return { host, serialize, agentTool, afterSave, ready, changed, saving, error, setError };
 }

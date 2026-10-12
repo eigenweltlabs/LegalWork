@@ -1,0 +1,138 @@
+import { useSessionActivityStore } from "../status/session-activity-store";
+import { usePanelTabStore } from "../panel/panel-tab-store";
+import { resolveDocumentProject } from "./document-project";
+import { createDocumentRuntime, documentKey, stringArg, type Entry, type DocumentProject } from "./document-runtime-store";
+import { useLocation, useNavigate } from "react-router-dom";
+import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { ControlActionScope, useControlAction, useControlScope, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
+import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
+import { ArtifactPanelContent, type ArtifactPanelProps } from "./artifact-panel";
+import { PanelTabDestinationProvider } from "../panel/panel-tab-destination";
+
+type Runtime = ReturnType<typeof createDocumentRuntime>;
+const RuntimeContext = createContext<Runtime | null>(null);
+const EntryContext = createContext<Entry | null>(null);
+const DocumentVisibilityContext = createContext(true);
+export function useDocumentVisibility() { return use(DocumentVisibilityContext); }
+
+
+export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
+  const [runtime] = useState(() => createDocumentRuntime(undefined, resolveDocumentProject));
+  const navigate = useNavigate();
+  const location = useLocation();
+  useControlAction({ id: "session.open", label: "Open a session", background: true, requiresArgs: true, args: [{ name: "sessionId", type: "string", required: true }], execute: async (args, { callerSessionId }) => {
+    const sessionId = stringArg(args, "sessionId"), project = await runtime.getProject(sessionId);
+    if (callerSessionId) {
+      runtime.taskSessions.set(callerSessionId, sessionId);
+      return { ok: true, sessionId, workspaceId: project.projectId, background: true, message: "The session is available to this task. Read it with session.read_transcript. The user's view is unchanged." };
+    }
+    navigate(`/workspace/${encodeURIComponent(project.projectId)}/session/${encodeURIComponent(sessionId)}`);
+    return { ok: true, navigatedTo: sessionId };
+  } });
+  useControlAction({ id: "session.read_transcript", label: "Read a session transcript", background: true, args: [{ name: "sessionId", type: "string" }, { name: "count", type: "number" }], execute: async (args, { callerSessionId }) => {
+    const sessionId = stringArg(args, "sessionId") || (callerSessionId ? runtime.taskSessions.get(callerSessionId) ?? callerSessionId : location.pathname.match(/\/session\/([^/]+)/)?.[1] ?? "");
+    const project = await runtime.getProject(sessionId);
+    const requested: unknown = args && typeof args === "object" ? Reflect.get(args, "count") : undefined;
+    const count = typeof requested === "number" && Number.isFinite(requested) ? Math.min(30, Math.max(1, Math.floor(requested))) : 10;
+    const { items } = await project.client.getSessionMessages(project.workspaceId, sessionId, { limit: count });
+    return { ok: true, sessionId, returned: items.length, messages: items.map(item => ({ role: item.info.role, parts: item.parts })) };
+  } });
+  useSyncExternalStore(runtime.subscribe, runtime.version);
+  const [parking, setParking] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const tabs = usePanelTabStore.subscribe(() => runtime.prune());
+    const activity = useSessionActivityStore.subscribe((state, previous) => {
+      for (const [workspace, records] of Object.entries(previous.recordsByWorkspaceId)) {
+        for (const [sessionId, record] of Object.entries(records)) {
+          if (record.runActive && state.recordsByWorkspaceId[workspace]?.[sessionId]?.runActive === false) runtime.releaseTask(sessionId);
+        }
+      }
+    });
+    return () => { tabs(); activity(); };
+  }, [runtime]);
+  useControlAction({ id: "browser.open_url", label: "Open a task browser", background: true, execute: async args => {
+    const directory = stringArg(args, "directory"), url = stringArg(args, "url");
+    if (!directory || !url) throw new Error("A URL and originating project directory are required.");
+    const provider = stringArg(args, "provider") || "builtin";
+    if (provider !== "auto" && provider !== "builtin") throw new Error("This browser provider is unavailable.");
+    const browser = window.__LEGALWORK_ELECTRON__?.browser;
+    if (!browser?.openUrl) throw new Error("The built-in browser is unavailable.");
+    return browser.openUrl(url, provider, { directory, workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+  } });
+  useControlAction({ id: "browser.set_proxy", label: "Set the task browser proxy", background: true, execute: async args => {
+    const browser = window.__LEGALWORK_ELECTRON__?.browser;
+    if (!browser?.setProxy) throw new Error("The built-in browser is unavailable.");
+    return browser.setProxy(stringArg(args, "proxy"), { workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+  } });
+  useControlAction({ id: "markdown.create", label: "Create a Markdown document", background: true, execute: runtime.createMarkdown });
+  useControlAction({ id: "documents.open", label: "Prepare a document for a task", background: true, execute: runtime.open });
+  useControlAction({ id: "documents.select_open", label: "Select a task document", background: true, execute: runtime.select });
+  useControlAction({ id: "documents.list", label: "List task documents", background: true, execute: runtime.list });
+  useControlAction({ id: "document.agent_tool", label: "Work on a Word document", background: true, execute: args => runtime.execute("document.agent_tool", args) });
+  useControlAction({ id: "office.agent_tool", label: "Work on an Office document", background: true, execute: args => runtime.execute("office.agent_tool", args) });
+  useControlAction({ id: "markdown.agent_tool", label: "Work on a Markdown document", background: true, execute: args => runtime.execute("markdown.agent_tool", args) });
+  return <RuntimeContext value={runtime}>{children}
+    <div ref={setParking} inert aria-hidden="true" style={{ position: "fixed", left: -100000, top: 0, width: 1200, height: 900, pointerEvents: "none" }} />
+    {[...runtime.entries.values()].map(entry => <RuntimeDocument key={entry.key} entry={entry} runtime={runtime} parking={parking} />)}
+  </RuntimeContext>;
+}
+
+function RuntimeDocument({ entry, runtime, parking }: { entry: Entry; runtime: Runtime; parking: HTMLElement | null }) {
+  const sessionIds = useMemo(() => [entry.props.sessionId, ...entry.sessions], [entry, entry.sessions.size]);
+  const destination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
+  const active = destination ? entry.destinations.get(destination) === true : false;
+  useLayoutEffect(() => {
+    const parent = destination ?? parking;
+    if (!parent || entry.host.parentElement === parent) return;
+    if (entry.host.isConnected && parent.isConnected && "moveBefore" in parent && typeof parent.moveBefore === "function") parent.moveBefore(entry.host, null);
+    else parent.appendChild(entry.host);
+  }, [entry, destination, parking]);
+  useLayoutEffect(() => () => entry.host.remove(), [entry]);
+  return createPortal(<DocumentVisibilityContext value={Boolean(destination)}><EntryContext value={entry}><DocumentControlSessions sessionIds={sessionIds}>
+    <ControlActionScope active={active}>
+      <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: entry.props.sessionId.replace(/^workspace:/, "") }}>
+        <ArtifactPanelContent {...entry.props} onClose={() => runtime.close(entry)} />
+      </PanelTabDestinationProvider>
+    </ControlActionScope>
+  </DocumentControlSessions></EntryContext></DocumentVisibilityContext>, entry.host);
+}
+
+/** The viewer is only a destination for a persistent editor, never its owner. */
+export function PersistentArtifactPanel(props: ArtifactPanelProps) {
+  const runtime = use(RuntimeContext);
+  const [destination, setDestination] = useState<HTMLDivElement | null>(null);
+  const active = useControlScope();
+  const sessions = useDocumentControlSessions(props.sessionId);
+  const key = documentKey(props);
+  const latest = useRef(props); latest.current = props;
+  useLayoutEffect(() => {
+    if (!runtime || !destination) return;
+    const entry = runtime.ensure(latest.current);
+    sessions.forEach(session => entry.sessions.add(session));
+    entry.destinations.set(destination, active);
+    runtime.changed();
+    return () => { entry.destinations.delete(destination); runtime.changed(); runtime.prune(); };
+  }, [runtime, key, destination, active, sessions]);
+  if (!runtime) return <ArtifactPanelContent {...props} />;
+  return <div ref={setDestination} className="h-full min-h-0 min-w-0" />;
+}
+
+export function useDocumentProjectResolver(resolve: (sessionId: string) => DocumentProject) {
+  const runtime = use(RuntimeContext);
+  // Keep the last resolver available while settings or another route is open.
+  useLayoutEffect(() => { runtime?.setResolver(resolve); }, [runtime, resolve]);
+}
+
+export function useDocumentAgentControl(surface: LegalworkControlSurface | null, action: LegalworkControlAction | null, ready: () => boolean, dirty: () => boolean) {
+  const entry = use(EntryContext);
+  const runtime = use(RuntimeContext);
+  const latest = useRef({ surface, action, ready, dirty }); latest.current = { surface, action, ready, dirty };
+  useLayoutEffect(() => {
+    if (!entry || !surface || !action) return;
+    const registration = { surface, action, ready: () => latest.current.ready(), dirty: () => latest.current.dirty() };
+    entry.registration = registration;
+    return () => { if (entry.registration === registration) entry.registration = null; };
+  }, [entry, surface, action, runtime]);
+  useControlAction(entry ? null : action);
+}

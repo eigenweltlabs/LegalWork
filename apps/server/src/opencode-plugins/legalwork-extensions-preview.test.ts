@@ -33,9 +33,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
     async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
-      if (url.endsWith("/execute") && execute) {
+      if (url.endsWith("/execute")) {
         const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
-        return Response.json(execute(body));
+        if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
+        if (execute) return Response.json(execute(body));
       }
       return new Response("Not found", { status: 404 });
     },
@@ -164,7 +165,7 @@ describe("in-app Word document routing", () => {
     let snapshot: unknown = { ok: true, openFiles: [] };
     await withBridge(null);
     // Serve whatever the sidebar currently shows.
-    globalThis.fetch = Object.assign(async () => Response.json(snapshot), { preconnect: globalThis.fetch.preconnect });
+    globalThis.fetch = Object.assign(async () => Response.json({ ok: true, result: snapshot }), { preconnect: globalThis.fetch.preconnect });
     const plugin = await LegalWorkExtensionsPreview();
 
     const before = await modelContext(plugin, "ses_open");
@@ -296,19 +297,14 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: surface.path, sheet: "Budget", range: "B4", values: [[18]] };
     await plugin.tool.inapp_xlsx_write.execute(args, { sessionID: "ses_office" });
-    expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "write", args } });
+    expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "write", args } });
   });
-  test("rejects stale paths, wrong formats and cross-session access before dispatch", async () => {
-    let calls = 0;
-    await withBridge(snapshot, () => { calls++; return { ok: true }; });
+  test("dispatches explicit targets without consulting the foreground editor", async () => {
+    const calls: unknown[] = [];
+    await withBridge({ ...snapshot, surfaces: [{ ...surface, path: "background.xlsx", sessionId: "background-task" }] }, body => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    for (const [path, sessionID] of [[surface.path, "ses_other"], ["switched.xlsx", "ses_office"]]) {
-      const result = JSON.parse(await plugin.tool.inapp_xlsx_read.execute({ path }, { sessionID }));
-      expect(result.ok).toBe(false);
-    }
-    const pptxResult = await plugin.tool.inapp_pptx_read.execute({ path: surface.path }, { sessionID: "ses_office" });
-    expect(typeof pptxResult === "string" && JSON.parse(pptxResult).ok).toBe(false);
-    expect(calls).toBe(0);
+    await plugin.tool.inapp_xlsx_read.execute({ path: "background.xlsx" }, { sessionID: "background-task" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "background-task", path: "background.xlsx", format: "xlsx", toolName: "read", args: { path: "background.xlsx" } } }]);
     expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, {})).files).toEqual([]);
   });
   test("selects open tabs and retries save without repeating mutations", async () => {
@@ -319,7 +315,7 @@ describe("in-app Office sidebar routing", () => {
     await plugin.tool.inapp_office_save.execute({ path: surface.path }, { sessionID: "ses_office" });
     expect(calls).toEqual([
       { actionId: "documents.select_open", args: { sessionId: "ses_office", path: surface.path } },
-      { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "save", args: { path: surface.path } } },
+      { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "save", args: { path: surface.path } } },
     ]);
   });
   test("blocks file rewrites of the live Office draft but allows unrelated work", async () => {
@@ -336,7 +332,7 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: pptx.path, slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Approved" };
     await plugin.tool.inapp_pptx_replace_text.execute(args, { sessionID: "ses_office" });
-    expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, toolName: "replace_text", args } });
+    expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, format: "pptx", toolName: "replace_text", args } });
   });
 });
 
@@ -356,9 +352,8 @@ describe("in-app Markdown routing", () => {
     expect((await modelContext(plugin, "ses_md")).reminder).toContain("inapp_md_replace_text");
     const args = { path: surface.path, search: "draft", replacement: "final" };
     await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md" });
-    expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, toolName: "replace_text", args } }]);
-    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: surface.path }, { sessionID: "other" })).ok).toBe(false);
-    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "wrong.md" }, { sessionID: "ses_md" })).ok).toBe(false);
+    expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, format: "md", toolName: "replace_text", args } }]);
+
     expect(calls).toHaveLength(1);
   });
 });
@@ -381,7 +376,7 @@ test("opens workspace and connected files in the engine session, then exposes li
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
   expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("Inspect reference documents in the background with file-reading tools");
+  expect(output.system.join("\n")).toContain("Document work is independent of the user's screen");
 });
 
 describe("PowerPoint visual feedback", () => {
@@ -392,7 +387,7 @@ describe("PowerPoint visual feedback", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: "Deck.pptx", templateSlideIndex: 2, insertIndex: 0, replacements: [{ elementId: "title", text: "Introduction" }] };
     await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "ses_slides" });
-    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", toolName: "add_slide", args } }]);
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "add_slide", args } }]);
     await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other" });
     expect(calls).toHaveLength(1);
     const output: { system: string[] } = { system: [] };
@@ -411,7 +406,7 @@ describe("PowerPoint visual feedback", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
     const result = await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "ses_slides" });
-    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", toolName: "read_presentation", args: { path: "Deck.pptx" } } }]);
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "read_presentation", args: { path: "Deck.pptx" } } }]);
     if (typeof result !== "string") throw new Error("A read must not return image attachments");
     expect(JSON.parse(result).result.data.slides).toHaveLength(2);
     const instructions: { system: string[] } = { system: [] };
@@ -487,4 +482,17 @@ describe("project-scoped document controls", () => {
     const plugin = await LegalWorkExtensionsPreview();
     expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_old" }))).toEqual({ files: [], activeDocument: null });
   });
+});
+
+test("Markdown chunks are scoped to the originating task and a failed save is a tool error", async () => {
+  const calls: unknown[] = [];
+  let fail = false;
+  await withBridge({}, body => { calls.push(body); return fail ? { ok: false, error: "File already exists" } : { ok: true, result: { saved: false } }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  const args = { path: "Draft.md", content: "# Draft\n", append: false, complete: false };
+  await plugin.tool.inapp_markdown_create.execute(args, { sessionID: "background-task" });
+  expect(calls).toEqual([{ actionId: "markdown.create", args: { ...args, sessionId: "background-task" } }]);
+  fail = true;
+  await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task" })).rejects.toThrow("File already exists");
+  await expect(plugin.tool.inapp_markdown_create.execute(args, {})).rejects.toThrow("A task is required");
 });

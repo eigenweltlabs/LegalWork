@@ -12,7 +12,8 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
   class View {
     constructor() {
       const contents = Object.assign(new EventEmitter(), {
-        url: "about:blank", closed: false, reloads: 0,
+        id: views.length + 1, url: "about:blank", closed: false, reloads: 0,
+        debugger: Object.assign(new EventEmitter(), { attach() {}, detach() {}, sendCommand: async () => ({ result: { value: "Example page" } }) }),
         loadURL: async url => { contents.url = url; },
         getURL: () => contents.url, getTitle: () => "Test page", isLoading: () => false,
         canGoBack: () => false, canGoForward: () => false,
@@ -211,4 +212,29 @@ test("a window without a project route cannot borrow another window's download f
   assert.equal(await resolveBrowserProject({}, state, server, "file:///app/index.html#/workspace/missing/session"), null);
   assert.equal(await resolveBrowserProject({}, state, server, "http://localhost:5188/workspace/a/session"), root);
   assert.equal(await resolveBrowserProject({ directory: root }, state, server, "file:///app/index.html#/evals"), root);
+});
+
+
+test("agent browsers load and navigate without adopting the foreground pane", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const first = await f.call("openUrl", f.first, "https://example.com", "builtin", { directory: "/task-project" });
+  assert.equal(f.call("state", f.first).activeTabId, null);
+  assert.equal(f.call("state", f.first).tabs[0].background, true);
+  assert.equal(f.first.contentView.children.length, 0);
+  const foreground = (await f.call("createTab", f.first, "https://foreground.example")).tabId;
+  f.call("show", f.first, f.left, foreground);
+  f.first.webContents.messages.length = 0;
+  f.views[0].webContents.emit("did-start-navigation", {}, "https://example.com/next", false, true);
+  f.call("navigate", f.first, "https://example.com/next", first.tab_id);
+  f.views[0].webContents.emit("focus");
+  assert.equal(f.views[0].webContents.url, "https://example.com/next");
+  assert.equal(f.call("state", f.first).activeTabId, foreground);
+  assert.deepEqual(f.first.contentView.children, [f.views[1]]);
+  assert.equal(f.first.webContents.messages.some(message => message.channel === "legalwork:browser:panel-opened"), false);
+  f.call("closeTab", f.first, foreground);
+  assert.equal(f.call("state", f.first).activeTabId, null);
+  assert.deepEqual(f.first.contentView.children, []);
+  // The user can still explicitly reveal the agent's working tab.
+  f.call("selectTab", f.first, first.tab_id);
+  assert.equal(f.call("state", f.first).tabs[0].background, false);
 });

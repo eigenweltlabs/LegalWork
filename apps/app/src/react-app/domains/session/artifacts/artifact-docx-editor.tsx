@@ -1,3 +1,4 @@
+import { useDocumentVisibility } from "./document-runtime";
 import { acceptTemplateRevisions, templateRevisionIds } from "./docx-template-revisions";
 import { normalizeDocxLineBreaks } from "./docx-line-breaks";
 import { isDocumentReadTool } from "./document-agent-read";
@@ -38,6 +39,7 @@ import { createDocumentAutosave } from "./document-autosave";
 setGoogleFontsEnabled(false);
 
 export type DocxEditorApi = {
+  isReady: () => boolean;
   /** Serialize and persist the current document. Never clears edits made during a save. */
   save: () => Promise<boolean>;
   flushSave: () => Promise<boolean>;
@@ -187,6 +189,8 @@ export function ArtifactDocxEditor(props: ArtifactDocxEditorProps) {
 }
 
 function LiveDocxEditor({ name, content, author, readOnly = false, interactionLocked = false, onSave, onDirtyChange, apiRef, recoveryKey, baseUpdatedAt = null, recovered, autosave = false, onAutosaveError }: ArtifactDocxEditorProps & { recovered: boolean }) {
+  const visible = useDocumentVisibility();
+  const visibleRef = useRef(visible); visibleRef.current = visible;
   const colorMode = useThemeColorMode();
   const [documentBuffer] = useState(() => content.slice(0));
   const [documentId] = useState(() => `${Date.now()}:${++documentInstance}`);
@@ -201,6 +205,16 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
     try { return window.localStorage.getItem(AUTHOR_KEY) ?? ""; } catch { return ""; }
   });
   const editorRef = useRef<DocxEditorRef>(null);
+  useLayoutEffect(() => {
+    const view = editorRef.current?.getEditorRef()?.getView();
+    // The native paginated editor portals its input directly into document.body,
+    // outside our offscreen host. It must inherit the document's visibility too.
+    if (view) {
+      view.dom.inert = !visible;
+      if (visible) view.dom.removeAttribute("aria-hidden");
+      else view.dom.setAttribute("aria-hidden", "true");
+    }
+  }, [visible]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
@@ -386,6 +400,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       drain: async () => {
         try { await pendingSave.current; } finally { await checkpointWork.current; await drainDocxRecovery(); }
       },
+      isReady: () => ready.current,
       executeAgentTool: async (toolName, args) => {
         if ((readOnly || interactionLocked) && !isDocumentReadTool("docx", toolName)) return { success: false, error: t("docx.read_only") };
         if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
@@ -542,6 +557,8 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           i18n={EDITOR_LABELS}
           className="h-full"
           onEditorViewReady={(view) => {
+            view.dom.inert = !visibleRef.current;
+            if (!visibleRef.current) view.dom.setAttribute("aria-hidden", "true");
             const normalized = normalizeDocxLineBreaks(view.state);
             if (normalized) view.dispatch(normalized.setMeta("addToHistory", false));
             // Plugins may retain a dispatch callback after React unmounts the
@@ -573,7 +590,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         />
       </div>
       <ConfirmModal
-        open={reviewDecision !== null}
+        open={visible && reviewDecision !== null}
         title={t(reviewDecision?.decision === "reject" ? "docx.reject_all" : "docx.accept_all")}
         message={t("docx.review_all_confirm")}
         confirmLabel={t(reviewDecision?.decision === "reject" ? "docx.reject_all" : "docx.accept_all")}
@@ -591,7 +608,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         }}
       />
       <ConfirmModal
-        open={missingFonts.length > 0}
+        open={visible && missingFonts.length > 0}
         title={t("docx.font_missing_title", { count: missingFonts.length })}
         message={t("docx.font_missing_body", { count: missingFonts.length, fonts: missingFonts.join(", ") })}
         confirmLabel={t("docx.font_missing_confirm", { count: missingFonts.length })}

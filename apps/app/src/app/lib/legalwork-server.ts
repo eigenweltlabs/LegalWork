@@ -3218,7 +3218,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     writeWorkspaceFile: (
       workspaceId: string,
       /** `baseContent`: the text as loaded, so a file changed since is merged with it rather than refused. */
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; baseContent?: string; force?: boolean },
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; baseContent?: string; force?: boolean; createOnly?: boolean },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,

@@ -178,7 +178,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     }
     const url = normalizeBrowserUrl(rawUrl);
     const downloadDirectory = await resolveTabDownloadDirectory(context);
-    const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
+    const tab = createBrowserTab("about:blank", { select: false, downloadDirectory });
     let connection;
     try {
       connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads, context);
@@ -257,6 +257,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
 
     return {
       id: tabId,
+      background: tab.background,
       type: "browser",
       label: getBrowserTabLabel(title, url),
       url,
@@ -538,7 +539,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     // Load about:blank immediately to preempt persistent-session restore.
     // Cookies live on the session object, not the document — they survive this.
     const initialLoad = view.webContents.loadURL("about:blank");
-    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [], initialLoad };
+    const tab = { tabId, view, background: !select, favicon: null, downloadDirectory, downloads: [], initialLoad };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
     // A web page asking for a new window. It cannot open one here, and the
@@ -547,24 +548,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       void safeOpen.openExternal(targetUrl);
       return { action: "deny" };
     });
-    view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {
-      if (!isMainFrame || isInPlace) return;
-      const target = String(targetUrl ?? "");
-      // Blank and data pages are not user-visible browser navigations.
-      if (target === "about:blank" || target.startsWith("data:")) return;
-      // Agent-driven CDP navigation can target a background tab whose view is
-      // detached. Bring that tab on screen, otherwise navigation "succeeds"
-      // while the visible tab stays on about:blank (#2015).
-      if (activeBrowserTabId !== tabId) {
-        try {
-          selectBrowserTab(tabId);
-        } catch {
-          // The tab may be mid-close; the panel-opened event below still fires.
-        }
-      }
-      sendToRenderer("legalwork:browser:panel-opened");
-    });
+    // Navigation is data work. Only explicit user selection may attach a tab
+    // to the visible pane; a redirect or an agent's CDP call must not do so.
     view.webContents.on("focus", () => {
+      if (tab.background) return;
       activeBrowserTabId = tabId;
       sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tabId });
     });
@@ -581,10 +568,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       browserTabs.delete(tabId);
       paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
-      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder[0] ?? null;
+      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder.find(id => !browserTabs.get(id).background) ?? null;
       sendBrowserState();
     });
-    if (select || !activeBrowserTabId) {
+    if (select) {
       selectBrowserTab(tabId);
     } else {
       sendBrowserState();
@@ -653,6 +640,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   function selectBrowserTab(tabId) {
     if (!browserTabs.has(tabId)) throw new Error(`Unknown browser tab: ${tabId}`);
     hideMenuOverlay();
+    browserTabs.get(tabId).background = false;
     const previousView = getActiveBrowserView();
     activeBrowserTabId = tabId;
     if (previousView && previousView !== getActiveBrowserView() && ![...paneBounds.keys()].some(id => browserTabs.get(id)?.view === previousView)) {
@@ -667,16 +655,17 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     const tab = getBrowserTab(tabId);
     if (!tab) return null;
     if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
-    const closingIndex = browserTabOrder.indexOf(tabId);
+    const closingIndex = browserTabOrder.filter(id => !browserTabs.get(id).background).indexOf(tabId);
     const wasActive = activeBrowserTabId === tabId;
     detachBrowserView(tab.view);
     browserTabs.delete(tabId);
     paneBounds.delete(tabId);
     browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
     if (wasActive) {
+      const visibleTabs = browserTabOrder.filter(id => !browserTabs.get(id).background);
       const nextTabId =
-        browserTabOrder[Math.min(closingIndex, browserTabOrder.length - 1)] ??
-        browserTabOrder[closingIndex - 1] ??
+        visibleTabs[Math.min(closingIndex, visibleTabs.length - 1)] ??
+        visibleTabs[closingIndex - 1] ??
         null;
       activeBrowserTabId = nextTabId;
       if (nextTabId) {

@@ -899,30 +899,6 @@ function SidePanelContent({
     return draggingTabId && pane ? { id: draggingTabId, pane: pane.id } : null;
   }, [draggingTabId, panes]);
 
-  const selectFileAction = React.useMemo<LegalworkControlAction>(() => ({
-    id: "documents.select_open", label: "Show an open file", sideEffect: "navigation", requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "projectId", type: "string", required: false }],
-    execute: (args) => {
-      if (typeof args !== "object" || !args || !controlSessionIds.includes(Reflect.get(args, "sessionId"))) return { ok: false, error: "No matching sidebar for this session." };
-      const matches = openFiles.filter(file => file.path === Reflect.get(args, "path") && (!Reflect.get(args, "projectId") || file.projectId === Reflect.get(args, "projectId")));
-      if (matches.length > 1) return { ok: false, error: "Files from multiple projects match. Specify projectId." };
-      const file = matches[0];
-      if (!file) return { ok: false, error: "This file is not open in the sidebar." };
-      const visible = panes.some(pane => pane.activeTabId === file.id);
-      if (!visible) {
-        const session = usePanelTabStore.getState().sessions[sessionId];
-        const replaced = session?.panes.find(pane => pane.tabIds.includes(file.id))?.activeTabId ?? null;
-        if (!unified && !confirmDiscardSessionDocuments(sessionId, [replaced], () => false)) return { ok: false, error: "Save the current draft before switching files." };
-      }
-      setFocusedTabId(file.id);
-      selectTab(file.id);
-      const session = usePanelTabStore.getState().sessions[sessionId];
-      if (!session?.panes.some(pane => pane.activeTabId === file.id)) return { ok: false, error: "The file could not be selected." };
-      return { ok: true, file: { ...file, active: true }, message: "Read the document after the editor finishes loading." };
-    },
-  }), [controlSessionIds, openFiles, sessionId, selectTab, panes, unified]);
-  useControlAction(selectFileAction);
-
   const seedArtifactOverflowControlAction = React.useMemo<LegalworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 

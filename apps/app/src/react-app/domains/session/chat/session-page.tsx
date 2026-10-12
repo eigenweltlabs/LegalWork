@@ -631,57 +631,6 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
-  const openBrowserUrlControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "browser.open_url",
-    label: t("control.open_url_browser"),
-    description: "Create or select a LegalWork built-in browser tab, navigate it to a URL, and return the CDP handle for browser automation.",
-    sideEffect: "navigation",
-    requiresArgs: true,
-    args: [
-      { name: "url", type: "string", required: true, description: "The website URL to open." },
-      { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
-      { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
-      { name: "workspaceId", type: "string", required: true, description: "Calling project ID supplied by the browser tool." },
-      { name: "sessionId", type: "string", required: true, description: "Calling chat ID supplied by the browser tool." },
-    ],
-    previewArgs: { url: "https://example.com", provider: "builtin" },
-    disabled: !isElectronRuntime(),
-    execute: async (args) => {
-      const url = controlStringArg(args, "url");
-      if (!url) return { ok: false, error: "Missing URL." };
-      const provider = controlStringArg(args, "provider") || "builtin";
-      if (provider !== "auto" && provider !== "builtin") {
-        return { ok: false, error: `Browser provider is not available yet: ${provider}` };
-      }
-      setCurrentSidePanel("panel");
-      return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
-        directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
-        workspaceId: controlStringArg(args, "workspaceId"),
-        sessionId: controlStringArg(args, "sessionId"),
-      });
-    },
-  }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
-  useControlAction(openBrowserUrlControlAction);
-  const setBrowserProxyControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "browser.set_proxy",
-    label: t("control.set_browser_proxy"),
-    description: "Route all built-in browser traffic through an HTTP/SOCKS proxy (e.g. to browse from another location). Applies to every built-in browser tab until cleared. Pass an empty proxy to restore system network settings.",
-    sideEffect: "mutation",
-    args: [
-      { name: "proxy", type: "string", description: "Proxy URL like http://user:pass@host:8080 or socks5://host:1080, env:NAME to use the LEGALWORK_BROWSER_PROXY_NAME environment variable, or empty to clear." },
-      { name: "workspaceId", type: "string", required: true, description: "Calling project ID supplied by the browser tool." },
-      { name: "sessionId", type: "string", required: true, description: "Calling chat ID supplied by the browser tool." },
-    ],
-    previewArgs: { proxy: "env:DE" },
-    disabled: !isElectronRuntime(),
-    execute: async (args) => {
-      const proxy = controlStringArg(args, "proxy") || "";
-      const setProxy = window.__LEGALWORK_ELECTRON__?.browser?.setProxy;
-      if (!setProxy) return { ok: false, error: "Built-in browser is not available." };
-      return setProxy(proxy, { workspaceId: controlStringArg(args, "workspaceId"), sessionId: controlStringArg(args, "sessionId") });
-    },
-  }), []);
-  useControlAction(setBrowserProxyControlAction);
   const openFilesRailPane = useCallback(() => {
     toggleCurrentSidePanel("files");
   }, [toggleCurrentSidePanel]);
@@ -736,64 +685,6 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [openTab, panelStateSessionId, props.runtimeWorkspaceId, setCurrentSidePanel]);
-  const openDocumentAction = useMemo<LegalworkControlAction>(() => ({
-    id: "documents.open", label: "Open a file in the side viewer", sideEffect: "navigation", requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "connectionId", type: "string" }, { name: "copyTo", type: "string" }],
-    execute: async (args) => {
-      const allowedSessions = panelStateSessionId === EVALS_PANEL_SESSION_ID ? [panelStateSessionId] : controlSessionIds;
-      if (!allowedSessions.includes(controlStringArg(args, "sessionId"))) return { ok: false, error: "No matching session is visible. Open this session first." };
-      const client = props.legalworkServerClient, workspaceId = props.runtimeWorkspaceId;
-      if (!client || !workspaceId) return { ok: false, error: "Workspace is not ready." };
-      const canSwitchDocument = () => {
-        // Workspace tabs stay mounted, so another tab cannot discard this draft.
-        if (panelStateSessionId.startsWith("workspace:")) return true;
-        const panel = usePanelTabStore.getState().sessions[panelStateSessionId];
-        const pane = panel?.panes.find(item => item.id === panel.focusedPaneId);
-        return confirmDiscardSessionDocuments(panelStateSessionId, [pane?.activeTabId ?? null], () => false, true);
-      };
-      let path = controlStringArg(args, "path"), connectionId = controlStringArg(args, "connectionId");
-      if (!path || /[\\\x00-\x1f\x7f]/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..")) return { ok: false, error: "Use a relative file path within the workspace or connection." };
-      if (!canSwitchDocument()) return { ok: false, error: "Save the current draft before opening another file." };
-      const copyTo = controlStringArg(args, "copyTo");
-      if (copyTo) {
-        if (/[\\\x00-\x1f\x7f]/.test(copyTo) || copyTo.split("/").some((part) => !part || part === "." || part === "..") || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase())
-          return { ok: false, error: "Use a new workspace-relative filename with the same file extension as the template." };
-        if (connectionId) {
-          const copy = await client.checkoutStorageFile(workspaceId, connectionId, path);
-          await client.keepStorageLocalCopy(workspaceId, connectionId, copy.localPath, copyTo);
-        } else await client.copyWorkspaceFile(workspaceId, path, copyTo);
-        path = copyTo;
-        connectionId = "";
-      }
-      const name = connectionId ? path.split("/").at(-1)! : attachmentFilename(path);
-      const preview = classifyOpenTarget(name, "file");
-      if (preview === "external" || preview === "browser") return { ok: false, error: "This file type cannot be opened in the side viewer." };
-      let tabId: string;
-      if (connectionId) {
-        const root = (await client.storageRoots(workspaceId)).roots.find((item) => item.id === connectionId);
-        if (!root) return { ok: false, error: "This storage connection is unavailable." };
-        // The viewer performs the normal checkout, retaining source and cloud-save controls.
-        const file: StorageEntry = { path, name, kind: "file", size: null, modifiedAt: null };
-        tabId = storageFileTab(workspaceId, root, file).id;
-        if (!canSwitchDocument()) return { ok: false, error: "Save the current draft first." };
-        openStorageFile(root, file);
-      } else {
-        const file = await client.statWorkspaceFile(workspaceId, path);
-        if (!file.exists || file.kind !== "file") return { ok: false, error: "File not found in this workspace." };
-        tabId = `file:${file.path}`;
-        if (!canSwitchDocument()) return { ok: false, error: "Save the current draft first." };
-        openTab(panelStateSessionId, { id: tabId, type: "artifact", label: name, value: file.path, preview, size: file.size, updatedAt: file.updatedAt });
-        preserveSidePanelOnPanelOpenRef.current = true;
-        setCurrentSidePanel("panel");
-      }
-      if (!usePanelTabStore.getState().sessions[panelStateSessionId]?.panes.some(pane => pane.activeTabId === tabId)) return { ok: false, error: "The file could not be selected." };
-      const liveEditing = ["word", "markdown", "sheet", "slides"].includes(preview);
-      return { ok: true, status: "opening", name, path, liveEditing, ...(copyTo ? { copied: true, message: "A new workspace copy is opening. The source template is unchanged. Use inapp_documents_list for the active path and the matching live editing tools. This new deliverable saves locally; upload it to storage separately if requested." } : { message: liveEditing
-        ? "The file is opening in the side viewer. Call inapp_documents_list for this file's activeDocument, then use its exact path with the matching inapp_* read/edit tools. Edits save locally; cloud saving is separate. If loading fails, report that failure instead of editing a different active file."
-        : "The file is opening as a preview. This format has no live in-app editing tools. Use inapp_documents_list for the local path and the existing tools for this file format." }) };
-    },
-  }), [controlSessionIds, panelStateSessionId, props.legalworkServerClient, props.runtimeWorkspaceId, openStorageFile, openTab, setCurrentSidePanel]);
-  useControlAction(openDocumentAction);
   const openLegalMemoryFile = useCallback(async (file: LegalMemoryTreeFile) => {
     const client = props.legalworkServerClient;
     const workspaceId = props.runtimeWorkspaceId;

@@ -1,3 +1,4 @@
+import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
@@ -1949,38 +1950,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }), [props.sessionId, renderedMessages]);
   useControlAction(sessionLatestMessageControlAction);
 
-  const sessionReadTranscriptControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "session.read_transcript",
-    label: t("control.read_transcript"),
-    description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
-    sideEffect: "none",
-    args: [{ name: "count", type: "number", required: false, description: "Number of recent messages to return, from 1 to 30. Defaults to 10." }],
-    execute: (args) => {
-      const count = typeof args === "object" && args !== null && "count" in args && typeof (args as { count?: unknown }).count === "number"
-        ? Math.min(Math.max(1, (args as { count: number }).count), 30)
-        : 10;
-      const total = renderedMessages.length;
-      const slice = renderedMessages.slice(-count);
-      if (!slice.length) return { ok: false, error: "No messages in this session" };
-      return {
-        ok: true,
-        sessionId: props.sessionId,
-        messageCount: total,
-        returned: slice.length,
-        messages: slice.map((message, index) => ({
-          index: total - slice.length + index,
-          role: message.role,
-          text: messageToReadableText(message),
-        })),
-      };
-    },
-  }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionReadTranscriptControlAction);
 
   return (
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
+      <MarkdownStreamLinks workspaceId={props.workspaceId} sessionId={props.sessionId} onOpen={target => props.onOpenTarget?.(target, undefined, props.sessionId)} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">

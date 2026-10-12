@@ -1,3 +1,4 @@
+import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
@@ -2066,6 +2067,14 @@ export function SessionRoute() {
     writeWorkspaceOrderIds(nextOrderIds);
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
+
+  useDocumentProjectResolver(useCallback((sessionId: string) => {
+    const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
+    const workspace = workspaces.find(workspace => workspace.id === owner?.[0]);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!workspace || !endpoint) throw new Error("The task's project could not be resolved. Do not navigate the user's workspace to retry.");
+    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+  }, [sessionsByWorkspaceId, workspaces, endpointForWorkspace]));
 
   const sessionTarget = useCallback((sessionId: string) => {
     const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));

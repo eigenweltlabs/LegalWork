@@ -1,3 +1,4 @@
+import { PersistentArtifactPanel, useDocumentAgentControl } from "./document-runtime";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -16,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
-import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
+import { useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "@/react-app/shell/control/control-provider";
 import { OfficeEditorBoundary } from "./office-editor-boundary";
 import { ArtifactFrame } from "./artifact-frame";
 import { ArtifactIcon } from "./artifact-icon";
@@ -58,7 +59,7 @@ const SearchSourcePanel = lazy(() => import("../../../shell/search-source-panel"
 const ReviewSourcePanel = lazy(() => import("../../reviews/review-source-panel").then(module => ({ default: module.ReviewSourcePanel })));
 const ReviewRecognitionPanel = lazy(() => import("../../reviews/review-recognition-panel").then(module => ({ default: module.ReviewRecognitionPanel })));
 
-type ArtifactPanelProps = {
+export type ArtifactPanelProps = {
   sessionId: string;
   tab: ArtifactPanelTab;
   client: LegalworkServerClient | null;
@@ -107,7 +108,12 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
-export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanel(props: ArtifactPanelProps) {
+  if (props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
+  return <PersistentArtifactPanel {...props} />;
+}
+
+export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[tab.sourceSessionId ?? sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they
@@ -616,7 +622,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       },
     } : null
   ), [documentSurface, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
-  useControlAction(documentAgentControlAction);
+  useDocumentAgentControl(documentSurface, documentAgentControlAction, () =>
+    access.status !== "checking" && Boolean(target.preview === "word" ? docxApi.current?.isReady() : officeApi.current?.isReady()), () => documentDirtyRef.current);
 
   const saveDocument = async () => {
     if (!access.editable || documentSaving || isSaving) return false;
