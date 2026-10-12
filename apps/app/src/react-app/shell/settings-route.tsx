@@ -2339,6 +2339,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             pluginImports={extensionsStore}
             skillImports={extensionsStore}
+            skillTools={extensionsStore}
             canImportSkills={canWriteWorkspaceSkills}
             canAddConnector={!isRemoteWorkspace || (routeLegalworkStatus === "connected" && Boolean(routeLegalworkCapabilities?.mcp?.write))}
             canAddSkill={canWriteWorkspaceSkills}

@@ -1,11 +1,13 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, HardDrive, ListFilter, Plug } from "lucide-react";
+import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Package, Plug } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/sonner";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
@@ -13,6 +15,7 @@ import { HubTabs, type HubTab } from "../segmented-tabs";
 import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
 import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { ImportedPackages } from "./skill-packages";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -48,6 +51,7 @@ export type ExtensionsViewProps = {
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
+  skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   canImportSkills?: boolean;
   canAddConnector?: boolean;
   canAddSkill?: boolean;
@@ -90,6 +94,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [skillImportOpen, setSkillImportOpen] = useState(false);
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const [packagesOpen, setPackagesOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
@@ -120,7 +126,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, ownsMoreMenu: true }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -136,9 +142,22 @@ export function ExtensionsView(props: ExtensionsViewProps) {
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
             ]} />
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
-            {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
+            <IntegrationMoreMenu pageToolbar triggerRef={moreButton} busy={props.busy}>
+              <DropdownMenuItem disabled={props.busy || !props.skillTools} onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
+              <DropdownMenuItem disabled={props.busy || props.isRemoteWorkspace || !props.skillTools} onClick={async () => {
+                if (props.busy || props.isRemoteWorkspace || !props.skillTools) return;
+                try { await props.skillTools.revealSkillsFolder(); }
+                catch (error) { toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); }
+              }}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+            </IntegrationMoreMenu>
           </div>
         </div>
+        {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
+          <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
+            <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
+            <ImportedPackages extensions={props.skillTools} busy={props.busy} revision={importVersion} showEmpty />
+          </DialogContent>
+        </Dialog> : null}
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }}
           returnFocus={importButton}
           canImportPlugins={canImportPlugins && !props.busy}

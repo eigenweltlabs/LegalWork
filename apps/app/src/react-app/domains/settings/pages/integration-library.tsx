@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Download, Info, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { t } from "@/i18n";
 export type IntegrationLibrarySource = "all" | "personal" | "team";
 export type IntegrationLibraryKind = "connector" | "skill" | "storage";
 export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number };
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; ownsMoreMenu?: boolean } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 
@@ -51,11 +51,12 @@ export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; dis
 }
 
 /** Library tools first, refresh last. This menu never creates or shares an unrelated item. */
-export function IntegrationMoreMenu(props: { children?: ReactNode; busy?: boolean; onRefresh?: () => void }) {
+export function IntegrationMoreMenu(props: { children?: ReactNode; busy?: boolean; onRefresh?: () => void; pageToolbar?: boolean; triggerRef?: RefObject<HTMLButtonElement | null> }) {
   const layout = useIntegrationLibraryLayout();
   const refresh = layout?.onRefresh ?? props.onRefresh;
+  if (layout?.ownsMoreMenu && !props.pageToolbar) return null;
   return <DropdownMenu>
-    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+    <DropdownMenuTrigger render={<Button ref={props.triggerRef} variant="ghost" size="icon-sm" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end">
       {props.children}
       {props.children ? <DropdownMenuSeparator /> : null}
