@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
+import { IntegrationLibraryLayoutContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
 
 const noop = () => {};
 const attioUrl = "https://example.invalid/attio";
@@ -57,15 +58,28 @@ test("global config file connectors retain their existing read-only toggle behav
   expect(html).not.toContain('role="switch"');
 });
 
-function renderTeamLibrary(items: FirmHubItem[], overrides: Partial<McpViewProps> = {}) {
+function renderTeamLibrary(items: FirmHubItem[], overrides: Partial<McpViewProps> = {}, source: IntegrationLibrarySource = "all") {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   queries.setQueryData(FIRM_HUB_QUERY_KEY, { connected: true, items });
-  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><McpView {...props} {...overrides} firmClient={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} /></QueryClientProvider>);
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source }}><McpView {...props} {...overrides} firmClient={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} /></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
   queries.clear();
   return html;
 }
 
 const teamResearch: FirmHubItem = { id: "research", kind: "mcp", name: "team-research", description: "Search the firm's research library", installation: "automatic", added: false, connector: { serverName: "research", url: "https://example.invalid/research", access: "firm", keyName: null, hasOwnKey: false } };
+
+test("source tabs isolate connectors without misclassifying team engine configuration as personal", () => {
+  const overrides = { mcpServers: [...props.mcpServers, { name: "research", config: { type: "remote", url: "https://example.invalid/research" } }] };
+  const personal = renderTeamLibrary([teamResearch], overrides, "personal");
+  expect(personal).toContain("Manage your CRM");
+  expect(personal).not.toContain("Team Research");
+  expect(personal).not.toContain('aria-label="Actions for research"');
+  const team = renderTeamLibrary([teamResearch, { ...teamResearch, id: "optional", name: "offered-tool", installation: "optional" }], overrides, "team");
+  expect(team).toContain("Team Research");
+  expect(team).toContain("Offered Tool");
+  expect(team).not.toContain("Manage your CRM");
+  expect(team).not.toContain("Built-in Browser");
+});
 
 test("team connectors share the personal list, deduplicate engine config and retain managed ownership", () => {
   const html = renderTeamLibrary([teamResearch], {

@@ -8,7 +8,10 @@ import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains
 import { BuiltInSkills } from "../src/react-app/domains/settings/pages/skill-packages";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
-import { IntegrationAddMenu, IntegrationLibraryLayoutContext } from "../src/react-app/domains/settings/pages/integration-library";
+import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationLibrarySearchContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
+import { HubDownloadSection } from "../src/react-app/domains/settings/pages/hub-download-section";
+import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
+import { eigenweltEntitlementsQueryKey } from "../src/react-app/domains/connections/eigenwelt-entitlements";
 
 const noop = () => {};
 const ok = async () => ({ ok: true, message: "" });
@@ -60,6 +63,48 @@ test("built-in search includes commands and omits unrelated entries", () => {
   expect(renderToStaticMarkup(<BuiltInSkills searchQuery="no-match" showEmpty />)).toContain("No matching skills");
 });
 
+function renderSkillSources(source: IntegrationLibrarySource, query = "") {
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const client = createLegalworkServerClient({ baseUrl: "https://example.invalid" });
+  const automatic = { id: "automatic", kind: "skill", name: "team-research", description: "Research shared by the team", createdByUserId: "author", version: 1, updatedAt: "2026-10-12" };
+  const offered = { ...automatic, id: "offered", name: "offered-review", description: "Optional team review" };
+  queries.setQueryData(eigenweltEntitlementsQueryKey(), { entitlements: { features: ["admin_hub"] }, connected: true });
+  queries.setQueryData(["eigenwelt-hub", "skill", "test"], [automatic, offered]);
+  queries.setQueryData(FIRM_HUB_QUERY_KEY, { connected: true, items: [{ ...automatic, installation: "automatic", added: false }, { ...offered, installation: "optional", added: false }] });
+  const teamView = <HubDownloadSection legalworkClient={client} workspaceId="test" kind="skill" readSkill={unused} />;
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source }}><IntegrationLibrarySearchContext.Provider value={{ query, hasOtherResults: false }}>
+    {query ? teamView : <SkillsView workspaceName="Test" busy={false} showHeader={false} canInstallSkillCreator canUseDesktopTools extensions={{ ...extensions, skills: () => [...skills, { name: automatic.name, path: "/team/research", firm: "automatic" }] }} onOpenLink={noop} createSessionAndOpen={noop} firmDownloadView={teamView} />}
+  </IntegrationLibrarySearchContext.Provider></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
+  queries.clear();
+  return html;
+}
+
+test("skills source tabs include the full team catalogue once, with optional skills beside installed ones", () => {
+  const all = renderSkillSources("all");
+  expect(all).toContain("skill-13");
+  expect(all).toContain("DOCX Redline");
+  expect(all.match(/>Team Research</g)).toHaveLength(1);
+  expect(all).toContain("Offered Review");
+  const personal = renderSkillSources("personal");
+  expect(personal).toContain("skill-13");
+  expect(personal).not.toContain("Team Research");
+  expect(personal).not.toContain("Offered Review");
+  expect(personal).not.toContain("DOCX Redline");
+  const team = renderSkillSources("team");
+  expect(team).toContain("Team Research");
+  expect(team).toContain("Offered Review");
+  expect(team).not.toContain("skill-13");
+  expect(team).not.toContain("DOCX Redline");
+  expect(team).not.toContain("Installed for everyone</");
+});
+
+test("embedded team skills use the library search and show an empty result rather than a second browser", () => {
+  const match = renderSkillSources("team", "optional");
+  expect(match).toContain("Offered Review");
+  expect(match).not.toContain("Team Research");
+  expect(renderSkillSources("team", "no-match")).toContain("No matching skills");
+});
+
 function renderStorage(team = false, empty = false) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const connection = { ...storageInputSchema.parse({ name: "Office documents", config: { kind: "webdav", endpoint: "https://example.invalid/files" } }), id: "docs", updatedAt: 1, configuredSecrets: [] };
@@ -87,7 +132,7 @@ test("storage empty and team states preserve scope and offer the right next acti
   expect(teamHtml).toContain("No shared storage yet");
 });
 
-test("the unified storage library includes optional team sources without granting local edit controls", () => {
+test("the storage source tabs include optional team sources and isolate personal and team entries", () => {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const local = { ...storageInputSchema.parse({ name: "Personal files", config: { kind: "webdav", endpoint: "https://example.invalid/files" } }), id: "local", updatedAt: 1, configuredSecrets: [] };
   const shared = { ...local, id: "shared", name: "Team documents", teamInstallation: "optional", team: { orgId: "firm", version: 1, installed: false } };
@@ -102,5 +147,10 @@ test("the unified storage library includes optional team sources without grantin
   expect(html).not.toContain('aria-label="Edit Personal files"');
   expect(html).not.toContain('aria-label="Edit Team documents"');
   expect(html).not.toContain('aria-label="Disconnect Team documents"');
+  for (const source of ["personal", "team"]) {
+    const filtered = renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source: source === "team" ? "team" : "personal" }}><HubScopeContext.Provider value="local"><FileStorageView client={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} workspaceId="test" /></HubScopeContext.Provider></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
+    expect(filtered).toContain(source === "team" ? "Team documents" : "Personal files");
+    expect(filtered).not.toContain(source === "team" ? "Personal files" : "Team documents");
+  }
   queries.clear();
 });

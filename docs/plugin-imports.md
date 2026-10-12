@@ -80,40 +80,36 @@ Native Electron verification found existing installations for both providers, fi
 
 ## Library redesign verification
 
-![Single import action and connected-first connector library in Electron](images/integrations-connectors-library.png)
+Connectors, Skills and File storage keep the normal LegalWork category tabs, a fixed Import / Add / More toolbar, and search at the right. Connectors also has Browse directory immediately left of Import. Add opens each creation/connection form directly. All three libraries use a second row of plain **All / Personal / Team** tabs with an underline on the selected source. Source selection survives category changes and Refresh; search survives source changes. Successful imports return to All so newly imported personal items are visible.
 
-![Compact connector management dialog in Electron](images/integrations-connector-details.png)
+All combines personal and team items; Skills also includes the expertise built into LegalWork. Personal shows the member's own items. Team shows the firm's available catalogue, including optional items that have not been added. Team skills now appear inline using the same rows as personal skills, without the separate Browse team skills browser. They come from the same Knowledge Hub catalogue as team connectors. Shared file storage still comes from the firm's storage settings. Source filtering does not grant ownership or editing rights over team-managed items.
 
-![ChatGPT and Claude provider chooser in Electron](images/integrations-import-chooser.png)
+All rows use icon, name, description and a three-dot action menu. View details comes first, then Edit, Export and Share when supported, followed by separated Remove. Sharing reviews only the selected item under its readable name. Team skill rows retain optional Add/Remove membership and the existing confirmation; installed team skills retain their read-only instructions/resource viewer. Automatic items stay managed by the firm. Connector account/enablement controls and storage membership remain in their details dialogs. Ready/Paused labels beside toggles, the sync indicator, unavailable expand arrows and the global project-availability badge are removed.
 
-![Skills library in Electron](images/integrations-skills-library.png)
+Skills More contains Import skill files, Imported packages, Open skills folder and Refresh. The package manager remains reachable without mixing whole packages into the skills source filter. Package components still appear in the appropriate main libraries. Workflows retain their existing controls and pagination.
 
-![Skills filter dropdown beside search in Electron](images/integrations-skills-filter.png)
+![Connector library with underlined source tabs](images/integrations-connectors-library.png)
 
-![Connected storage library in Electron](images/integrations-storage-library.png)
+![Skills library with the same source tabs](images/integrations-skills-library.png)
 
-![Separate connector directory in Electron](images/integrations-connector-directory.png)
+![Personal skills selected with a text underline](images/integrations-skills-filter.png)
 
-![Storage provider picker in Electron](images/integrations-storage-picker.png)
+![Shared storage in the All library](images/integrations-storage-library.png)
 
-Native Electron checks cover tab navigation, connector search and clear, directory filters/search/detail return, custom connector setup, skills search by a built-in command and imported name, the management menu and editor, package filtering, storage provider search, configuration and Change provider. These checks did not add or remove a real connection. The application suite passed 944 tests across 146 files. App type checking, production build and the English/German translation check passed (5,734 keys per language). Regression coverage includes libraries with more than eight ordinary skills, built-in command search, configured connector ordering, read-only global connectors, separate provider discovery, team connector deduplication, automatic ownership, optional membership, account/key controls and combined personal/team storage.
+![Skills tools without a separate team browser](images/integrations-skills-tools.png)
 
-The single top-toolbar action and branded provider chooser were checked in Electron, including ChatGPT and Claude discovery, component review, Change app and keyboard focus returning to the chooser/search. The import footer's project-availability label is removed. The compact connector management dialog was checked with the technical disclosure and both sign-out/removal confirmations; cancelling each returns to the dialog without changing the connection. Ready/Paused labels and dots are hidden beside enablement toggles in both the list and management dialog; sign-in, offline and error statuses remain visible. Read-only connectors without toggles retain their status labels.
+![Compact connector management dialog](images/integrations-connector-details.png)
 
-The compact header, normal category tabs, relocated search fields, Skills actions menu and branded import chooser were verified in Electron. Connector and built-in-command searches and Clear search retained their behavior. The existing shared storage account appeared in the combined library with its Team label. Team connector states were verified with cached server-view fixtures; no real team membership, credential or account was changed.
+![ChatGPT and Claude provider chooser](images/integrations-import-chooser.png)
 
-The final focused check also passed 34 tests: `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx tests/mcp-logout-truthfulness.test.ts tests/plugin-import-buttons.test.tsx tests/integration-libraries.test.tsx tests/add-mcp-modal.test.tsx`.
+![Separate public connector directory](images/integrations-connector-directory.png)
 
-The subsequent Skills filter cleanup replaces the secondary segmented bar with a dropdown beside search. Native Electron checks verified all four filter results, automatic menu dismissal on selection, combined personal-skill search and Clear search, and restoring All skills. `pnpm --filter @legalwork/app exec bun test tests/integration-libraries.test.tsx tests/plugin-import-buttons.test.tsx` passed 8 tests; app type checking and `test:i18n` passed with 5,735 keys per language.
-
-The unified toolbar and row follow-up passed `pnpm --filter @legalwork/app test` (944 tests across 146 files), `pnpm --filter @legalwork/app typecheck`, `pnpm --filter @legalwork/app build`, and `pnpm --filter @legalwork/app test:i18n` (5,739 keys per language). Native Electron verification covered matching Import/Add/More controls across the three tabs, connector and skill creation menus (cancelled), row menus and connector account/enablement details, built-in skill commands, package component details, shared-storage ownership/details and the storage provider picker. No connection, team membership or credential was changed.
-
-The menu audit removes the page-level bulk sharing action from Integrations. It previously queried server-visible global/workspace folders rather than the displayed library, exposing unrelated bundled skills and workflows. Sharing now starts from the selected row and keeps its readable display name. Team browsing remains a discovery tool, distinct from sharing. Refresh reloads library data without resetting search or category filters; package metadata still refreshes through the layout revision. The audit passed 945 app tests, app type checking, the production build and the English/German translation check (5,744 keys per language).
-
-Native verification of the menu audit covered connector Add (Browse directory / Add own connector), direct Skills and storage Add, all three More menus, a skill row (View details / Export / Share / Remove), a connector row (View details / Share / Remove), cancelled removal confirmations, single-item sharing with the readable name Claim Comparison, the correctly titled Shared skills browser, legacy skill-file import and the main branded provider chooser. Refresh retained the PDF search and Included filter. Skill creation/removal wording refers to the skill library rather than a workspace. No item was shared, created or removed.
-
-![Skills library tools separated from Add](images/integrations-skills-tools.png)
+![Storage provider picker](images/integrations-storage-picker.png)
 
 ![Sharing reviews only the selected skill](images/integrations-single-item-sharing.png)
 
-The connector toolbar follow-up places Browse directory immediately left of Import and makes Add open the custom connector form directly. Native Electron verification opened/closed both flows, confirmed button order, and checked that Browse directory disappears on Skills. App type checking and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx tests/integration-libraries.test.tsx tests/plugin-import-buttons.test.tsx` passed (16 tests).
+The final focused check, `pnpm --filter @legalwork/app exec bun test tests/integration-libraries.test.tsx tests/mcp-library.test.tsx tests/plugin-import-buttons.test.tsx`, passed 19 tests. The source-tab change passed `pnpm --filter @legalwork/app test` (948 tests across 146 files), `pnpm --filter @legalwork/app typecheck`, `pnpm --filter @legalwork/app build`, and `pnpm --filter @legalwork/app test:i18n` (5,747 keys per language). Regression coverage verifies source isolation for all three libraries, team connector/configuration deduplication, automatic ownership, optional connectors, the complete team skills catalogue appearing once, embedded team-skill search/empty results, built-in command search, and team storage access restrictions.
+
+Native Electron verification covered all three source-tab rows, arrow-key focus and Enter activation, connector search retained across source changes, personal skills excluding built-ins, the inline Team skills empty state, the cleaned-up More menu, the imported-package manager, source selection retained across category changes, and the actual shared storage source excluded by Personal and included by All/Team. This account has no shared team skills, so populated catalogue and membership rendering were checked with cached server-view fixtures. No connection, team membership, credential or shared item was changed.
+
+Earlier native import checks covered both providers' discovery, folder/ZIP pickers, component review, Change app and focus, complete Claude-folder/ChatGPT-ZIP imports and paused standalone MCP imports. Earlier library checks covered custom connector setup, directory search/filter/detail return, connector account/technical details, sign-out/removal confirmations (cancelled), built-in skill commands, imported package components, single-item sharing, and storage provider search/configuration/Change provider. The desktop dev server remains running for review.

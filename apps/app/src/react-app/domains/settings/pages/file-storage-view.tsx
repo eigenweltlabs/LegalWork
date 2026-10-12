@@ -86,7 +86,10 @@ export function FileStorageView({
   });
   const allConnections = connections.data?.connections ?? [];
   const detail = allConnections.find(connection => connection.id === detailId);
-  const visibleConnections = libraryLayout ? allConnections : storageConnectionsForScope(allConnections, scope);
+  const source = libraryLayout?.source ?? "all";
+  const visibleConnections = libraryLayout
+    ? allConnections.filter(connection => source === "all" || (source === "team" ? Boolean(connection.team) : !connection.team))
+    : storageConnectionsForScope(allConnections, scope);
   const storageProviderName = (connection: StorageConnection) => connection.config.kind === "oauth" ? providers.data?.providers.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind);
   const query = search.trim().toLowerCase();
   const matchingConnections = visibleConnections.filter(connection => !query || `${connection.name} ${storageProviderName(connection)}`.toLowerCase().includes(query));
@@ -183,7 +186,7 @@ export function FileStorageView({
           </div>
         </section>
       ) : !connections.isLoading && !connections.error ? (
-        <IntegrationEmptyState icon={HardDrive} title={t(query ? "integrations.no_storage_matches" : scope === "team" ? "integrations.no_shared_storage" : "integrations.no_storage_title")} description={t(query ? "integrations.search_hint" : scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "integrations.no_storage_description")} action={!query && canAdd ? <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
+        <IntegrationEmptyState icon={HardDrive} title={t(query ? "integrations.no_storage_matches" : source === "team" || scope === "team" ? "integrations.no_shared_storage" : "integrations.no_storage_title")} description={t(query ? "integrations.search_hint" : source === "team" || scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "integrations.no_storage_description")} action={!query && canAdd && source !== "team" ? <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
       ) : null}
       <Dialog open={Boolean(detail)} onOpenChange={open => { if (!open) setDetailId(null); }}>
         <DialogContent>

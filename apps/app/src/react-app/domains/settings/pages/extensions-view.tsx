@@ -5,11 +5,12 @@ import { Download } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
-import { IntegrationLibraryLayoutContext, IntegrationMoreMenu } from "./integration-library";
+import { IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationLibrarySource } from "./integration-library";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -81,6 +82,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importOpen, setImportOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
+  const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
   const [leadingActionsTarget, setLeadingActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
@@ -94,7 +96,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -108,31 +110,40 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
           </div>
         </div>
-        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
+        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />
         </div>
 
-        <HubScopeContext.Provider value="local">
-          {tab === "connectors" ? props.mcpView : null}
+        <Tabs value={source} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") setSource(value); }} className="gap-5">
+          {tab !== "plugins" ? <TabsList variant="line" aria-label={t("integrations.filter_source")} className="h-auto justify-start gap-6 p-0">
+            <TabsTrigger value="all" className="rounded-none px-0 pb-2.5 pt-0">{t("integrations.source_all")}</TabsTrigger>
+            <TabsTrigger value="personal" className="rounded-none px-0 pb-2.5 pt-0">{t("integrations.source_personal")}</TabsTrigger>
+            <TabsTrigger value="team" className="rounded-none px-0 pb-2.5 pt-0">{t("firm_hub.scope_team")}</TabsTrigger>
+          </TabsList> : null}
+          <TabsContent value={source}>
+            <HubScopeContext.Provider value="local">
+              {tab === "connectors" ? props.mcpView : null}
 
-          {tab === "storage" ? props.storageView : null}
+              {tab === "storage" ? props.storageView : null}
 
-          {tab === "skills" ? props.skillsView : null}
+              {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" ? (
-            <PluginsView
-              extensions={props.extensions}
-              busy={props.busy}
-              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-              canEditPlugins={props.canEditPlugins}
-              canUseGlobalScope={props.canUseGlobalScope}
-              accessHint={props.accessHint}
-              suggestedPlugins={props.suggestedPlugins}
-            />
-          ) : null}
-        </HubScopeContext.Provider>
+              {tab === "plugins" ? (
+                <PluginsView
+                  extensions={props.extensions}
+                  busy={props.busy}
+                  selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+                  canEditPlugins={props.canEditPlugins}
+                  canUseGlobalScope={props.canUseGlobalScope}
+                  accessHint={props.accessHint}
+                  suggestedPlugins={props.suggestedPlugins}
+                />
+              ) : null}
+            </HubScopeContext.Provider>
+          </TabsContent>
+        </Tabs>
       </section>
     </IntegrationLibraryLayoutContext.Provider>
   );

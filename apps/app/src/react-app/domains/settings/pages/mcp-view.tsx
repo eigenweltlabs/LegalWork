@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
@@ -1224,15 +1224,16 @@ function McpConfiguredServersSection(props: {
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
 }) {
+  const source = useIntegrationLibraryLayout()?.source ?? "all";
   const renderLibrary = (firmItems: FirmHubItem[]) => {
     const query = props.search.trim().toLowerCase();
     const matchingFirmItems = firmItems.filter(item => !query || `${item.name} ${firmConnectorName(item.name)} ${item.description}`.toLowerCase().includes(query));
     const firmServerNames = new Set(firmItems.flatMap(item => item.connector && (item.installation === "automatic" || item.added) ? [item.connector.serverName] : []));
     type ConnectorRow = { kind: "server"; item: McpServerEntry } | { kind: "entry"; item: McpDirectoryInfo } | { kind: "firm"; item: FirmHubItem };
     const rows: ConnectorRow[] = [
-      ...props.servers.filter(item => !firmServerNames.has(item.name)).map((item): ConnectorRow => ({ kind: "server", item })),
-      ...props.entries.map((item): ConnectorRow => ({ kind: "entry", item })),
-      ...matchingFirmItems.map((item): ConnectorRow => ({ kind: "firm", item })),
+      ...(source === "team" ? [] : props.servers.filter(item => !firmServerNames.has(item.name))).map((item): ConnectorRow => ({ kind: "server", item })),
+      ...(source === "team" ? [] : props.entries).map((item): ConnectorRow => ({ kind: "entry", item })),
+      ...(source === "personal" ? [] : matchingFirmItems).map((item): ConnectorRow => ({ kind: "firm", item })),
     ];
     const priority = (row: ConnectorRow) => {
       if (row.kind === "entry") return 0;
@@ -1281,7 +1282,7 @@ function McpConfiguredServersSection(props: {
             })}
           </div>
         ) : (
-          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : "mcp.no_apps_yet")} description={t(props.searching ? "mcp.connector_search_hint" : "mcp.no_apps_hint")} />
+          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : source === "team" ? "firm_hub.empty_integrations" : "mcp.no_apps_yet")} description={t(props.searching ? "mcp.connector_search_hint" : source === "team" ? "firm_hub.integrations_desc" : "mcp.no_apps_hint")} />
         )}
       </div>
     );

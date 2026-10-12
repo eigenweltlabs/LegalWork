@@ -2421,6 +2421,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     legalworkClient={legalworkClient}
                     workspaceId={hubWorkspaceId}
                     kind="skill"
+                    readSkill={extensionsStore.readFirmSkill}
                     onConfigApplied={() => {
                       void extensionsStore.refreshSkills({ force: true });
                       void reloadWorkspaceEngineFromUi();

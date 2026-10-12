@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationLibrarySearchContext, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
@@ -15,7 +15,6 @@ import {
   Blocks,
   Bot,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -59,7 +58,7 @@ import {
   pillSecondaryClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
@@ -88,7 +87,6 @@ import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
-type SkillLibraryFilter = "all" | "custom" | "built-in" | "packages";
 const SKILLS_HUB_UI_ENABLED = false;
 // Workflows grid: 2 columns × 4 rows of compact cards before paging.
 const WORKFLOWS_PER_PAGE = 8;
@@ -343,16 +341,10 @@ export function SkillsView(props: SkillsViewProps) {
 
 
   const isWorkflowsView = props.kind === "workflows";
-  const [libraryFilter, setLibraryFilter] = useState<SkillLibraryFilter>("all");
-  const libraryFilterLabels: Record<SkillLibraryFilter, string> = {
-    all: t("integrations.all_skills"),
-    custom: t("integrations.your_skills"),
-    "built-in": t("integrations.included"),
-    packages: t("skills.packages_title"),
-  };
+  const source = isWorkflowsView ? "all" : libraryLayout?.source ?? "all";
   const [skillsImportOpen, setSkillsImportOpen] = useState(false);
   const [skillCreateOpen, setSkillCreateOpen] = useState(false);
-  const [teamSkillsOpen, setTeamSkillsOpen] = useState(false);
+  const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
   // view is provided (firm-connected + entitled).
@@ -378,8 +370,11 @@ export function SkillsView(props: SkillsViewProps) {
   const allSkills = extensions.skills();
   // Each view shows only its own kind; both live in the same skill store.
   const skills = useMemo(
-    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView),
-    [allSkills, isWorkflowsView],
+    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView
+      && (source === "all" || (source === "team" ? Boolean(skill.firm) : !skill.firm))
+      // The embedded team catalogue includes installed and offered items together.
+      && !(libraryLayout && !isWorkflowsView && props.firmDownloadView && skill.firm)),
+    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView],
   );
   const hubSkills = extensions.hubSkills();
   const hubRepo = extensions.hubRepo();
@@ -445,7 +440,7 @@ export function SkillsView(props: SkillsViewProps) {
 
   // Workflows are local-authored only — no Hub/Cloud catalogs.
   const effectiveActiveFilter = !SKILLS_HUB_UI_ENABLED && activeFilter === "hub" ? "all" : activeFilter;
-  const showInstalledSection = showLocal && (isWorkflowsView || libraryFilter === "custom" || (libraryFilter === "all" && (!searchQuery.trim() || filteredSkills.length > 0 || matchingBuiltInSkills(searchQuery).length === 0))) && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
+  const showInstalledSection = showLocal && (isWorkflowsView || filteredSkills.length > 0 || (source === "personal" || (source === "all" && !props.firmDownloadView && matchingBuiltInSkills(searchQuery).length === 0))) && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
   // Read the imported packages again once the import dialog brought one in.
   const [packagesRevision, setPackagesRevision] = useState(0);
   // One of the firm's skills, open to read.
@@ -750,8 +745,8 @@ export function SkillsView(props: SkillsViewProps) {
                 {libraryLayout ? <>
                   <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} />
                   <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
-                    {props.firmDownloadView ? <DropdownMenuItem onClick={() => setTeamSkillsOpen(true)}><Share2 />{t("integrations.browse_team_skills")}</DropdownMenuItem> : null}
                     <DropdownMenuItem disabled={props.busy} onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("integrations.import_skill_files")}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
                   </IntegrationMoreMenu>
                 </> : null}
@@ -772,23 +767,14 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         ) : null}
 
-        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")} filter={!isWorkflowsView ? <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground" aria-label={t("integrations.filter_skills", { filter: libraryFilterLabels[libraryFilter] })} />}>
-            {libraryFilterLabels[libraryFilter]}<ChevronDown className="size-3.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuRadioGroup value={libraryFilter} onValueChange={value => { if (value === "all" || value === "custom" || value === "built-in" || value === "packages") setLibraryFilter(value); }}>
-              {Object.entries(libraryFilterLabels).map(([value, label]) => <DropdownMenuRadioItem key={value} value={value} closeOnClick>{label}</DropdownMenuRadioItem>)}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu> : undefined} /> : null}
+        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")} /> : null}
       </div>
 
       {showTeam ? props.firmDownloadView : null}
-      {libraryLayout && props.firmDownloadView ? <Dialog open={teamSkillsOpen} onOpenChange={setTeamSkillsOpen}>
+      {libraryLayout && !isWorkflowsView ? <Dialog open={packagesOpen} onOpenChange={setPackagesOpen}>
         <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader className="pe-8"><DialogTitle>{t("integrations.browse_team_skills")}</DialogTitle></DialogHeader>
-          {props.firmDownloadView}
+          <DialogHeader className="pe-8"><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
+          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout.revision ?? 0)} showEmpty />
         </DialogContent>
       </Dialog> : null}
 
@@ -992,8 +978,9 @@ export function SkillsView(props: SkillsViewProps) {
 
       {showLocal && !isWorkflowsView ? (
         <>
-          {libraryFilter === "packages" ? <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout?.revision ?? 0)} searchQuery={searchQuery} showEmpty={libraryFilter === "packages"} /> : null}
-          {libraryFilter === "all" || libraryFilter === "built-in" ? <BuiltInSkills searchQuery={searchQuery} showEmpty={libraryFilter === "built-in"} /> : null}
+          {libraryLayout && props.firmDownloadView ? <IntegrationLibrarySearchContext.Provider value={{ query: searchQuery, hasOtherResults: filteredSkills.length > 0 || (source === "all" && matchingBuiltInSkills(searchQuery).length > 0) }}>{props.firmDownloadView}</IntegrationLibrarySearchContext.Provider> : null}
+          {source === "team" && !props.firmDownloadView && filteredSkills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("firm_hub.empty_skills")} description={t("firm_hub.skills_desc")} /> : null}
+          {source === "all" ? <BuiltInSkills searchQuery={searchQuery} /> : null}
         </>
       ) : null}
 

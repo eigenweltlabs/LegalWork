@@ -87,7 +87,7 @@ export function ImportedPackages(props: {
   if (visiblePackages.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <IntegrationGroupHeading title={t("skills.packages_title")} count={visiblePackages.length} />
+      <IntegrationGroupHeading hideInLibrary title={t("skills.packages_title")} count={visiblePackages.length} />
       {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t("integrations.no_packages")} description={t(query ? "integrations.search_hint" : "integrations.import_description")} /> : null}
       <div className="space-y-1">
         {visiblePackages.map((plugin) => (

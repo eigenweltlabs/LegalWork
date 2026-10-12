@@ -8,7 +8,10 @@ import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 
 /** The page owns toolbar positions; each library keeps its own actions and search state. */
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number } | null>(null);
+export type IntegrationLibrarySource = "all" | "personal" | "team";
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource } | null>(null);
+/** Embedded team catalogues follow their library's search. */
+export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 
 export function useIntegrationLibraryLayout() {
   return useContext(IntegrationLibraryLayoutContext);
@@ -78,16 +81,15 @@ export function IntegrationLibraryHeader(props: { title: string; description: st
   </div>;
 }
 
-export function IntegrationSearch(props: { value: string; onChange: (value: string) => void; label: string; children?: ReactNode; toolbar?: boolean; filter?: ReactNode }) {
+export function IntegrationSearch(props: { value: string; onChange: (value: string) => void; label: string; children?: ReactNode; toolbar?: boolean }) {
   const layout = useIntegrationLibraryLayout();
   const search = <div className={props.toolbar && layout ? "relative w-full sm:w-64" : "relative w-full sm:max-w-sm"}>
       <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input type="search" className="ps-9 pe-9 [&::-webkit-search-cancel-button]:appearance-none" aria-label={props.label} placeholder={props.label} value={props.value} onChange={event => props.onChange(event.target.value)} />
       {props.value ? <Button variant="ghost" size="icon-sm" className="absolute end-1 top-1/2 -translate-y-1/2" aria-label={t("integrations.clear_search")} onClick={() => props.onChange("")}><X className="size-3.5" /></Button> : null}
     </div>;
-  const controls = props.filter ? <div className="flex flex-wrap items-center gap-2">{search}{props.filter}</div> : search;
-  if (props.toolbar && layout) return <>{layout.search ? createPortal(controls, layout.search) : null}{props.children}</>;
-  return <div className="space-y-3">{controls}{props.children}</div>;
+  if (props.toolbar && layout) return <>{layout.search ? createPortal(search, layout.search) : null}{props.children}</>;
+  return <div className="space-y-3">{search}{props.children}</div>;
 }
 
 export function IntegrationGroupHeading(props: { title: string; count: number; children?: ReactNode; hideInLibrary?: boolean }) {
