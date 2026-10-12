@@ -3,6 +3,7 @@ import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../sess
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
 import { WikiStore } from "../wiki/store.js";
+import { grantWikiAgentSession } from "../wiki/agent-access.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
@@ -146,6 +147,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     // Reject stale/deleted or cross-workspace sessions before storing executable work.
     const client = await queueClient(workspace, ctx.params.sessionId);
     if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
+    // Queued prompts bypass the public engine proxy. Refresh their authenticated
+    // origin here too, including an existing chat resumed after server restart.
+    await grantWikiAgentSession(config, {
+      sessionId: ctx.params.sessionId,
+      directory: workspace.directory?.trim() || workspace.path,
+      scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
+    });
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
   });
 

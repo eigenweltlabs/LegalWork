@@ -97,6 +97,17 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   return ["GET", "PUT", "DELETE"].includes(method) && /^\/wikis\/[^/]+\/page$/.test(pathname);
 }
 
+/** Existing storage/sandbox tools need the originating member's access to their own wiki workspace. */
+function workspaceToolPath(method: string, pathname: string): string | null {
+  const match = pathname.match(/^\/workspace\/([^/]+)\/(.+)$/);
+  if (!match) return null;
+  const route = match[2]!;
+  const allowed = method === "GET"
+    ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+)$/.test(route)
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web))$/.test(route);
+  return allowed ? decodeURIComponent(match[1]!) : null;
+}
+
 /**
  * This is not a host/owner credential. A valid runtime secret authenticates
  * only a session whose origin the server recorded from an authenticated user.
@@ -114,7 +125,9 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const expected = Buffer.from(access?.token ?? "");
   if (!access || candidate.length !== expected.length || !timingSafeEqual(candidate, expected))
     throw new ApiError(403, "wiki_agent_unauthorized", "The wiki agent connection is not authorized.");
-  if (!narrowWikiPath(request.method, new URL(request.url).pathname))
+  const pathname = new URL(request.url).pathname;
+  const toolWorkspaceId = workspaceToolPath(request.method, pathname);
+  if (!narrowWikiPath(request.method, pathname) && !toolWorkspaceId)
     throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to wiki page tools.");
   const sessionId = request.headers.get("x-legalwork-wiki-agent-session");
   if (!sessionId || sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
@@ -127,6 +140,24 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
+  if (toolWorkspaceId) {
+    const candidates = await Promise.all(config.workspaces.map(async item => ({
+      id: item.id, root: await realpath(item.directory || item.path).catch(() => null),
+    })));
+    const own = candidates.filter(item => {
+      if (!item.root) return false;
+      const child = relative(item.root, directory);
+      return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+    }).sort((a, b) => (b.root?.length ?? 0) - (a.root?.length ?? 0))[0];
+    if (own?.id !== toolWorkspaceId)
+      throw new ApiError(403, "wiki_agent_workspace_denied", "Use storage and execution tools only in this session's own workspace.");
+    if (pathname.includes("/sandbox/")) {
+      const claimedSession = request.method === "GET" ? decodeURIComponent(pathname.split("/").at(-1)!)
+        : z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID;
+      if (claimedSession !== sessionId)
+        throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
+    }
+  }
   return { directory, sessionId, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
     tokenHash: createHash("sha256").update(access.token).digest("hex") } };
 }

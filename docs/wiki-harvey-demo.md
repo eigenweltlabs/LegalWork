@@ -1,6 +1,6 @@
 # Firm wiki from local S3
 
-The law firm starter now includes linked folder procedures, a resumable import workflow, client/matter page templates and guidance for generating live dashboards, frozen reports and inline widgets from indexed data. `workflow-firm-knowledge` is also installed once in the shared Workflows library; later launches preserve firm edits.
+The law firm starter includes four editable workspace skills: setup, capture, use and maintain. Setup adapts the wiki in a conversation and imports selected sources only when requested. The global `workflow-firm-knowledge` entry is a thin launcher that discovers the selected wiki's own guidance.
 
 ## Source and local storage
 
@@ -46,17 +46,19 @@ This intentionally does not remove or replace other containers, volumes or bucke
 
 ## First visible run
 
-Open Wiki in the global navigation, choose **Harvey · Firm knowledge**, and open **Build firm wiki from local S3** in its Chats list. Memory Drive contains the source tree. The chat's working directory is the wiki root.
+Open Wiki in the global navigation, choose **Harvey · Firm knowledge**, and use the tab plus button to start a chat. Memory Drive contains the source tree. The chat's working directory is the wiki root. The earlier **Build firm wiki from local S3** chat is also retained.
 
 The submitted first-run prompt asks the agent to inventory the connection, review the first three matter folders, save supported client/matter pages incrementally, create relations through indexed fields, extract useful reusable knowledge, and save a live dashboard and frozen report. It must retain a checkpoint for the remaining scope. It cannot claim that inventorying 9,288 files means reviewing their content.
 
-A shorter equivalent prompt for a new chat is:
+For a new chat in this wiki:
 
-> Follow this wiki's Build firm wiki workflow using Harvey firm records · local S3. Start with the first three matter folders in path order. Read the actual engagement, opening and relevant status/closing records; save verified client and matter pages with source references and indexed page relations as you go. Save coverage and a continuation checkpoint in Sources/. Then create a live firm overview and a frozen first-batch report using view_catalog, wiki_fields, wiki_query and view_create, and embed the overview on Wiki.md. Use only supported facts and label historical benchmark dates. Stop after the first batch so I can inspect it.
+> Set up this wiki from Harvey firm records · local S3. Start with three matters so I can inspect the result.
 
 After inspecting that batch:
 
-> Resume Sources/Import.md and continue through the remaining authorized matter folders. Preserve human edits, update coverage after every batch, and keep the saved dashboard bound to the growing indexed dataset. Derive supported processes and reusable templates where useful; do not invent content to fill empty folders. Keep failures and unread sources visible.
+> Continue the import from where you stopped.
+
+The local setup skill supplies the source checks, coverage ledger, indexed relations and dashboard procedure. The user does not need to specify tool names. A new wiki needs its own source connection; choosing the law firm starter does not copy credentials or another workspace's access.
 
 ## What was actually verified
 
@@ -65,7 +67,7 @@ After inspecting that batch:
 - A new `Sources/Connection check.md` written on disk appears in the open native wiki tree without clicking refresh. This is a setup verification note, explicitly not agent-generated imported knowledge.
 - Wiki tree revision polling now runs every two seconds and invalidates saved-view data and lists along with the tree. Automated tests cover external batch writes, binary files, nested folders, indexed fields and relation edges.
 - The wiki's own tabs, expanded folders and Memory Drive state survive an Electron restart. A discovered stale-workspace selection bug was fixed so a newly created wiki does not borrow another workspace's tabs or agent directory.
-- New dashboards are saved in `Views/`, and new reports in `Reports/`. Existing files keep their locations and remain readable and editable, including older reports in `Views/`.
+- New law firm dashboards are saved in `Dashboards/`, and new reports in `Reports/`. Existing files keep their locations and remain readable and editable, including older reports in `Views/`.
 
 ![Native Electron: firm wiki folders, connected S3 matter tree, and a source Word document opened in a tab](screenshots/wiki-harvey-s3.png)
 
@@ -73,4 +75,4 @@ After inspecting that batch:
 
 The real import was submitted on 11 October 2026 at 19:44 UTC, using the already connected `openai/gpt-5.6-terra-pro`. The provider returned `AI_APICallError: You have no credits remaining. Add credits to continue using the API` before any tool call. Input/output tokens were both zero.
 
-No agent-populated client/matter pages, generated dashboard or generated report are claimed for this run. The firm template, source mirror, connection and chat remain ready. Replenish the existing connection and continue the same chat to run the visible extraction. No paid service, new provider, billing change, substitute scripted extraction or forged tool result was used to bypass the failure.
+No agent-populated client/matter pages, generated dashboard or generated report are claimed for this run. The source mirror, connection and chat remain ready. On 12 October, the untouched starter was refreshed to the four local workspace skills and new layout, with the earlier starter backed up and retired files recoverable through wiki trash. The source verification note and prepared chat were preserved. No import checkpoint or client/matter records exist. The earlier chat retains its provider error; a new chat can use the currently selected model. Resume only when ready to run the extraction. No paid service, new provider, billing change, substitute scripted extraction or forged tool result was used to bypass the failure.

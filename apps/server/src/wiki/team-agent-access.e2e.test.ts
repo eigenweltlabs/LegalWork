@@ -6,6 +6,8 @@ import { ViewRecordSchema, type WikiDataResult } from "@legalwork/types/views";
 import { startServer } from "../server.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { LegalWorkWikiTools } from "../opencode-plugins/legalwork-wiki-tools.js";
+import { LegalWorkStorageTools } from "../opencode-plugins/legalwork-storage-tools.js";
+import { resolveWorkspaceId, workspaceToolHeaders } from "../opencode-plugins/office-plugin-shared.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 import { listApprovals, respondApproval, waitForApprovals } from "./approval.test-helpers.js";
 import { wikiTeamFixture } from "./team-test-helper.js";
@@ -37,11 +39,17 @@ async function teamFlow(sandbox?: VmSandbox) {
   member.config.workspaces.push(project);
   member.config.authorizedRoots.push(project.path);
   const a = await host(owner.config), b = await host(member.config);
-  const original = wikiResult.parse(await (await a.request("/wikis", "POST", { name: "Team agent fixture", template: "blank", sharing: { access: "members", memberIds: ["member"] } })).json()).wiki;
+  const original = wikiResult.parse(await (await a.request("/wikis", "POST", { name: "Team agent fixture", template: "firm", sharing: { access: "members", memberIds: ["member"] } })).json()).wiki;
   expect((await a.request(`/wikis/${original.id}/page`, "PUT", { path: "Shared.md", content: "# Shared source\n", baseRevision: null })).status).toBe(200);
   await a.request(`/wikis/${original.id}/sync`, "POST");
   const wiki = wikiResult.parse(await (await b.request("/wikis/join", "POST", { wikiId: original.sync.wikiId })).json()).wiki;
   await b.request(`/wikis/${wiki.id}/sync`, "POST");
+  const skills = await (await b.request(`/workspace/${wiki.workspaceId}/skills`)).json();
+  expect(skills.items.filter((item: { name: string }) => item.name.startsWith("wiki-")).map((item: { name: string }) => item.name).sort()).toEqual(["wiki-capture", "wiki-maintain", "wiki-setup", "wiki-use"]);
+  const setup = await (await b.request(`/workspace/${wiki.workspaceId}/skills/wiki-setup/composed`)).json();
+  expect(setup.chain[0].content).toContain("do not crawl connected storage");
+  expect(setup.chain[0].directory).toBe(join(wiki.root, "Skills/wiki-setup"));
+
   await b.request(`/wikis/${wiki.id}`, "PATCH", { allowInProjects: true, projectWorkspaceIds: [project.id] });
   const agentToken = await ensureWikiAgentToken(member.config);
   for (const [sessionId, directory] of [["matter-agent", project.path], ["wiki-agent", wiki.root]])
@@ -68,6 +76,10 @@ async function teamFlow(sandbox?: VmSandbox) {
   expect(JSON.parse(await pending).ok).toBe(true);
   expect(JSON.parse(await inside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-wiki.md", content: "# Wiki knowledge\n", base_revision: null })).ok).toBe(true);
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
+  const view = JSON.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
+  expect(view).not.toHaveProperty("error");
+  const views = await (await b.request(`/wikis/${wiki.id}/ui-views`)).json();
+  expect(views.items.find((item: { id: string }) => item.id === view.id).path).toBe(`Dashboards/${view.id}.view.json`);
 
   // A project report/dashboard needs no wiki destination or wiki query.
   const datasets: Record<string, WikiDataResult> = { invoices: { rows: [{ path: "invoice.csv", amount: 42 }], total: 1, revision: "invoice-1", asOf: Date.now(), truncated: false, sourceOwner: { kind: "workspace", id: project.id } } };
@@ -106,6 +118,38 @@ async function teamFlow(sandbox?: VmSandbox) {
 }
 
 test("team wiki tools separate wiki and project chats, require project write approval and retain project datasets", () => teamFlow(), 30_000);
+
+test("private wiki setup can discover its own connected storage and execution settings through agent tools", async () => {
+  const cloud = await wikiTeamFixture(); cleanup.push(() => cloud.close());
+  const owner = await cloud.account();
+  const server = await host(owner.config);
+  const result = await (await server.request("/wikis", "POST", { name: "Private setup", template: "firm" })).json();
+  const wiki = z.object({ id: z.string(), root: z.string(), workspaceId: z.string() }).parse(result.wiki);
+  const context = { directory: wiki.root, sessionID: "private-setup" };
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ id: context.sessionID, directory: wiki.root }) });
+  cleanup.push(async () => { await engine.stop(true); });
+  const workspace = owner.config.workspaces.find(item => item.id === wiki.workspaceId);
+  if (!workspace) throw new Error("Wiki workspace missing");
+  workspace.baseUrl = `http://127.0.0.1:${engine.port}`;
+  const previous = { LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN, LEGALWORK_WIKI_AGENT_TOKEN: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
+  Object.assign(process.env, { LEGALWORK_SERVER_URL: server.url, LEGALWORK_SERVER_TOKEN: owner.config.token, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(owner.config) });
+  cleanup.push(async () => { for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  // Existing chats have no in-memory grant after a server restart. Authenticated
+  // queue interaction restores it without trusting caller-supplied scope.
+  await expect(resolveWorkspaceId(context, { requireDirectory: true })).rejects.toThrow("Workspace lookup failed");
+  expect((await server.request(`/workspace/${wiki.workspaceId}/sessions/${context.sessionID}/queue`, "POST", { type: "pause", paused: true })).status).toBe(200);
+  expect(await resolveWorkspaceId(context, { requireDirectory: true })).toBe(wiki.workspaceId);
+  const storage = await LegalWorkStorageTools();
+  const listed = JSON.parse(await storage.tool.storage_list_connections.execute({}, context));
+  expect(listed).toHaveProperty("connections");
+  expect(listed).not.toHaveProperty("error");
+  const settings = await fetch(`${server.url}/workspace/${wiki.workspaceId}/sandbox/session/${context.sessionID}`, { headers: await workspaceToolHeaders(context) });
+  expect(settings.status).toBe(200);
+  await grantWikiAgentSession(owner.config, { sessionId: context.sessionID, directory: wiki.root, scope: "collaborator" });
+  await expect(resolveWorkspaceId(context, { requireDirectory: true })).rejects.toThrow("No LegalWork workspace");
+  expect(JSON.parse(await storage.tool.storage_list_connections.execute({}, context))).toHaveProperty("error");
+}, 30_000);
+
 test.skipIf(!process.env.LEGALWORK_WIKI_VM_RESOURCES)("team wiki access works through the real sandbox VM inside and outside its workspace", async () => {
   const vm = new VmSandbox(process.env.LEGALWORK_WIKI_VM_RESOURCES);
   cleanup.push(() => VmSandbox.shutdown());

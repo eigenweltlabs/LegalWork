@@ -1,4 +1,5 @@
 import { constants, createReadStream } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { open, realpath, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -6,7 +7,7 @@ import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
 import { storagePath, renameDestination } from "../file-storage/common.js";
 import { storageSearchModeSchema } from "@legalwork/types/file-storage";
-import { serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const RULES = `## Connected file storage
 Use storage_* tools for file storage connected in Settings and shown in Memory Drive. The same tools work across providers and multiple connections.
@@ -43,6 +44,8 @@ const fileSchema = z.object({
 });
 const errorSchema = z.object({ code: z.string().optional(), message: z.string() });
 
+const toolContext = new AsyncLocalStorage<OpenCodeContext>();
+
 async function request(path: string, method = "GET", body?: unknown): Promise<unknown> {
   const url = serverUrl();
   const token = serverToken();
@@ -50,7 +53,7 @@ async function request(path: string, method = "GET", body?: unknown): Promise<un
     throw new ApiError(503, "storage_connection_unavailable", "The workspace connection is not ready.");
   const response = await fetch(`${url}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { ...await workspaceToolHeaders(toolContext.getStore()), "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(900_000),
   });
@@ -109,7 +112,7 @@ function defineTool<T extends z.ZodRawShape>(
     args: args.shape,
     async execute(raw: unknown, context: OpenCodeContext) {
       try {
-        return JSON.stringify(await execute(args.parse(raw ?? {}), context), null, 2);
+        return JSON.stringify(await toolContext.run(context, () => execute(args.parse(raw ?? {}), context)), null, 2);
       } catch (error) {
         if (error instanceof z.ZodError)
           return JSON.stringify({

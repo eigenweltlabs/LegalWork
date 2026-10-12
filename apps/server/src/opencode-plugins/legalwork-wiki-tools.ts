@@ -279,10 +279,13 @@ export const LegalWorkWikiTools = async (initial: OpenCodeContext = {}) => ({
       }),
     wiki_write: defineTool("Propose a complete Markdown page addition or replacement. In a project or another wiki's session, this opens human approval and saves only if accepted; do not ask a preliminary permission question. Prepare useful contributions following the destination wiki's guidance, anonymizing source material before submission. In this wiki's own session, writes follow its normal editing permissions. base_revision=null creates; replacing requires the exact revision from wiki_read. Supply the complete page text. Shared saves sync automatically.",
       z.object({ wiki_id: wikiId, path: pagePath, content: z.string().max(2_000_000),
-        base_revision: z.string().min(1).max(500).nullable() }), initial, async (args, context) => {
+        base_revision: z.string().min(1).max(500).nullable().describe("Use JSON null for a new page, or the exact revision returned by wiki_read for an existing page.") }), initial, async (args, context) => {
         const wiki = await accessible(args.wiki_id, context, true);
+        // Some tool-call providers encode JSON null as a string. This still means
+        // create-only: the server rejects it if the destination already exists.
+        const baseRevision = args.base_revision === "null" ? null : args.base_revision;
         const document = documentSchema.parse(await request(page(wiki.id, args.path), "PUT",
-          { path: args.path, content: args.content, baseRevision: args.base_revision }, context));
+          { path: args.path, content: args.content, baseRevision }, context));
         return { ok: true, wiki_id: wiki.id, path: document.path, revision: document.revision, updated_at: document.updatedAt,
           shared_sync_enabled: wiki.sync !== null };
       }),

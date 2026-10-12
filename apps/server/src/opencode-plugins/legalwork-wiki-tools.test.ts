@@ -233,6 +233,15 @@ describe("wiki agent content and revisions", () => {
     expect(documents.has("Notes.md")).toBe(false);
   });
 
+  test("a provider's string null creates a page but cannot replace an existing page", async () => {
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const created = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Firm/About.md", content: "# Firm", base_revision: "null" }));
+    expect(created.ok).toBe(true);
+    const duplicate = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Firm/About.md", content: "# Overwrite", base_revision: "null" }));
+    expect(duplicate.code).toBe("wiki_revision_conflict");
+    expect(documents.get("Firm/About.md")?.content).toBe("# Firm");
+  });
+
   test("a conflict is surfaced and never retried automatically", async () => {
     conflict = true;
     const { tool } = await LegalWorkWikiTools({ directory: projectRoot });

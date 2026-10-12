@@ -150,3 +150,25 @@ test("ancestor downgrades during engine lookup and explicit child grants cannot 
   configureWikiAgentSessionLookup(config, async () => { throw new Error("A directly registered child must not use ancestor permissions"); });
   expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("collaborator");
 });
+
+test("workspace tools retain the session origin and cannot borrow another workspace or chat", async () => {
+  const { config, root, request } = await fixture();
+  const nested = join(root, "wiki"); await mkdir(nested);
+  config.workspaces.push({ id: "wiki", name: "Wiki", path: nested, preset: "starter", workspaceType: "local" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
+  for (const path of ["/workspace/project/storage/roots", "/workspace/project/storage/source/children", "/workspace/project/sandbox/session/session-1"])
+    expect((await authenticateWikiAgentRequest(config, request(path)))?.actor.scope).toBe("owner");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/storage/roots"))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/sandbox/session/another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/storage", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/sandbox/settings", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  const shellRequest = request("/workspace/project/sandbox/execute", { method: "POST" });
+  const shell = (sessionID: string) => new Request(shellRequest.url, { method: "POST", headers: shellRequest.headers, body: JSON.stringify({ sessionID, command: "pwd" }) });
+  expect((await authenticateWikiAgentRequest(config, shell("session-1")))?.actor.scope).toBe("owner");
+  await expect(authenticateWikiAgentRequest(config, shell("another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await grantWikiAgentSession(config, { sessionId: "nested", directory: nested, scope: "owner" });
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/wiki/storage/roots", { session: "nested", directory: nested })))?.actor.scope).toBe("owner");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots", { session: "nested", directory: nested }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots")))?.actor.scope).toBe("viewer");
+});

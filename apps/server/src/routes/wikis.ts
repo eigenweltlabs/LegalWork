@@ -118,6 +118,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return jsonResponse(policy);
   });
   const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
+    dashboardFolder: async () => (await store.snapshot(id)).folders?.includes("Dashboards") ? "Dashboards" : "Views",
     list: async () => (await store.files(id)).map(file => file.path),
     read: path => store.readAsset(id, path),
     write: async (path, bytes, revision) => { await store.writeAsset(id, path, bytes, revision); },

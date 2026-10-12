@@ -14,6 +14,7 @@ const isRecordPath = (path: string) => /\.view(?:\.conflict-[a-f0-9]{12})?\.json
 const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 export type ViewFiles = {
+  dashboardFolder?(): Promise<string>;
   list(): Promise<string[]>;
   read(path: string): Promise<Buffer>;
   write(path: string, bytes: Buffer, baseRevision: string): Promise<void>;
@@ -81,7 +82,8 @@ export class ViewRepository {
     const data = this.validate(input), id = randomUUID(), updatedAt = Date.now();
     const bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt }, null, 2) + "\n");
     if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
-    await this.files.write(`${data.mode === "report" ? "Reports" : "Views"}/${id}.view.json`, bytes, "");
+    const folder = data.mode === "report" ? "Reports" : await this.files.dashboardFolder?.() ?? "Views";
+    await this.files.write(`${folder}/${id}.view.json`, bytes, "");
     return { ...data, id, updatedAt, owner: this.owner, revision: hash(bytes) };
   }
   async update(id: string, input: ViewInput, baseRevision: string): Promise<ViewRecord> {

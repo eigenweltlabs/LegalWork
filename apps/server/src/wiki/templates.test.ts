@@ -9,16 +9,22 @@ describe("portable wiki starters", () => {
     expect(pages.flatMap((page) => page.links.filter((link) => !link.resolved).map((link) => `${page.path}: ${link.target}`))).toEqual([]);
     expect(pages.every(page => page.properties.views === undefined)).toBe(true);
     expect(pages.filter((page) => ["client", "matter", "person"].includes(String(page.properties.type)))).toEqual([]);
-    for (const folder of ["Clients", "Matters", "People", "Processes", "Research", "Templates", "Sources", "Views", "Reports"]) {
+    for (const folder of ["Clients", "Matters", "Knowledge", "Processes", "Templates", "Firm", "Sources", "Dashboards", "Reports"]) {
       expect(pages.find((page) => page.path === `${folder}/${folder}.md`)?.properties.type).toBe("index");
     }
-    expect(files["Skills/Build firm wiki.md"]).toContain("next folder/cursor");
-    expect(files["Skills/Build firm wiki.md"]).toContain("user approval");
-    expect(files["Skills/Dashboards and reports.md"]).toContain("server groupBy/metrics");
-    expect(files["Skills/Dashboards and reports.md"]).toContain("view_create");
-    expect(files["Skills/Dashboards and reports.md"]).toContain("legalwork-view");
+    expect(Object.keys(files).filter(path => path.endsWith("AGENTS.md")).sort()).toEqual(["AGENTS.md", "Knowledge/AGENTS.md", "Templates/AGENTS.md"]);
+    expect(Object.keys(files).filter(path => path.endsWith("/SKILL.md"))).toHaveLength(4);
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("next folder/cursor");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("do not crawl connected storage");
+    expect(files["Firm/About.md"]).toBeUndefined();
+    expect(files["Sources/Import.md"]).toBeUndefined();
+    for (const retired of ["Instructions.md", "Templates.md", "Views.md", "Skills/Bootstrap.md"]) expect(files[retired]).toBeUndefined();
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("human approval");
+    expect(files["Skills/wiki-use/SKILL.md"]).toContain("server groupBy/metrics");
+    expect(files["Skills/wiki-use/SKILL.md"]).toContain("view_create");
+    expect(files["Skills/wiki-use/SKILL.md"]).toContain("legalwork-view");
     expect(Object.values(files).join("\n")).not.toContain("\u2014");
-    expect(pages.some((page) => page.path === "Templates/Process.md" && page.properties.template_for === "process")).toBe(true);
+    expect(pages.some((page) => page.path === "Templates/Process page.md" && page.properties.template_for === "process")).toBe(true);
   });
 
   test("blank starter keeps editable control files and procedures without invented firm knowledge", () => {

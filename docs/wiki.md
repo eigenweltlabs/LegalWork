@@ -16,20 +16,23 @@ Hover beside a block for its actions and drag handle, or use Alt+Shift+Up/Down t
 
 Open Version history at the top of the sidebar to review saved page versions or switch to the Trash tab and restore deleted entries without replacing existing files. Restore copies stay on the host that performed the deletion; shared wikis sync the removal or restoration of saved files. Empty folders stay local until they contain a synced file.
 
-Create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join an existing firm wiki, choose it from the shared wiki list and select a local folder. Joining skips starter seeding so the initial sync can hydrate it without introducing sample pages. The firm starter includes a first knowledge project and a suggested capture process; these are examples, not claims about the firm's practice.
+Create a wiki with the firm or blank starter, or register an existing Markdown folder. Choose a descriptive name and, optionally, its local folder. To join an existing firm wiki, choose it from the shared wiki list and select a local folder. Joining skips starter seeding so the initial sync can hydrate it without introducing sample pages. The law firm starter creates Clients, Matters, Knowledge, Processes, Templates, Firm, Sources, Dashboards and Reports, plus four local workspace skills. It contains no fictional client/matter records or preapproved policies. Creation does not launch an agent, import documents or schedule work.
 
-The folder itself describes its organization:
+The law firm folder itself describes its organization:
 
 | File | Purpose |
 | --- | --- |
-| `Wiki.md` | Home page and human-readable wiki identity |
-| `AGENTS.md` | Short editable entry point linking this wiki's conventions and procedures |
-| `Structure.md` | Naming, inclusion criteria, folders, page types, and property conventions |
-| `Instructions.md` | Agent and maintainer guidance for content and layout |
-| `Templates.md` and `Templates/` | Editable page conventions and reusable Markdown templates |
-| `Views.md` | Guidance for creating dashboards and reports |
-| `Views/*.view.json` and `Reports/*.view.json` | Saved dashboard and report records |
-| `Skills/` | Procedures for extraction, matter capture, maintenance, and anonymization |
+| `Wiki.md` | Home page with a simple setup prompt and links to the regions |
+| `AGENTS.md` | Short editable entry point linking the wiki's own procedures |
+| `Structure.md` | Inclusion criteria, destinations, indexed fields and relationships |
+| `Knowledge/AGENTS.md`, `Templates/AGENTS.md` | The only regional instruction files seeded by default |
+| `Templates/` | Editable page templates and adjacent document masters |
+| `Dashboards/*.view.json`, `Reports/*.view.json` | Live views and frozen reports |
+| `Skills/wiki-{setup,capture,use,maintain}/SKILL.md` | Discoverable, editable workspace workflows that sync with the wiki |
+
+Open a chat inside the new wiki and say **Help me set up this wiki for our firm.** The setup skill reads existing choices, asks only for missing context, records agreed facts in `Firm/About.md`, and adapts the home page and structure. A structure-only request reads no source documents and creates no client/matter records. To import, name a source connected to this workspace. The same skill uses bounded batches and a resumable `Sources/Import.md` checkpoint. No setup wizard or automatic import is involved.
+
+Visible `Skills/<name>/SKILL.md` packages are discovered only in the current workspace, alongside existing hidden skill locations. The ordinary skill load, resources, update and reload paths support them. A project agent reads another wiki's procedures through wiki tools; it does not inherit that wiki's local skill library. Blank starters and existing wiki files retain their conventions. New dashboards use `Dashboards/` when that region exists, otherwise the legacy `Views/` destination; updates preserve existing file locations.
 
 Every convention can be changed in Markdown. Page types and properties are dynamic; there is no fixed client, deal, or process schema. Registration, access switches, sync settings, and local history live in the server's configuration/state, outside the content folder. Changing Markdown cannot grant permissions.
 
@@ -67,15 +70,15 @@ Dashboard queries read indexed wiki properties and refresh after local saves or 
 
 Inline widgets use a `legalwork-view` code fence containing only the saved view's UUID. They render between ordinary editable Markdown blocks and offer **Open view in tab**. The layout and its data live in one versioned record; copying the reference does not duplicate that record. Agents can insert the returned reference into page prose through the existing revision-checked wiki write tool.
 
-This layer is intentionally separate from a future page/block storage migration. View records currently use `Views/<uuid>.view.json` through the server repository and existing revision-checked file sync. That transport is an implementation detail; the public contract is the typed record API. Markdown and its existing frontmatter remain authoritative for page content and properties. Malformed or conflicting view files are retained and reported individually without preventing unrelated views from opening.
+This layer is intentionally separate from a future page/block storage migration. View records use `Dashboards/<uuid>.view.json` in new law firm wikis, legacy `Views/` where applicable, and `Reports/` for snapshots through the server repository and existing revision-checked file sync. That transport is an implementation detail; the public contract is the typed record API. Markdown and its existing frontmatter remain authoritative for page content and properties. Malformed or conflicting view files are retained and reported individually without preventing unrelated views from opening.
 
-OpenUI runs locally with the existing model connection. No Thesys gateway, Autofix service, cloud observability or remote development inspector is enabled. The renderer can preview partial tool arguments while an agent creates a view; incomplete previews cannot execute queries or actions. Parser and transport regressions cover partial output, but end-to-end model streaming latency has not been measured. See the [research and architecture comparison](wiki-openui-research.md) and [validation results](wiki-validation.md).
+OpenUI runs locally with the existing model connection. No Thesys gateway, Autofix service, cloud observability or remote development inspector is enabled. The renderer previews partial tool arguments while an agent creates a view; incomplete previews cannot execute queries or actions. Native model verification recorded 85 preview updates, with the first preview arriving 11.8 seconds before saving. See the [research and architecture comparison](wiki-openui-research.md) and [validation results](wiki-validation.md).
 
 The retired YAML `views:` configuration is no longer interpreted. Existing authored Markdown files and metadata are preserved as ordinary content. New views use the typed view tools and `.view.json` files only.
 
 ## Work with agents
 
-Open a wiki session to work directly in its folder. An agent can read and reorganize ordinary Markdown files using the existing workspace tools. In a matter/project session, it uses the bundled tools:
+Open a wiki session to work directly in its folder. An agent can read and reorganize ordinary Markdown files using the existing workspace tools. Storage and managed shell tools carry the authenticated session origin so private wiki workspaces retain the initiating member's access. These requests are bound to that workspace, shell settings are bound to that chat, and normal storage permissions and execution approvals still apply. In a matter/project session, it uses the bundled tools:
 
 - `wiki_list`: wikis currently available to this task, including sync status.
 - `wiki_guidance`: the wiki's editable entry point and whether this session can edit directly, needs write approval, or has read-only access. Existing wikis without `AGENTS.md` use `Instructions.md` and `Structure.md`.

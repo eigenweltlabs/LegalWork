@@ -2,6 +2,33 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Native law firm setup and prepared Harvey import (2026-10-12)
+
+- New Wiki → Law firm now creates the agreed folder structure and four editable native skills in `Skills/`: setup, capture, use and maintain. The 22 starter pages contain guidance and templates, without fabricated client or matter records. Root instructions and two regional instruction files keep the defaults replaceable by the firm.
+- Created **Firm setup verification** through the running Electron UI. The existing configured Eigenwelt Europe Mistral model automatically loaded `wiki-setup` through the native skill tool, accepted a normal structure-only setup prompt for the fictional Linden Example Law, and adapted the files while the tree refreshed. The resulting wiki has 27 pages, no client or matter records, no import checkpoint and no unresolved internal links. A review exposed inferred conventions; the skill was tightened and the agent corrected these to explicit proposals while preserving the fictional status. [Agent result](wiki-evidence/firm-setup-agent-result.png).
+- The live run exposed three faults, now fixed: string-encoded null page revisions prevented creation; private-wiki storage and shell requests omitted authenticated session origin; queued prompts did not restore origin after app restart. Native continuation after restart now reads and edits the wiki successfully. Regression tests preserve create-only conflict checks, closest-workspace scoping, session matching, collaborator downgrade, project write approval and rejection of management endpoints.
+- Visible skill discovery, reads, edits, deletion and runtime reload resolve the actual wiki-local package. Sibling workspaces do not inherit these skills. Shared-sync integration verifies that the four packages arrive and load for a member. New firm dashboards use `Dashboards/`; old view locations remain supported.
+- Refreshed the prepared **Harvey · Firm knowledge** starter, retaining its source connection, original chat and a compatibility link for its old setup prompt. The original starter is backed up outside the repository and retired files are recoverable. The read-only S3 connection lists 266 matter folders across three pages. The wiki still has no imported client or matter records and no import checkpoint; its chat is idle. Electron is left on the wiki with the source folders visible. [Ready state](wiki-evidence/firm-setup-harvey-ready.png). The import was not started.
+
+Validation: the command below passed 157 tests with 902 assertions across 13 files. One real-VM test was skipped because `LEGALWORK_WIKI_VM_RESOURCES` was not configured; native model verification used the existing unsandboxed wiki session. `pnpm --filter legalwork-server build` passed, including typechecking. `git diff --check` passed. A complete Harvey import and live VM execution remain unverified.
+
+```sh
+pnpm exec bun test \
+  apps/server/src/wiki/templates.test.ts \
+  apps/server/src/skills.test.ts \
+  apps/server/src/legalwork-runtime-config.test.ts \
+  apps/server/src/wiki/store.test.ts \
+  apps/server/src/views/repository.test.ts \
+  apps/server/src/wiki/agent-access.test.ts \
+  apps/server/src/wiki/team-agent-access.e2e.test.ts \
+  apps/server/src/skill-resources.test.ts \
+  apps/server/src/global-skills.test.ts \
+  apps/server/src/opencode-plugins/legalwork-wiki-tools.test.ts \
+  apps/server/src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts \
+  apps/server/src/opencode-plugins/legalwork-storage-tools.test.ts \
+  apps/server/src/session-message-queue.test.ts
+```
+
 ## Compact properties below the page title (2026-10-11)
 
 - The editable page title appears first, followed by four property rows and an expandable list of the remaining fields. Identifiers and fixture metadata are tucked into the expanded list; title metadata is represented by the title itself. Properties have no separate container or scrollbar. Read-only pages use the same compact layout. [Native Electron screenshot](wiki-evidence/compact-properties-below-title.jpg).

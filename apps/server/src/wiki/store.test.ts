@@ -181,12 +181,12 @@ describe("Markdown wiki store", () => {
     expect(configMarkdown).not.toContain(wiki.root);
     const snapshot = await store.snapshot(wiki.id);
     expect(snapshot.pages.some((page) => page.path === "Structure.md")).toBe(true);
-    expect(snapshot.pages.some((page) => page.path === "Skills/Bootstrap.md")).toBe(true);
-    expect(snapshot.pages.some((page) => page.path === "Skills/Build firm wiki.md")).toBe(true);
+    expect(snapshot.pages.some((page) => page.path === "Skills/wiki-capture/SKILL.md")).toBe(true);
+    expect(snapshot.pages.some((page) => page.path === "Skills/wiki-setup/SKILL.md")).toBe(true);
     const original = await store.write(wiki.id, "Recover.md", "# Recover\n", "");
     await store.forget(wiki.id);
     expect(await store.list()).toEqual([]);
-    expect(await readFile(join(wiki.root, "Structure.md"), "utf8")).toContain("Firm knowledge structure");
+    expect(await readFile(join(wiki.root, "Structure.md"), "utf8")).toContain("How this wiki is organized");
     const reattached = await store.create({ name: "Reattached", root: wiki.root, attach: true });
     expect(reattached.id).toBe(wiki.id);
     expect((await store.history(reattached.id, original.path))).toHaveLength(1);

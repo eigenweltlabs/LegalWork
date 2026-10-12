@@ -51,7 +51,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
-import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill, type SkippedSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
   listSkillResources,
@@ -4323,14 +4323,15 @@ function createRoutes(
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
     // The firm may allow no new skills of the member's own; existing ones stay editable.
-    if (!(await exists(join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")))) {
+    const skillPath = await skillPathForScope(workspace.path, scope, name);
+    if (!(await exists(skillPath))) {
       await requireOrgPolicyAllows(config, "skills.allowCustom");
     }
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Upsert skill ${name}`,
-      paths: [join(skillsDirForScope(workspace.path, scope), name, "SKILL.md")],
+      paths: [skillPath],
     });
     const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
     await recordAudit(workspace.path, {
