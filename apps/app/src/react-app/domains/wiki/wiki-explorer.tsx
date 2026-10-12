@@ -105,7 +105,8 @@ export function WikiExplorer(props: {
       <ContextMenuSeparator />
       <ContextMenuItem onClick={() => props.onAction(entry, "copy-path")}><Copy size={15} />{t("wiki.copy_path")}</ContextMenuItem>
       {entry.kind === "file" ? <>
-        {/\.md$/i.test(entry.path) ? <><ContextMenuItem onClick={() => props.onAction(entry, "copy-link")}><Link size={15} />{t("wiki.copy_link")}</ContextMenuItem><ContextMenuItem onClick={() => props.onAction(entry, "history")}><History size={15} />{t("wiki.history")}</ContextMenuItem></> : null}
+        <ContextMenuItem onClick={() => props.onAction(entry, "copy-link")}><Link size={15} />{t("wiki.copy_link")}</ContextMenuItem>
+        {/\.md$/i.test(entry.path) ? <ContextMenuItem onClick={() => props.onAction(entry, "history")}><History size={15} />{t("wiki.history")}</ContextMenuItem> : null}
         <ContextMenuItem onClick={() => props.onAction(entry, "download")}><Download size={15} />{t("wiki.download_file")}</ContextMenuItem>
       </> : null}
       <ContextMenuSeparator />

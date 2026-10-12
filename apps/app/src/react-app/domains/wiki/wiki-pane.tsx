@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { PanelHeader } from "@/react-app/design-system/panel-chrome";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, type WikiWorkspaceOption } from "./wiki-dialogs";
-import { resolveWikiPage, wikiBacklinks, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
+import { resolveWikiLink, wikiBacklinks, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
 import { useWikiDrafts } from "./wiki-drafts";
 import { WikiPreview } from "./wiki-preview";
 import { WikiGraphPane } from "./wiki-graph-pane";
@@ -145,7 +145,7 @@ function WikiContentPane(props: WikiPaneProps) {
   }, [tabOnly, props.tab, wikiId, path, currentPage?.title]);
   const draft = wikiId && path ? drafts.get(wikiId, path) : undefined;
   const backlinks = useMemo(() => wikiBacklinks(pages, path), [pages, path]);
-  const linkSuggestions = useMemo(() => pages.map((page) => `[[${page.path}]]`), [pages]);
+  const linkTargets = useMemo(() => [...pages.map(page => ({ path: page.path, title: page.title })), ...assets.map(asset => ({ path: asset.path, title: asset.path.split("/").at(-1) ?? asset.path }))], [pages, assets]);
   const pageTitles = useMemo(() => Object.fromEntries(pages.map(page => [page.path, page.title])), [pages]);
   const files = useMemo(() => [...pages.map((page) => page.path), ...assets.map((asset) => asset.path)], [pages, assets]);
   const folders = useMemo(() => [...new Set([...(snapshot.data?.folders ?? []), ...files.flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); })])].filter(folder => !(folder === "Views" || folder.startsWith("Views/")) || files.some(file => file.startsWith(`${folder}/`))).sort(), [snapshot.data?.folders, files]);
@@ -310,9 +310,9 @@ function WikiContentPane(props: WikiPaneProps) {
     let target: string;
     try { target = decodeURIComponent(href.replace(/^#?wiki:/, "").replace(/^\[\[|\]\]$/g, "").split("|")[0]); } catch { return; }
     if (target.startsWith("#")) { scrollToHeading(target.slice(1)); return; }
-    const page = resolveWikiPage(pages, target, path);
-    const anchor = target.includes("#") ? target.slice(target.indexOf("#") + 1) : "";
-    if (page) { openPage(page.path, anchor); if (page.path === path && anchor) scrollToHeading(anchor); }
+    const destination = resolveWikiLink(pages, files, target, path, /^#?wiki:/.test(href) || href.startsWith("[["));
+    if (destination?.kind === "asset") { void run(() => openAsset(destination.path)); return; }
+    if (destination) { openPage(destination.path, destination.anchor); if (destination.path === path && destination.anchor) scrollToHeading(destination.anchor); }
     else if (/^#?wiki:/.test(href) || href.startsWith("[[") || /\.md(?:#.*)?$/i.test(href)) {
       if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link"));
     } else void run(() => openAsset(target));
@@ -402,8 +402,8 @@ function WikiContentPane(props: WikiPaneProps) {
             {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <WikiLoading /> : draft ? <>
               <ViewHostProvider client={props.client} owner={{ kind: "wiki", id: wikiId }} openSource={openPage}><div ref={editorRegion} className={cn("wiki-page-content", wiki?.writable && "wiki-editor-content")} key={`${wikiId}:${path}`} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (wiki?.writable) void drafts.save(wikiId, path); } }}>
                 <WikiPageHeader key={`${wikiId}:${path}`} content={draft.content} fallbackTitle={currentPage?.title ?? path.replace(/\.md$/i, "").split("/").at(-1) ?? ""} pages={pages} path={path} readOnly={!wiki?.writable} onChange={content => drafts.change(wikiId, path, content)} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} />
-                {wiki?.writable ? <Suspense fallback={<WikiLoading />}><MarkdownEditor externalFrontmatter value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} imageUpload={uploadImage} imagePreview={imagePreview} viewModeRequest={viewModeRequest} linkSuggestions={linkSuggestions} onOpenLink={openEditorLink} /></Suspense> : <>
-                  <WikiPreview content={draft.content} path={path} anchor={pageAnchor} pages={pages} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
+                {wiki?.writable ? <Suspense fallback={<WikiLoading />}><MarkdownEditor externalFrontmatter value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} imageUpload={uploadImage} imagePreview={imagePreview} viewModeRequest={viewModeRequest} linkTargets={linkTargets} onOpenLink={openEditorLink} /></Suspense> : <>
+                  <WikiPreview content={draft.content} path={path} anchor={pageAnchor} pages={pages} files={files} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
                 </>}
                 {backlinks.length ? <details className="wiki-backlinks"><summary>{t("wiki.backlinks")} <span className="wiki-count">{backlinks.length}</span></summary>{backlinks.map((page) => <button key={page.path} onClick={() => openPage(page.path)}><FileText size={14} /><span>{page.title}</span><ArrowUpRight size={13} /></button>)}</details> : null}
               </div></ViewHostProvider>

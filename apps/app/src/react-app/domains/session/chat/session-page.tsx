@@ -75,7 +75,7 @@ import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
-import { readWikiNavigationWidth, writeWikiNavigationWidth } from "../../../shell/session-memory";
+import { readWikiNavigationWidth, writeWikiNavigationWidth, readWikiNavigationOpen, writeWikiNavigationOpen } from "../../../shell/session-memory";
 import { wikiWorkspaceRoute, workspaceSessionRoute, workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
@@ -356,6 +356,15 @@ export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const wikiWorkspace = props.wikiWorkspace;
+  const [wikiNavigationStates, setWikiNavigationStates] = useState<Record<string, boolean>>({});
+  const wikiNavigationOpen = wikiWorkspace ? wikiNavigationStates[wikiWorkspace.workspaceId] ?? readWikiNavigationOpen(wikiWorkspace.workspaceId) : false;
+  const toggleWikiNavigation = () => {
+    if (!wikiWorkspace) return;
+    const id = wikiWorkspace.workspaceId;
+    const open = !wikiNavigationOpen;
+    writeWikiNavigationOpen(id, open);
+    setWikiNavigationStates(current => ({ ...current, [id]: open }));
+  };
   const [wikiPickerPane, setWikiPickerPane] = useState<string | null>(null);
   const hasMainView = Boolean(props.mainView || props.projectsPage || props.projectPage);
   const { config: shellConfig } = useShellConfig();
@@ -1233,7 +1242,7 @@ export function SessionPage(props: SessionPageProps) {
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              {wikiWorkspace ? <SidebarTrigger className="titlebar-no-drag text-muted-foreground" aria-label={t("wiki.toggle_navigation")} title={t("wiki.toggle_navigation")} aria-expanded={wikiNavigationOpen} onToggleSidebar={toggleWikiNavigation} /> : shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
               <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1419,7 +1428,7 @@ export function SessionPage(props: SessionPageProps) {
             orientation="horizontal"
             className="lw-workspace-surface min-h-0 flex-1"
           >
-            {wikiWorkspace && props.wiki ? <>
+            {wikiWorkspace && props.wiki && wikiNavigationOpen ? <>
               <ResizablePanel key={wikiWorkspace.workspaceId} id="wiki-navigation" defaultSize={`${readWikiNavigationWidth(wikiWorkspace.workspaceId)}px`} onResize={size => writeWikiNavigationWidth(wikiWorkspace.workspaceId, size.inPixels)} groupResizeBehavior="preserve-pixel-size" minSize="200px" maxSize="440px" className="min-w-0 border-r border-border">
                 <WikiPane key={wikiWorkspace.id} {...props.wiki} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
               </ResizablePanel>

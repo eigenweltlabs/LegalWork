@@ -1,15 +1,15 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactElement } from "react";
 import {
   MDXEditor, type MDXEditorMethods,
   headingsPlugin, listsPlugin, quotePlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin,
   codeBlockPlugin, codeMirrorPlugin, diffSourcePlugin, toolbarPlugin, markdownShortcutPlugin,
-  realmPlugin, viewMode$, markdownProcessingError$, markdown$, muteChange$, createRootEditorSubscription$, useCellValue, usePublisher, type RealmPlugin, type ViewMode,
+  realmPlugin, viewMode$, readOnly$, activeEditor$, openLinkEditDialog$, markdownProcessingError$, markdown$, muteChange$, createRootEditorSubscription$, useCellValue, usePublisher, type RealmPlugin, type ViewMode,
 } from "@mdxeditor/editor";
 import { EditorView } from "@codemirror/view";
 import { Transaction } from "@codemirror/state";
-import { Code, FileText, GitCompareArrows, Ellipsis } from "lucide-react";
+import { Code, FileText, GitCompareArrows, Ellipsis, Link } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MarkdownImageDialog } from "./markdown-image-dialog";
@@ -32,6 +32,7 @@ type Props = {
   extensions?: RealmPlugin[];
   viewModeRequest?: { mode: ViewMode };
   linkSuggestions?: string[];
+  LinkDialog?: () => ReactElement;
   onOpenLink?: (url: string) => void;
   suppressHtmlProcessing?: boolean;
   /** Render typed properties outside the editor while keeping full-file Source editing. */
@@ -42,6 +43,9 @@ type Props = {
 
 function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
   const mode = useCellValue(viewMode$);
+  const readOnly = useCellValue(readOnly$);
+  const editLink = usePublisher(openLinkEditDialog$);
+  const activeEditor = useCellValue(activeEditor$);
   const sourceRequired = requiresMarkdownSource(rawMarkdown());
   const changeMode = usePublisher(viewMode$);
   const changeSource = usePublisher(markdown$);
@@ -51,6 +55,7 @@ function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
     if (next !== "rich-text") changeSource(raw);
   };
   return <div className="lw-markdown-tools">
+    {mode === "rich-text" && !readOnly && <Button size="icon-sm" variant="ghost" aria-label={t("markdown.toolbar.link")} title={t("markdown.toolbar.link")} onMouseDown={event => event.preventDefault()} onClick={() => activeEditor?.focus(() => editLink(), { defaultSelection: "rootEnd" })}><Link /></Button>}
     {mode !== "rich-text" && sourceRequired && <span className="lw-source-note" role="status">{t("markdown.blocks.source_required")}</span>}
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("markdown.page.options")} />}><Ellipsis /></DropdownMenuTrigger>
@@ -63,7 +68,7 @@ function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const initialMode = useRef<ViewMode>(requiresMarkdownSource(value) ? "source" : viewModeRequest?.mode ?? "rich-text");
@@ -129,7 +134,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     },
   }), []);
   const plugins = useMemo(() => [
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
     tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
@@ -141,7 +146,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     markdownShortcutPlugin(),
     markdownBlocksPlugin(),
     toolbarPlugin({ toolbarContents: () => <MarkdownToolbar rawMarkdown={() => lastValue.current} /> }),
-  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, onOpenLink, externalFrontmatter, readOnly]);
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, onOpenLink, externalFrontmatter, readOnly]);
 
   useEffect(() => {
     if (value === lastValue.current) return;

@@ -22,6 +22,11 @@ describe("wiki links in the shared Markdown editor", () => {
     expect(toMarkdown(tree, { extensions: [wikiLinkToMarkdown] })).toBe("[[Clients/Überblick.md#Sources|Evidence]]\n");
     expect(roundTrip("[Acme](#wiki:Clients%2FAcme.md)\n")).toBe("[[Clients/Acme.md|Acme]]\n");
   });
+  test("preserves links to documents, images and saved dashboards", () => {
+    for (const target of ["Templates/Engagement letter.docx", "Evidence/Contract.pdf", "Assets/Logo.png", "Reports/Firm.view.json"]) {
+      expect(roundTrip(`[[${target}|Open file]]\n`)).toBe(`[[${target}|Open file]]\n`);
+    }
+  });
   test("keeps nested YAML definitions unchanged while editing the body", () => {
     const yaml = '---\ntype: page\naliases: [One, Two]\nviews:\n  - name: Deals\n    filter:\n      type: deal\n    columns: [title, status]\nsummary: |\n  Keep this multiline text.\n---\n';
     expect(roundTrip(yaml + '\n# Views\n\n[[Client]]\n')).toStartWith(yaml);

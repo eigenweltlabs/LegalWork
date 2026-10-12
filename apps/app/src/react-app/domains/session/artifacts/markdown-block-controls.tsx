@@ -58,6 +58,7 @@ function MarkdownBlockControls() {
     { id: "table", label: t("markdown.toolbar.table"), keywords: "table grid tabelle", icon: Table },
     { id: "code", label: t("markdown.toolbar.codeBlock"), keywords: "code source quelltext", icon: CodeXml },
     { id: "image", label: t("markdown.toolbar.image"), keywords: "image picture bild foto", icon: Image },
+    { id: "link", label: t("markdown.toolbar.link"), keywords: "link page file attachment seite datei anhang", icon: Link },
     { id: "rule", label: t("markdown.toolbar.thematicBreak"), keywords: "divider line linie trennlinie", icon: Minus },
   ];
   const matches = commands.filter(command => `${command.label} ${command.keywords}`.toLocaleLowerCase().includes(slash?.query.toLocaleLowerCase() ?? ""));
@@ -85,8 +86,9 @@ function MarkdownBlockControls() {
     else if (id === "code") insertCode({ language: "txt", code: "" });
     else if (id === "rule") insertRule();
     else if (id === "image") insertImage();
+    else if (id === "link") editLink();
     else if (id === "bullet" || id === "number" || id === "check") applyListType(id);
-  }, [rootEditor, convertBlock, insertTable, insertCode, insertRule, insertImage, applyListType]);
+  }, [rootEditor, convertBlock, insertTable, insertCode, insertRule, insertImage, applyListType, editLink]);
   const insertRef = useRef(insert);
   insertRef.current = insert;
 

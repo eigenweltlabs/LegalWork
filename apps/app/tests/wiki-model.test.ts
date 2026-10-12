@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WikiPage } from "@legalwork/types/wiki";
-import { resolveWikiPage, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent } from "../src/react-app/domains/wiki/wiki-model";
+import { resolveWikiPage, resolveWikiLink, updateWikiProperty, wikiBacklinks, wikiGraph, wikiMarkdownBody, wikiNewPagePath, wikiProcedurePrompt, wikiTemplateContent } from "../src/react-app/domains/wiki/wiki-model";
 import { acceptWikiSave, type WikiDraft } from "../src/react-app/domains/wiki/wiki-drafts";
 
 function page(path: string, patch: Partial<WikiPage> = {}): WikiPage {
@@ -8,6 +8,17 @@ function page(path: string, patch: Partial<WikiPage> = {}): WikiPage {
 }
 
 describe("Markdown wiki views and editing", () => {
+  test("picked pages and attachments open the exact file while Markdown relative links stay relative", () => {
+    const pages = [page("Guide.md"), page("Templates/Guide.md"), page("Clients/Überblick.md")];
+    const files = [...pages.map(page => page.path), "Templates/Engagement letter.docx", "Evidence/terms.pdf", "Views/overview.view.json", "Assets/logo.png"];
+    expect(resolveWikiLink(pages, files, "Guide.md", "Templates/Template.md", true)).toMatchObject({ kind: "page", path: "Guide.md" });
+    expect(resolveWikiLink(pages, files, "Guide.md", "Templates/Template.md")).toMatchObject({ kind: "page", path: "Templates/Guide.md" });
+    expect(resolveWikiLink(pages, files, "Clients/Überblick.md#Details", "Templates/Template.md", true)).toEqual({ kind: "page", path: "Clients/Überblick.md", anchor: "Details" });
+    expect(resolveWikiLink(pages, files, "Engagement letter.docx", "Templates/Template.md")).toMatchObject({ kind: "asset", path: "Templates/Engagement letter.docx" });
+    for (const path of files.filter(path => !path.endsWith(".md"))) expect(resolveWikiLink(pages, files, path, "Templates/Template.md", true)).toMatchObject({ kind: "asset", path });
+    expect(resolveWikiLink(pages, files, "Missing.md", "Guide.md", true)).toBeUndefined();
+    expect(resolveWikiLink(pages, files, "../../outside.pdf", "Guide.md")).toBeUndefined();
+  });
   test("property moves preserve all other source, including CRLF and HTML", () => {
     const input = '---\r\ntype: deal\r\nstage: draft # old\r\nowner: "Team A"\r\n---\r\n\r\n<div>Keep me</div>\r\n[[Client]]\r\n';
     expect(updateWikiProperty(input, "stage", "signed")).toBe(input.replace('stage: draft # old', 'stage: "signed" # old'));

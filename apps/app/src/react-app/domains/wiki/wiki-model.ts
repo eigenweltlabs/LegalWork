@@ -51,6 +51,18 @@ export function resolveWikiPage(pages: WikiPage[], target: string, fromPath = ""
   return resolver(target, fromPath);
 }
 
+/** Page and attachment links share one resolver in the editor and reader. */
+export function resolveWikiLink(pages: WikiPage[], files: string[], target: string, fromPath: string, rooted = false): { kind: "page" | "asset"; path: string; anchor: string } | undefined {
+  const [clean, ...fragments] = target.split("#");
+  const anchor = fragments.join("#");
+  const directory = fromPath.split("/").slice(0, -1).join("/");
+  const relative = wikiRelativePath(clean, directory);
+  const file = rooted && files.includes(clean) ? clean : relative && files.includes(relative) ? relative : files.includes(clean) ? clean : undefined;
+  if (file) return { kind: /\.md$/i.test(file) ? "page" : "asset", path: file, anchor };
+  const page = resolveWikiPage(pages, target, fromPath);
+  if (page) return { kind: "page", path: page.path, anchor };
+}
+
 export function wikiBacklinks(pages: WikiPage[], path: string): WikiPage[] {
   return pages.filter((page) => page.path !== path && page.links.some((link) => link.resolved && link.target === path));
 }

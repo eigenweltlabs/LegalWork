@@ -8,7 +8,7 @@ import DOMPurify from "dompurify";
 import type { WikiPage } from "@legalwork/types/wiki";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { t } from "@/i18n";
-import { resolveWikiPage, wikiMarkdownBody } from "./wiki-model";
+import { resolveWikiLink, wikiMarkdownBody } from "./wiki-model";
 import "../session/artifacts/markdown-editor.css";
 
 function escapeHtml(value: string) {
@@ -47,6 +47,7 @@ function headingSlug(value: string) {
 }
 
 export function WikiPreview(props: {
+  files?: string[];
   content: string;
   path: string;
   anchor?: string;
@@ -130,11 +131,11 @@ export function WikiPreview(props: {
       }
       let target: string;
       try { target = decodeURIComponent(href.replace(/^wiki:/, "")); } catch { return; }
-      const page = resolveWikiPage(props.pages, target, props.path);
-      const fragment = target.includes("#") ? target.slice(target.indexOf("#") + 1) : "";
-      if (page) {
-        props.onOpen(page.path, fragment || undefined);
-        if (page.path === props.path && fragment) scrollToHeading(fragment);
+      const destination = resolveWikiLink(props.pages, props.files ?? props.pages.map(page => page.path), target, props.path, href.startsWith("wiki:"));
+      if (destination?.kind === "asset") props.onAsset(destination.path);
+      else if (destination) {
+        props.onOpen(destination.path, destination.anchor || undefined);
+        if (destination.path === props.path && destination.anchor) scrollToHeading(destination.anchor);
       }
       else if (href.startsWith("wiki:") || /\.md(?:#.*)?$/i.test(href)) props.onMissing(target);
       else props.onAsset(target);

@@ -135,6 +135,14 @@ export function readWikiNavigationWidth(workspaceId: string): number {
   return Number.isFinite(width) && width >= 200 && width <= 440 ? width : 260;
 }
 
+export function readWikiNavigationOpen(workspaceId: string): boolean {
+  return safeGet(`legalwork.wiki.navigationOpen.${workspaceId}`) !== "false";
+}
+
+export function writeWikiNavigationOpen(workspaceId: string, open: boolean): void {
+  safeSet(`legalwork.wiki.navigationOpen.${workspaceId}`, String(open));
+}
+
 export function writeWikiNavigationWidth(workspaceId: string, width: number): void {
   if (Number.isFinite(width) && width >= 200 && width <= 440) safeSet(`legalwork.wiki.navigationWidth.${workspaceId}`, String(Math.round(width)));
 }
