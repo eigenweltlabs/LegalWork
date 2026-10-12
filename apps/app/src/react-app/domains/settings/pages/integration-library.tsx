@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Download, Info, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,28 @@ import { t } from "@/i18n";
 
 /** The page owns toolbar positions; each library keeps its own actions and search state. */
 export type IntegrationLibrarySource = "all" | "personal" | "team";
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource } | null>(null);
+export type IntegrationLibraryKind = "connector" | "skill" | "storage";
+export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number };
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 
 export function useIntegrationLibraryLayout() {
   return useContext(IntegrationLibraryLayoutContext);
+}
+
+/** The shared Add menu opens the selected library before its existing form. */
+export function useIntegrationAddRequest(kind: IntegrationLibraryKind, onAdd: () => void | Promise<void>) {
+  const layout = useIntegrationLibraryLayout();
+  const handled = useRef<number | null>(null);
+  useEffect(() => {
+    const request = layout?.addRequest;
+    if (!request || request.kind !== kind || handled.current === request.id) return;
+    handled.current = request.id;
+    layout.onAddHandled?.();
+    void onAdd();
+  }, [kind, layout?.addRequest, layout?.onAddHandled, onAdd]);
+  return Boolean(layout?.onAddHandled);
 }
 
 export function IntegrationLibraryActions({ children }: { children: ReactNode }) {

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -100,6 +100,11 @@ export function FileStorageView({
   const personalForbidden = useOrgPolicyForbids("storage.allowPersonal");
   // The firm's connections are set up on the platform, and who gets them decided there.
   const canAdd = scope === "local" && !personalForbidden;
+  const managedAdd = useIntegrationAddRequest("storage", async () => {
+    if (busy || !canAdd || !client || !workspaceId || !(await orgPolicyAllows("storage.allowPersonal"))) return;
+    setProviderSearch("");
+    setPickerOpen(true);
+  });
   const openNewEditor = async (next: NonNullable<typeof editor>) => {
     if (scope === "local" && !(await orgPolicyAllows("storage.allowPersonal"))) return;
     setPickerOpen(false);
@@ -143,7 +148,7 @@ export function FileStorageView({
   return (
     <div className="space-y-6">
       <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={<>
-        <IntegrationAddMenu disabled={busy || !canAdd} actions={[{ label: t("storage.add"), icon: Plus, onClick: () => { setProviderSearch(""); setPickerOpen(true); } }]} />
+        {!managedAdd ? <IntegrationAddMenu disabled={busy || !canAdd} actions={[{ label: t("storage.add"), icon: Plus, onClick: () => { setProviderSearch(""); setPickerOpen(true); } }]} /> : null}
         <IntegrationMoreMenu busy={busy} onRefresh={refresh} />
       </>} />
       {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}

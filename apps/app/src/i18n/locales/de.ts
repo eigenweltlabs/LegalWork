@@ -25,6 +25,7 @@ const de = {
   "skills.packages_desc": "Verwalten Sie importierte Pakete. Ihre Skills und Konnektoren stehen auch in den jeweiligen Bibliotheken.",
   "integrations.description": "Verwalten Sie Konnektoren, Skills und Dateispeicher.",
   "integrations.add_connector": "Konnektor hinzufügen",
+  "integrations.connector": "Konnektor",
   "integrations.team_optional": "Von Ihrem Team geteilt · Optional",
   "integrations.team_add_review": "Dieser Konnektor wird von Ihrem Team geteilt und verändert, was der Agent tun kann. Ihr Team hält ihn aktuell und kann ihn entfernen.",
   "integrations.more_skill_actions": "Weitere Skill-Aktionen",

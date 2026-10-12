@@ -2340,6 +2340,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             pluginImports={extensionsStore}
             skillImports={extensionsStore}
             canImportSkills={canWriteWorkspaceSkills}
+            canAddConnector={!isRemoteWorkspace || (routeLegalworkStatus === "connected" && Boolean(routeLegalworkCapabilities?.mcp?.write))}
+            canAddSkill={canWriteWorkspaceSkills}
+            canAddStorage={Boolean((isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient) && (runtimeWorkspaceId || selectedWorkspaceId))}
             mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {

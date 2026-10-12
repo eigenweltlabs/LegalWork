@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationLibrarySearchContext, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationLibrarySearchContext, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
@@ -345,6 +345,10 @@ export function SkillsView(props: SkillsViewProps) {
   const isWorkflowsView = props.kind === "workflows";
   const source = isWorkflowsView ? "all" : libraryLayout?.source ?? "all";
   const [skillCreateOpen, setSkillCreateOpen] = useState(false);
+  const managedAdd = useIntegrationAddRequest("skill", async () => {
+    if (isWorkflowsView || props.busy) return;
+    if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true);
+  });
   const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
@@ -742,7 +746,7 @@ export function SkillsView(props: SkillsViewProps) {
                   saveSkillResource={extensions.saveSkillResource}
                 />
                 {libraryLayout ? <>
-                  <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} />
+                  {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} /> : null}
                   <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
                     <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>

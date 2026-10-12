@@ -15,6 +15,7 @@ export default {
   "skills.packages_desc": "Manage imported bundles. Their skills and connectors also appear in the main libraries.",
   "integrations.description": "Manage connectors, skills and file storage.",
   "integrations.add_connector": "Add connector",
+  "integrations.connector": "Connector",
   "integrations.team_optional": "Shared by your team · Optional",
   "integrations.team_add_review": "This connector is shared by your team and changes what the agent can do. Your team keeps it up to date and can remove it.",
   "integrations.more_skill_actions": "More skill actions",

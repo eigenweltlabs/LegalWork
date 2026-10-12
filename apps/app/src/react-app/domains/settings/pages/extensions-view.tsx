@@ -1,7 +1,7 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Download } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Blocks, Download, HardDrive, Plug } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
-import { IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationLibrarySource } from "./integration-library";
+import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
 import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
-import { orgPolicyAllows } from "../../connections/org-policy";
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -49,6 +49,9 @@ export type ExtensionsViewProps = {
   pluginImports?: PluginImportStore;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   canImportSkills?: boolean;
+  canAddConnector?: boolean;
+  canAddSkill?: boolean;
+  canAddStorage?: boolean;
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
@@ -90,6 +93,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
+  const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
+  const addSequence = useRef(0);
+  const onAddHandled = useCallback(() => setAddRequest(null), []);
+  const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
+  const skillsForbidden = useOrgPolicyForbids("skills.allowCustom");
+  const storageForbidden = useOrgPolicyForbids("storage.allowPersonal");
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
   const [leadingActionsTarget, setLeadingActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
@@ -104,9 +113,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const canImportSkills = Boolean(props.skillImports && props.canImportSkills);
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
   const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
+  const requestAdd = (kind: IntegrationLibraryKind) => {
+    setSource("all");
+    selectTab(kind === "connector" ? "connectors" : kind === "skill" ? "skills" : "storage");
+    setAddRequest({ kind, id: ++addSequence.current });
+  };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -116,6 +130,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <div className="flex max-w-full flex-wrap items-center gap-2">
             <div ref={setLeadingActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            <IntegrationAddMenu disabled={props.busy} actions={[
+              { label: t("integrations.connector"), icon: Plug, disabled: props.canAddConnector === false || connectorsForbidden, onClick: () => requestAdd("connector") },
+              { label: t("skills.eyebrow_skill"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
+              { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
+            ]} />
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
           </div>

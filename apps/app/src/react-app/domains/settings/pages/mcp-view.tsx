@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
@@ -375,6 +375,10 @@ export function McpView(props: McpViewProps) {
   const setRevealBusy = (value: SetStateAction<boolean>) => setLocal("revealBusy", value);
   const setShowAdvanced = (value: SetStateAction<boolean>) => setLocal("showAdvanced", value);
   const setAddMcpModalOpen = (value: SetStateAction<boolean>) => setLocal("addMcpModalOpen", value);
+  const managedAdd = useIntegrationAddRequest("connector", async () => {
+    if (props.busy || connectorsForbidden || !showLocal) return;
+    if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
+  });
   const setTogglingMcp = (value: SetStateAction<string | null>) => setLocal("togglingMcp", value);
   const configRequestId = useRef(0);
 
@@ -609,9 +613,9 @@ export function McpView(props: McpViewProps) {
       <div className="space-y-5 empty:hidden">
         {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
         <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} leadingActions={showLocal ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button> : undefined} actions={showLocal ? <>
-          <IntegrationAddMenu disabled={props.busy} actions={[
+          {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[
             { label: t("mcp.add_modal_title"), icon: Plus, disabled: connectorsForbidden, onClick: async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); } },
-          ]} />
+          ]} /> : null}
           <IntegrationMoreMenu busy={props.busy} />
         </> : undefined} />
         <OrgPolicyNote policyKey="connectors.allowCustom" />
