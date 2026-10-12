@@ -3057,6 +3057,8 @@ export default {
   "session.subagents_close": "Close subagent panel",
   "session.subagent_started": "Started subagent {name}",
   "session.subagent_completed": "Completed",
+  "session.subagent_stop": "Stop {name}",
+  "session.subagent_stopped": "Stopped",
   "session.requesting_subagent": "Request from subagent: {name}",
   "session.open_subagent_chat": "Open subagent chat",
   "session.workspace_fallback": "Workspace",

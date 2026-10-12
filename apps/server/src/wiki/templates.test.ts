@@ -10,6 +10,15 @@ describe("portable wiki starters", () => {
     expect(files["Structure.md"]).toContain("whatever names, folders or templates");
     expect(files["Structure.md"]).toContain("Reconcile entities and topics");
     expect(files["Structure.md"]).toContain("Every source folder having a page is not completion");
+    expect(files["Structure.md"]).toContain("clickable evidence is not required to complete onboarding");
+    expect(files["Structure.md"]).toContain("Colleagues may not have the same drive connection or permissions");
+    for (const path of ["AGENTS.md", "Structure.md", template === "firm" ? "Skills/wiki-setup/SKILL.md" : "Skills/Bootstrap.md"]) {
+      expect(files[path]).toContain("Only clean, reusable templates may be copied");
+      expect(files[path]).toContain("Never copy original client or matter documents");
+    }
+    expect(files["Structure.md"]).toContain("including their properties, code blocks and Sources/ pages");
+    expect(files["Structure.md"]).toContain("Do not create a provenance catalog, import log or evidence dump");
+    expect(Object.values(files).join("\n")).not.toMatch(/with a tested link|Verify that (readers|a colleague) can open|copy the selected supporting document into Sources|copy only attachments needed|provenance behind readable references/);
     expect(Object.values(files).join("\n")).not.toContain("resumable progress in a Markdown research page");
   });
   test("firm workflows and folder landing pages resolve without invented entity records", () => {

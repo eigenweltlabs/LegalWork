@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Client } from "@/app/types";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { unwrap } from "@/app/lib/opencode";
-import { Check, CircleAlert, Clock3, GitBranch, LoaderCircle, X } from "lucide-react";
+import { Check, CircleAlert, Clock3, GitBranch, LoaderCircle, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useQueryCacheState } from "../../../infra/query-cache-state";
 import { emptyInteractionSessions, interactionSessionIds, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
+import { stopSubagentRun } from "./stop-subagent";
 
 const emptyStatuses: Record<string, SessionActivityStatus> = {};
 type SubagentActivity = { id: string; title: string; status: SessionActivityStatus };
@@ -21,18 +24,20 @@ export function sessionSubagents(sessionId: string, sessions: InteractionSession
 }
 
 /** Stays open while working in the chat. It is not a modal or a navigation change. */
-export function SessionSubagents({ workspaceId, sessionId, client, waiting, onOpen }: {
-  workspaceId: string; sessionId: string; client: Client | null; waiting?: string[]; onOpen?: (id: string) => void;
+export function SessionSubagents({ workspaceId, workspaceRoot, sessionId, client, serverClient, waiting, onOpen }: {
+  workspaceId: string; workspaceRoot: string; sessionId: string; client: Client | null; serverClient: LegalworkServerClient; waiting?: string[]; onOpen?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [stopping, setStopping] = useState<string[]>([]);
+  const [stopped, setStopped] = useState<string[]>([]);
   const key = useMemo(() => interactionSessionsKey(workspaceId), [workspaceId]);
   const sessions = useQueryCacheState<InteractionSessions>(key, emptyInteractionSessions);
   const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
-  const agents = sessionSubagents(sessionId, sessions, statuses, waiting);
+  const agents = sessionSubagents(sessionId, sessions, statuses, waiting?.filter(id => !stopped.includes(id)));
   const ids = agents.map(agent => agent.id).sort().join("|");
   const runs = useQuery({
     queryKey: ["subagent-run-status", workspaceId], enabled: Boolean(client && ids),
-    queryFn: async () => ({ started: Date.now(), statuses: unwrap(await client!.session.status()) }),
+    queryFn: async () => ({ started: Date.now(), statuses: unwrap(await client!.session.status({ directory: workspaceRoot.trim() || undefined })) }),
     refetchInterval: 5000,
   });
   useEffect(() => {
@@ -43,6 +48,22 @@ export function SessionSubagents({ workspaceId, sessionId, client, waiting, onOp
       store.setRunStatus(workspaceId, id, runs.data.statuses[id] ?? { type: "idle" });
     }
   }, [runs.data, ids, workspaceId]);
+  useEffect(() => {
+    setStopped(previous => previous.some(id => statuses[id] && statuses[id] !== "idle")
+      ? previous.filter(id => !statuses[id] || statuses[id] === "idle") : previous);
+  }, [statuses]);
+  const stop = async (id: string) => {
+    if (!client || stopping.includes(id)) return;
+    setStopping(previous => [...previous, id]);
+    try {
+      await stopSubagentRun({ client, serverClient, workspaceId, workspaceRoot, sessionId: id });
+      setStopped(previous => [...previous.filter(value => value !== id), id]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("session.stop_failed"));
+    } finally {
+      setStopping(previous => previous.filter(value => value !== id));
+    }
+  };
   if (!agents.length) return null;
   const count = agents.filter(agent => isRunningSubagent(agent.status)).length;
   return <div className="pointer-events-none absolute inset-x-3 top-2 z-40 flex flex-col items-end">
@@ -54,12 +75,19 @@ export function SessionSubagents({ workspaceId, sessionId, client, waiting, onOp
       <div className="flex h-8 items-center justify-between px-2.5"><span className="text-xs font-medium">{t(count > 0 ? "session.subagents_running" : "session.subagents", { count })}</span>
         <Button variant="ghost" size="icon-xs" className="-mr-1" onClick={() => setOpen(false)} aria-label={t("session.subagents_close")}><X className="size-3" /></Button></div>
       <div className="max-h-60 overflow-y-auto px-1 pb-1">{agents.map(agent => {
-        const Icon = agent.status === "idle" ? Check : agent.status === "error" ? CircleAlert : agent.status === "waiting" ? Clock3 : LoaderCircle;
-        const label = agent.status === "idle" ? t("session.subagent_completed") : getSessionActivityStatusLabel(agent.status);
-        return <Button key={agent.id} variant="ghost" disabled={!onOpen} title={`${agent.title} · ${label}`} aria-label={`${agent.title} · ${label}`} onClick={() => onOpen?.(agent.id)} className="h-7 w-full justify-start gap-2 rounded-md px-2 py-0 text-left text-xs font-normal disabled:opacity-100">
-          <Icon aria-hidden className={cn("size-3 shrink-0 text-muted-foreground", isRunningSubagent(agent.status) && "text-primary motion-safe:animate-spin", agent.status === "error" && "text-destructive")} />
-          <span className="min-w-0 truncate">{agent.title}</span>
-        </Button>;
+        const wasStopped = stopped.includes(agent.id) && agent.status === "idle";
+        const isStopping = stopping.includes(agent.id);
+        const Icon = wasStopped ? Square : agent.status === "idle" ? Check : agent.status === "error" ? CircleAlert : agent.status === "waiting" ? Clock3 : LoaderCircle;
+        const label = wasStopped ? t("session.subagent_stopped") : agent.status === "idle" ? t("session.subagent_completed") : getSessionActivityStatusLabel(agent.status);
+        return <div key={agent.id} className="flex items-center gap-0.5">
+          <Button variant="ghost" disabled={!onOpen} title={`${agent.title} · ${label}`} aria-label={`${agent.title} · ${label}`} onClick={() => onOpen?.(agent.id)} className="h-7 min-w-0 flex-1 justify-start gap-2 rounded-md px-2 py-0 text-left text-xs font-normal disabled:opacity-100">
+            <Icon aria-hidden className={cn("size-3 shrink-0 text-muted-foreground", isRunningSubagent(agent.status) && "text-primary motion-safe:animate-spin", agent.status === "error" && "text-destructive")} />
+            <span className="min-w-0 truncate">{agent.title}</span>
+          </Button>
+          {(isRunningSubagent(agent.status) || agent.status === "waiting" || isStopping) && <Button variant="ghost" size="icon-xs" className="size-6 shrink-0 text-muted-foreground" disabled={!client || isStopping} aria-label={t("session.subagent_stop", { name: agent.title })} title={t("session.subagent_stop", { name: agent.title })} onClick={() => void stop(agent.id)}>
+            {isStopping ? <LoaderCircle aria-hidden className="size-3 motion-safe:animate-spin" /> : <Square aria-hidden className="size-3" />}
+          </Button>}
+        </div>;
       })}</div>
     </section>}
   </div>;
