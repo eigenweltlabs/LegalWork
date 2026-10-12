@@ -3,7 +3,7 @@ import { ViewList, useSavedViews } from "../views/view-list";
 import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Check, ChevronDown, ChevronRight, History, Loader2, LockKeyhole, PanelLeft, PenLine, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
+import { BookOpen, Check, ChevronDown, History, Loader2, LockKeyhole, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
 import type { WikiAsset, WikiEntryOperation, WikiPage, WikiSnapshot, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isLoopbackLegalworkServerUrl, LegalworkServerError } from "@/app/lib/legalwork-server";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { PanelHeader } from "@/react-app/design-system/panel-chrome";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { CreateWikiDialog, NewWikiPageDialog, WikiHistoryDialog, WikiSettingsDialog, wikiError, type WikiWorkspaceOption } from "./wiki-dialogs";
-import { resolveWikiLink, wikiBacklinks, wikiProcedurePrompt, wikiTemplateContent } from "./wiki-model";
+import { resolveWikiLink, wikiBacklinks, wikiTemplateContent } from "./wiki-model";
 import { useWikiDrafts } from "./wiki-drafts";
 import { WikiPreview } from "./wiki-preview";
 import { WikiGraphPane } from "./wiki-graph-pane";
@@ -280,20 +280,6 @@ function WikiContentPane(props: WikiPaneProps) {
     if (saved) { requestPanelTab(viewPanelTab(props.serverUrl, { owner: saved.owner, viewId: saved.id }, saved.title)); return; }
     requestPanelTab(wikiPanelTab(props.serverUrl, wiki.id, { kind: "asset", path: assetPath }, assetPath.split("/").at(-1) ?? assetPath));
   };
-  const startSession = async (prompt?: string) => {
-    if (!wiki) return;
-    for (const item of drafts.dirty.filter((item) => item.wikiId === wiki.id)) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const current = drafts.get(wiki.id, item.path);
-        if (!current || current.content === current.baseline) break;
-        if (!await drafts.save(wiki.id, item.path)) throw new Error(t("wiki.save_before_session"));
-      }
-      const current = drafts.get(wiki.id, item.path);
-      if (current && current.content !== current.baseline) throw new Error(t("wiki.save_before_session"));
-    }
-    await props.onOpenWikiSession(wiki, prompt);
-  };
-
   const scrollToHeading = useCallback((anchor: string) => {
     const normalized = (value: string) => value.normalize("NFKD").toLowerCase().replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
     for (const heading of editorRegion.current?.querySelectorAll("h1, h2, h3, h4, h5, h6") ?? []) {
@@ -381,25 +367,6 @@ function WikiContentPane(props: WikiPaneProps) {
           </WikiExplorer>
         </aside> : null}
         {!navigationOnly ? <main className="wiki-main">
-          {surface !== "page" ? <header className="wiki-context-bar">
-            {!tabOnly ? <WikiIconButton label={t("wiki.toggle_navigation")} pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><PanelLeft size={17} /></WikiIconButton> : null}
-            <nav className="wiki-location" aria-label={t("wiki.breadcrumb")}>
-              {tabOnly ? <><span className="wiki-location-folder">{wiki?.name}</span><ChevronRight size={12} /></> : null}
-              <span className="wiki-location-title">{surface === "graph" ? t("wiki.graph") : currentPage?.title ?? wiki?.name}</span>
-            </nav>
-            <div className="wiki-context-actions">
-              <DropdownMenu>
-                <DropdownMenuTrigger render={<Button size="sm" variant="ghost" disabled={busy || !wiki} className="wiki-agent-trigger" aria-label={t("wiki.ask_agent")} />}><PenLine size={15} strokeWidth={1.5} /><span>{t("wiki.ask_agent")}</span><ChevronDown size={12} /></DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-60">
-                  <DropdownMenuItem onClick={() => void run(() => startSession())}><PenLine size={15} strokeWidth={1.5} />{t("wiki.agent_session")}</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("help me build useful wiki knowledge from selected documents. First establish the topic and source scope.")))}>{t("wiki.extract")}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("help capture reusable learning from this matter. First establish the source work.")))}>{t("wiki.capture")}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void run(() => startSession(wikiProcedurePrompt("maintain this wiki within the requested scope. First establish the scope and sources.")))}>{t("wiki.maintain")}</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </header> : null}
           {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} client={props.client} serverUrl={props.serverUrl} wikiId={wikiId} /> : <>
             {draft?.error ? <div role="alert" className="wiki-notice wiki-error-notice"><span>{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
             {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <WikiLoading /> : draft ? <>

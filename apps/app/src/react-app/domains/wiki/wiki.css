@@ -52,15 +52,6 @@
 .wiki-sidebar-switcher > .wiki-switcher-group { flex: 1; }
 .wiki-icon-button { flex-shrink: 0; color: var(--muted-foreground); }
 .wiki-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; container: wiki-main / inline-size; }
-.wiki-context-bar { display: flex; flex-shrink: 0; align-items: center; min-height: 52px; gap: 9px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
-.wiki-location { display: flex; flex: 1; min-width: 0; align-items: center; gap: 7px; font-size: 12px; }
-.wiki-location > svg { flex-shrink: 0; color: var(--muted-foreground); }
-.wiki-location-folder { max-width: 35%; color: var(--muted-foreground); }
-.wiki-location-title, .wiki-location-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wiki-location-title { font-weight: 500; }
-.wiki-context-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
-.wiki-agent-trigger { gap: 6px; height: 30px; font-size: 11px; }
-.wiki-agent-trigger { color: var(--muted-foreground); }
 .wiki-page-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .wiki-properties { margin: 8px clamp(24px, 4cqw, 48px) 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .wiki-properties > summary { display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; color: var(--muted-foreground); }
@@ -193,12 +184,6 @@
   .wiki-reader-outline { display: block; position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 240px); overflow-y: auto; padding-top: 7px; }
 }
 @container wiki-main (max-width: 580px) {
-  .wiki-context-bar { padding: 8px 10px; gap: 5px; }
-  .wiki-agent-trigger > span { display: none; }
-  .wiki-agent-trigger { width: 30px; padding: 0; }
-  .wiki-agent-trigger > svg:last-child { display: none; }
-  .wiki-location-folder { display: none; }
-  .wiki-location-folder + svg { display: none; }
   .wiki-reader { padding: 24px 20px 40px; }
   .wiki-properties { margin-right: 20px; margin-left: 20px; }
   .wiki-properties dl > div { grid-template-columns: 80px minmax(0, 1fr); gap: 10px; }
@@ -210,7 +195,7 @@
   .wiki-sidebar { position: absolute; top: 52px; bottom: 0; left: 0; z-index: 5; width: 248px; min-width: 0; max-width: 85%; background: var(--background); box-shadow: 8px 0 24px color-mix(in srgb, var(--foreground) 8%, transparent); }
 }
 @media (pointer: coarse) {
-  .wiki-nav-row, .wiki-tree-folder, .wiki-sidebar-disclosure > summary, .wiki-icon-button, .wiki-context-actions > button { min-height: 44px; }
+  .wiki-nav-row, .wiki-tree-folder, .wiki-sidebar-disclosure > summary, .wiki-icon-button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wiki-workbench *, .wiki-dialog * { scroll-behavior: auto; transition-duration: 0s; animation-duration: 0s; }
