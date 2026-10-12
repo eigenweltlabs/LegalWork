@@ -1282,7 +1282,7 @@ function McpConfiguredServersSection(props: {
             })}
           </div>
         ) : (
-          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : source === "team" ? "firm_hub.empty_integrations" : "mcp.no_apps_yet")} description={props.searching ? t("mcp.connector_search_hint") : source === "team" ? undefined : t("mcp.no_apps_hint")} />
+          <IntegrationEmptyState icon={Unplug} title={t(props.searching ? "mcp.no_connector_matches" : source === "team" ? "integrations.no_shared_connectors" : "mcp.no_apps_yet")} description={props.searching ? t("mcp.connector_search_hint") : source === "team" ? undefined : t("mcp.no_apps_hint")} />
         )}
       </div>
     );

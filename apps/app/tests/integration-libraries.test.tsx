@@ -129,7 +129,7 @@ test("storage empty and team states preserve scope and offer the right next acti
   const teamHtml = renderStorage(true);
   expect(teamHtml).not.toContain("Office documents");
   expect(teamHtml).not.toContain(">Add storage<");
-  expect(teamHtml).toContain("No shared storage yet");
+  expect(teamHtml).toContain("No file storage shared by your firm yet.");
 });
 
 test("the storage source tabs include optional team sources and isolate personal and team entries", () => {
