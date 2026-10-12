@@ -1,4 +1,5 @@
 import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
+import { viewPanelTab } from "../src/react-app/domains/views/view-reference";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
 import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
@@ -430,7 +431,7 @@ describe("restoration and repeated moves", () => {
   test("wiki pages, views, graph and chats survive reload with their own workspace layout", async () => {
     const scope = "workspace:wiki-one";
     const page = wikiPanelTab("local", "wiki-one", { kind: "page", path: "Clients/Acme.md", anchor: "sources", mode: "source" }, "Acme");
-    const view = wikiPanelTab("local", "wiki-one", { kind: "view", name: "Clients" }, "Clients");
+    const view = viewPanelTab("local", { owner: { kind: "wiki", id: "wiki-one" }, viewId: "a09a8e3f-9186-4cc8-9e46-b0d778e8f204" }, "Clients");
     const graph = wikiPanelTab("local", "wiki-one", { kind: "graph", focus: "Clients/Acme.md" }, "Graph");
     store().openTab(scope, page, "main");
     store().openTab(scope, view, "main");

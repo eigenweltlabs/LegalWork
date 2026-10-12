@@ -150,6 +150,7 @@ export type PanelTabStore = {
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
+  restoreNavigationTab: (scope: string, tab: unknown, paneId: string) => void;
   moveTab: (sessionId: string, tabId: string, pane: string, edge?: DocumentDropEdge) => void;
   setPaneSizes: (sessionId: string, layout: string, sizes: Record<string, number>) => void;
   // Accepts the order of one pane; tabs of the other pane keep their places.
@@ -530,6 +531,20 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         if (!pane || (pane.activeTabId === tabId && session.focusedPaneId === pane.id) || (pane.activeTabId !== tabId && !sessionId.startsWith("workspace:") && !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => get().selectTab(sessionId, tabId)))) return state;
         return updateSession(state, sessionId, normalizeSession({ ...session, focusedPaneId: pane.id, panes: session.panes.map(entry => entry.id === pane.id ? { ...entry, activeTabId: tabId } : entry) }));
       }),
+      restoreNavigationTab: (scope, value, paneId) => {
+        if (!record(value) || typeof value.id !== "string") return;
+        const tab = restoredTab(value);
+        const session = get().sessions[scope];
+        const existing = session?.tabs.find(entry => entry.id === value.id);
+        if (existing) {
+          // Keep live editor/browser state. Only wiki heading destinations belong to navigation.
+          if (existing.type === "wiki" && tab?.type === "wiki") get().openTab(scope, { ...existing, location: tab.location }, session.panes.find(pane => pane.tabIds.includes(tab.id))?.id);
+          else get().selectTab(scope, existing.id);
+        } else if (tab && tab.type !== "browser") {
+          const pane = session?.panes.find(pane => pane.id === paneId) ?? session?.panes.find(pane => pane.id === session.focusedPaneId) ?? session?.panes[0];
+          get().openTab(scope, tab, pane?.id);
+        }
+      },
       moveTab: (sessionId, tabId, pane, edge) => set(state => {
         const session = getWritableSession(state, sessionId);
         const tab = session.tabs.find(tab => tab.id === tabId);

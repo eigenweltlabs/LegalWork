@@ -74,6 +74,8 @@ import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
+import { navigationTab } from "../../../shell/panel-navigation-history";
+import { usePanelNavigationHistory } from "../../../shell/use-panel-navigation-history";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { readWikiNavigationWidth, writeWikiNavigationWidth, readWikiNavigationOpen, writeWikiNavigationOpen } from "../../../shell/session-memory";
 import { wikiWorkspaceRoute, workspaceSessionRoute, workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
@@ -920,13 +922,16 @@ export function SessionPage(props: SessionPageProps) {
     const store = usePanelTabStore.getState();
     const tab = store.sessions[panelStateSessionId]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId);
     const routeChat = `${panelStateSessionId}:${props.selectedSessionId}`;
+    // Back/Forward may target a file beside the chat named in this route.
+    const restoringTab = navigationTab(window.history.state?.usr, panelStateSessionId);
     if (tab) {
       store.updateTabLabel(panelStateSessionId, tab.id, selectedSessionTitle || tab.label);
-      if (previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
+      if (!restoringTab && previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
     }
-    else store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"));
+    else if (!restoringTab) store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"));
     previousRouteChat.current = routeChat;
   }, [panelStateSessionId, props.selectedSessionId, selectedSessionTitle, hasMainView]);
+  usePanelNavigationHistory(!hasMainView || sidePanelOpen ? panelStateSessionId : null);
   useEffect(() => { props.onSessionTabsChange?.(sessionTabs); }, [sessionTabs, props.onSessionTabsChange]);
   const sessionActionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
