@@ -10,6 +10,8 @@ export default {
   "integrations.search_skills": "Search skills…",
   "integrations.all_skills": "All skills",
   "integrations.filter_source": "Library source",
+  "integrations.filter": "Filter",
+  "integrations.all_sources": "All sources",
   "integrations.source_all": "All",
   "integrations.source_personal": "Personal",
   "skills.packages_desc": "Manage imported bundles. Their skills and connectors also appear in the main libraries.",

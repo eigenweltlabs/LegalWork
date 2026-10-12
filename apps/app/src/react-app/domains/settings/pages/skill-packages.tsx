@@ -132,7 +132,7 @@ export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean
   if (skills.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <IntegrationGroupHeading title={t("skills.built_in_title")} count={skills.length} />
+      <IntegrationGroupHeading hideInLibrary title={t("skills.built_in_title")} count={skills.length} />
       {skills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("integrations.no_skill_matches")} description={t("integrations.search_hint")} /> : null}
       <div className="space-y-1">
         {skills.map((skill) => (

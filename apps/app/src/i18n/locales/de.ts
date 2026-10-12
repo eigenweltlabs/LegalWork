@@ -20,6 +20,8 @@ const de = {
   "integrations.search_skills": "Skills durchsuchen…",
   "integrations.all_skills": "Alle Skills",
   "integrations.filter_source": "Quelle der Bibliothek",
+  "integrations.filter": "Filter",
+  "integrations.all_sources": "Alle Quellen",
   "integrations.source_all": "Alle",
   "integrations.source_personal": "Persönlich",
   "skills.packages_desc": "Verwalten Sie importierte Pakete. Ihre Skills und Konnektoren stehen auch in den jeweiligen Bibliotheken.",

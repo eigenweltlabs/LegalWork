@@ -1,11 +1,11 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, HardDrive, Plug } from "lucide-react";
+import { Blocks, Download, HardDrive, ListFilter, Plug } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
@@ -155,37 +155,42 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedSkills} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
-          <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div ref={setSearchTarget} className="min-w-0 flex-1 empty:hidden sm:flex-none" />
+            {tab !== "plugins" ? <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
+                <ListFilter className="size-3.5" />{source === "all" ? t("integrations.filter") : source === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup aria-label={t("integrations.filter_source")} value={source} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") setSource(value); }}>
+                  <DropdownMenuRadioItem value="all" closeOnClick>{t("integrations.all_sources")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="personal" closeOnClick>{t("integrations.source_personal")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="team" closeOnClick>{t("firm_hub.scope_team")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu> : null}
+          </div>
         </div>
 
-        <Tabs value={source} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") setSource(value); }} className="gap-5">
-          {tab !== "plugins" ? <TabsList variant="line" aria-label={t("integrations.filter_source")} className="h-auto justify-start gap-6 p-0">
-            <TabsTrigger value="all" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("integrations.source_all")}</TabsTrigger>
-            <TabsTrigger value="personal" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("integrations.source_personal")}</TabsTrigger>
-            <TabsTrigger value="team" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("firm_hub.scope_team")}</TabsTrigger>
-          </TabsList> : null}
-          <TabsContent value={source}>
-            <HubScopeContext.Provider value="local">
-              {tab === "connectors" ? props.mcpView : null}
+        <HubScopeContext.Provider value="local">
+          {tab === "connectors" ? props.mcpView : null}
 
-              {tab === "storage" ? props.storageView : null}
+          {tab === "storage" ? props.storageView : null}
 
-              {tab === "skills" ? props.skillsView : null}
+          {tab === "skills" ? props.skillsView : null}
 
-              {tab === "plugins" ? (
-                <PluginsView
-                  extensions={props.extensions}
-                  busy={props.busy}
-                  selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-                  canEditPlugins={props.canEditPlugins}
-                  canUseGlobalScope={props.canUseGlobalScope}
-                  accessHint={props.accessHint}
-                  suggestedPlugins={props.suggestedPlugins}
-                />
-              ) : null}
-            </HubScopeContext.Provider>
-          </TabsContent>
-        </Tabs>
+          {tab === "plugins" ? (
+            <PluginsView
+              extensions={props.extensions}
+              busy={props.busy}
+              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
+              canEditPlugins={props.canEditPlugins}
+              canUseGlobalScope={props.canUseGlobalScope}
+              accessHint={props.accessHint}
+              suggestedPlugins={props.suggestedPlugins}
+            />
+          ) : null}
+        </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>
   );

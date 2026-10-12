@@ -799,7 +799,7 @@ export function SkillsView(props: SkillsViewProps) {
 
       {showInstalledSection ? (
         <div className="space-y-4">
-          <IntegrationGroupHeading title={isWorkflowsView ? t("skills.workflows_title") : t("integrations.your_skills")} count={filteredSkills.length} />
+          <IntegrationGroupHeading hideInLibrary={!isWorkflowsView} title={isWorkflowsView ? t("skills.workflows_title") : t("integrations.your_skills")} count={filteredSkills.length} />
 
           {isWorkflowsView && templateRun ? (
             <TemplateGenerationRow
