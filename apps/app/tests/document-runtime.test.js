@@ -21,6 +21,19 @@ function fixture() {
 }
 
 describe("task document runtime", () => {
+  test("legacy attachment copies retain their format without a visible document pane", async () => {
+    const { runtime, document, clients } = fixture();
+    const source = ".legalwork/attachments/fixture/Contract.docx___Matter_A";
+    const copied = [];
+    clients.a.copyWorkspaceFile = async (...args) => { copied.push(args); };
+    clients.a.statWorkspaceFile = async (_workspace, path) => ({ path, exists: true, kind: "file", size: 100, updatedAt: 1 });
+    const output = document("a", "Revised.docx");
+    expect(await runtime.open({ sessionId: "left", path: source, copyTo: "Revised.docx" })).toMatchObject({ ok: true, copied: true, liveEditing: true, path: "Revised.docx" });
+    expect(copied).toEqual([["a", source, "Revised.docx"]]);
+    expect(output.destinations.size).toBe(0);
+    await expect(runtime.open({ sessionId: "left", path: source, copyTo: "Revised.xlsx" })).rejects.toThrow("same file extension");
+  });
+
   test("two tasks select and edit separate documents without visible destinations", async () => {
     const { runtime, document } = fixture();
     const one = document("a", "one.docx"), two = document("a", "two.docx");
