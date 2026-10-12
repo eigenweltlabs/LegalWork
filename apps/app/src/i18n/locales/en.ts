@@ -24,6 +24,7 @@ export default {
   "integrations.skill_commands": "Use these commands in chat to start this skill.",
   "integrations.browse_team_skills": "Browse team skills",
   "integrations.import_skill_files": "Import skill files",
+  "integrations.import_files_or_github": "Skill files or GitHub",
   "integrations.import_skill_files_description": "Import skills from a GitHub repository, a folder, or a ZIP file.",
   "firm_hub.skills": "Shared skills",
   "firm_hub.skills_desc": "Skills offered by your firm. Automatically added skills are already in your list; add optional skills when you need them.",

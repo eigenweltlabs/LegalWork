@@ -23,3 +23,14 @@ test("read-only clients keep visible but disabled import actions", () => {
   expect(importButtons).toHaveLength(1);
   for (const button of importButtons) expect(button).toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
 });
+
+test("skill imports remain available when plugin editing is read-only, with one Import entry point", () => {
+  const skillImports: ExtensionsViewProps["skillImports"] = {
+    skills: () => [], scanGithubSkills: async () => ({ ref: "main", skills: [] }), previewClaudePlugin: async () => { throw new Error("not invoked"); },
+    importGithubSkills: async () => ({ ok: true, message: "" }), installClaudePlugin: async () => ({ ok: true, message: "" }), importLocalSkill: noop, importLocalSkillZip: noop,
+  };
+  const html = renderToStaticMarkup(<ExtensionsView {...props} canEditPlugins={false} canImportSkills skillImports={skillImports} />);
+  const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?>Import<\/button>/g) ?? [];
+  expect(importButtons).toHaveLength(1);
+  expect(importButtons[0]).not.toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
+});

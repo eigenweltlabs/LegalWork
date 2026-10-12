@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import JSZip from "jszip";
 import { ArrowLeft, Blocks, Bot, ChevronRight, FileArchive, FolderOpen, Loader2, Package, Plug, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
 import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportSource } from "@legalwork/types/plugin-import";
@@ -26,7 +26,7 @@ const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal
 const componentTitle = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "skills.title" : type === "mcp" ? "extensions.connectors_label" : type === "agent" ? "composer.agents_label" : "dashboard.commands");
 
-export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void }) {
+export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void; onImportSkillFiles?: () => void | Promise<void>; canImportSkillFiles?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null> }) {
   const [provider, setProvider] = useState<PluginImportProvider | null>(null);
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
   const [discovering, setDiscovering] = useState(true);
@@ -155,12 +155,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   };
 
   return <Dialog open onOpenChange={open => { if (!open && !installing) props.onClose(); }}>
-    <DialogContent className={provider ? "flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 sm:max-w-2xl" : "bg-background"} showCloseButton={!installing}>
+    <DialogContent className={provider ? "flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 sm:max-w-2xl" : "bg-background"} showCloseButton={!installing} finalFocus={props.returnFocus}>
       {provider === null ? <>
         <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t("integrations.import_choose_provider")}</DialogDescription></DialogHeader>
         <div className="space-y-3">
-          <Button ref={providerButton} autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
-          <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          <Button ref={providerButton} autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          {props.onImportSkillFiles ? <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={!props.canImportSkillFiles} onClick={props.onImportSkillFiles}><span className="flex items-center gap-3"><FolderOpen className="size-6 shrink-0" />{t("integrations.import_files_or_github")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button> : null}
         </div>
       </> : <>
       <DialogHeader className="shrink-0 px-6 pb-5 pt-6">

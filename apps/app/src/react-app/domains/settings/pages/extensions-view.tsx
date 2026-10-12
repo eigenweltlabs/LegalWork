@@ -1,6 +1,6 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download } from "lucide-react";
 
 import { t } from "../../../../i18n";
@@ -11,6 +11,8 @@ import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
 import { IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationLibrarySource } from "./integration-library";
+import { ImportSkillsButton, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
+import { orgPolicyAllows } from "../../connections/org-policy";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -45,6 +47,8 @@ export type ExtensionsViewProps = {
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
+  skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
+  canImportSkills?: boolean;
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
@@ -80,6 +84,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         ? "skills"
         : "connectors";
   const [importOpen, setImportOpen] = useState(false);
+  const [skillImportOpen, setSkillImportOpen] = useState(false);
+  const importButton = useRef<HTMLButtonElement>(null);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
@@ -93,7 +99,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   const TABS = tabs(props.developerMode);
+  const canImportPlugins = props.canEditPlugins && props.canUseGlobalScope;
+  const canImportSkills = Boolean(props.skillImports && props.canImportSkills);
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
+  const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source }}>
@@ -105,12 +114,23 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
             <div ref={setLeadingActionsTarget} className="flex items-center gap-2 empty:hidden" />
-            {props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
           </div>
         </div>
-        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
+        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }}
+          returnFocus={importButton}
+          canImportPlugins={canImportPlugins && !props.busy}
+          canImportSkillFiles={canImportSkills && !props.busy}
+          onImportSkillFiles={props.skillImports ? async () => {
+            if (!props.canImportSkills || props.busy || !(await orgPolicyAllows("skills.allowCustom"))) return;
+            setImportOpen(false);
+            setSource("all");
+            selectTab("skills");
+            setSkillImportOpen(true);
+          } : undefined} /> : null}
+        {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedSkills} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />

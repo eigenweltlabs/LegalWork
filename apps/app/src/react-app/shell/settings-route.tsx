@@ -2338,6 +2338,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             pluginImports={extensionsStore}
+            skillImports={extensionsStore}
+            canImportSkills={canWriteWorkspaceSkills}
             mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {

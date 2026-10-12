@@ -9,10 +9,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import {
   Blocks,
+  ArrowLeft,
   Bot,
   CheckCircle2,
   ChevronLeft,
@@ -342,7 +344,6 @@ export function SkillsView(props: SkillsViewProps) {
 
   const isWorkflowsView = props.kind === "workflows";
   const source = isWorkflowsView ? "all" : libraryLayout?.source ?? "all";
-  const [skillsImportOpen, setSkillsImportOpen] = useState(false);
   const [skillCreateOpen, setSkillCreateOpen] = useState(false);
   const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
@@ -714,16 +715,14 @@ export function SkillsView(props: SkillsViewProps) {
               </>
             ) : (
               <>
-                <ImportSkillsButton
-                  open={libraryLayout ? skillsImportOpen : undefined}
-                  onOpenChange={libraryLayout ? setSkillsImportOpen : undefined}
+                {!libraryLayout ? <ImportSkillsButton
                   asWorkflow={false}
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
                   existingNames={installedNames}
                   extensions={extensions}
                   onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
-                />
+                /> : null}
                 {!libraryLayout ? <button
                   type="button"
                   onClick={() => runDesktopAction(extensions.revealSkillsFolder)}
@@ -745,7 +744,6 @@ export function SkillsView(props: SkillsViewProps) {
                 {libraryLayout ? <>
                   <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} />
                   <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
-                    <DropdownMenuItem disabled={props.busy} onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("integrations.import_skill_files")}</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
                   </IntegrationMoreMenu>
@@ -1676,14 +1674,19 @@ function WorkflowCreatorButton(props: {
   );
 }
 
+export type SkillImportStore = Pick<SkillsExtensionsStore, "scanGithubSkills" | "previewClaudePlugin" | "importGithubSkills" | "installClaudePlugin" | "importLocalSkill" | "importLocalSkillZip">;
+
 export function ImportSkillsButton(props: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onBack?: () => void;
+  onImported?: () => void;
+  returnFocus?: false | RefObject<HTMLElement | null>;
   asWorkflow: boolean;
   busy: boolean;
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
-  extensions: SkillsExtensionsStore;
+  extensions: SkillImportStore;
   /** A whole package was imported (skills, connectors and commands together). */
   onPackageImported?: () => void;
 }) {
@@ -1809,6 +1812,7 @@ export function ImportSkillsButton(props: {
       if (result.ok) {
         toast.success(result.message);
         setSelected(new Set());
+        props.onImported?.();
       }
     } finally {
       setImporting(false);
@@ -1865,8 +1869,9 @@ export function ImportSkillsButton(props: {
           if (!next) reset();
         }}
       >
-        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
+        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl" finalFocus={props.returnFocus}>
           <DialogHeader>
+            {props.onBack ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" disabled={scanning || importing} onClick={() => { reset(); props.onBack?.(); }}><ArrowLeft className="size-3.5" />{t("common.back")}</Button> : null}
             <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("integrations.import_skill_files")}</DialogTitle>
             <DialogDescription>
               {asWorkflow ? "Bring in workflow folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md. Imported items are added as workflows." : t("integrations.import_skill_files_description")}

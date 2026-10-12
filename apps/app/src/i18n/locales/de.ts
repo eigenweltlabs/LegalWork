@@ -34,6 +34,7 @@ const de = {
   "integrations.skill_commands": "Starten Sie diesen Skill mit diesen Befehlen im Chat.",
   "integrations.browse_team_skills": "Team-Skills durchsuchen",
   "integrations.import_skill_files": "Skill-Dateien importieren",
+  "integrations.import_files_or_github": "Skill-Dateien oder GitHub",
   "integrations.import_skill_files_description": "Importieren Sie Skills aus einem GitHub-Repository, einem Ordner oder einer ZIP-Datei.",
   "firm_hub.skills": "Geteilte Skills",
   "firm_hub.skills_desc": "Skills Ihrer Kanzlei. Automatisch hinzugefügte Skills stehen bereits in Ihrer Liste; optionale Skills können Sie bei Bedarf hinzufügen.",
