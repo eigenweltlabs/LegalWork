@@ -134,10 +134,12 @@
 .wiki-outline-link { display: block; padding: 5px 8px; border-left: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .wiki-outline-link:hover { color: var(--foreground); border-left-color: var(--primary); background: var(--muted); }
 .wiki-outline-subsection { padding-left: 18px; }
-.wiki-backlinks { max-width: 720px; margin: 0 clamp(24px, 4cqw, 48px) 48px; padding-top: 20px; border-top: 1px solid var(--border); }
-.wiki-backlinks > summary { cursor: pointer; margin-bottom: 8px; font-size: 11px; color: var(--muted-foreground); font-weight: 500; }
-.wiki-backlinks > button { display: inline-flex; align-items: center; gap: 7px; margin: 0 16px 8px 0; padding: 4px 0; font-size: 12px; color: var(--muted-foreground); }
-.wiki-backlinks > button:hover { color: var(--primary); }
+.wiki-backlinks { box-sizing: border-box; width: 100%; max-width: 880px; margin: 32px auto 0; padding: 0 clamp(32px, 4vw, 56px) 64px; }
+.wiki-backlinks > h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: 18px; line-height: 1.4; font-weight: 600; letter-spacing: -.015em; }
+.wiki-backlinks > h2 > span { color: var(--muted-foreground); font-size: 12px; font-weight: 400; }
+.wiki-backlinks > ul { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.wiki-backlinks .wiki-backlink { height: auto; justify-content: flex-start; padding: 0; border: 0; border-radius: 2px; white-space: normal; text-align: start; font-size: 16px; line-height: 1.75; font-weight: 400; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 4px; }
+.wiki-backlinks .wiki-backlink:hover { text-decoration-color: currentColor; }
 .wiki-notice { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--muted); color: var(--foreground); font-size: 12px; line-height: 1.5; }
 .wiki-notice > span { flex: 1; min-width: 160px; }
 .wiki-error-notice { background: color-mix(in srgb, var(--destructive) 5%, var(--background)); }
@@ -231,4 +233,8 @@
 .wiki-markdown-editor { min-height: 320px; }
 .wiki-markdown-editor > .lw-markdown-editor { height: auto; min-height: 320px; }
 .wiki-markdown-editor .mdxeditor-diff-source-wrapper { overflow: visible; }
-.wiki-editor-content > .wiki-backlinks { margin: 0; padding: 8px 20px; }
+/* Computed backlinks flow after the body, outside the editable/saved document. */
+.wiki-page-with-backlinks > .wiki-markdown-editor,
+.wiki-page-with-backlinks > .wiki-markdown-editor > .lw-markdown-editor { min-height: 0; }
+.wiki-page-with-backlinks .lw-markdown-page,
+.wiki-page-with-backlinks > .wiki-reader { padding-bottom: 0; }
