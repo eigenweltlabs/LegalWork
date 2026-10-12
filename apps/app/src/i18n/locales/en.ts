@@ -6182,7 +6182,6 @@ export default {
   "org_policy.set_ocr_engine": "The OCR engine was set by your admin.",
   // Markdown wiki
   "wiki.open_page": "Wiki page…",
-  "wiki.chats": "Chats",
   "wiki.title": "Wiki",
   "wiki.new_wiki": "Add wiki",
   "wiki.new_wiki_hint": "Start a new wiki or join one shared with you.",

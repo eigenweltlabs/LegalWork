@@ -6571,7 +6571,6 @@ const de = {
   "org_policy.set_ocr_engine": "Der OCR-Anbieter wurde von Ihrem Admin festgelegt.",
   // Markdown wiki
   "wiki.open_page": "Wiki-Seite…",
-  "wiki.chats": "Chats",
   "wiki.title": "Wiki",
   "wiki.new_wiki": "Wiki hinzufügen",
   "wiki.new_wiki_hint": "Erstellen Sie ein Wiki oder treten Sie einem freigegebenen Wiki bei.",

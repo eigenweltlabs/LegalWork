@@ -2,12 +2,16 @@ import { useId, useMemo, useRef, useState } from "react";
 import { AlignLeft, Braces, CalendarDays, CheckSquare2, ChevronDown, Hash, Link2, List, Plus, Tags, X } from "lucide-react";
 import type { WikiPage } from "@legalwork/types/wiki";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { t } from "@/i18n";
 import { setWikiProperty, wikiPageRelations, wikiPropertyFields, wikiPropertyType, type WikiPropertyScalar, type WikiPropertyType, type WikiPropertyValue } from "./wiki-properties";
 import { WikiPagePropertyPicker } from "./wiki-page-property-picker";
 import { WikiPropertyValue as PropertyValue } from "./wiki-property-value";
 
 export type WikiPropertiesEditorProps = { readOnly?: boolean; content: string; pages: WikiPage[]; path: string; onChange: (content: string) => void; onSource: () => void; onOpen: (path: string) => void };
+const propertyKinds: WikiPropertyType[] = ["text", "number", "boolean", "date", "list", "page", "pages"];
 
 function PropertyIcon({ kind, name }: { kind: WikiPropertyType | "complex"; name: string }) {
   const Icon = kind === "complex" ? Braces : kind === "boolean" ? CheckSquare2 : kind === "number" ? Hash : kind === "date" ? CalendarDays : kind === "page" || kind === "pages" ? Link2 : kind === "list" ? name === "tags" ? Tags : List : AlignLeft;
@@ -60,13 +64,15 @@ function PropertyList({ name, values, onCommit }: { name: string; values: WikiPr
 
 export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
   const heading = useId();
+  const nameId = useId();
+  const typeId = useId();
   const parsed = useMemo(() => wikiPropertyFields(props.content), [props.content]);
   const content = useRef(props.content);
   content.current = props.content;
   const [expanded, setExpanded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [kind, setKind] = useState("text");
+  const [kind, setKind] = useState<WikiPropertyType>("text");
   const [newRelation, setNewRelation] = useState<string | string[] | null>(null);
   const [relationKinds, setRelationKinds] = useState<Record<string, "page" | "pages">>({});
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +111,13 @@ export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
       })}</div>
       <div className="wiki-property-actions">
       {fields.length > compact.length && <button type="button" className="wiki-property-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><ChevronDown size={14} />{expanded ? t("wiki.properties_show_less") : t("wiki.properties_show_all", { count: fields.length })}</button>}
-      {!props.readOnly && (adding ? <form className="wiki-property-create" onSubmit={event => {
+      {!props.readOnly && <Popover open={adding} onOpenChange={open => {
+        setAdding(open);
+        if (open) { setName(""); setKind("text"); setNewRelation(null); setError(null); }
+      }}>
+        <PopoverTrigger render={<button type="button" className="wiki-property-add" />}><Plus size={15} strokeWidth={1.6} />{t("wiki.add_property")}</PopoverTrigger>
+        <PopoverContent align="start" sideOffset={8} className="w-[min(320px,calc(100vw-32px))] gap-0 rounded-xl bg-popover p-0 shadow-lg">
+          <form className="flex flex-col gap-4 p-4" onSubmit={event => {
         event.preventDefault();
         if (!name.trim() || parsed.fields.some(field => field.key === name.trim())) return;
         const value = kind === "number" ? 0 : kind === "boolean" ? false : kind === "date" ? new Date().toISOString().slice(0, 10) : kind === "list" ? [] : kind === "page" || kind === "pages" ? newRelation : "";
@@ -113,13 +125,31 @@ export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
           if (kind === "page" || kind === "pages") setRelationKinds(current => ({ ...current, [`${props.path}\0${name.trim()}`]: kind }));
           setName(""); setNewRelation(kind === "pages" ? [] : null); setAdding(false);
         }
-      }}>
-        <input autoFocus aria-label={t("wiki.property_name")} placeholder={t("wiki.property_name")} className="wiki-property-input" value={name} onChange={event => setName(event.target.value)} />
-        <select aria-label={t("wiki.property_type")} className="wiki-property-type" value={kind} onChange={event => { setKind(event.target.value); setNewRelation(event.target.value === "pages" ? [] : null); }}>{["text", "number", "boolean", "date", "list", "page", "pages"].map(kind => <option key={kind} value={kind}>{t(`wiki.property_${kind}`)}</option>)}</select>
-        {(kind === "page" || kind === "pages") && <WikiPagePropertyPicker name={name || t("wiki.property_name")} value={newRelation} multiple={kind === "pages"} pages={props.pages} path={props.path} onOpen={props.onOpen} onChange={setNewRelation} />}
-        <Button size="sm" variant="ghost" type="submit" disabled={!name.trim() || parsed.fields.some(field => field.key === name.trim())}>{t("wiki.add_property")}</Button><Button size="sm" variant="ghost" type="button" onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
-      </form> : <button type="button" className="wiki-property-add" onClick={() => setAdding(true)}><Plus size={15} strokeWidth={1.6} />{t("wiki.add_property")}</button>)}
+          }}>
+            <PopoverTitle className="text-sm font-medium">{t("wiki.add_property")}</PopoverTitle>
+            <div className="grid gap-1.5">
+              <label htmlFor={nameId} className="text-xs text-muted-foreground">{t("wiki.property_name")}</label>
+              <Input id={nameId} autoFocus autoComplete="off" placeholder={t("wiki.property_name")} className="h-9 rounded-lg text-sm" value={name} onChange={event => setName(event.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor={typeId} className="text-xs text-muted-foreground">{t("wiki.property_type")}</label>
+              <Select value={kind} items={propertyKinds.map(value => ({ value, label: t(`wiki.property_${value}`) }))} onValueChange={value => { if (value) { setKind(value); setNewRelation(value === "pages" ? [] : null); } }}>
+                <SelectTrigger id={typeId} className="w-full gap-2 rounded-lg bg-background"><PropertyIcon kind={kind} name={name} /><SelectValue /></SelectTrigger>
+                <SelectContent align="start" className="rounded-xl p-1">
+                  {propertyKinds.map(value => <SelectItem key={value} value={value} className="rounded-lg py-2 text-sm font-normal"><PropertyIcon kind={value} name={name} />{t(`wiki.property_${value}`)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {(kind === "page" || kind === "pages") && <WikiPagePropertyPicker name={name || t("wiki.property_name")} value={newRelation} multiple={kind === "pages"} pages={props.pages} path={props.path} onOpen={props.onOpen} onChange={setNewRelation} />}
+            {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2 border-t border-border pt-3">
+              <Button size="sm" variant="ghost" type="button" onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
+              <Button size="sm" type="submit" disabled={!name.trim() || parsed.fields.some(field => field.key === name.trim())}>{t("wiki.add_property")}</Button>
+            </div>
+          </form>
+        </PopoverContent>
+      </Popover>}
       </div>
-    </>}{error && <div role="alert" className="wiki-property-error"><span>{error}</span><Button type="button" size="sm" variant="ghost" onClick={props.onSource}>{t("wiki.edit_source")}</Button></div>}
+    </>}{error && !adding && <div role="alert" className="wiki-property-error"><span>{error}</span><Button type="button" size="sm" variant="ghost" onClick={props.onSource}>{t("wiki.edit_source")}</Button></div>}
   </section>;
 }

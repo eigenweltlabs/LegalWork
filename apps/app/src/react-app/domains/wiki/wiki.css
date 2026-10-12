@@ -110,9 +110,6 @@
 .wiki-property-actions .wiki-property-add { font-size: 12px; gap: 7px; }
 .wiki-properties-editor .wiki-property-source { padding-left: 6px; font-size: 13px; }
 .wiki-properties-editor .wiki-property-add:hover, .wiki-properties-editor .wiki-property-source:hover { color: var(--foreground); }
-.wiki-properties-editor .wiki-property-create { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-.wiki-properties-editor .wiki-property-create > .wiki-property-input { width: 176px; background: var(--muted); }
-.wiki-properties-editor .wiki-property-type { max-width: 160px; min-height: 30px; border: 0; border-radius: 4px; padding: 3px 6px; background: var(--muted); color: var(--foreground); font: inherit; font-size: 13px; }
 .wiki-properties-editor .wiki-property-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--destructive); font-size: 13px; }
 .wiki-reader { width: 100%; padding: 28px clamp(24px, 4cqw, 48px) 48px; }
 .wiki-preview.lw-markdown-page { width: 100%; max-width: 720px; padding: 0; margin: 0 auto; font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; }
