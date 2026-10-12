@@ -1,14 +1,45 @@
 import { describe, expect, test } from "bun:test";
-import { fromMarkdown } from "mdast-util-from-markdown";
-import { toMarkdown } from "mdast-util-to-markdown";
+import { fromMarkdown, type Extension as MdastExtension } from "mdast-util-from-markdown";
+import { toMarkdown, type Options } from "mdast-util-to-markdown";
+import type { Extension } from "micromark-util-types";
 import { frontmatter } from "micromark-extension-frontmatter";
 import { frontmatterFromMarkdown, frontmatterToMarkdown } from "mdast-util-frontmatter";
+import remarkGfm from "remark-gfm";
 import { wikiLinkFromMarkdown, wikiLinkSyntax, wikiLinkToMarkdown } from "../src/react-app/domains/wiki/wiki-markdown-syntax";
 
 function roundTrip(markdown: string) {
   const tree = fromMarkdown(markdown, { extensions: [frontmatter(), wikiLinkSyntax], mdastExtensions: [frontmatterFromMarkdown("yaml"), wikiLinkFromMarkdown] });
   return toMarkdown(tree, { extensions: [frontmatterToMarkdown("yaml"), wikiLinkToMarkdown] });
 }
+
+test("wiki links in table cells survive saves without becoming cell separators", () => {
+  const data: {
+    micromarkExtensions: Extension[];
+    fromMarkdownExtensions: MdastExtension[];
+    toMarkdownExtensions: Options[];
+  } = { micromarkExtensions: [], fromMarkdownExtensions: [], toMarkdownExtensions: [] };
+  remarkGfm.call({ data: () => data });
+  const parse = (source: string) => fromMarkdown(source, {
+    extensions: [...data.micromarkExtensions, wikiLinkSyntax],
+    mdastExtensions: [...data.fromMarkdownExtensions, wikiLinkFromMarkdown],
+  });
+  const original = parse("| Note |\n| --- |\n| Before [[Instructions.md\\|Working in this wiki]] after. |\n");
+  expect(original.children[0]).toMatchObject({ type: "table", children: [
+    { type: "tableRow", children: [{ type: "tableCell" }] },
+    { type: "tableRow", children: [{ type: "tableCell", children: [
+      { type: "text", value: "Before " },
+      { type: "link", url: "#wiki:Instructions.md", children: [{ type: "text", value: "Working in this wiki" }] },
+      { type: "text", value: " after." },
+    ] }] },
+  ] });
+  const saved = toMarkdown(original, { extensions: [...data.toMarkdownExtensions, wikiLinkToMarkdown] });
+  expect(saved).toContain("[[Instructions.md\\|Working in this wiki]]");
+  const restored = parse(saved);
+  expect(restored.children[0]).toMatchObject({ type: "table", children: [
+    { children: [{ type: "tableCell" }] },
+    { children: [{ children: [{ type: "text" }, { type: "link", url: "#wiki:Instructions.md" }, { type: "text" }] }] },
+  ] });
+});
 
 describe("wiki links in the shared Markdown editor", () => {
   test("preserves page paths, aliases, Unicode and heading destinations after body edits", () => {

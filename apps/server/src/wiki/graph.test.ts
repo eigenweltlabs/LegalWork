@@ -5,6 +5,15 @@ import { parseWikiPage } from "./markdown.js";
 function page(path: string, content: string) { return parseWikiPage(path, content, content, 1).page; }
 
 describe("Compact wiki graph index", () => {
+  test("escaped wiki-link labels inside Markdown tables retain their graph targets", () => {
+    const index = new WikiGraphIndex();
+    const source = page("A.md", "# A\n\n| Note |\n| --- |\n| Before [[B.md\\|Related page]] after. |\n");
+    expect(source.links).toMatchObject([{ target: "B.md", label: "Related page" }]);
+    index.update([source, page("B.md", "# B")]);
+    const result = index.response();
+    if (result.kind !== "snapshot") throw new Error("Expected snapshot");
+    expect(result.edges.map(edge => [edge.source, edge.target])).toEqual([["A.md", "B.md"]]);
+  });
   test("resolves body and property links, refuses ambiguous names, and deduplicates identical relations", () => {
     const index = new WikiGraphIndex();
     index.update([page("People/A.md", "---\naliases: [Partner]\n---\n# Ada"), page("B.md", "---\nowner: '[[Partner]]'\n---\n# Deal\n[[Partner]] [[Partner]] [[Ada]] [[B]]"), page("Other.md", "# Ada")]);

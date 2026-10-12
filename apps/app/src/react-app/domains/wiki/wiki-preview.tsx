@@ -26,7 +26,7 @@ parser.use({ extensions: [{
   tokenizer(source) {
     const match = /^\[\[([^\]\n]+)\]\]/.exec(source);
     if (!match) return;
-    const [target, label] = match[1].split("|");
+    const [target, label] = match[1].replace(/\\\|/g, "|").split("|");
     return { type: "wikilink", raw: match[0], target, label: label ?? target };
   },
   renderer(token) {

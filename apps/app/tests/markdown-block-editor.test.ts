@@ -1,7 +1,8 @@
 import { documentFingerprint, requiresMarkdownSource } from "../src/react-app/domains/session/artifacts/markdown-document-sync";
 import { describe, expect, test } from "bun:test";
 import { $createParagraphNode, $createTextNode, $getNodeByKey, $getRoot, $getSelection, $isElementNode, $isRangeSelection, createEditor, type LexicalEditor } from "lexical";
-import { $deleteDocumentBlock, $documentBlocks, $dropDocumentBlock, $moveDocumentBlock, $selectedDocumentBlock, $slashQuery, markdownFrontmatter, preserveMarkdownFrontmatter } from "../src/react-app/domains/session/artifacts/markdown-block-model";
+import { $deleteDocumentBlock, $documentBlocks, $dropDocumentBlock, $inlineLinkQuery, $removeInlineLinkQuery, $moveDocumentBlock, $selectedDocumentBlock, $slashQuery, markdownFrontmatter, preserveMarkdownFrontmatter } from "../src/react-app/domains/session/artifacts/markdown-block-model";
+import { $createHeadingNode, $createQuoteNode, HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { PreservedFrontmatterNode } from "../src/react-app/domains/session/artifacts/markdown-frontmatter-plugin";
 
 function editorWithBlocks() {
@@ -102,6 +103,82 @@ describe("Markdown block transactions", () => {
     }, { discrete: true });
   });
 });
+
+describe("Inline link commands", () => {
+  test("removes only /link between formatted text and leaves the caret at the insertion point", () => {
+    const editor = createEditor({ namespace: "inline-links", onError: error => { throw error; } });
+    editor.update(() => {
+      const before = $createTextNode("Bold before ").toggleFormat("bold");
+      const command = $createTextNode("/link and plain after.");
+      const after = $createTextNode(" Italic after").toggleFormat("italic");
+      const paragraph = $createParagraphNode().append(before, command, after);
+      $getRoot().append(paragraph);
+      command.select(5, 5);
+      const query = $inlineLinkQuery();
+      expect(query).toMatchObject({ key: command.getKey(), query: "link", start: 0, end: 5 });
+      if (!query) throw new Error("Expected inline command");
+      expect($removeInlineLinkQuery(query)).toBe(true);
+      expect(paragraph.getTextContent()).toBe("Bold before  and plain after. Italic after");
+      expect(before.hasFormat("bold")).toBe(true);
+      expect(after.hasFormat("italic")).toBe(true);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("Expected caret");
+      selection.insertText("Linked page");
+      expect(paragraph.getTextContent()).toBe("Bold before Linked page and plain after. Italic after");
+    }, { discrete: true });
+  });
+  test("works mid-sentence in paragraphs, headings and quotes", () => {
+    const editor = createEditor({ namespace: "inline-structures", nodes: [HeadingNode, QuoteNode], onError: error => { throw error; } });
+    editor.update(() => {
+      for (const block of [$createParagraphNode(), $createHeadingNode("h2"), $createQuoteNode()]) {
+        const node = $createTextNode("Before /link after.");
+        $getRoot().append(block.append(node));
+        node.select(12, 12);
+        const query = $inlineLinkQuery();
+        expect(query).toMatchObject({ query: "link", start: 7, end: 12 });
+        if (!query) throw new Error("Expected inline command");
+        expect($removeInlineLinkQuery(query)).toBe(true);
+        expect(block.getTextContent()).toBe("Before  after.");
+      }
+    }, { discrete: true });
+  });
+  test("offers partial /link commands, ignores paths, URLs, code and selected text", () => {
+    const editor = createEditor({ namespace: "inline-literals", onError: error => { throw error; } });
+    editor.update(() => {
+      const paragraph = $createParagraphNode();
+      $getRoot().append(paragraph);
+      for (const source of ["See /", "See /l", "See /li", "See /lin", "See /link", "See (/link"]) {
+        const node = $createTextNode(source); paragraph.clear().append(node); node.selectEnd();
+        expect($inlineLinkQuery()).not.toBeNull();
+      }
+      for (const source of ["See /table", "https://example.com/link", "folder/link", "2026/10/12", "\\/link"]) {
+        const node = $createTextNode(source); paragraph.clear().append(node); node.selectEnd();
+        expect($inlineLinkQuery()).toBeNull();
+      }
+      const code = $createTextNode("See /link").toggleFormat("code"); paragraph.clear().append(code); code.selectEnd();
+      expect($inlineLinkQuery()).toBeNull();
+      const path = $createTextNode("/link"); paragraph.clear().append($createTextNode("folder").toggleFormat("bold"), path); path.selectEnd();
+      expect($inlineLinkQuery()).toBeNull();
+      paragraph.clear().append($createTextNode("See /link")); paragraph.select(0, 1);
+      expect($inlineLinkQuery()).toBeNull();
+    }, { discrete: true });
+  });
+  test("a stale menu cannot delete text after the caret moves or the command changes", () => {
+    const editor = createEditor({ namespace: "inline-stale", onError: error => { throw error; } });
+    editor.update(() => {
+      const node = $createTextNode("Before /link after.");
+      $getRoot().append($createParagraphNode().append(node)); node.select(12, 12);
+      const query = $inlineLinkQuery();
+      if (!query) throw new Error("Expected inline command");
+      node.selectEnd(); expect($removeInlineLinkQuery(query)).toBe(false);
+      expect(node.getTextContent()).toBe("Before /link after.");
+      node.setTextContent("Before /list after."); node.select(12, 12);
+      expect($removeInlineLinkQuery(query)).toBe(false);
+      expect(node.getTextContent()).toBe("Before /list after.");
+    }, { discrete: true });
+  });
+});
+
 
 describe("External property editor fidelity", () => {
   test("rich body edits retain the exact BOM, CRLF, comments, falsy values and YAML delimiter", () => {

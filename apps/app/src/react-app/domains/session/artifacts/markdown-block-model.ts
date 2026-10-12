@@ -1,4 +1,4 @@
-import { $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isElementNode, $isRangeSelection, type LexicalNode } from "lexical";
+import { $createParagraphNode, $getNodeByKey, $getRoot, $getSelection, $isElementNode, $isRangeSelection, $isTextNode, type LexicalNode } from "lexical";
 
 /** A handle always moves a complete top-level block, including a list's children. */
 export function $documentBlock(node: LexicalNode | null): LexicalNode | null {
@@ -62,6 +62,37 @@ export function $slashQuery(): { key: string; query: string } | null {
   const anchor = selection.anchor;
   if (anchor.type !== "text" || anchor.offset !== anchor.getNode().getTextContentSize()) return null;
   return { key: block.getKey(), query: text.slice(1) };
+}
+
+export type InlineLinkQuery = { key: string; query: string; start: number; end: number };
+
+/** Links are inline: offer /link at the caret, including in headings, lists and nested cell editors. */
+export function $inlineLinkQuery(): InlineLinkQuery | null {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== "text") return null;
+  const node = selection.anchor.getNode();
+  if (!$isTextNode(node) || node.hasFormat("code")) return null;
+  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
+    if (["link", "autolink", "code", "frontmatter"].includes(parent.getType())) return null;
+  }
+  const end = selection.anchor.offset;
+  const match = /(?:^|[\s([{])\/([a-z]*)$/i.exec(node.getTextContent().slice(0, end));
+  if (!match || !"link".startsWith(match[1].toLocaleLowerCase())) return null;
+  const start = end - match[1].length - 1;
+  // Formatting can split a path into adjacent text nodes. It is still not a command.
+  const preceding = start === 0 ? node.getPreviousSibling()?.getTextContent().at(-1) : undefined;
+  if (preceding && !/[\s([{]/.test(preceding)) return null;
+  return { key: node.getKey(), query: match[1], start, end };
+}
+
+/** Delete only the command token. The dialog inserts its link at this exact caret. */
+export function $removeInlineLinkQuery(expected: InlineLinkQuery): boolean {
+  const current = $inlineLinkQuery();
+  if (!current || current.key !== expected.key || current.start !== expected.start || current.end !== expected.end || current.query !== expected.query) return false;
+  const node = $getNodeByKey(current.key);
+  if (!$isTextNode(node)) return false;
+  node.select(current.start, current.end).removeText();
+  return true;
 }
 
 /** Raw frontmatter is outside the block editor's editable body. Source mode can still edit it. */

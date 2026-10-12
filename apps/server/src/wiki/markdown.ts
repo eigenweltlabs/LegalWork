@@ -37,7 +37,7 @@ function references(content: string, property: string | null): WikiLink[] {
   const links: WikiLink[] = [];
   const prose = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "").replace(/`[^`]*`/g, "");
   for (const match of prose.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
-    const [target, label] = match[1].split("|");
+    const [target, label] = match[1].replace(/\\\|/g, "|").split("|");
     if (target.trim()) links.push({ target: target.trim().split("#")[0], label: label?.trim() || target.trim(), property, resolved: false });
   }
   for (const match of prose.matchAll(/(?<!!)\[([^\]\n]*)\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g)) {

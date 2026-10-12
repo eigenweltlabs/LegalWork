@@ -49,7 +49,7 @@ export const wikiLinkFromMarkdown: MdastExtension = {
   transforms: [preserveRelativeLinks],
   enter: {
     wikiLink(token) {
-      const source = this.sliceSerialize(token).slice(2, -2);
+      const source = this.sliceSerialize(token).slice(2, -2).replace(/\\\|/g, "|");
       const separator = source.indexOf("|");
       const target = separator < 0 ? source : source.slice(0, separator);
       const label = separator < 0 ? target : source.slice(separator + 1);
@@ -76,7 +76,8 @@ export const wikiLinkToMarkdown: Options = {
       let label = node.children.map((child) => child.type === "text" ? child.value : "").join("");
       if (authoredWikiLink && (label === node.url || !label)) label = authoredWikiLink[1].split("|")[1] ?? target;
       if (!target.trim() || /[\[\]\n|]/.test(target) || /[\[\]\n]/.test(label)) return defaultHandlers.link(node, parent, state, info);
-      return `[[${target}${label === target ? "" : `|${label}`}]]`;
+      const value = `[[${target}${label === target ? "" : `|${label}`}]]`;
+      return state.stack.includes("tableCell") ? value.replace(/\|/g, "\\|") : value;
     },
   },
 };

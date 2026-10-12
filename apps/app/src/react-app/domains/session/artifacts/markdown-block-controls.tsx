@@ -7,10 +7,10 @@ import { ArrowDown, ArrowUp, Bold, CheckSquare, Code, CodeXml, GripVertical, Hea
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n";
-import { $deleteDocumentBlock, $documentBlock, $documentBlocks, $dropDocumentBlock, $moveDocumentBlock, $selectedDocumentBlock, $slashQuery } from "./markdown-block-model";
+import { $deleteDocumentBlock, $documentBlock, $documentBlocks, $dropDocumentBlock, $inlineLinkQuery, $moveDocumentBlock, $removeInlineLinkQuery, $selectedDocumentBlock, $slashQuery, type InlineLinkQuery } from "./markdown-block-model";
 
 type BlockPosition = { key: string; left: number; top: number; right: number; bottom: number };
-type SlashState = { key: string; query: string; left: number; top: number };
+type SlashState = { key: string; query: string; left: number; top: number; inline?: InlineLinkQuery };
 type SelectionPosition = { left: number; top: number; formats: TextFormatType[] };
 const BLOCK_DRAG_TYPE = "application/x-legalwork-markdown-block";
 
@@ -19,6 +19,14 @@ function position(editor: LexicalEditor, key: string): BlockPosition | null {
   if (!element) return null;
   const rect = element.getBoundingClientRect();
   return { key, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+}
+
+function slashPosition(editor: LexicalEditor, query: { key: string; inline?: InlineLinkQuery }) {
+  const selection = window.getSelection();
+  const caret = query.inline && selection?.rangeCount && editor.getRootElement()?.contains(selection.anchorNode)
+    ? selection.getRangeAt(0).getBoundingClientRect() : null;
+  const rect = caret?.height ? caret : position(editor, query.key);
+  return rect ? { left: rect.left, top: rect.bottom + 6 } : null;
 }
 
 function MarkdownBlockControls() {
@@ -45,6 +53,7 @@ function MarkdownBlockControls() {
   const editorId = useRef(crypto.randomUUID());
   const insertMenu = useRef<HTMLDivElement>(null);
   const enabled = Boolean(rootEditor && !readOnly && mode === "rich-text");
+  const commandEditor = activeEditor ?? rootEditor;
 
   const commands = [
     { id: "paragraph", label: t("markdown.toolbar.blockTypes.paragraph"), keywords: "text paragraph absatz", icon: Text },
@@ -61,7 +70,7 @@ function MarkdownBlockControls() {
     { id: "link", label: t("markdown.toolbar.link"), keywords: "link page file attachment seite datei anhang", icon: Link },
     { id: "rule", label: t("markdown.toolbar.thematicBreak"), keywords: "divider line linie trennlinie", icon: Minus },
   ];
-  const matches = commands.filter(command => `${command.label} ${command.keywords}`.toLocaleLowerCase().includes(slash?.query.toLocaleLowerCase() ?? ""));
+  const matches = commands.filter(command => (!slash?.inline || command.id === "link") && `${command.label} ${command.keywords}`.toLocaleLowerCase().includes(slash?.query.toLocaleLowerCase() ?? ""));
   const latestMatches = useRef(matches);
   latestMatches.current = matches;
   const selectedRef = useRef(selectedCommand);
@@ -69,16 +78,22 @@ function MarkdownBlockControls() {
 
   const insert = useCallback((id: string) => {
     const current = slashRef.current;
-    if (!rootEditor || !current) return;
-    rootEditor.update(() => {
+    if (!commandEditor || !current) return;
+    let consumed = false;
+    commandEditor.update(() => {
+      if (current.inline) { consumed = $removeInlineLinkQuery(current.inline); return; }
       const block = $getNodeByKey(current.key);
       if (!$isElementNode(block) || block.getType() !== "paragraph" || !/^\/[^\n/]{0,40}$/.test(block.getTextContent())) return;
       block.clear();
       block.selectStart();
+      consumed = true;
     }, { discrete: true });
+    if (!consumed) return;
     setSlash(null);
     dismissedSlash.current = null;
-    rootEditor.focus();
+    // Focus commits the new caret. Opening sooner lets that selection update close the dialog.
+    if (id === "link") { commandEditor.focus(() => editLink()); return; }
+    commandEditor.focus();
     if (id === "paragraph") convertBlock($createParagraphNode);
     else if (id === "h1" || id === "h2" || id === "h3") convertBlock(() => $createHeadingNode(id));
     else if (id === "quote") convertBlock($createQuoteNode);
@@ -86,34 +101,35 @@ function MarkdownBlockControls() {
     else if (id === "code") insertCode({ language: "txt", code: "" });
     else if (id === "rule") insertRule();
     else if (id === "image") insertImage();
-    else if (id === "link") editLink();
     else if (id === "bullet" || id === "number" || id === "check") applyListType(id);
-  }, [rootEditor, convertBlock, insertTable, insertCode, insertRule, insertImage, applyListType, editLink]);
+  }, [commandEditor, convertBlock, insertTable, insertCode, insertRule, insertImage, applyListType, editLink]);
   const insertRef = useRef(insert);
   insertRef.current = insert;
 
   useEffect(() => { setSelectedCommand(0); }, [slash?.query]);
   useEffect(() => { insertMenu.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" }); }, [selectedCommand]);
   useEffect(() => {
-    if (!rootEditor || !enabled) { setHover(null); setSlash(null); setSelection(null); return; }
-    return rootEditor.registerUpdateListener(({ editorState }) => {
+    if (!rootEditor || !commandEditor || !enabled) { setHover(null); setSlash(null); setSelection(null); return; }
+    return commandEditor.registerUpdateListener(({ editorState }) => {
       editorState.read(() => {
         if (latestHover.current) setHover(position(rootEditor, latestHover.current.key));
-        const query = $slashQuery();
-        const identity = query ? `${query.key}:${query.query}` : null;
+        const block = commandEditor === rootEditor ? $slashQuery() : null;
+        const inline = block ? null : $inlineLinkQuery();
+        const query = block ? { ...block, inline: undefined } : inline ? { ...inline, inline } : null;
+        const identity = query ? `${query.key}:${query.query}:${query.inline?.start ?? "block"}` : null;
         if (!query || dismissedSlash.current === identity) { setSlash(null); return; }
         dismissedSlash.current = null;
-        const rect = position(rootEditor, query.key);
-        if (rect) setSlash({ ...query, left: rect.left, top: rect.bottom + 6 });
+        const rect = slashPosition(commandEditor, query);
+        if (rect) setSlash({ ...query, ...rect });
       });
     });
-  }, [rootEditor, enabled]);
+  }, [rootEditor, commandEditor, enabled]);
 
   useEffect(() => {
-    if (!rootEditor || !enabled) return;
-    return rootEditor.registerCommand(KEY_DOWN_COMMAND, event => {
+    if (!commandEditor || !enabled) return;
+    return commandEditor.registerCommand(KEY_DOWN_COMMAND, event => {
       if (event.isComposing) return false;
-      if (event.altKey && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      if (commandEditor === rootEditor && event.altKey && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
         const block = $selectedDocumentBlock();
         if (!block) return false;
         event.preventDefault();
@@ -124,7 +140,7 @@ function MarkdownBlockControls() {
       if (!current) return false;
       if (event.key === "Escape") {
         event.preventDefault();
-        dismissedSlash.current = `${current.key}:${current.query}`;
+        dismissedSlash.current = `${current.key}:${current.query}:${current.inline?.start ?? "block"}`;
         setSlash(null);
         return true;
       }
@@ -143,7 +159,7 @@ function MarkdownBlockControls() {
       }
       return false;
     }, COMMAND_PRIORITY_HIGH);
-  }, [rootEditor, enabled]);
+  }, [rootEditor, commandEditor, enabled]);
 
   useEffect(() => {
     if (!rootEditor || !enabled) return;
@@ -173,9 +189,9 @@ function MarkdownBlockControls() {
         const current = latestHover.current;
         if (current) setHover(position(rootEditor, current.key));
         const currentSlash = slashRef.current;
-        if (currentSlash) {
-          const rect = position(rootEditor, currentSlash.key);
-          if (rect) setSlash({ ...currentSlash, left: rect.left, top: rect.bottom + 6 });
+        if (currentSlash && commandEditor) {
+          const rect = slashPosition(commandEditor, currentSlash);
+          if (rect) setSlash({ ...currentSlash, ...rect });
         }
       });
     };
@@ -214,7 +230,7 @@ function MarkdownBlockControls() {
       root.removeEventListener("dragover", dragover, true);
       root.removeEventListener("drop", dropBlock, true);
     };
-  }, [rootEditor, enabled, menuOpen]);
+  }, [rootEditor, commandEditor, enabled, menuOpen]);
 
   useEffect(() => {
     if (!activeEditor || !rootEditor || !enabled) return;
