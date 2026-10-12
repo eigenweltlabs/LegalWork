@@ -73,8 +73,8 @@
   position: fixed; z-index: 60; color: var(--foreground); font-family: var(--font-sans);
 }
 .lw-block-handle { display: flex; align-items: center; gap: 1px; border-radius: 6px; background: var(--background); }
-.lw-block-handle [draggable] { cursor: grab; }
-.lw-block-handle [draggable]:active { cursor: grabbing; }
+.lw-block-handle [data-block-drag-handle] { cursor: grab; touch-action: none; }
+.lw-block-handle [data-block-drag-handle]:active { cursor: grabbing; }
 .lw-block-drop-line { height: 2px; background: var(--primary); border-radius: 2px; pointer-events: none; }
 .lw-block-insert-menu {
   width: 278px; max-width: calc(100vw - 24px); max-height: 296px; overflow-y: auto;

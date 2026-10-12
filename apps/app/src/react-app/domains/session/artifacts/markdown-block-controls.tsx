@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { $createParagraphNode, $getNearestNodeFromDOMNode, $getNodeByKey, $getSelection, $isElementNode, $isRangeSelection, COMMAND_PRIORITY_HIGH, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, type LexicalEditor, type TextFormatType } from "lexical";
+import { $createParagraphNode, $getNearestNodeFromDOMNode, $getNodeByKey, $getSelection, $isElementNode, $isRangeSelection, COMMAND_PRIORITY_HIGH, FORMAT_TEXT_COMMAND, HISTORY_PUSH_TAG, KEY_DOWN_COMMAND, type LexicalEditor, type TextFormatType } from "lexical";
 import { $createHeadingNode, $createQuoteNode } from "@lexical/rich-text";
 import { activeEditor$, addComposerChild$, convertSelectionToNode$, applyListType$, insertCodeBlock$, insertTable$, insertThematicBreak$, openLinkEditDialog$, openNewImageDialog$, readOnly$, realmPlugin, rootEditor$, useCellValues, usePublisher, viewMode$ } from "@mdxeditor/editor";
 import { ArrowDown, ArrowUp, Bold, CheckSquare, Code, CodeXml, GripVertical, Heading1, Heading2, Heading3, Image, Italic, Link, List, ListOrdered, Minus, Plus, Quote, Strikethrough, Table, Text, Trash2 } from "lucide-react";
@@ -12,7 +12,7 @@ import { $deleteDocumentBlock, $documentBlock, $documentBlocks, $dropDocumentBlo
 type BlockPosition = { key: string; left: number; top: number; right: number; bottom: number };
 type SlashState = { key: string; query: string; left: number; top: number; inline?: InlineLinkQuery };
 type SelectionPosition = { left: number; top: number; formats: TextFormatType[] };
-const BLOCK_DRAG_TYPE = "application/x-legalwork-markdown-block";
+type BlockDrag = { key: string; pointerId: number; x: number; y: number; moved: boolean };
 
 function position(editor: LexicalEditor, key: string): BlockPosition | null {
   const element = editor.getElementByKey(key);
@@ -46,11 +46,11 @@ function MarkdownBlockControls() {
   const [drop, setDrop] = useState<{ block: BlockPosition; after: boolean } | null>(null);
   const slashRef = useRef(slash);
   slashRef.current = slash;
-  const dragging = useRef<string | null>(null);
+  const dragging = useRef<BlockDrag | null>(null);
+  const suppressClick = useRef(false);
   const dismissedSlash = useRef<string | null>(null);
   const latestHover = useRef(hover);
   latestHover.current = hover;
-  const editorId = useRef(crypto.randomUUID());
   const insertMenu = useRef<HTMLDivElement>(null);
   const enabled = Boolean(rootEditor && !readOnly && mode === "rich-text");
   const commandEditor = activeEditor ?? rootEditor;
@@ -168,7 +168,17 @@ function MarkdownBlockControls() {
     if (!root || !shell) return;
     let frame = 0;
     const pointer = (event: PointerEvent) => {
-      if (menuOpen || dragging.current || !(event.target instanceof Element)) return;
+      const drag = dragging.current;
+      if (drag) {
+        if (event.pointerId !== drag.pointerId) return;
+        if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+        drag.moved = true;
+        suppressClick.current = true;
+        event.preventDefault();
+        setDrop(dropTarget(event.clientX, event.clientY));
+        return;
+      }
+      if (menuOpen || !(event.target instanceof Element)) return;
       if (event.target.closest("[data-markdown-block-ui]")) return;
       if (!shell.contains(event.target)) { setHover(null); return; }
       const target = event.target;
@@ -195,40 +205,43 @@ function MarkdownBlockControls() {
         }
       });
     };
-    const dragover = (event: DragEvent) => {
-      if (!dragging.current || !event.dataTransfer?.types.includes(BLOCK_DRAG_TYPE)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = "move";
+    const dropTarget = (x: number, y: number) => {
+      const bounds = shell.getBoundingClientRect();
+      if (x < bounds.left - 53 || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
       const blocks = rootEditor.getEditorState().read(() => $documentBlocks().map(node => node.getKey()));
       const rects = blocks.map(key => position(rootEditor, key)).filter(rect => rect !== null);
-      const target = rects.find(rect => event.clientY < rect.bottom) ?? rects.at(-1);
-      setDrop(target ? { block: target, after: event.clientY > (target.top + target.bottom) / 2 } : null);
+      const target = rects.find(rect => y < rect.bottom) ?? rects.at(-1);
+      return target ? { block: target, after: y > (target.top + target.bottom) / 2 } : null;
     };
-    const dropBlock = (event: DragEvent) => {
-      const key = dragging.current;
-      if (!key || event.dataTransfer?.getData(BLOCK_DRAG_TYPE) !== editorId.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const blocks = rootEditor.getEditorState().read(() => $documentBlocks().map(node => node.getKey()));
-      const rects = blocks.map(value => position(rootEditor, value)).filter(rect => rect !== null);
-      const target = rects.find(rect => event.clientY < rect.bottom) ?? rects.at(-1);
-      if (target) rootEditor.update(() => { $dropDocumentBlock(key, target.key, event.clientY > (target.top + target.bottom) / 2); });
-      dragging.current = null;
-      setDrop(null);
+    const cancelDrag = () => { dragging.current = null; setDrop(null); };
+    const dropBlock = (event: PointerEvent) => {
+      const drag = dragging.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      if (drag.moved) {
+        event.preventDefault();
+        const target = dropTarget(event.clientX, event.clientY);
+        if (target) rootEditor.update(() => { $dropDocumentBlock(drag.key, target.block.key, target.after); }, { tag: HISTORY_PUSH_TAG });
+      }
+      cancelDrag();
     };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") cancelDrag(); };
+    document.addEventListener("pointerup", dropBlock);
+    document.addEventListener("pointercancel", cancelDrag);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("blur", cancelDrag);
     document.addEventListener("pointermove", pointer);
     window.addEventListener("scroll", geometry, true);
     window.addEventListener("resize", geometry);
-    root.addEventListener("dragover", dragover, true);
-    root.addEventListener("drop", dropBlock, true);
     return () => {
       cancelAnimationFrame(frame);
+      dragging.current = null;
+      document.removeEventListener("pointerup", dropBlock);
+      document.removeEventListener("pointercancel", cancelDrag);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("blur", cancelDrag);
       document.removeEventListener("pointermove", pointer);
       window.removeEventListener("scroll", geometry, true);
       window.removeEventListener("resize", geometry);
-      root.removeEventListener("dragover", dragover, true);
-      root.removeEventListener("drop", dropBlock, true);
     };
   }, [rootEditor, commandEditor, enabled, menuOpen]);
 
@@ -277,7 +290,25 @@ function MarkdownBlockControls() {
     {hover && !slash && <div className="lw-block-handle" data-markdown-block-ui style={{ left: Math.max(8, hover.left - 53), top: hover.top + 1 }}>
       <Button size="icon-xs" variant="ghost" title={t("markdown.blocks.insert")} aria-label={t("markdown.blocks.insert")} onMouseDown={event => event.preventDefault()} onClick={addBelow}><Plus /></Button>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger render={<Button size="icon-xs" variant="ghost" draggable aria-label={t("markdown.blocks.actions")} title={t("markdown.blocks.move_hint")} onDragStart={event => { dragging.current = hover.key; event.dataTransfer.setData(BLOCK_DRAG_TYPE, editorId.current); event.dataTransfer.effectAllowed = "move"; const element = rootEditor.getElementByKey(hover.key); if (element) event.dataTransfer.setDragImage(element, 0, 0); }} onDragEnd={() => { dragging.current = null; setDrop(null); }} />}><GripVertical /></DropdownMenuTrigger>
+        {/* A click opens actions; holding and moving the same handle reorders the block. */}
+        <DropdownMenuTrigger
+          onMouseDown={event => event.preventBaseUIHandler()}
+          onClick={event => {
+            event.preventBaseUIHandler();
+            if (suppressClick.current) { suppressClick.current = false; return; }
+            setMenuOpen(open => !open);
+          }}
+          render={<Button size="icon-xs" variant="ghost" data-block-drag-handle
+            aria-label={t("markdown.blocks.actions")} title={t("markdown.blocks.move_hint")}
+            onPointerDown={event => {
+              if (event.button !== 0 || !event.isPrimary) return;
+              event.preventDefault();
+              suppressClick.current = false;
+              dragging.current = { key: hover.key, pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onLostPointerCapture={() => { dragging.current = null; setDrop(null); }}
+          />}><GripVertical /></DropdownMenuTrigger>
         <DropdownMenuContent data-markdown-block-ui className="min-w-48" side="right">
           <DropdownMenuItem onClick={addBelow}><Plus />{t("markdown.blocks.insert")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => move("up")}><ArrowUp />{t("markdown.blocks.move_up")}</DropdownMenuItem>

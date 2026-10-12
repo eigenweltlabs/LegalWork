@@ -281,3 +281,11 @@ The dedicated YAML view parser, snapshot projection, renderer, sidebar entries, 
 OpenUI boards now retain empty configured stages and provide user-initiated string-property changes. The host derives the page revision and write target from query provenance, rejects report/aggregate/fabricated rows, blocks pending editor drafts, and uses the existing properties API. Server authorization and project-agent write approvals are unchanged.
 
 Validation: `pnpm --filter @legalwork/app typecheck`, `pnpm --filter legalwork-server build`, and `pnpm --filter @legalwork/app test:i18n` passed. The focused Bun suite passed 115 tests (983 assertions) across 14 files, covering property preservation, query provenance, retired-tab restoration, starter content, saved files, source navigation, streaming, and project-agent write approvals. In the running Electron app, a stage selection moved a temporary card into an empty column, refreshed its indexed value and preserved the Markdown body and property comment. Native drag automation did not produce a drop, so mouse dragging remains unverified in this check. The temporary page and dashboard were moved to recoverable trash, and the previous split proportions restored.
+
+## Page block dragging (2026-10-12)
+
+The block handle now distinguishes a click from a pointer drag. Its actions menu opens on click, while a drag captures the pointer, shows an insertion line, and moves the original Lexical block on release. Page margins are valid drop targets; dropping outside the editor, cancelling the pointer, pressing Escape, or losing window focus cancels the move.
+
+Native Electron verification used a temporary Markdown page with paragraphs, bold text, a link, a heading and a list. Dragged a paragraph down and back up through the page margin, moved the heading to the end, and moved adjacent paragraphs. The saved Markdown retained formatting, the link target, heading level and list items, and the reordered page survived reload. Both click and keyboard access to the actions menu worked. The temporary page was removed through recoverable wiki deletion.
+
+Validation: `pnpm exec bun test apps/app/tests/markdown-block-editor.test.ts` passed 17 tests (77 assertions); `pnpm --filter @legalwork/app typecheck` and `git diff --check` passed.
