@@ -101,12 +101,12 @@ export function IntegrationGroupHeading(props: { title: string; count: number; c
   </div>;
 }
 
-export function IntegrationEmptyState(props: { icon: LucideIcon; title: string; description: string; action?: ReactNode }) {
+export function IntegrationEmptyState(props: { icon: LucideIcon; title: string; description?: string; action?: ReactNode }) {
   const Icon = props.icon;
   return <div className="flex flex-col items-center rounded-2xl border border-border bg-muted/20 px-6 py-12 text-center">
     <IconTile className="mb-4"><Icon className="size-5 text-muted-foreground" /></IconTile>
     <h3 className="text-sm font-medium text-foreground">{props.title}</h3>
-    <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{props.description}</p>
+    {props.description ? <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{props.description}</p> : null}
     {props.action ? <div className="mt-5">{props.action}</div> : null}
   </div>;
 }

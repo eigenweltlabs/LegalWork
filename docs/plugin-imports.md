@@ -115,3 +115,7 @@ Native Electron verification covered all three source-tab rows, arrow-key focus 
 Earlier native import checks covered both providers' discovery, folder/ZIP pickers, component review, Change app and focus, complete Claude-folder/ChatGPT-ZIP imports and paused standalone MCP imports. Earlier library checks covered custom connector setup, directory search/filter/detail return, connector account/technical details, sign-out/removal confirmations (cancelled), built-in skill commands, imported package components, single-item sharing, and storage provider search/configuration/Change provider. The desktop dev server remains running for review.
 
 The source-tab underline now sits closer to the text, with less bottom padding and no extra underline offset. This spacing adjustment was verified in Electron; the focused library/import tests passed again (19 tests).
+
+The team connectors explanatory paragraph is removed from the library empty state and shared connector browser. Native Electron verification confirms only the empty-state heading remains. `pnpm --filter @legalwork/app typecheck` and the focused library/import check passed (19 tests).
+
+![Team connectors without the explanatory paragraph](images/integrations-connectors-team-empty.png)

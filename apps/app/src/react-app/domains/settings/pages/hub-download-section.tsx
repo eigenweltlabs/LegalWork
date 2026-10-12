@@ -77,7 +77,7 @@ function kindMeta(kind: EigenweltHubKind): {
   feature: "admin_hub" | "settings_presets";
   icon: React.ReactNode;
   title: string;
-  description: string;
+  description?: string;
   empty: string;
 } {
   switch (kind) {
@@ -96,7 +96,6 @@ function kindMeta(kind: EigenweltHubKind): {
         feature: "admin_hub",
         icon: <Plug className="size-4" />,
         title: t("firm_hub.integrations"),
-        description: t("firm_hub.integrations_desc"),
         empty: t("firm_hub.empty_integrations"),
       };
     case "review_set":
@@ -292,7 +291,7 @@ export function HubDownloadSection({
           {meta.icon}
           <h3 className="text-md font-semibold">{meta.title}</h3>
         </div>
-        <p className="text-sm text-subtext">{meta.description}</p>
+        {meta.description ? <p className="text-sm text-subtext">{meta.description}</p> : null}
         <button
           type="button"
           onClick={() => upsell.open()}
@@ -317,7 +316,7 @@ export function HubDownloadSection({
         {meta.icon}
         <h3 className="text-md font-semibold">{meta.title}</h3>
       </div>
-      <p className="text-sm text-subtext">{meta.description}</p>
+      {meta.description ? <p className="text-sm text-subtext">{meta.description}</p> : null}
       {members.length > 1 ? (
         <div className="flex items-center gap-2">
           <span className="text-xs text-subtext">{t("firm_hub.filter_by_member")}</span>
