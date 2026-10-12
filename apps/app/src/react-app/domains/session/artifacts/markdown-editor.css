@@ -37,9 +37,12 @@
 .lw-markdown-tools > [role="group"] { gap: 1px; }
 .lw-markdown-editor .mdxeditor-diff-source-wrapper { flex: 1; min-height: 0; overflow: auto; }
 .lw-markdown-editor .mdxeditor-root-contenteditable { min-height: 100%; }
-.lw-markdown-editor .lw-markdown-page {
+.lw-markdown-editor .lw-markdown-page,
+.lw-markdown-editor .mdxeditor-source-editor {
   box-sizing: border-box; width: 100%; max-width: 880px; margin: 0 auto; min-height: 100%;
   padding: 52px clamp(32px, 4vw, 56px) 100px;
+}
+.lw-markdown-editor .lw-markdown-page {
   font-size: 16px; line-height: 1.75; outline: none; overflow-wrap: anywhere;
 }
 /* Embedded views use OpenUI typography and tables, not the surrounding document styles. */

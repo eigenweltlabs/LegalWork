@@ -227,7 +227,8 @@
 .wiki-page-header .wiki-property-name > span::first-letter { text-transform: uppercase; }
 /* The read-only preview repeats the title already shown above properties. */
 .wiki-page-header[data-leading-heading="true"] ~ .wiki-reader .wiki-preview > h1:first-of-type { display: none; }
-.wiki-page-header ~ .wiki-markdown-editor .lw-markdown-page { padding-top: 28px; }
+.wiki-page-header ~ .wiki-markdown-editor .lw-markdown-page,
+.wiki-page-header ~ .wiki-markdown-editor .mdxeditor-source-editor { padding-top: 28px; }
 .wiki-page-header ~ .wiki-reader { padding: 28px clamp(32px, 4vw, 56px) 48px; max-width: 880px; margin: 0 auto; }
 .wiki-page-header ~ .wiki-reader .wiki-preview { max-width: none; }
 .wiki-markdown-editor { min-height: 320px; }
@@ -237,4 +238,5 @@
 .wiki-page-with-backlinks > .wiki-markdown-editor,
 .wiki-page-with-backlinks > .wiki-markdown-editor > .lw-markdown-editor { min-height: 0; }
 .wiki-page-with-backlinks .lw-markdown-page,
+.wiki-page-with-backlinks .mdxeditor-source-editor,
 .wiki-page-with-backlinks > .wiki-reader { padding-bottom: 0; }
