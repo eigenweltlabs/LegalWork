@@ -110,6 +110,17 @@ async function runFixture(injectTimestamp: boolean) {
     config.opencodeBaseUrl = engine.url;
     config.opencodeUsername = engine.username;
     config.opencodePassword = engine.password;
+    // /global/health only proves the process is listening. A cold workspace
+    // still installs/loads the normal npm plugins and discovers connectors.
+    // Complete that bounded startup phase before using ordinary API deadlines.
+    const agentDiscovery = await fetch(engine.url + "/agent", {
+      headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` },
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!agentDiscovery.ok) throw new Error(`Production agent discovery failed: ${agentDiscovery.status} ${await agentDiscovery.text()}`);
+    const agents = z.array(z.object({ name: z.string() })).parse(await agentDiscovery.json());
+    expect(agents.some(agent => agent.name === "legalwork")).toBe(true);
+    expect(agents.some(agent => agent.name === "explore")).toBe(true);
   };
   const prompt = async (text: string, context: string) => {
     if (!server) throw new Error("LegalWork server unavailable");
