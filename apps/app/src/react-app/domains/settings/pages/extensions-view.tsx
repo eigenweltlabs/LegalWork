@@ -1,16 +1,15 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 /** @jsxImportSource react */
 import { useEffect, useState, type ReactNode } from "react";
-import { Download, MoreHorizontal, RefreshCw, Share2 } from "lucide-react";
+import { Download } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
-import { IntegrationLibraryLayoutContext } from "./integration-library";
+import { IntegrationLibraryLayoutContext, IntegrationMoreMenu } from "./integration-library";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -51,8 +50,6 @@ export type ExtensionsViewProps = {
   storageView?: ReactNode;
   /** Skills tab — built-in, installed and imported skills, with add/import. */
   skillsView: ReactNode;
-  /** Opens the multi-select "Share with your firm" dialog. */
-  onOpenTeamShare?: () => void;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: "mcp" | "skills" | "plugins" | "storage") => void;
@@ -93,9 +90,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   const TABS = tabs(props.developerMode);
+  const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, onRefresh: refresh, revision: importVersion }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -105,13 +103,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <div className="flex max-w-full flex-wrap items-center gap-2">
             {props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {props.onOpenTeamShare && tab !== "storage" ? <DropdownMenuItem onClick={props.onOpenTeamShare}><Share2 />{t("extensions.share_with_firm")}</DropdownMenuItem> : null}
-                <DropdownMenuItem disabled={props.busy} onClick={() => { setImportVersion(value => value + 1); props.onRefresh(); }}><RefreshCw />{t("common.refresh")}</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
           </div>
         </div>
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }} /> : null}
@@ -120,7 +112,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />
         </div>
 
-        <HubScopeContext.Provider key={importVersion} value="local">
+        <HubScopeContext.Provider value="local">
           {tab === "connectors" ? props.mcpView : null}
 
           {tab === "storage" ? props.storageView : null}

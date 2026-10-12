@@ -1,14 +1,14 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, MoreHorizontal, Plus, Search, X, type LucideIcon } from "lucide-react";
+import { ChevronDown, Download, Info, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 
 /** The page owns toolbar positions; each library keeps its own actions and search state. */
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; onRefresh?: () => void; revision?: number } | null>(null);
 
 export function useIntegrationLibraryLayout() {
   return useContext(IntegrationLibraryLayoutContext);
@@ -20,15 +20,33 @@ export function IntegrationLibraryActions({ children }: { children: ReactNode })
   return children;
 }
 
-export function IntegrationAddMenu(props: { children: ReactNode; disabled?: boolean }) {
+export type IntegrationAddAction = { label: string; onClick: () => void | Promise<void>; icon: LucideIcon; disabled?: boolean };
+
+export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean }) {
+  const [only] = props.actions;
+  if (props.actions.length === 1 && only) return <Button size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{t("common.add")}</Button>;
   return <DropdownMenu>
     <DropdownMenuTrigger render={<Button size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
-    <DropdownMenuContent align="end">{props.children}</DropdownMenuContent>
+    <DropdownMenuContent align="end">{props.actions.map(action => { const Icon = action.icon; return <DropdownMenuItem key={action.label} disabled={action.disabled} onClick={action.onClick}><Icon />{action.label}</DropdownMenuItem>; })}</DropdownMenuContent>
+  </DropdownMenu>;
+}
+
+/** Library tools first, refresh last. This menu never creates or shares an unrelated item. */
+export function IntegrationMoreMenu(props: { children?: ReactNode; busy?: boolean; onRefresh?: () => void }) {
+  const layout = useIntegrationLibraryLayout();
+  const refresh = layout?.onRefresh ?? props.onRefresh;
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("integrations.more_actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      {props.children}
+      {props.children ? <DropdownMenuSeparator /> : null}
+      <DropdownMenuItem disabled={props.busy || !refresh} onClick={refresh}><RefreshCw />{t("common.refresh")}</DropdownMenuItem>
+    </DropdownMenuContent>
   </DropdownMenu>;
 }
 
 /** Every library uses the same click-to-open row and trailing action menu. */
-export function IntegrationLibraryRow(props: { name: string; description: string; icon: ReactNode; source?: ReactNode; status?: ReactNode; busy?: boolean; onOpen: () => void; openLabel?: string; actions?: ReactNode }) {
+export function IntegrationLibraryRow(props: { name: string; description: string; icon: ReactNode; source?: ReactNode; status?: ReactNode; busy?: boolean; onOpen: () => void; onEdit?: () => void; onExport?: () => void; onShare?: () => void; onRemove?: () => void; actions?: ReactNode }) {
   return <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-muted/30">
     <button type="button" onClick={props.onOpen} aria-haspopup="dialog" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       {props.icon}
@@ -39,8 +57,12 @@ export function IntegrationLibraryRow(props: { name: string; description: string
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.item_actions", { name: props.name })} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={props.onOpen}>{props.openLabel ?? t("integrations.view_details")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={props.onOpen}><Info />{t("integrations.view_details")}</DropdownMenuItem>
+        {props.onEdit ? <DropdownMenuItem onClick={props.onEdit}><Pencil />{t("common.edit")}</DropdownMenuItem> : null}
+        {props.onExport ? <DropdownMenuItem onClick={props.onExport}><Download />{t("skill_export.action")}</DropdownMenuItem> : null}
+        {props.onShare ? <DropdownMenuItem onClick={props.onShare}><Share2 />{t("firm_hub.share_with_firm")}</DropdownMenuItem> : null}
         {props.actions}
+        {props.onRemove ? <><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onClick={props.onRemove}><Trash2 />{t("common.remove")}</DropdownMenuItem></> : null}
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;

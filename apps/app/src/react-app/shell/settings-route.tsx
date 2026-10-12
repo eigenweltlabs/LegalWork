@@ -891,6 +891,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [teamShareInitial, setTeamShareInitial] = useState<{
     kind: "skill" | "workflow" | "mcp" | "review_set";
     ref: string;
+    label?: string;
   } | null>(null);
   // The prompt library shares prompt sets only; every other entry point offers all kinds.
   const [teamShareKinds, setTeamShareKinds] = useState<Array<"review_set"> | null>(null);
@@ -899,12 +900,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // JSX below with the same client + workspace.
 
   const shareWorkflowWithFirm = useCallback(
-    async (skillName: string, kind: "skill" | "workflow") => {
+    async (skillName: string, kind: "skill" | "workflow", label?: string) => {
       if (!legalworkClient || !hubWorkspaceId) {
         toast.error(t("app.error_connect_first"));
         return;
       }
-      setTeamShareInitial({ kind, ref: skillName });
+      setTeamShareInitial({ kind, ref: skillName, label });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -924,12 +925,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
 
   const shareIntegrationWithFirm = useCallback(
-    async (mcpName: string) => {
+    async (mcpName: string, label?: string) => {
       if (!legalworkClient || !hubWorkspaceId) {
         toast.error(t("app.error_connect_first"));
         return;
       }
-      setTeamShareInitial({ kind: "mcp", ref: mcpName });
+      setTeamShareInitial({ kind: "mcp", ref: mcpName, label });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -2434,10 +2435,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
-            onOpenTeamShare={canShareWithFirm ? () => {
-              setTeamShareInitial(null);
-              setTeamShareOpen(true);
-            } : undefined}
           />
         );
       case "advanced":

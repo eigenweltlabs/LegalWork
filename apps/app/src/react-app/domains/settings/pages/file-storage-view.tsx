@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -139,7 +139,10 @@ export function FileStorageView({
     );
   return (
     <div className="space-y-6">
-      <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={<IntegrationAddMenu disabled={busy || !canAdd}><DropdownMenuItem onClick={() => { setProviderSearch(""); setPickerOpen(true); }}><Plus />{t("storage.add")}</DropdownMenuItem></IntegrationAddMenu>} />
+      <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={<>
+        <IntegrationAddMenu disabled={busy || !canAdd} actions={[{ label: t("storage.add"), icon: Plus, onClick: () => { setProviderSearch(""); setPickerOpen(true); } }]} />
+        <IntegrationMoreMenu busy={busy} onRefresh={refresh} />
+      </>} />
       {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
       <IntegrationSearch toolbar value={search} onChange={setSearch} label={t("integrations.search_storage")} />
       {(error || connections.error) && (
@@ -172,10 +175,9 @@ export function FileStorageView({
                 <IntegrationLibraryRow key={connection.id} name={connection.name} description={`${storageProviderName(connection)} · ${t(connection.readOnly ? "storage.read_only" : "storage.read_write")}`}
                   icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></span>}
                   source={connection.team ? t("firm_hub.scope_team") : undefined} busy={busy} onOpen={() => setDetailId(connection.id)}
-                  actions={connection.team ? connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined : <>
-                    <DropdownMenuItem onClick={() => setEditor({ kind: connection.config.kind, connection })}>{t("common.edit")}</DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onClick={() => setRemoving(connection)}><Trash2 />{t("storage.remove_connection", { name: connection.name })}</DropdownMenuItem>
-                  </>} />
+                  onEdit={!connection.team ? () => setEditor({ kind: connection.config.kind, connection }) : undefined}
+                  onRemove={!connection.team ? () => setRemoving(connection) : undefined}
+                  actions={connection.team && connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined} />
               );
             })}
           </div>

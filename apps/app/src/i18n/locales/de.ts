@@ -30,6 +30,11 @@ const de = {
   "integrations.view_details": "Details anzeigen",
   "integrations.skill_commands": "Starten Sie diesen Skill mit diesen Befehlen im Chat.",
   "integrations.browse_team_skills": "Team-Skills durchsuchen",
+  "integrations.import_skill_files": "Skill-Dateien importieren",
+  "integrations.import_skill_files_description": "Importieren Sie Skills aus einem GitHub-Repository, einem Ordner oder einer ZIP-Datei.",
+  "firm_hub.skills": "Geteilte Skills",
+  "firm_hub.skills_desc": "Skills Ihrer Kanzlei. Automatisch hinzugefügte Skills stehen bereits in Ihrer Liste; optionale Skills können Sie bei Bedarf hinzufügen.",
+  "firm_hub.empty_skills": "Ihre Kanzlei hat noch keine Skills geteilt.",
   "integrations.connector_details": "Verwalten Sie diese Verbindung und ihre Nutzung in Ihren Chats.",
   "integrations.connector_chat_access": "In Chats verwenden",
   "integrations.connector_account_access": "Kontozugriff",
@@ -3895,10 +3900,10 @@ const de = {
   "skills.source_label": "Quelle",
   "skills.title": "Skills",
   "skills.trigger_label": "Auslöser: {trigger}",
-  "skills.uninstall": "Deinstallieren",
+  "skills.uninstall": "Entfernen",
   "skills.uninstall_failed": "Der Skill konnte nicht deinstalliert werden.",
-  "skills.uninstall_title": "Skill deinstallieren?",
-  "skills.uninstall_warning": "Dadurch wird der Skill `{name}` dauerhaft aus Ihrem Workspace gelöscht.",
+  "skills.uninstall_title": "Skill entfernen?",
+  "skills.uninstall_warning": "Dadurch werden {name} und die zugehörigen Dateien aus Ihrer Skill-Bibliothek gelöscht.",
   "skills.uninstalled": "Skill entfernt.",
   "skills.unknown_error": "Unbekannter Fehler",
   "skills.worker_profile_desc":
@@ -5218,7 +5223,7 @@ const de = {
   "computer_use.intro":
     "Computer Use funktioniert nur auf dem Mac. Verbinden Sie den lokalen MCP-Server und erteilen Sie die macOS-Berechtigungen, die er zur Steuerung von Apps braucht.",
   "skills.new_skill_desc":
-    "Beschreiben Sie, wann der Agent diesen Skill einsetzen soll und was zu tun ist. Wird als SKILL.md in Ihrem Workspace gespeichert.",
+    "Beschreiben Sie, wann der Agent diesen Skill einsetzen soll und was zu tun ist. Er wird in Ihrer Skill-Bibliothek gespeichert.",
   "skills.add_workflow": "Workflow hinzufügen",
   "skills.tabular_desc": "Vergleichen Sie Dokumente anhand definierter Fragen in einer gespeicherten Projektprüfung.",
   "skills.assistant_desc":

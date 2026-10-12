@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Plus, Search } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { storageInputSchema } from "@legalwork/types/file-storage";
@@ -7,11 +8,22 @@ import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains
 import { BuiltInSkills } from "../src/react-app/domains/settings/pages/skill-packages";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
-import { IntegrationLibraryLayoutContext } from "../src/react-app/domains/settings/pages/integration-library";
+import { IntegrationAddMenu, IntegrationLibraryLayoutContext } from "../src/react-app/domains/settings/pages/integration-library";
 
 const noop = () => {};
 const ok = async () => ({ ok: true, message: "" });
 const unused = async (): Promise<never> => { throw new Error("Must not execute during rendering"); };
+
+test("a single Add action is a direct button; alternate creation paths use a menu", () => {
+  const add = { label: "New skill", icon: Plus, onClick: noop };
+  const single = renderToStaticMarkup(<IntegrationAddMenu actions={[add]} />);
+  expect(single).toContain('title="New skill"');
+  expect(single).not.toContain('aria-haspopup="menu"');
+  expect(single).not.toContain("lucide-chevron-down");
+  const multiple = renderToStaticMarkup(<IntegrationAddMenu actions={[{ label: "Browse directory", icon: Search, onClick: noop }, add]} />);
+  expect(multiple).toContain('aria-haspopup="menu"');
+  expect(multiple).toContain("lucide-chevron-down");
+});
 const skills = Array.from({ length: 13 }, (_, index) => ({ name: `skill-${index + 1}`, path: `/skills/skill-${index + 1}`, description: `Skill number ${index + 1}` }));
 const extensions: SkillsExtensionsStore = {
   skills: () => skills, skillsStatus: () => null, hubSkills: () => [], hubSkillsStatus: () => null, hubRepo: () => null, hubRepos: () => [],

@@ -1,10 +1,9 @@
 import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { Blocks, Loader2, Package, Trash2 } from "lucide-react";
+import { Blocks, Loader2, Package } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { t } from "@/i18n";
@@ -94,7 +93,7 @@ export function ImportedPackages(props: {
         {visiblePackages.map((plugin) => (
           <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType))}
             icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
-            actions={<DropdownMenuItem variant="destructive" onClick={() => setRemoving(plugin)}><Trash2 />{t("skills.package_remove")}</DropdownMenuItem>} />
+            onRemove={() => setRemoving(plugin)} />
         ))}
       </div>
       <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>

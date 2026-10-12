@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationLibraryLayout } from "./integration-library";
 import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
@@ -195,7 +195,7 @@ export type SkillsViewProps = {
   onOpenTemplateGenerationSession?: () => void;
   /** Firm Hub: share a skill/workflow folder org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (skillName: string, kind: "skill" | "workflow") => void | Promise<void>;
+  onShareWithFirm?: (skillName: string, kind: "skill" | "workflow", displayName?: string) => void | Promise<void>;
   /** Firm Hub: "download workflows shared with your firm" section (self-gating). */
   firmDownloadView?: ReactNode;
   /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
@@ -747,12 +747,14 @@ export function SkillsView(props: SkillsViewProps) {
                   onCreate={extensions.createSkill}
                   saveSkillResource={extensions.saveSkillResource}
                 />
-                {libraryLayout ? <IntegrationAddMenu disabled={props.busy}>
-                    <DropdownMenuItem onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); }}><Plus />{t("skills.new_skill")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("skills.import_skills_title")}</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+                {libraryLayout ? <>
+                  <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} />
+                  <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
                     {props.firmDownloadView ? <DropdownMenuItem onClick={() => setTeamSkillsOpen(true)}><Share2 />{t("integrations.browse_team_skills")}</DropdownMenuItem> : null}
-                </IntegrationAddMenu> : null}
+                    <DropdownMenuItem disabled={props.busy} onClick={async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillsImportOpen(true); }}><Download />{t("integrations.import_skill_files")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+                  </IntegrationMoreMenu>
+                </> : null}
               </>
             )}
             {isWorkflowsView || props.showHeader !== false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} onClick={refreshCatalogs} title={t("common.refresh")} aria-label={t("common.refresh")}><RefreshCw className="size-4" /></Button> : null}
@@ -835,7 +837,7 @@ export function SkillsView(props: SkillsViewProps) {
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
                   if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? t("firm_hub.scope_team") : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
                     onExport={!skill.firm && props.canUseDesktopTools ? () => void exportSkill(skill) : undefined}
-                    onShare={!skill.firm && props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(skill.name, "skill") : undefined}
+                    onShare={!skill.firm && props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(skill.name, "skill", displayName) : undefined}
                     onRemove={!skill.firm && props.canUseDesktopTools ? () => setUninstallTarget(skill) : undefined} />;
                   // The firm's skill follows its hub: members read it, but cannot change or remove it here.
                   if (skill.firm) {
@@ -990,7 +992,7 @@ export function SkillsView(props: SkillsViewProps) {
 
       {showLocal && !isWorkflowsView ? (
         <>
-          {libraryFilter === "packages" ? <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision} searchQuery={searchQuery} showEmpty={libraryFilter === "packages"} /> : null}
+          {libraryFilter === "packages" ? <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout?.revision ?? 0)} searchQuery={searchQuery} showEmpty={libraryFilter === "packages"} /> : null}
           {libraryFilter === "all" || libraryFilter === "built-in" ? <BuiltInSkills searchQuery={searchQuery} showEmpty={libraryFilter === "built-in"} /> : null}
         </>
       ) : null}
@@ -1878,10 +1880,9 @@ export function ImportSkillsButton(props: {
       >
         <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("skills.import_skills_title")}</DialogTitle>
+            <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("integrations.import_skill_files")}</DialogTitle>
             <DialogDescription>
-              Bring in {noun} folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md.
-              {asWorkflow ? " Imported items are added as workflows." : ""}
+              {asWorkflow ? "Bring in workflow folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md. Imported items are added as workflows." : t("integrations.import_skill_files_description")}
             </DialogDescription>
           </DialogHeader>
 

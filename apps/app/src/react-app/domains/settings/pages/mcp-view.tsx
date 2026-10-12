@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { IntegrationAddMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
@@ -136,7 +136,7 @@ export type McpViewProps = {
   builtInExtensionDisabled?: (entry: McpDirectoryInfo) => boolean;
   /** Firm Hub: share an MCP server entry org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
+  onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
   /** Firm Hub: "download integrations shared with your firm" section (self-gating). */
   firmDownloadView?: React.ReactNode;
   /** Team connectors join the configured library with their hub-owned controls. */
@@ -608,10 +608,13 @@ export function McpView(props: McpViewProps) {
     <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-5 empty:hidden">
         {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
-        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <IntegrationAddMenu disabled={props.busy}>
-          <DropdownMenuItem disabled={connectorsForbidden} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); }}><Plus />{t("integrations.add_connector")}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setDirectoryOpen(true)}><Search />{t("mcp.browse_directory")}</DropdownMenuItem>
-        </IntegrationAddMenu> : undefined} />
+        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <>
+          <IntegrationAddMenu disabled={props.busy} actions={[
+            { label: t("mcp.browse_directory"), icon: Search, onClick: () => setDirectoryOpen(true) },
+            { label: t("mcp.add_modal_title"), icon: Plus, disabled: connectorsForbidden, onClick: async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); } },
+          ]} />
+          <IntegrationMoreMenu busy={props.busy} />
+        </> : undefined} />
         <OrgPolicyNote policyKey="connectors.allowCustom" />
 
         {showInternalToggle ? (
@@ -999,7 +1002,7 @@ function McpQuickConnectSection(props: {
   onConnect: (entry: McpDirectoryInfo) => void;
   onDetail: (entry: McpDirectoryInfo) => void;
   shareRefForEntry?: (entry: McpDirectoryInfo) => string | null;
-  onShareMcp?: (mcpName: string) => void | Promise<void>;
+  onShareMcp?: (mcpName: string, displayName?: string) => void | Promise<void>;
   onSkillDetail?: (skill: SkillItem) => void;
   onPluginDetail?: (plugin: ImportedPlugin) => void;
 }) {
@@ -1220,7 +1223,7 @@ function McpConfiguredServersSection(props: {
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
+  onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
 }) {
   const renderLibrary = (firmItems: FirmHubItem[]) => {
     const query = props.search.trim().toLowerCase();
@@ -1318,11 +1321,13 @@ function McpConfiguredServerRow(props: {
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
+  onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
 }) {
   return (
     <>
-      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<McpConnectorStatus {...props} />} />
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<McpConnectorStatus {...props} />}
+        onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
+        onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />
     </>
   );
@@ -1377,9 +1382,9 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </div>
       {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
       <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
-        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
+        {props.entry.source !== "config.global" ? <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button> : null}
         <div className="flex items-center gap-2">
-          {props.canShareWithFirm && props.onShareWithFirm ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => void props.onShareWithFirm?.(props.entry.name)}><Share2 className="size-4" />{t("firm_hub.share_with_firm")}</Button> : null}
+          {props.canShareWithFirm && props.onShareWithFirm ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name))}><Share2 className="size-4" />{t("firm_hub.share_with_firm")}</Button> : null}
           <Button size="sm" onClick={() => props.onSelect(null)}>{t("common.close")}</Button>
         </div>
       </DialogFooter>
