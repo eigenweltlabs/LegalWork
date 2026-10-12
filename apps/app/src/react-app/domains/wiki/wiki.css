@@ -216,7 +216,9 @@
 
 .wiki-editor-content { display: block; overflow-y: auto; }
 .wiki-page-header { box-sizing: border-box; width: 100%; max-width: 880px; margin: 0 auto; padding: 44px clamp(32px, 4vw, 56px) 0; }
-.wiki-page-title { margin: 0 0 22px; font-size: clamp(25px, 3.4cqw, 34px); line-height: 1.25; letter-spacing: -.025em; font-weight: 600; overflow-wrap: anywhere; }
+.wiki-page-title-row { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 22px; }
+.wiki-page-title { flex: 1; min-width: 0; margin: 0; font-size: clamp(25px, 3.4cqw, 34px); line-height: 1.25; letter-spacing: -.025em; font-weight: 600; overflow-wrap: anywhere; }
+.wiki-page-options { flex: none; padding-top: 4px; }
 .wiki-page-title-input { display: block; box-sizing: border-box; width: 100%; field-sizing: content; resize: none; overflow: hidden; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; outline: none; }
 .wiki-page-title-input:focus-visible { box-shadow: 0 1px var(--border); }
 .wiki-page-header > .wiki-properties { margin: 0; padding: 0; border: 0; }

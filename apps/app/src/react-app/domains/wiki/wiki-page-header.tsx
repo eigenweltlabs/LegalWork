@@ -15,10 +15,13 @@ function EditableTitle({ title, onCommit }: { title: string; onCommit: (title: s
   }} />;
 }
 
-export function WikiPageHeader(props: WikiPropertiesEditorProps & { fallbackTitle: string }) {
+export function WikiPageHeader(props: WikiPropertiesEditorProps & { fallbackTitle: string; toolbarRef?: (element: HTMLDivElement | null) => void }) {
   const heading = useMemo(() => wikiPageHeading(props.content, props.fallbackTitle), [props.content, props.fallbackTitle]);
   return <header className="wiki-page-header" data-leading-heading={Boolean(heading.heading)}>
-    <h1 className="wiki-page-title">{props.readOnly ? heading.title : <EditableTitle key={heading.title} title={heading.title} onCommit={title => props.onChange(setWikiPageHeading(props.content, title))} />}</h1>
+    <div className="wiki-page-title-row">
+      <h1 className="wiki-page-title">{props.readOnly ? heading.title : <EditableTitle key={heading.title} title={heading.title} onCommit={title => props.onChange(setWikiPageHeading(props.content, title))} />}</h1>
+      {!props.readOnly && <div ref={props.toolbarRef} className="wiki-page-options" />}
+    </div>
     <WikiPropertiesEditor {...props} />
   </header>;
 }

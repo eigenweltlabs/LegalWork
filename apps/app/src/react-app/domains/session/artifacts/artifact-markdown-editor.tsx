@@ -1,5 +1,6 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
 import { useEffect, useMemo, useRef, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import {
   MDXEditor, type MDXEditorMethods,
   headingsPlugin, listsPlugin, quotePlugin, linkPlugin, linkDialogPlugin,
@@ -33,6 +34,8 @@ type Props = {
   viewModeRequest?: { mode: ViewMode };
   linkSuggestions?: string[];
   LinkDialog?: () => ReactElement;
+  /** Place page options beside an external title instead of above the editor body. */
+  toolbarTarget?: HTMLElement | null;
   onOpenLink?: (url: string) => void;
   suppressHtmlProcessing?: boolean;
   /** Render typed properties outside the editor while keeping full-file Source editing. */
@@ -41,7 +44,7 @@ type Props = {
   serializeRichText?: (previous: string, body: string) => string;
 };
 
-function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
+function MarkdownToolbar({ rawMarkdown, showLink = true }: { rawMarkdown: () => string; showLink?: boolean }) {
   const mode = useCellValue(viewMode$);
   const readOnly = useCellValue(readOnly$);
   const editLink = usePublisher(openLinkEditDialog$);
@@ -55,7 +58,7 @@ function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
     if (next !== "rich-text") changeSource(raw);
   };
   return <div className="lw-markdown-tools">
-    {mode === "rich-text" && !readOnly && <Button size="icon-sm" variant="ghost" aria-label={t("markdown.toolbar.link")} title={t("markdown.toolbar.link")} onMouseDown={event => event.preventDefault()} onClick={() => activeEditor?.focus(() => editLink(), { defaultSelection: "rootEnd" })}><Link /></Button>}
+    {showLink && mode === "rich-text" && !readOnly && <Button size="icon-sm" variant="ghost" aria-label={t("markdown.toolbar.link")} title={t("markdown.toolbar.link")} onMouseDown={event => event.preventDefault()} onClick={() => activeEditor?.focus(() => editLink(), { defaultSelection: "rootEnd" })}><Link /></Button>}
     {mode !== "rich-text" && sourceRequired && <span className="lw-source-note" role="status">{t("markdown.blocks.source_required")}</span>}
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={t("markdown.page.options")} />}><Ellipsis /></DropdownMenuTrigger>
@@ -68,7 +71,7 @@ function MarkdownToolbar({ rawMarkdown }: { rawMarkdown: () => string }) {
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const initialMode = useRef<ViewMode>(requiresMarkdownSource(value) ? "source" : viewModeRequest?.mode ?? "rich-text");
@@ -145,8 +148,10 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     ...(extensions ?? []),
     markdownShortcutPlugin(),
     markdownBlocksPlugin(),
-    toolbarPlugin({ toolbarContents: () => <MarkdownToolbar rawMarkdown={() => lastValue.current} /> }),
-  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, onOpenLink, externalFrontmatter, readOnly]);
+    toolbarPlugin({ toolbarContents: () => toolbarTarget === undefined
+      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} />
+      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} />, toolbarTarget) : null }),
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, externalFrontmatter, readOnly]);
 
   useEffect(() => {
     if (value === lastValue.current) return;
@@ -163,7 +168,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
       return translated === translationKey ? defaultValue : translated;
     }}
-    className="lw-markdown-editor"
+    className={toolbarTarget === undefined ? "lw-markdown-editor" : "lw-markdown-editor lw-markdown-external-toolbar"}
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}

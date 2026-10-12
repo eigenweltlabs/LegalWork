@@ -31,6 +31,7 @@
   border-radius: 8px; border: 0; padding: 0;
   background: var(--background); z-index: 2;
 }
+.lw-markdown-external-toolbar .mdxeditor-toolbar { display: none; }
 .lw-markdown-tools { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
 .lw-markdown-tools-spacer { flex: 1; }
 .lw-markdown-tools > [role="group"] { gap: 1px; }
