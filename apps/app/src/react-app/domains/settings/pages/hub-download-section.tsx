@@ -304,7 +304,7 @@ export function HubDownloadSection({
   }
 
   return (
-    <div className={kind === "workflow" ? "flex h-full min-h-0 flex-col gap-2" : "space-y-2"}>
+    <div className={kind === "workflow" ? "flex h-full min-h-0 flex-col gap-2" : library ? "space-y-1 empty:hidden" : "space-y-2"}>
       {library ? <>
         {listQuery.isLoading ? <p role="status" className="text-sm text-muted-foreground">{t("firm_hub.loading")}</p> : null}
         {listQuery.error ? <p role="alert" className="text-sm text-destructive">{listQuery.error.message}</p> : null}

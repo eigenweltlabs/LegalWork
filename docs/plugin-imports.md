@@ -86,6 +86,8 @@ Import, Add and More use the same styles and positions. Add offers Connector, Sk
 
 Rows use the same icon, name, description and action menu. View details comes first, followed by supported Edit, Export and Share actions, then separated Remove. Sharing reviews only the selected item. Optional team membership retains its confirmation, installed team skills retain their read-only resource viewer, and automatic items remain firm-managed. Connector account/enablement controls and storage membership stay in details. Unavailable expand arrows, Ready/Paused labels, the sync indicator and the global project-availability badge are removed. Team empty states consistently say no items have been shared by your firm yet, without extra explanatory paragraphs.
 
+Personal, team and built-in skills use the same row spacing across their list boundaries. The old section margin is removed in the embedded library, and an empty team catalogue contributes no blank space. Native Electron verified the personal-to-built-in boundary; the focused 20-test suite and app type checking passed again.
+
 Latest checks:
 
 - `pnpm --filter @legalwork/app exec bun test tests/plugin-import-buttons.test.tsx tests/integration-libraries.test.tsx tests/mcp-library.test.tsx` — 20 passed. Coverage includes source isolation, complete team catalogue rendering and deduplication, embedded search, built-in command search and storage ownership restrictions.

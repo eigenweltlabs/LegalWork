@@ -656,7 +656,7 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : "space-y-6 w-full max-w-5xl"}>
+    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : libraryLayout ? "space-y-1 w-full max-w-5xl" : "space-y-6 w-full max-w-5xl"}>
       <div className={isWorkflowsView ? "space-y-7" : "space-y-5"}>
         <div className={libraryLayout ? "contents" : "flex flex-wrap items-start justify-between gap-4"}>
           <div className={libraryLayout ? "hidden" : "min-w-0 flex-1 basis-64"}>
