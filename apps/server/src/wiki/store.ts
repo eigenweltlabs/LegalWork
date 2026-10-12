@@ -461,7 +461,8 @@ export class WikiStore {
       const index = await this.index(id), pages = resolveWikiLinks([...index.values()].map((row) => row.page));
       for (const row of index.values()) if (row.warning) warnings.push(`${row.path}: ${row.warning}`);
       const syncStatus: WikiSyncStatus = { state: wiki.sync ? "idle" : "local", lastSyncedAt: null, error: null, conflicts: [] };
-      return { wiki: { ...wiki, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, warnings };
+      const isDefaultLocation = wiki.root === await canonicalFolderPath(join(this.baseDir, "wikis", wiki.id));
+      return { wiki: { ...wiki, isDefaultLocation, writable: !this.config.readOnly, pageCount: pages.length, totalBytes: files.reduce((total, file) => total + file.size, 0), syncStatus }, pages, assets: files.filter((file) => !isMarkdown(file.path)), folders, warnings };
     });
   }
   async indexedPages(id: string) {

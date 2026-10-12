@@ -33,6 +33,8 @@ export type WikiRegistration = {
   sync: WikiSyncSettings | null;
 };
 export type WikiVault = WikiRegistration & {
+  /** True when files use this host's default managed wiki folder. */
+  isDefaultLocation?: boolean;
   writable: boolean;
   pageCount: number;
   totalBytes: number;

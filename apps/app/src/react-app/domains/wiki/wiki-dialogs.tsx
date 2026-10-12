@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, FileText, FolderOpen, History, Loader2, RotateCcw, Trash2, UserRound, Users } from "lucide-react";
+import { Check, ChevronDown, Copy, FileText, FolderOpen, History, Loader2, RotateCcw, Trash2, UserRound, Users } from "lucide-react";
 import type { WikiCreateInput, WikiPage, WikiSharingInput, WikiTeamOverview, WikiUpdateInput, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { pickDirectory } from "@/app/lib/desktop";
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { t } from "@/i18n";
 import { wikiNewPagePath } from "./wiki-model";
@@ -163,7 +164,19 @@ export function WikiSettingsDialog(props: { client: LegalworkServerClient; serve
           <div className="wiki-dialog-body max-h-[60vh] overflow-y-auto px-6 py-5">
             <TabsContent value="general" keepMounted className="space-y-5">
               <label className="grid gap-2 text-sm font-medium">{t("wiki.name")}<Input required disabled={working} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label>
-              <details className="group rounded-xl border px-4 py-3"><summary className="flex cursor-pointer list-none items-center gap-2 text-sm"><FolderOpen size={16} className="text-muted-foreground" />{t("wiki.local_files")}<ChevronDown size={14} className="ml-auto text-muted-foreground transition-transform group-open:rotate-180" /></summary><div className="space-y-4 pt-4"><div><p className="mb-2 text-xs text-muted-foreground">{t("wiki.folder")}</p><p className="select-text break-all rounded-lg bg-muted/30 p-3 font-mono text-xs leading-relaxed">{props.wiki.root}</p></div><div className="border-t pt-3"><p className="text-xs leading-relaxed text-muted-foreground">{t("wiki.forget_hint")}</p><Button size="sm" variant="ghost" className="-ml-2 mt-2 text-destructive" type="button" disabled={working} onClick={() => { if (removeConfirm) void run(props.onForget); else setRemoveConfirm(true); }}><Trash2 size={14} />{t(removeConfirm ? "wiki.forget_confirm" : "wiki.forget")}</Button></div></div></details>
+              <details className="group rounded-xl border px-4 py-3">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm"><FolderOpen size={16} className="text-muted-foreground" />{t("wiki.local_files")}<ChevronDown size={14} className="ml-auto text-muted-foreground transition-transform group-open:rotate-180" /></summary>
+                <div className="space-y-4 pt-4">
+                  {!props.wiki.isDefaultLocation ? <div className="border-b pb-4">
+                    <p className="mb-2 text-xs text-muted-foreground">{t("wiki.folder")}</p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="min-w-0 flex-1" title={props.wiki.root}><p className="truncate text-sm font-medium">{props.wiki.root.split(/[/\\]/).filter(Boolean).at(-1) ?? props.wiki.root}</p><p className="select-text truncate text-xs text-muted-foreground">{props.wiki.root}</p></div>
+                      <Button type="button" size="icon-sm" variant="ghost" className="shrink-0" aria-label={t("wiki.copy_path")} title={t("wiki.copy_path")} onClick={() => { void navigator.clipboard.writeText(props.wiki.root).then(() => toast.success(t("wiki.copied"))).catch((error) => setError(wikiError(error))); }}><Copy size={14} /></Button>
+                    </div>
+                  </div> : null}
+                  <div><p className="text-xs leading-relaxed text-muted-foreground">{t("wiki.forget_hint")}</p><Button size="sm" variant="ghost" className="-ml-2 mt-2 text-destructive" type="button" disabled={working} onClick={() => { if (removeConfirm) void run(props.onForget); else setRemoveConfirm(true); }}><Trash2 size={14} />{t(removeConfirm ? "wiki.forget_confirm" : "wiki.forget")}</Button></div>
+                </div>
+              </details>
             </TabsContent>
             <TabsContent value="sharing" keepMounted><WikiSharingPanel client={props.client} serverUrl={props.serverUrl} wiki={props.wiki} busy={busy} onShare={props.onShare} onStop={props.onStopSharing} onError={setError} onBusyChange={setSharingBusy} /></TabsContent>
             <TabsContent value="agents" keepMounted className="space-y-5">

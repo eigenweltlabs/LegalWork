@@ -2,6 +2,14 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Wiki storage settings (2026-10-12)
+
+Settings hide the folder path for the server's default managed location. Custom locations show a compact folder name and truncated path with a full-path tooltip and copy button. Classification happens on the server against the canonical default path, so macOS path aliases do not expose the default location accidentally.
+
+Validation: the wiki store suite passed 18 tests (131 assertions), including default/custom location classification. App typecheck and the full server build passed. Native visual verification was unavailable because the Mac was locked. To reproduce: open a default wiki's settings and expand Files and storage; no Local folder row should appear. For a wiki created with a custom folder, check the compact path and Copy path action.
+
+The local development profile was moved from temporary storage to `~/Library/Application Support/LegalWork Wiki Development/Profile`; subsequent launches must use that `LEGALWORK_ELECTRON_USERDATA` value. The original profile is retained beside it as `Before storage move 2026-10-12`. All 1,695 wiki files were checked byte-for-byte, with 22 chat identities and 1,502 version-history entries preserved. The restarted Electron server returned all five registered wikis with unchanged page counts, including the 378-page Harvey test wiki, its nine chats, existing onboarding transcript and four workspace skills. This was a storage move, not another onboarding run.
+
 ## Completed Harvey onboarding review and UI corrections (2026-10-12)
 
 Reviewed the 378 Markdown files, saved dashboard and parent/child transcripts from the user's completed run. Findings and source comparisons are in [the onboarding review](wiki-onboarding-review.md). Existing wiki pages and sources were preserved. Both starter templates now carry editable synthesis guidance covering every region and page type; blank/custom wikis retain their chosen structure. Firm setup explicitly assigns entity reconciliation, firm/people context, knowledge, processes, navigation and usability verification. No second full Harvey import was run.

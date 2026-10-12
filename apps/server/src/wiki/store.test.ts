@@ -24,6 +24,16 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("identifies default storage across canonical paths and keeps custom folders distinct", async () => {
+    const { root, store } = await fixture();
+    const managed = await store.create({ name: "Managed", template: "blank" });
+    const custom = await store.create({ name: "Custom", template: "blank", root: join(root, "custom") });
+    expect((await store.snapshot(managed.id)).wiki.isDefaultLocation).toBe(true);
+    expect((await store.snapshot(custom.id)).wiki.isDefaultLocation).toBe(false);
+    await store.update(managed.id, { name: "Renamed" });
+    expect((await store.snapshot(managed.id)).wiki.isDefaultLocation).toBe(true);
+  });
+
   test("wikis with the same name own distinct workspaces and retain them after rename and reopen", async () => {
     const { store, config } = await fixture();
     const first = await store.create({ name: "Firm knowledge" });
