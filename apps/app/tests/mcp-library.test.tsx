@@ -23,9 +23,9 @@ const props: McpViewProps = {
   setMcpEnabled: async () => {}, isExtensionConnected: entry => entry === native,
 };
 
-test("connector library leads with saved connectors and keeps discovery behind Add", () => {
+test("connector library leads with saved connectors and exposes Browse directory separately", () => {
   const html = renderToStaticMarkup(<McpView {...props} />);
-  expect(html).toContain('aria-haspopup="menu"');
+  expect(html).toContain("Browse directory");
   expect(html).toContain("lucide-plus");
   expect(html).toContain("Your connectors");
   expect(html).toContain("Manage your CRM");

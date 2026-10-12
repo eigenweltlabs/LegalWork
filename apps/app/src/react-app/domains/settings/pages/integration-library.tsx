@@ -8,7 +8,7 @@ import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 
 /** The page owns toolbar positions; each library keeps its own actions and search state. */
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; onRefresh?: () => void; revision?: number } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number } | null>(null);
 
 export function useIntegrationLibraryLayout() {
   return useContext(IntegrationLibraryLayoutContext);
@@ -69,12 +69,12 @@ export function IntegrationLibraryRow(props: { name: string; description: string
 }
 
 /** Shared structure for the three integration libraries; setup lives in dialogs. */
-export function IntegrationLibraryHeader(props: { title: string; description: string; actions?: ReactNode }) {
+export function IntegrationLibraryHeader(props: { title: string; description: string; leadingActions?: ReactNode; actions?: ReactNode }) {
   const layout = useIntegrationLibraryLayout();
-  if (layout) return <IntegrationLibraryActions>{props.actions}</IntegrationLibraryActions>;
+  if (layout) return <>{layout.leadingActions && props.leadingActions ? createPortal(props.leadingActions, layout.leadingActions) : null}<IntegrationLibraryActions>{props.actions}</IntegrationLibraryActions></>;
   return <div className="flex flex-wrap items-start justify-between gap-4">
     <SectionHeading className="min-w-0 flex-1 basis-64" title={props.title} description={props.description} />
-    {props.actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{props.actions}</div> : null}
+    {props.leadingActions || props.actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{props.leadingActions}{props.actions}</div> : null}
   </div>;
 }
 

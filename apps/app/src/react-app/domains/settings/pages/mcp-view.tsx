@@ -608,9 +608,8 @@ export function McpView(props: McpViewProps) {
     <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-5 empty:hidden">
         {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
-        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} actions={showLocal ? <>
+        <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} leadingActions={showLocal ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button> : undefined} actions={showLocal ? <>
           <IntegrationAddMenu disabled={props.busy} actions={[
-            { label: t("mcp.browse_directory"), icon: Search, onClick: () => setDirectoryOpen(true) },
             { label: t("mcp.add_modal_title"), icon: Plus, disabled: connectorsForbidden, onClick: async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); } },
           ]} />
           <IntegrationMoreMenu busy={props.busy} />

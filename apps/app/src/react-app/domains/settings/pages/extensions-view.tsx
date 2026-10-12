@@ -82,6 +82,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
+  const [leadingActionsTarget, setLeadingActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setTab(initialTab), [initialTab]);
   const selectTab = (next: ExtensionsTab) => {
@@ -93,7 +94,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, onRefresh: refresh, revision: importVersion }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -101,6 +102,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
+            <div ref={setLeadingActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {props.pluginImports ? <Button variant="outline" size="sm" disabled={props.busy || !props.canEditPlugins || !props.canUseGlobalScope} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {tab === "plugins" ? <IntegrationMoreMenu busy={props.busy} /> : null}
