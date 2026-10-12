@@ -118,7 +118,8 @@ app.whenReady().then(async () => {
     invoke("show", { x: 0, y: 0, width: 900, height: 700 });
     main.show();
     const first = await invoke("openUrl", origin, "builtin", { directory: projectA });
-    assert.deepEqual(main.contentView.children[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
+    assert.equal(main.contentView.children.length, 0);
+    assert.equal(invoke("state").activeTabId, null);
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
     for (const name of ["Applicant", "Notes", "Region", "Save", "Download record"]) {
@@ -155,6 +156,14 @@ app.whenReady().then(async () => {
     const fields = await command(client, "Runtime.evaluate", { expression: "[document.querySelector('#applicant').value, document.querySelector('#notes').value, document.querySelector('#region').value]", returnByValue: true });
     assert.deepEqual(fields.result.value, ["Alice", "Review complete", "East"]);
     console.log("PASS: one batch fills input, textarea and select, clicks, waits and shares the CDP attachment");
+    assert.equal(main.contentView.children.length, 0);
+    assert.equal(invoke("state").activeTabId, null);
+    console.log("PASS: browser automation completes without opening a foreground pane");
+
+    // Revealing a working tab is an explicit user action, independent of the
+    // agent's ability to inspect, fill, click, and download in the background.
+    invoke("selectTab", first.tab_id);
+    assert.deepEqual(main.contentView.children[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
 
     if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
       const contents = main.contentView.children[0].webContents;
