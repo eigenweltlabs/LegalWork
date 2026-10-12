@@ -118,9 +118,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
         <Tabs value={source} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") setSource(value); }} className="gap-5">
           {tab !== "plugins" ? <TabsList variant="line" aria-label={t("integrations.filter_source")} className="h-auto justify-start gap-6 p-0">
-            <TabsTrigger value="all" className="rounded-none px-0 pb-2.5 pt-0">{t("integrations.source_all")}</TabsTrigger>
-            <TabsTrigger value="personal" className="rounded-none px-0 pb-2.5 pt-0">{t("integrations.source_personal")}</TabsTrigger>
-            <TabsTrigger value="team" className="rounded-none px-0 pb-2.5 pt-0">{t("firm_hub.scope_team")}</TabsTrigger>
+            <TabsTrigger value="all" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("integrations.source_all")}</TabsTrigger>
+            <TabsTrigger value="personal" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("integrations.source_personal")}</TabsTrigger>
+            <TabsTrigger value="team" className="rounded-none px-0 pb-1 pt-0 group-data-horizontal/tabs:after:bottom-0">{t("firm_hub.scope_team")}</TabsTrigger>
           </TabsList> : null}
           <TabsContent value={source}>
             <HubScopeContext.Provider value="local">
