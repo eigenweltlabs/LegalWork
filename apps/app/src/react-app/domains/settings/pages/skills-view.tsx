@@ -1675,6 +1675,7 @@ function WorkflowCreatorButton(props: {
 }
 
 export type SkillImportStore = Pick<SkillsExtensionsStore, "scanGithubSkills" | "previewClaudePlugin" | "importGithubSkills" | "installClaudePlugin" | "importLocalSkill" | "importLocalSkillZip">;
+export type SkillImportSource = "github" | "files";
 
 export function ImportSkillsButton(props: {
   open?: boolean;
@@ -1682,6 +1683,8 @@ export function ImportSkillsButton(props: {
   onBack?: () => void;
   onImported?: () => void;
   returnFocus?: false | RefObject<HTMLElement | null>;
+  /** Standalone workflow import keeps both sources when this is omitted. */
+  source?: SkillImportSource;
   asWorkflow: boolean;
   busy: boolean;
   canUseDesktopTools: boolean;
@@ -1869,18 +1872,18 @@ export function ImportSkillsButton(props: {
           if (!next) reset();
         }}
       >
-        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl" finalFocus={props.returnFocus}>
+        <DialogContent className={`flex max-h-[88vh] min-h-0 w-full flex-col overflow-hidden ${props.source === "files" ? "max-w-md sm:max-w-md" : "max-w-2xl sm:max-w-2xl"}`} finalFocus={props.returnFocus}>
           <DialogHeader>
             {props.onBack ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" disabled={scanning || importing} onClick={() => { reset(); props.onBack?.(); }}><ArrowLeft className="size-3.5" />{t("common.back")}</Button> : null}
-            <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("integrations.import_skill_files")}</DialogTitle>
+            <DialogTitle>{t(asWorkflow ? "skills.import_workflows_title" : props.source === "github" ? "integrations.import_github" : props.source === "files" ? "integrations.import_files" : "integrations.import_skill_files")}</DialogTitle>
             <DialogDescription>
-              {asWorkflow ? "Bring in workflow folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md. Imported items are added as workflows." : t("integrations.import_skill_files_description")}
+              {asWorkflow ? "Bring in workflow folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md. Imported items are added as workflows." : t(props.source === "github" ? "integrations.import_github_description" : props.source === "files" ? "integrations.import_files_description" : "integrations.import_skill_files_description")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-px py-1">
-            <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span>
+            {props.source !== "files" ? <div className="space-y-2">
+              {!props.source ? <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span> : null}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={url}
@@ -2005,12 +2008,12 @@ export function ImportSkillsButton(props: {
                   </Button>
                 </div>
               ) : null}
-            </div>
+            </div> : null}
 
-            <Separator />
+            {!props.source ? <Separator /> : null}
 
-            <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">{t("skills.from_this_machine")}</span>
+            {props.source !== "github" ? <div className="space-y-2">
+              {!props.source ? <span className="text-xs font-medium text-dls-text">{t("skills.from_this_machine")}</span> : null}
               <p className="text-[12px] leading-relaxed text-dls-secondary">
                 {t("skills.import_hint")}
               </p>
@@ -2027,7 +2030,7 @@ export function ImportSkillsButton(props: {
               {!props.canUseDesktopTools ? (
                 <p className="text-[11px] text-dls-secondary/70">{t("skills.desktop_required")}</p>
               ) : null}
-            </div>
+            </div> : null}
           </div>
 
           <DialogFooter>

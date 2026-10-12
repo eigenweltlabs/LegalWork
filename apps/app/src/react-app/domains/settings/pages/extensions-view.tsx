@@ -11,7 +11,7 @@ import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
 import { IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationLibrarySource } from "./integration-library";
-import { ImportSkillsButton, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
+import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
 import { orgPolicyAllows } from "../../connections/org-policy";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
@@ -85,6 +85,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         : "connectors";
   const [importOpen, setImportOpen] = useState(false);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
+  const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
   const [importVersion, setImportVersion] = useState(0);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
@@ -122,15 +123,17 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }}
           returnFocus={importButton}
           canImportPlugins={canImportPlugins && !props.busy}
-          canImportSkillFiles={canImportSkills && !props.busy}
-          onImportSkillFiles={props.skillImports ? async () => {
-            if (!props.canImportSkills || props.busy || !(await orgPolicyAllows("skills.allowCustom"))) return;
+          canImportSkills={canImportSkills && !props.busy}
+          canImportLocalSkills={canImportSkills && !props.busy && !props.isRemoteWorkspace}
+          onImportSkills={props.skillImports ? async importSource => {
+            if (!props.canImportSkills || props.busy || (importSource === "files" && props.isRemoteWorkspace) || !(await orgPolicyAllows("skills.allowCustom"))) return;
             setImportOpen(false);
             setSource("all");
             selectTab("skills");
+            setSkillImportSource(importSource);
             setSkillImportOpen(true);
           } : undefined} /> : null}
-        {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedSkills} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
+        {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedSkills} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div ref={setSearchTarget} className="w-full empty:hidden sm:w-auto" />
