@@ -24,7 +24,7 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   const modelRequests: { tools: string[]; toolDefinitions: string; toolResults: string[]; system: string; users: string[] }[] = [];
   const created: ScheduledTaskInput[] = [];
   const sourceReads: string[] = [];
-  const fixture = Bun.serve({ port: 0, async fetch(request) {
+  const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") { uiActions++; return Response.json({ ok: true }); }
@@ -62,35 +62,36 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
     provider: { fixture: { npm: "@ai-sdk/openai-compatible", name: "Fixture", options: { baseURL: fixture.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { name: "Fixture", limit: { context: 100000, output: 4000 } } } } },
     plugin: ["legalwork-scheduled-task-tools", "legalwork-extensions-preview"].map(name => pathToFileURL(join(import.meta.dir, `../../dist/opencode-plugins/${name}.js`)).href),
-    permission: { "*": "allow" },
+    permission: { "*": "allow" }, lsp: false, formatter: false,
     agent: { [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permission: projectTaskPermissions() }, [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permission: allProjectTaskPermissions() } },
   }));
   const discovery = join(root, "ui-bridge.json");
   await writeFile(discovery, JSON.stringify({ baseUrl: fixture.url.origin, token: "fixture" }));
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: folder, env: {
     ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"),
-    XDG_STATE_HOME: join(root, "state"), OPENCODE_CONFIG: config, OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
+    XDG_STATE_HOME: join(root, "state"), OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
     LEGALWORK_UI_CONTROL_DISCOVERY: discovery, LEGALWORK_SERVER_URL: fixture.url.origin, LEGALWORK_SERVER_TOKEN: "fixture", TZ: "Europe/Berlin",
-  }, stdout: "pipe", stderr: "pipe" });
+  }, stdout: "ignore", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
     let ready = false;
-    for (let i = 0; i < 200; i++) {
-      try { ready = (await fetch(base + "/global/health")).ok; } catch { /* Startup. */ }
+    const startupDeadline = Date.now() + 20000;
+    while (Date.now() < startupDeadline) {
+      try { ready = (await fetch(base + "/global/health", { signal: AbortSignal.timeout(1000) })).ok; } catch { /* Startup. */ }
       if (ready || engine.exitCode !== null) break;
       await Bun.sleep(100);
     }
     if (!ready) throw new Error("Engine did not start: " + (engine.exitCode !== null ? await logs : "timed out"));
     const client = createOpencodeClient({ baseUrl: base, directory: otherFolder });
-    const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true });
+    const { data: sourceSession } = await client.session.create({ title: "Other project chat" }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     sourceSessionId = sourceSession.id;
-    for (let i = 0; i < 23; i++) await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true });
+    for (let i = 0; i < 23; i++) await client.session.prompt({ sessionID: sourceSession.id, noReply: true, parts: [{ type: "text", text: `Source message ${i}: Continue the contract review.` }] }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     transcriptSources = {
       workspace: { id: "other", name: "Other", path: otherFolder, preset: "default", workspaceType: "local" }, tasks, orgId: null,
       sessions: async () => [],
-      session: async id => (await client.session.get({ sessionID: id }, { throwOnError: true })).data,
-      sessionMessages: async (id, limit, before) => { const result = await client.session.messages({ sessionID: id, limit, before }, { throwOnError: true }); return { messages: result.data, nextBefore: result.response.headers.get("x-next-cursor") }; },
+      session: async id => (await client.session.get({ sessionID: id }, { throwOnError: true, signal: AbortSignal.timeout(10000) })).data,
+      sessionMessages: async (id, limit, before) => { const result = await client.session.messages({ sessionID: id, limit, before }, { throwOnError: true, signal: AbortSignal.timeout(10000) }); return { messages: result.data, nextBefore: result.response.headers.get("x-next-cursor") }; },
     };
     const recent = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id });
     expect(recent.content).toContain("Source message 22");
@@ -99,12 +100,12 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     const older = await readProjectContent(transcriptSources, { kind: "sessions", id: sourceSession.id, before: recent.nextBefore });
     expect(older.content).toContain("Source message 0:"); expect(older.nextBefore).toBeNull();
     expect(recent.content.split("\n").length + older.content.split("\n").length).toBe(23);
-    const agentsResponse = await fetch(base + "/agent");
+    const agentsResponse = await fetch(base + "/agent", { signal: AbortSignal.timeout(10000) });
     const agents = z.array(z.object({ name: z.string(), permission: z.array(z.object({ permission: z.string(), pattern: z.string(), action: z.enum(["allow", "deny", "ask"]) })) })).parse(await agentsResponse.json());
     expect(hasProjectTaskBoundary(agents.find(agent => agent.name === PROJECT_TASK_AGENT)), JSON.stringify(agents.find(agent => agent.name === PROJECT_TASK_AGENT)?.permission.slice(-20))).toBe(true);
     for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "build"]) {
       const requestStart = modelRequests.length;
-      const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json());
+      const session = z.object({ id: z.string() }).parse(await (await fetch(base + "/session", { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10000) })).json());
       const response = await fetch(`${base}/session/${session.id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: agent === "build" ? "Remind me of this project's deadlines every morning." : "Run the scope fixture." }] }), signal: AbortSignal.timeout(25000) });
       const result = await response.text();
       expect(response.status, result).toBe(200);
@@ -149,5 +150,5 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       }
     }
     expect(uiActions).toBe(0);
-  } finally { engine.kill(); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
+  } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 60000);
