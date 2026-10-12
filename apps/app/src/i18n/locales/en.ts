@@ -3053,6 +3053,8 @@ export default {
   "session.untitled": "Untitled",
   "session.subagent": "Subagent",
   "session.subagents": "Subagents",
+  "session.subagents_running": "Subagents · {count} running",
+  "session.subagents_close": "Close subagent panel",
   "session.subagent_started": "Started subagent {name}",
   "session.subagent_completed": "Completed",
   "session.requesting_subagent": "Request from subagent: {name}",

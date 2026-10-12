@@ -38,6 +38,7 @@ import {
   MessageSquare,
   TableProperties,
   BookOpen,
+  Network,
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
@@ -114,6 +115,7 @@ type SidePanelProps = {
   onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
   onNewChat?: (pane: string) => void;
   onOpenWiki?: (pane: string) => void;
+  onOpenWikiGraph?: (pane: string) => void;
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
@@ -734,7 +736,7 @@ function SidePanelContent({
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
-  onNewChat, onOpenWiki, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  onNewChat, onOpenWiki, onOpenWikiGraph, renderProjectView, onOpenTabWindow, onDropChat, projectId,
   renderWikiTab,
 }: SidePanelProps) {
   const controlSessionIds = useDocumentControlSessions(sessionId);
@@ -1050,6 +1052,7 @@ function SidePanelContent({
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
             {client && workspaceId && renderProjectView && <ViewMenu client={client} workspaceId={workspaceId} onOpen={tab => usePanelTabStore.getState().openTab(sessionId, tab, pane.id)} />}
             {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
+            {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
             {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
               const store = usePanelTabStore.getState();

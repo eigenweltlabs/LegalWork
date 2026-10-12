@@ -2,6 +2,32 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Completed Harvey onboarding review and UI corrections (2026-10-12)
+
+Reviewed the 378 Markdown files, saved dashboard and parent/child transcripts from the user's completed run. Findings and source comparisons are in [the onboarding review](wiki-onboarding-review.md). Existing wiki pages and sources were preserved. Both starter templates now carry editable synthesis guidance covering every region and page type; blank/custom wikis retain their chosen structure. Firm setup explicitly assigns entity reconciliation, firm/people context, knowledge, processes, navigation and usability verification. No second full Harvey import was run.
+
+Fixed authenticated origin propagation on wiki-local skill load/resource requests. A regression test checks the workspace lookup, composed skill and resource request headers. The rebuilt running server resolves the existing wiki's own setup package.
+
+The new chat subagent indicator uses the session lineage and activity store used by the compact rows from PR 234 (superseding PR 243). Its persistent panel lists descendant chats, with a count of currently running agents. Native Electron verification showed the five completed onboarding workers, all idle, and corrected previously stale running icons. Mixed running, waiting, error and unrelated-session counts are covered by tests; this check did not launch another paid agent run.
+
+The graph initializes only with a nonzero viewport and refreshes on reveal/resize. In Electron, the 378-page graph rendered after app restart, switching to the wiki home tab and back, and hiding/showing the file sidebar. Narrow-pane testing also exposed label-based auto-fit collapsing the graph when fixed-width titles exceeded the viewport; fitting now uses node positions and radii. The subagent panel fits within the chat pane and stays above its scroll controls. The wiki tab plus menu opens/selects Graph without duplicating it. These checks exercise the reported visibility path, not a claim that every GPU failure or large-graph case has been reproduced. [Graph and persistent subagent panel](wiki-evidence/wiki-onboarding-review-subagents.png).
+
+The first dashboard attempt had failed validation because its requested row limits exceeded the supported maximum; a later attempt succeeded. Its historical card now reads "Not saved" and has no running spinner. Terminal results reconcile saved/failed previews after reconnect. Confirmed idle snapshots also stop abandoned pending attempts, without opening historical tabs.
+
+Validation: 44 tests passed, 222 assertions, across the six files below. App typecheck, server build, final server TypeScript compilation, i18n validation and `git diff --check` passed. A development hot reload after adding a React hook required a full UI reload; checks above were repeated after reload and backend restart.
+
+```sh
+pnpm exec bun test apps/app/tests/subagent-tool-rows.test.tsx \
+  apps/app/tests/view-generation-sync.test.ts apps/app/tests/wiki-graph-viewport.test.ts \
+  apps/app/tests/wiki-tabs.test.ts apps/server/src/wiki/templates.test.ts \
+  apps/server/src/opencode-plugins/legalwork-skill-tools.test.ts
+pnpm --filter @legalwork/app typecheck
+pnpm --filter legalwork-server build
+pnpm --filter legalwork-server exec tsc -p tsconfig.json
+pnpm --filter @legalwork/app test:i18n
+git diff --check
+```
+
 ## Sandbox settings, source reading and wiki management (2026-10-12)
 
 - Rebased onto `origin/dev` at `7499125b`, retaining its sandbox file, copied attachment, skill-directory and background document-reading fixes. Removed the wiki-specific host execution/file-tool override. Sandbox off uses normal host execution; sandbox on uses the existing VM and file broker. Project writes made through wiki tools still require approval.

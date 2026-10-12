@@ -96,7 +96,7 @@ import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { WikiPagePicker } from "../../wiki/wiki-page-picker";
 import { WikiPane, type WikiPaneProps } from "../../wiki/wiki-pane";
-import type { WikiPanelTab } from "../../wiki/wiki-tabs";
+import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
 import {
   EVALS_PANEL_SESSION_ID,
@@ -1627,6 +1627,10 @@ export function SessionPage(props: SessionPageProps) {
           <SidePanel
             renderWikiTab={renderWikiTab}
             onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
+            onOpenWikiGraph={wikiWorkspace && props.wiki?.client ? pane => {
+              const client = props.wiki?.client;
+              if (client) openTab(workspaceScope, wikiPanelTab(client.baseUrl, wikiWorkspace.id, { kind: "graph" }, t("wiki.graph")), pane);
+            } : undefined}
             key={workspaceScope}
             sessionId={workspaceScope}
             controlSessionIds={controlSessionIds}

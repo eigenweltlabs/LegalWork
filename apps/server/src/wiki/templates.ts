@@ -1,4 +1,5 @@
 import { createFirmWikiFiles } from "./firm-template.js";
+import { WIKI_SYNTHESIS_GUIDANCE } from "./synthesis.js";
 
 /** Starter content is ordinary Markdown, so every convention can be changed. */
 export type WikiStarterTemplate = "firm" | "blank";
@@ -68,7 +69,7 @@ Record reusable learning, not a complete matter archive. Explain the situation, 
 
 ## Sources
 
-For connected storage, retain the connection ID, relative file path, source version when available, and a page or section locator. A local filename alone does not identify the original record. Do not put a sensitive client name into a shared source label merely because the body was anonymized.
+For connected storage, retain the connection, path and source version behind a readable reference, with a document title, date and page or section locator. Verify that readers can open it. Never display raw connection IDs, hashes or extraction offsets as page prose. A temporary local filename is not a durable reference. Do not put a sensitive name into a shared source label merely because the body was anonymized.
 `;
 
 const VIEWS = `---
@@ -93,10 +94,11 @@ Use this when the user wants to build the first useful set of wiki pages from ex
 
 1. Establish a focused question and the source folders, matters, or documents the user authorized. Read Instructions.md and Structure.md.
 2. Find the selected source through the existing storage_list_connections, storage_search, storage_list_folder, and storage_read_file tools, or the live connected source the user named. Use returned connection IDs and paths. Do not invent a connector or crawl unrelated folders.
-3. Inspect a bounded selection and keep a coverage note: documents reviewed, documents unavailable, and work remaining. If scope is large, stop at the agreed budget and leave resumable progress in a Markdown research page.
-4. Compare sources. Extract common steps and preserve variations, source disagreements, and unresolved questions. A pattern in past matters is observed practice, not automatically firm policy.
+3. Cover the user's requested scope, using batches for large collections. Respect an explicit budget without inventing a sample limit. Track discovery, extraction, reconciliation, synthesis, organization and verification in the chat plan. Keep source coverage and continuation state in chat or .legalwork/wiki-setup/, outside the page index. Never create progress or failure diaries as wiki knowledge. Read source documents directly with storage_read_file and follow next_offset for the relevant content; no in-app viewer is required.
+4. Apply the synthesis guidance in Structure.md across all page types. Reconcile subjects and people across batches, extract useful details and relationships, compare substantive reasoning, and find recurring processes in correspondence, handoffs and checklists. Preserve variations and disagreements close to their claims. Observed practice is not automatically an approved rule. Use this wiki's own structure, without imposing law-firm folders on a blank or customized wiki.
 5. Before saving, adapt information for this wiki's audience using [[Skills/Anonymize.md]]. Shared wiki changes sync on save.
-6. Create or update a small set of linked pages, retaining connection ID, file path, version, and section/page references where available. Link the pages from Wiki.md. Report coverage and uncertainty.
+6. Create or update useful pages with readable names and source links. Group growing collections meaningfully. Keep provenance behind readable references. Use indexed relations and fields for navigation and focused views, and keep the home page useful rather than listing every record.
+7. Verify real reader tasks from Structure.md: understand a subject, follow its relationships and evidence, find a reusable answer or supported process, and use an overview. Reconciliation and synthesis must be complete before calling setup complete. Report actual coverage and remaining gaps in chat. Never create filler merely to populate every region.
 `,
   "Skills/Capture.md": `---
 type: skill
@@ -166,6 +168,8 @@ Start with a few useful pages. Add folders, page types, and properties when they
 ## What belongs here
 
 Write your inclusion criteria, audience, naming rules, and useful page types here. Keep source references and uncertainty when recording facts.
+
+${WIKI_SYNTHESIS_GUIDANCE}
 `,
     "Instructions.md": INSTRUCTIONS,
     "Templates.md": TEMPLATES,

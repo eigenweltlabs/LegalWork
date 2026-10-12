@@ -1029,7 +1029,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
-  useViewGenerations(messages);
+  useViewGenerations(messages, status);
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();

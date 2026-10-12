@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import type { DynamicToolUIPart } from "ai";
-import { syncViewGeneration } from "../src/react-app/domains/views/view-generation-sync";
+import { reconcileViewGenerations, syncViewGeneration } from "../src/react-app/domains/views/view-generation-sync";
 import { useViewGenerationStore, viewGenerationId, type ViewDraftTab } from "../src/react-app/domains/views/view-generation";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/parse-tool-parts";
@@ -37,7 +37,7 @@ test("partial arguments render progressively and completion replaces the existin
   expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs).toMatchObject([{ type: "view", viewId: saved.id }]);
 });
 test("history never auto-opens and manual closure is respected while streaming", async () => {
-  await syncViewGeneration(context, done, open);
+  await syncViewGeneration(context, { ...done, toolCallId: "old-call" }, open);
   expect(opened).toHaveLength(0);
   await syncViewGeneration(context, pending, open);
   usePanelTabStore.getState().closeTab("workspace:wiki", id);
@@ -62,6 +62,20 @@ test("project dashboards stream beside their chat and stay in that project's tab
 test("view cards stay outside collapsed generic tool groups", () => {
   const groups = getAssistantRenderGroups([pending], false);
   expect(groups).toMatchObject([{ kind: "view", part: pending }]);
+});
+
+test("an idle snapshot ends abandoned previews and records failed tool results without reopening tabs", async () => {
+  await syncViewGeneration(context, pending, open);
+  await reconcileViewGenerations(context, [pending]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "failed", error: "Generation stopped before this view was saved." });
+  await syncViewGeneration(context, pending, open);
+  expect(opened).toHaveLength(1);
+  await reconcileViewGenerations(context, [{ ...done, output: JSON.stringify({ ok: false, error: "Query limit exceeded" }) }]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "failed", error: "Query limit exceeded" });
+  const retry = { ...done, toolCallId: "retry" };
+  await reconcileViewGenerations(context, [retry]);
+  expect(useViewGenerationStore.getState().entries[viewGenerationId("local", "session", "retry")].status).toBe("saved");
+  expect(opened).toHaveLength(1);
 });
 
 test.each([0, 1600])("a streamed dashboard opens beside chat even with a source pane (width %d)", width => {

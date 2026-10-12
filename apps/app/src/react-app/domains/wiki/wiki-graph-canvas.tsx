@@ -11,6 +11,7 @@ import { disableSigmaGlyphPicking } from "./wiki-graph-sigma-compat";
 import { selectGraphLabels, type GraphLabelCandidate } from "./wiki-graph-labels";
 import { CanvasGraphRenderer, type GraphController, type GraphCallbacks } from "./wiki-graph-fallback";
 import { readGraphPositions, saveGraphPositions, type WikiGraphCamera, type WikiGraphPosition } from "./wiki-graph-state";
+import { observeGraphViewport } from "./wiki-graph-viewport";
 
 type Node = { x: number; y: number; size: number; color: string; labelColor: string; backdropColor: string; label: string; path: string };
 type Edge = { color: string; size: number };
@@ -39,11 +40,13 @@ class WikiGraphRenderer implements GraphController {
   private cameraTimer?: ReturnType<typeof setTimeout>;
   private cachedPositionsLoaded = false;
   private latest?: WikiGraphData;
+  private deferredData = false;
   private framed = false;
   private autoFitPending: boolean;
   private readonly labelWidths = new Map<string, number>();
   private readonly labelMeasure = document.createElement("canvas").getContext("2d");
   private visibleLabels = new Set<string>();
+  private readonly stopViewport: () => void;
 
   constructor(private readonly container: HTMLElement, private readonly key: string, private readonly callbacks: Callbacks, camera?: WikiGraphCamera) {
     this.autoFitPending = !camera;
@@ -53,7 +56,8 @@ class WikiGraphRenderer implements GraphController {
       customNodeState: { labelVisible: false },
       primitives: { edges: { paths: [pathLine()] } },
       settings: {
-        allowInvalidContainer: true, itemSizesReference: "screen", autoRescale: true, autoRescaleContent: "labels", stagePadding: 40,
+        // Fixed-width labels can exceed a split pane and make label-based fitting diverge.
+        allowInvalidContainer: true, itemSizesReference: "screen", autoRescale: true, autoRescaleContent: "nodes", stagePadding: 40,
         renderEdgeLabels: false, enableEdgeEvents: false, enableNodeDrag: true, nodeLabelEvents: "separate",
         nodePickingPadding: 5, minCameraRatio: 0.002, maxCameraRatio: 20,
         labelDensity: 0.12, labelGridCellSize: 110, labelRenderedSizeThreshold: 6,
@@ -95,6 +99,11 @@ class WikiGraphRenderer implements GraphController {
     });
     this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     document.addEventListener("visibilitychange", this.visibility);
+    this.stopViewport = observeGraphViewport(container, () => {
+      this.sigma.resize();
+      if (this.deferredData && this.latest) this.setData(this.latest);
+      this.sigma.refresh();
+    });
     void readGraphPositions(key).then((positions) => {
       if (this.disposed) return;
       for (const position of positions) this.saved.set(position.id, position);
@@ -141,7 +150,8 @@ class WikiGraphRenderer implements GraphController {
 
   private applyData(data: WikiGraphData) {
     this.latest = data;
-    if (!this.cachedPositionsLoaded) return;
+    this.deferredData = !this.container.clientWidth || !this.container.clientHeight;
+    if (!this.cachedPositionsLoaded || this.deferredData) return;
     this.pause(false);
     const initial = this.graph.order === 0;
     const desiredNodes = new Set(data.nodes.map((node) => node.id));
@@ -184,7 +194,7 @@ class WikiGraphRenderer implements GraphController {
   private frameGraph(roomForLayout: boolean) {
     if (!this.graph.order) return;
     if (!roomForLayout) {
-      // Let Sigma fit node radii and label rectangles, then freeze that extent
+      // Fit node positions and radii, then freeze that extent
       // so worker updates cannot change the scale underneath the camera.
       this.sigma.setCustomBBox(null);
       this.sigma.refresh();
@@ -278,6 +288,7 @@ class WikiGraphRenderer implements GraphController {
     clearTimeout(this.cameraTimer);
     this.callbacks.onCamera(this.sigma.getCamera().getState());
     this.themeObserver.disconnect();
+    this.stopViewport();
     document.removeEventListener("visibilitychange", this.visibility);
     this.container.removeEventListener("pointerdown", this.cancelAutoFit);
     this.container.removeEventListener("wheel", this.cancelAutoFit);
@@ -295,6 +306,7 @@ export default function WikiGraphCanvas(props: { gpu: boolean; data: WikiGraphDa
     const target = container.current;
     let instance: GraphController | undefined;
     let cancelled = false;
+    let starting = false;
     const callbacks: GraphCallbacks = { onOpen: (path) => latest.current.onOpen(path), onCamera: (camera) => latest.current.onCamera(camera), onRunning: setRunning, onError: (error) => {
       if (!error || cancelled || instance instanceof CanvasGraphRenderer) return;
       console.error("Wiki graph renderer recovered with Canvas:", error);
@@ -307,13 +319,22 @@ export default function WikiGraphCanvas(props: { gpu: boolean; data: WikiGraphDa
         if (props.gpu) {
           const { GpuGraphRenderer } = await import("./wiki-graph-gpu");
           if (cancelled) return;
+          if (!target.clientWidth || !target.clientHeight) { starting = false; return; }
           instance = new GpuGraphRenderer(target, props.storageKey, callbacks, props.camera);
         } else instance = new WikiGraphRenderer(target, props.storageKey, callbacks, props.camera);
-      } catch (error) { console.error("Wiki graph renderer recovered with Canvas:", error); instance = new CanvasGraphRenderer(target, props.storageKey, callbacks, props.camera); }
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Wiki graph renderer recovered with Canvas:", error);
+        instance = new CanvasGraphRenderer(target, props.storageKey, callbacks, props.camera);
+      }
       renderer.current = instance; instance.setData(latest.current.data);
     };
-    void start();
-    return () => { cancelled = true; instance?.dispose(); renderer.current = null; };
+    const stopViewport = observeGraphViewport(target, () => {
+      if (starting || cancelled) return;
+      starting = true;
+      void start();
+    });
+    return () => { cancelled = true; stopViewport(); instance?.dispose(); renderer.current = null; };
   }, [props.storageKey, props.gpu]);
   useEffect(() => renderer.current?.setData(props.data), [props.data]);
   useEffect(() => { if (props.focused) renderer.current?.focus(props.focused); }, [props.focused]);

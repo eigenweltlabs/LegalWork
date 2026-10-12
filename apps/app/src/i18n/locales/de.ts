@@ -3228,6 +3228,8 @@ const de = {
   "session.untitled": "Ohne Titel",
   "session.subagent": "Unteragent",
   "session.subagents": "Unteragenten",
+  "session.subagents_running": "Unteragenten · {count} aktiv",
+  "session.subagents_close": "Unteragenten-Übersicht schließen",
   "session.subagent_started": "Unteragent {name} gestartet",
   "session.subagent_completed": "Abgeschlossen",
   "session.requesting_subagent": "Anfrage vom Unteragenten: {name}",

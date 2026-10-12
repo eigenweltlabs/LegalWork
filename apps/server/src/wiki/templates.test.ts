@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { parseWikiPage, resolveWikiLinks } from "./markdown.js";
-import { createWikiStarterFiles, WIKI_CONTROL_FILES } from "./templates.js";
+import { createWikiStarterFiles, WIKI_CONTROL_FILES, type WikiStarterTemplate } from "./templates.js";
 
 describe("portable wiki starters", () => {
+  const templates: WikiStarterTemplate[] = ["firm", "blank"];
+  test.each(templates)("%s includes editable synthesis guidance for every page type", template => {
+    const files = createWikiStarterFiles(template, "Custom knowledge");
+    expect(files["Structure.md"]).toContain("every region and page type");
+    expect(files["Structure.md"]).toContain("whatever names, folders or templates");
+    expect(files["Structure.md"]).toContain("Reconcile entities and topics");
+    expect(files["Structure.md"]).toContain("Every source folder having a page is not completion");
+    expect(Object.values(files).join("\n")).not.toContain("resumable progress in a Markdown research page");
+  });
   test("firm workflows and folder landing pages resolve without invented entity records", () => {
     const files = createWikiStarterFiles("firm", "Our firm");
     const pages = resolveWikiLinks(Object.entries(files).map(([path, content]) => parseWikiPage(path, content, "starter", 1).page));

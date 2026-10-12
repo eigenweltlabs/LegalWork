@@ -29,12 +29,20 @@ export async function syncViewGeneration(context: Context, part: DynamicToolUIPa
     }
     return;
   }
-  // Loading a completed historical conversation must not open its old dashboards.
-  if (!previous) return;
+  // Terminal results also repair stale cards after a reconnect. They never open old tabs.
+  const input = viewProgramInput(part.input);
+  const current: ViewGeneration = previous ?? { ...context, toolCallId: part.toolCallId, title: input.title, program: input.program, status: "streaming" };
   const outcome = part.state === "output-available" ? viewToolOutcome(part.output) : { error: part.state === "output-error" ? part.errorText : "Generation ended without a saved view." };
   if ("view" in outcome) {
     const view = outcome.view;
-    store.update(id, { ...previous, status: "saved", saved: view, title: view.title });
+    store.update(id, { ...current, status: "saved", saved: view, title: view.title });
     usePanelTabStore.getState().resolveViewTab(id, viewPanelTab(context.serverUrl, { owner: view.owner, viewId: view.id }, view.title));
-  } else store.fail(id, outcome.error);
+  } else store.update(id, { ...current, status: "failed", error: outcome.error });
+}
+
+export async function reconcileViewGenerations(context: Context, parts: DynamicToolUIPart[]) {
+  for (const part of parts) {
+    await syncViewGeneration(context, part.state === "input-streaming" || part.state === "input-available"
+      ? { ...part, state: "output-error", errorText: "Generation stopped before this view was saved." } : part, () => {});
+  }
 }
