@@ -2,6 +2,7 @@ import type { Link, Nodes } from "mdast";
 import type { Extension as MdastExtension } from "mdast-util-from-markdown";
 import { defaultHandlers, type Options } from "mdast-util-to-markdown";
 import type { Extension, State, Tokenizer } from "micromark-util-types";
+import { parseViewReference } from "../views/view-reference";
 
 declare module "micromark-util-types" {
   interface TokenTypeMap { wikiLink: "wikiLink" }
@@ -33,20 +34,20 @@ const tokenizeWikiLink: Tokenizer = function (effects, ok, nok) {
 };
 
 export const wikiLinkSyntax: Extension = { text: { 91: { name: "wikiLink", tokenize: tokenizeWikiLink } } };
-/** Lexical normalizes bare relative links to https URLs; use a lossless editor fragment. */
+/** Keep relative paths and supported app URLs intact through Lexical's URL sanitizer. */
 export function wikiEditorLinkTarget(url: string): string {
   if (!url.startsWith("#wiki-path:")) return url;
   try { return decodeURIComponent(url.slice("#wiki-path:".length)); }
   catch { return url; }
 }
 
-function preserveRelativeLinks(node: Nodes) {
-  if (node.type === "link" && node.url && !node.url.startsWith("[[") && !/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(node.url)) node.url = `#wiki-path:${encodeURIComponent(node.url)}`;
-  if ("children" in node) node.children.forEach(preserveRelativeLinks);
+function preserveEditorLinks(node: Nodes) {
+  if (node.type === "link" && node.url && (parseViewReference(node.url) || (!node.url.startsWith("[[") && !/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(node.url)))) node.url = `#wiki-path:${encodeURIComponent(node.url)}`;
+  if ("children" in node) node.children.forEach(preserveEditorLinks);
 }
 
 export const wikiLinkFromMarkdown: MdastExtension = {
-  transforms: [preserveRelativeLinks],
+  transforms: [preserveEditorLinks],
   enter: {
     wikiLink(token) {
       const source = this.sliceSerialize(token).slice(2, -2).replace(/\\\|/g, "|");

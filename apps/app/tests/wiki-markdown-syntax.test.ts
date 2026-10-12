@@ -5,7 +5,8 @@ import type { Extension } from "micromark-util-types";
 import { frontmatter } from "micromark-extension-frontmatter";
 import { frontmatterFromMarkdown, frontmatterToMarkdown } from "mdast-util-frontmatter";
 import remarkGfm from "remark-gfm";
-import { wikiLinkFromMarkdown, wikiLinkSyntax, wikiLinkToMarkdown } from "../src/react-app/domains/wiki/wiki-markdown-syntax";
+import { wikiEditorLinkTarget, wikiLinkFromMarkdown, wikiLinkSyntax, wikiLinkToMarkdown } from "../src/react-app/domains/wiki/wiki-markdown-syntax";
+import { parseViewReference, viewLink } from "../src/react-app/domains/views/view-reference";
 
 function roundTrip(markdown: string) {
   const tree = fromMarkdown(markdown, { extensions: [frontmatter(), wikiLinkSyntax], mdastExtensions: [frontmatterFromMarkdown("yaml"), wikiLinkFromMarkdown] });
@@ -42,6 +43,30 @@ test("wiki links in table cells survive saves without becoming cell separators",
 });
 
 describe("wiki links in the shared Markdown editor", () => {
+  test("dashboard and report links retain their destinations through editor import, tab routing and saving", () => {
+    for (const kind of ["wiki", "workspace"] satisfies ("wiki" | "workspace")[]) {
+      const reference = { owner: { kind, id: "firm / Über" }, viewId: "11111111-1111-4111-8111-111111111111" };
+      const href = viewLink(reference);
+      const source = `[Open in its own tab](${href})\n`;
+      const tree = fromMarkdown(source, { extensions: [wikiLinkSyntax], mdastExtensions: [wikiLinkFromMarkdown] });
+      const paragraph = tree.children[0];
+      if (paragraph.type !== "paragraph" || paragraph.children[0].type !== "link") throw new Error("Expected a link");
+      const url = paragraph.children[0].url;
+      expect(url).toStartWith("#wiki-path:");
+      expect(parseViewReference(wikiEditorLinkTarget(url))).toEqual(reference);
+      expect(toMarkdown(tree, { extensions: [wikiLinkToMarkdown] })).toBe(source);
+      expect(roundTrip(`[**Open report**](${href} "Report")\n`)).toBe(`[**Open report**](${href} "Report")\n`);
+    }
+  });
+  test("unsupported schemes never receive a safe editor fragment", () => {
+    for (const href of ["javascript:alert(1)", "file:///etc/passwd", "legalwork-view://wiki/firm/invalid"]) {
+      const tree = fromMarkdown(`[Link](<${href}>)`, { mdastExtensions: [wikiLinkFromMarkdown] });
+      const paragraph = tree.children[0];
+      if (paragraph.type !== "paragraph" || paragraph.children[0].type !== "link") throw new Error("Expected a link");
+      const url = paragraph.children[0].url;
+      expect(url).toBe(href);
+    }
+  });
   test("preserves page paths, aliases, Unicode and heading destinations after body edits", () => {
     const input = '[[Clients/Acme.md]] and [[Research/Überblick#Sources|Evidence]]\n';
     expect(roundTrip(input)).toBe(input);
