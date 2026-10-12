@@ -93,7 +93,7 @@ export type SessionPanelState = {
   sideActiveTabId: string | null;
 };
 
-type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser" } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
+type PersistedPanelTab = ProjectViewTab | ChatPanelTab | ReviewPanelTab | TaskPanelTab | { id: string; type: "browser"; background?: boolean } | { id: string; type: "artifact"; label: string; value: string } | ArtifactPanelTab;
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -116,7 +116,7 @@ function restoredTab(value: unknown): PanelTab | null {
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
   }
   if (value.type !== "browser") return null;
-  return { id: value.id, type: "browser", label: "New tab", url: typeof value.url === "string" ? value.url : "", favicon: null, status: "ready", canGoBack: false, canGoForward: false };
+  return { id: value.id, type: "browser", background: value.background === true, label: "New tab", url: typeof value.url === "string" ? value.url : "", favicon: null, status: "ready", canGoBack: false, canGoForward: false };
 }
 
 export type PanelTabStore = {
@@ -164,6 +164,7 @@ function updateSession(state: PanelTabStore, sessionId: string, session: Session
 export function normalizeSession(session: SessionPanelState): SessionPanelState {
   const assigned = new Set<string>();
   const paneIds = new Set<string>();
+  const defaultTab = (ids: string[]) => session.tabs.find(tab => ids.includes(tab.id) && (tab.type !== "browser" || !tab.background))?.id ?? null;
   let panes: DocumentPaneState[] = session.panes.filter(pane => {
     if (paneIds.has(pane.id) || paneIds.size >= MAX_DOCUMENT_PANES) return false;
     paneIds.add(pane.id);
@@ -171,11 +172,11 @@ export function normalizeSession(session: SessionPanelState): SessionPanelState 
   }).map(pane => {
     const tabIds = session.tabs.filter(tab => pane.tabIds.includes(tab.id) && !assigned.has(tab.id)).map(tab => tab.id);
     tabIds.forEach(id => assigned.add(id));
-    return { ...pane, tabIds, previewTabId: tabIds.includes(pane.previewTabId ?? "") ? pane.previewTabId : undefined, activeTabId: tabIds.includes(pane.activeTabId ?? "") ? pane.activeTabId : tabIds[0] ?? null };
+    return { ...pane, tabIds, previewTabId: tabIds.includes(pane.previewTabId ?? "") ? pane.previewTabId : undefined, activeTabId: tabIds.includes(pane.activeTabId ?? "") ? pane.activeTabId : defaultTab(tabIds) };
   });
   if (!panes.length) panes = [{ id: "main", tabIds: [], activeTabId: null }];
   const unassigned = session.tabs.filter(tab => !assigned.has(tab.id)).map(tab => tab.id);
-  panes[0] = { ...panes[0], tabIds: [...panes[0].tabIds, ...unassigned], activeTabId: panes[0].activeTabId ?? unassigned[0] ?? null };
+  panes[0] = { ...panes[0], tabIds: [...panes[0].tabIds, ...unassigned], activeTabId: panes[0].activeTabId ?? defaultTab(unassigned) };
   panes = panes.filter(pane => pane.tabIds.length > 0);
   if (!panes.length) panes = [{ id: "main", tabIds: [], activeTabId: null }];
   let tree = pruneLayout(session.tree, new Set(panes.map(pane => pane.id))) ?? { type: "pane", id: panes[0].id };
@@ -285,7 +286,7 @@ function isSameTranscriptArtifactTargets(left: OpenTarget[], right: OpenTarget[]
   );
 }
 
-function resolveActiveTabId<Tab extends { id: string }>(
+function resolveActiveTabId<Tab extends { id: string; type: string; background?: boolean }>(
   tabs: Tab[],
   preferredActiveTabId: string | null,
 ): string | null {
@@ -293,7 +294,7 @@ function resolveActiveTabId<Tab extends { id: string }>(
     return preferredActiveTabId;
   }
 
-  return tabs[0]?.id ?? null;
+  return tabs.find(tab => tab.type !== "browser" || !tab.background)?.id ?? null;
 }
 
 function isSameTab(left: PanelTab, right: PanelTab) {
@@ -312,6 +313,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
 
   if (left.type === "browser" && right.type === "browser") {
     return (
+      left.background === right.background &&
       left.label === right.label &&
       left.url === right.url &&
       left.favicon === right.favicon &&
@@ -535,6 +537,12 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         const added = browserTabs.filter(tab => !assigned.has(tab.id));
         let nextSession = normalizeSession({ ...session, tabs: mergedTabs.filter(tab => !added.some(item => item.id === tab.id)) });
         for (const tab of added) {
+          if (tab.background) {
+            // Agent tabs join the strip without selecting content or splitting a pane.
+            nextSession = normalizeSession({ ...nextSession, tabs: [...nextSession.tabs, tab],
+              panes: nextSession.panes.map(pane => pane.id === nextSession.focusedPaneId ? { ...pane, tabIds: [...pane.tabIds, tab.id] } : pane) });
+            continue;
+          }
           nextSession = openInSession(sessionId, nextSession, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, undefined, undefined, false, () => {
             const latest = latestBrowserStates.get(sessionId);
             if (latest) get().syncBrowserTabs(sessionId, latest.tabs, latest.activeId);
@@ -651,7 +659,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
                 if (tab.type === "chat" || tab.type === "review" || tab.type === "task" || tab.type === "project-view") return [tab];
                 // Workflow drafts and their service bindings are in-memory; never restore empty editor stubs.
                 if (tab.type === "workflow" || tab.type === "workflow-resource") return [];
-                if (tab.type === "browser") return [{ id: tab.id, type: tab.type }];
+                if (tab.type === "browser") return [{ id: tab.id, type: tab.type, background: tab.background }];
                 if (tab.type === "artifact" && tab.sourceProject) return [{ ...projectFileTab(tab.sourceProject), id: tab.id }];
                 // Restore original workspace files, not downloaded credentials,
                 // cached storage working copies or ephemeral evidence viewers.

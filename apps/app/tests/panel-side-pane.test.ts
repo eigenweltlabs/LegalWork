@@ -871,6 +871,76 @@ describe("workspace opening profiles and previews", () => {
 
 
 describe("project browser tabs", () => {
+  test("agent tabs appear beside the current chat without selecting them or opening a split", () => {
+    const scope = "workspace:agent-browser";
+    store().setWorkspaceWidth(scope, 1600);
+    store().setOpening(scope, { mode: "free", newContent: "beside" });
+    store().adoptChat(scope, "current", "Current chat");
+    const before = store().sessions[scope];
+    const agentTab = { ...browser, background: true };
+    store().syncBrowserTabs(scope, [agentTab], null);
+    const after = store().sessions[scope];
+    expect(after.tabs).toContainEqual(agentTab);
+    expect(after.panes[0].tabIds).toEqual(["chat:current", browser.id]);
+    expect(after.activeTabId).toBe("chat:current");
+    expect(after.tree).toEqual(before.tree);
+    expect(after.focusedPaneId).toBe(before.focusedPaneId);
+    store().syncBrowserTabs(scope, [{ ...agentTab, label: "Research result", url: "https://example.com/result" }], null);
+    expect(store().sessions[scope].activeTabId).toBe("chat:current");
+    expect(store().sessions[scope].tabs[1].label).toBe("Research result");
+    store().selectTab(scope, browser.id);
+    expect(store().sessions[scope].activeTabId).toBe(browser.id);
+    store().syncBrowserTabs(scope, [{ ...agentTab, background: false }], browser.id);
+    expect(store().sessions[scope].tabs[1]).toMatchObject({ background: false });
+  });
+
+  test("agent tabs preserve the focused document, unsaved draft, and other panes", () => {
+    add("A"); add("B", "A", "right");
+    const before = session();
+    const dirty = refuseDirty("B");
+    try {
+      store().syncBrowserTabs("session", [{ ...browser, background: true }], null);
+      expect(getDocumentDiscardPrompt()).toBeNull();
+      expect(session().panes.map(pane => pane.activeTabId)).toEqual(before.panes.map(pane => pane.activeTabId));
+      expect(session().panes.find(pane => pane.id === before.focusedPaneId)?.tabIds).toContain(browser.id);
+      expect(session().focusedPaneId).toBe(before.focusedPaneId);
+      expect(session().tree).toEqual(before.tree);
+    } finally { dirty.restore(); }
+  });
+
+  test("an agent's first browser tab stays unselected even on repeated empty-panel synchronization", () => {
+    const agentTab = { ...browser, background: true };
+    for (let i = 0; i < 2; i++) {
+      store().syncBrowserTabs("session", [agentTab], null);
+      expect(session().tabs).toEqual([agentTab]);
+      expect(session().panes[0].tabIds).toEqual([browser.id]);
+      expect(session().activeTabId).toBeNull();
+    }
+    store().selectTab("session", browser.id);
+    store().syncBrowserTabs("session", [agentTab], browser.id);
+    expect(session().activeTabId).toBe(browser.id);
+  });
+
+  test("agent navigation does not replace the user's selected browser tab", () => {
+    open(browser);
+    const agentTab = { ...browser, id: "agent-browser", background: true };
+    store().syncBrowserTabs("session", [browser, agentTab], browser.id);
+    store().syncBrowserTabs("session", [browser, { ...agentTab, url: "https://example.com/next" }], browser.id);
+    expect(session().panes[0].tabIds).toEqual([browser.id, agentTab.id]);
+    expect(session().activeTabId).toBe(browser.id);
+  });
+
+  test("restoring the renderer keeps an unselected agent tab in the strip without opening it", async () => {
+    store().syncBrowserTabs("session", [{ ...browser, background: true }], null);
+    const saved = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of saved) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(session().tabs[0]).toMatchObject({ id: browser.id, background: true });
+    expect(session().panes[0].tabIds).toEqual([browser.id]);
+    expect(session().activeTabId).toBeNull();
+  });
+
   test("Files and Sessions are singletons and survive layout restoration", () => {
     const files = { id: "project-view:files", type: "project-view", view: "files", label: "Files" } satisfies import("../src/react-app/domains/session/panel/panel-tab-store").ProjectViewTab;
     const sessions = { id: "project-view:sessions", type: "project-view", view: "sessions", label: "Sessions" } satisfies import("../src/react-app/domains/session/panel/panel-tab-store").ProjectViewTab;

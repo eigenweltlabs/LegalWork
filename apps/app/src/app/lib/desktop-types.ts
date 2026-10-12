@@ -46,6 +46,7 @@ export type WorkspaceInfo = WorkspaceWire;
 // Browser tab state mirrored across the desktop IPC bridge. Owned here (the
 // framework-agnostic layer); the session panel store re-exports it.
 export type BrowserPanelTab = {
+  // Show in the tab strip, but do not select automatically before the user opens it.
   background?: boolean;
   id: string;
   type: "browser";

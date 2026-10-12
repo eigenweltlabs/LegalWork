@@ -229,12 +229,26 @@ test("agent browsers load and navigate without adopting the foreground pane", as
   f.views[0].webContents.emit("focus");
   assert.equal(f.views[0].webContents.url, "https://example.com/next");
   assert.equal(f.call("state", f.first).activeTabId, foreground);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [first.tab_id, foreground]);
   assert.deepEqual(f.first.contentView.children, [f.views[1]]);
   assert.equal(f.first.webContents.messages.some(message => message.channel === "legalwork:browser:panel-opened"), false);
-  f.call("closeTab", f.first, foreground);
-  assert.equal(f.call("state", f.first).activeTabId, null);
-  assert.deepEqual(f.first.contentView.children, []);
-  // The user can still explicitly reveal the agent's working tab.
+  // Selecting the agent tab is a normal user action. After switching away,
+  // another focus event from its page must not select it again.
   f.call("selectTab", f.first, first.tab_id);
+  f.call("hide", f.first, foreground);
+  f.call("show", f.first, f.left, first.tab_id);
   assert.equal(f.call("state", f.first).tabs[0].background, false);
+  assert.equal(f.call("state", f.first).activeTabId, first.tab_id);
+  assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+  f.call("selectTab", f.first, foreground);
+  f.call("hide", f.first, first.tab_id);
+  f.call("show", f.first, f.left, foreground);
+  f.views[0].webContents.emit("focus");
+  assert.equal(f.call("state", f.first).activeTabId, foreground);
+  assert.deepEqual(f.first.contentView.children, [f.views[1]]);
+  // Closing the selected tab follows normal neighbouring-tab selection.
+  f.call("closeTab", f.first, foreground);
+  assert.equal(f.call("state", f.first).activeTabId, first.tab_id);
+  f.call("show", f.first, f.left, first.tab_id);
+  assert.deepEqual(f.first.contentView.children, [f.views[0]]);
 });

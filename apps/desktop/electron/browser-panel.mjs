@@ -551,7 +551,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     // Navigation is data work. Only explicit user selection may attach a tab
     // to the visible pane; a redirect or an agent's CDP call must not do so.
     view.webContents.on("focus", () => {
-      if (tab.background) return;
+      if (!browserViewVisible || !window()?.contentView.children.includes(view)) return;
       activeBrowserTabId = tabId;
       sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tabId });
     });
@@ -568,7 +568,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       browserTabs.delete(tabId);
       paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
-      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder.find(id => !browserTabs.get(id).background) ?? null;
+      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder[0] ?? null;
       sendBrowserState();
     });
     if (select) {
@@ -655,17 +655,16 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     const tab = getBrowserTab(tabId);
     if (!tab) return null;
     if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
-    const closingIndex = browserTabOrder.filter(id => !browserTabs.get(id).background).indexOf(tabId);
+    const closingIndex = browserTabOrder.indexOf(tabId);
     const wasActive = activeBrowserTabId === tabId;
     detachBrowserView(tab.view);
     browserTabs.delete(tabId);
     paneBounds.delete(tabId);
     browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
     if (wasActive) {
-      const visibleTabs = browserTabOrder.filter(id => !browserTabs.get(id).background);
       const nextTabId =
-        visibleTabs[Math.min(closingIndex, visibleTabs.length - 1)] ??
-        visibleTabs[closingIndex - 1] ??
+        browserTabOrder[Math.min(closingIndex, browserTabOrder.length - 1)] ??
+        browserTabOrder[closingIndex - 1] ??
         null;
       activeBrowserTabId = nextTabId;
       if (nextTabId) {

@@ -14,8 +14,8 @@ export function useSidePanelTabs(sessionId: string, active = true) {
   const syncBrowserTabs = usePanelTabStore((state) => state.syncBrowserTabs);
 
   const applyBrowserState = React.useCallback((browserState: BrowserStatePayload) => {
-    const tabs = (browserState.tabs ?? []).filter(tab => !tab.background);
-    const activeTabId = browserState.activeTabId ?? tabs[0]?.id ?? null;
+    const tabs = browserState.tabs ?? [];
+    const activeTabId = browserState.activeTabId ?? null;
 
     syncBrowserTabs(sessionId, tabs, activeTabId);
     if (browserState.focusedTabId) {

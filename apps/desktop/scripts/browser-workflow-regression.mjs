@@ -128,6 +128,14 @@ app.whenReady().then(async () => {
     const selector = (name) => first.snapshot.controls.find((control) => control.name === name).selector;
     console.log("PASS: opening a project tab returns labeled controls and observed selectors");
 
+    const foreground = await invoke("createTab", `${origin}/foreground`);
+    const foregroundView = main.contentView.children[0];
+    const second = await invoke("openUrl", origin, "builtin", { directory: projectA });
+    assert.deepEqual(invoke("state").tabs.map(tab => tab.id), [first.tab_id, foreground.tabId, second.tab_id]);
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    assert.deepEqual(main.contentView.children, [foregroundView]);
+    invoke("closeTab", second.tab_id);
+
     const [target] = await (await fetch(`${first.browser_url}/json/list`)).json();
     client = new WebSocket(target.webSocketDebuggerUrl);
     await once(client, "open");
@@ -156,14 +164,29 @@ app.whenReady().then(async () => {
     const fields = await command(client, "Runtime.evaluate", { expression: "[document.querySelector('#applicant').value, document.querySelector('#notes').value, document.querySelector('#region').value]", returnByValue: true });
     assert.deepEqual(fields.result.value, ["Alice", "Review complete", "East"]);
     console.log("PASS: one batch fills input, textarea and select, clicks, waits and shares the CDP attachment");
-    assert.equal(main.contentView.children.length, 0);
-    assert.equal(invoke("state").activeTabId, null);
-    console.log("PASS: browser automation completes without opening a foreground pane");
+    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    console.log("PASS: agent tabs are listed and complete work without replacing the selected browser");
 
     // Revealing a working tab is an explicit user action, independent of the
     // agent's ability to inspect, fill, click, and download in the background.
     invoke("selectTab", first.tab_id);
     assert.deepEqual(main.contentView.children[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
+    invoke("selectTab", foreground.tabId);
+    await command(client, "Page.navigate", { url: `${origin}/next` });
+    await batch(first, [{ action: "wait_for", text: "Browser workflow fixture" }]);
+    await command(client, "Runtime.evaluate", { expression: "document.querySelector('#applicant').focus()" });
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    assert.deepEqual(main.contentView.children, [foregroundView]);
+    // Restore the fixture form for the remaining workflow assertions.
+    await batch(first, [
+      { action: "fill", selector: "#applicant", value: "Alice" },
+      { action: "fill", selector: "#region", value: "East" },
+      { action: "click", selector: "#save" },
+      { action: "wait_for", text: "Saved Alice in East" },
+    ]);
+    invoke("selectTab", first.tab_id);
+    console.log("PASS: selecting an agent tab works, and later navigation or field focus cannot reselect it");
 
     if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
       const contents = main.contentView.children[0].webContents;
