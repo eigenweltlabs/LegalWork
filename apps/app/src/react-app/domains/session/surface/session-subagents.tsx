@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Client } from "@/app/types";
 import { unwrap } from "@/app/lib/opencode";
-import { Bot, Check, CircleAlert, Clock3, LoaderCircle, X } from "lucide-react";
+import { Check, CircleAlert, Clock3, GitBranch, LoaderCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -46,19 +46,19 @@ export function SessionSubagents({ workspaceId, sessionId, client, waiting, onOp
   if (!agents.length) return null;
   const count = agents.filter(agent => isRunningSubagent(agent.status)).length;
   return <div className="pointer-events-none absolute inset-x-3 top-2 z-40 flex flex-col items-end">
-    <Button variant="ghost" size="sm" className="pointer-events-auto mr-9 h-8 gap-1.5 bg-dls-surface/90 px-2 text-muted-foreground" onClick={() => setOpen(value => !value)}
+    <Button variant="ghost" size="sm" className="pointer-events-auto mr-9 h-7 min-w-7 gap-1 rounded-md bg-dls-surface/90 px-1.5 text-muted-foreground" onClick={() => setOpen(value => !value)}
       aria-expanded={open} aria-label={t("session.subagents_running", { count })} title={t("session.subagents_running", { count })}>
-      <Bot className="size-4" /><span className="text-xs tabular-nums">{count}</span>
+      <GitBranch className="size-3.5" strokeWidth={1.6} aria-hidden />{count > 0 ? <span className="text-[11px] tabular-nums">{count}</span> : null}
     </Button>
-    {open && <section aria-label={t("session.subagents")} className="pointer-events-auto mt-2 w-80 max-w-full rounded-xl border bg-popover text-popover-foreground shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2"><span className="text-sm font-medium">{t("session.subagents_running", { count })}</span>
-        <Button variant="ghost" size="icon-sm" onClick={() => setOpen(false)} aria-label={t("session.subagents_close")}><X className="size-4" /></Button></div>
-      <div className="max-h-80 overflow-y-auto p-1.5">{agents.map(agent => {
+    {open && <section aria-label={t("session.subagents")} className="pointer-events-auto mt-1 w-72 max-w-full rounded-lg border bg-popover text-popover-foreground shadow-md">
+      <div className="flex h-8 items-center justify-between px-2.5"><span className="text-xs font-medium">{t(count > 0 ? "session.subagents_running" : "session.subagents", { count })}</span>
+        <Button variant="ghost" size="icon-xs" className="-mr-1" onClick={() => setOpen(false)} aria-label={t("session.subagents_close")}><X className="size-3" /></Button></div>
+      <div className="max-h-60 overflow-y-auto px-1 pb-1">{agents.map(agent => {
         const Icon = agent.status === "idle" ? Check : agent.status === "error" ? CircleAlert : agent.status === "waiting" ? Clock3 : LoaderCircle;
         const label = agent.status === "idle" ? t("session.subagent_completed") : getSessionActivityStatusLabel(agent.status);
-        return <Button key={agent.id} variant="ghost" disabled={!onOpen} title={agent.title} onClick={() => onOpen?.(agent.id)} className="h-auto w-full justify-start gap-2.5 px-2 py-2 text-left font-normal disabled:opacity-100">
-          <Icon className={cn("size-4 shrink-0 text-muted-foreground", isRunningSubagent(agent.status) && "motion-safe:animate-spin")} />
-          <span className="min-w-0"><span className="block truncate text-sm">{agent.title}</span><span className="block text-xs text-muted-foreground">{label}</span></span>
+        return <Button key={agent.id} variant="ghost" disabled={!onOpen} title={`${agent.title} · ${label}`} aria-label={`${agent.title} · ${label}`} onClick={() => onOpen?.(agent.id)} className="h-7 w-full justify-start gap-2 rounded-md px-2 py-0 text-left text-xs font-normal disabled:opacity-100">
+          <Icon aria-hidden className={cn("size-3 shrink-0 text-muted-foreground", isRunningSubagent(agent.status) && "text-primary motion-safe:animate-spin", agent.status === "error" && "text-destructive")} />
+          <span className="min-w-0 truncate">{agent.title}</span>
         </Button>;
       })}</div>
     </section>}

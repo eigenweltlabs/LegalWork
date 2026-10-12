@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
-import { Bot, Check, CircleAlert, Clock3, LoaderCircle } from "lucide-react";
+import { Check, CircleAlert, Clock3, GitBranch, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
@@ -39,7 +39,7 @@ export function SubagentRow({ title, status, onOpen }: {
   return <Button variant="ghost" size="sm" disabled={!onOpen} onClick={onOpen} title={title}
     aria-label={`${t("session.open_subagent_chat")}: ${title}`}
     className="h-7 max-w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left text-sm font-normal disabled:opacity-100">
-    <Bot className="size-4 shrink-0" strokeWidth={1.6} aria-hidden />
+    <GitBranch className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
     <span className="min-w-0 truncate">{t("session.subagent_started", { name: title })}</span>
     <StatusIcon className={cn("size-3.5 shrink-0 text-muted-foreground", working && "motion-safe:animate-spin", status === "error" && "text-red-11")} role="img" aria-label={label} />
   </Button>;

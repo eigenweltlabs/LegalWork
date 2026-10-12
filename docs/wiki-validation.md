@@ -2,6 +2,12 @@
 
 Implemented on `codex/markdown-wiki`, starting from `dev` at `19c40010`.
 
+## Compact subagent monitor (2026-10-12)
+
+The monitor uses a 288 px panel, 28 px single-line task rows, a small header and lighter shadow. Status stays visible as an icon and is also included in the tooltip and accessible label. The zero-count badge and repeated Completed lines are removed. A branching icon replaces the robot in both the monitor and transcript rows.
+
+App typecheck, the seven existing subagent row tests (36 assertions), and `git diff --check` passed. Native visual verification was blocked by the locked Mac. Reproduce by opening a parent chat with delegated tasks and clicking the branching icon at its upper right. Completed tasks should occupy one row each; running tasks retain their count and spinner.
+
 ## Wiki storage settings (2026-10-12)
 
 Settings hide the folder path for the server's default managed location. Custom locations show a compact folder name and truncated path with a full-path tooltip and copy button. Classification happens on the server against the canonical default path, so macOS path aliases do not expose the default location accidentally.
