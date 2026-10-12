@@ -73,7 +73,7 @@ export class ViewRepository {
     const parsed = ViewInputSchema.safeParse(input);
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
     if (!isLocalOpenUIProgram(parsed.data.program)) throw new ApiError(400, "invalid_view_program", "Use the bundled OpenUI component language without scripts or hosted response bundles.");
-    if (this.owner.kind === "workspace" && (input.mode !== "report" || Object.keys(input.queries).length)) throw new ApiError(400, "workspace_view_requires_snapshot", "Project reports use frozen datasets. Live wiki dashboards belong to their wiki.");
+    if (this.owner.kind === "workspace" && Object.keys(input.queries).length) throw new ApiError(400, "workspace_view_requires_datasets", "Project reports and dashboards use named datasets from their sources. Live indexed wiki queries belong to the wiki.");
     if (input.mode === "report" && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new ApiError(400, "report_snapshot_missing", "Frozen reports must retain their query datasets.");
     return parsed.data;
   }

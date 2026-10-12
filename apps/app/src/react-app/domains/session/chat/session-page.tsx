@@ -111,6 +111,7 @@ import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { ControlActionScope, useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
 import "@/components/chat/session-surfaces.css";
+import { ChatWorkspaceContext } from "@/components/chat/chat-workspace-context";
 import { WelcomeSurface } from "@/components/chat/session-welcome";
 import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 
@@ -1211,6 +1212,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [windowTitle]);
 
   return (
+    <ChatWorkspaceContext.Provider value={wikiWorkspace ? "wiki" : "project"}>
     <ProjectFileProvider groups={props.fileWorkspaceGroups ?? listedSessionGroups} client={props.environmentClient ?? null} createChat={props.sidebar.onCreateChatInWorkspace}>
     <ProjectPersonalisationProvider groups={listedSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
@@ -1740,5 +1742,6 @@ export function SessionPage(props: SessionPageProps) {
     </div>
     </ProjectPersonalisationProvider>
     </ProjectFileProvider>
+    </ChatWorkspaceContext.Provider>
   );
 }

@@ -113,21 +113,21 @@
 .wiki-properties-editor .wiki-property-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--destructive); font-size: 13px; }
 .wiki-reader { width: 100%; padding: 28px clamp(24px, 4cqw, 48px) 48px; }
 .wiki-preview.lw-markdown-page { width: 100%; max-width: 720px; padding: 0; margin: 0 auto; font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; }
-.wiki-preview.lw-markdown-page h1 { font-size: clamp(25px, 3.4cqw, 34px); font-weight: 600; line-height: 1.25; letter-spacing: -.025em; margin: 0 0 24px; }
-.wiki-preview.lw-markdown-page h2 { font-size: 21px; font-weight: 600; line-height: 1.4; margin: 36px 0 12px; letter-spacing: -.015em; }
-.wiki-preview.lw-markdown-page h3 { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 26px 0 10px; }
-.wiki-preview.lw-markdown-page p, .wiki-preview.lw-markdown-page ul, .wiki-preview.lw-markdown-page ol { margin: 0 0 16px; }
-.wiki-preview.lw-markdown-page li { margin: 4px 0; }
-.wiki-preview.lw-markdown-page a { text-underline-offset: 3px; }
-.wiki-preview.lw-markdown-page blockquote { margin: 24px 0; padding: 4px 0 4px 18px; border-left: 2px solid var(--border); color: var(--muted-foreground); }
-.wiki-preview.lw-markdown-page blockquote p:last-child { margin-bottom: 0; }
-.wiki-preview.lw-markdown-page pre { padding: 16px 18px; background: var(--muted); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.65; }
-.wiki-preview.lw-markdown-page pre code { padding: 0; background: transparent; }
-.wiki-preview.lw-markdown-page img { max-width: 100%; height: auto; border-radius: 6px; }
-.wiki-preview.lw-markdown-page table { display: block; width: 100%; overflow-x: auto; margin: 24px 0; border-collapse: collapse; font-size: 13px; }
-.wiki-preview.lw-markdown-page table thead { display: table-header-group; }
-.wiki-preview.lw-markdown-page table th, .wiki-preview.lw-markdown-page table td { border: 1px solid var(--border); padding: 10px 14px; min-width: 100px; text-align: left; }
-.wiki-preview.lw-markdown-page table th { background: var(--muted); font-weight: 500; }
+.wiki-preview.lw-markdown-page h1:not(:where(.lw-inline-view *)) { font-size: clamp(25px, 3.4cqw, 34px); font-weight: 600; line-height: 1.25; letter-spacing: -.025em; margin: 0 0 24px; }
+.wiki-preview.lw-markdown-page h2:not(:where(.lw-inline-view *)) { font-size: 21px; font-weight: 600; line-height: 1.4; margin: 36px 0 12px; letter-spacing: -.015em; }
+.wiki-preview.lw-markdown-page h3:not(:where(.lw-inline-view *)) { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 26px 0 10px; }
+.wiki-preview.lw-markdown-page p:not(:where(.lw-inline-view *)), .wiki-preview.lw-markdown-page ul:not(:where(.lw-inline-view *)), .wiki-preview.lw-markdown-page ol:not(:where(.lw-inline-view *)) { margin: 0 0 16px; }
+.wiki-preview.lw-markdown-page li:not(:where(.lw-inline-view *)) { margin: 4px 0; }
+.wiki-preview.lw-markdown-page a:not(:where(.lw-inline-view *)) { text-underline-offset: 3px; }
+.wiki-preview.lw-markdown-page blockquote:not(:where(.lw-inline-view *)) { margin: 24px 0; padding: 4px 0 4px 18px; border-left: 2px solid var(--border); color: var(--muted-foreground); }
+.wiki-preview.lw-markdown-page blockquote p:last-child:not(:where(.lw-inline-view *)) { margin-bottom: 0; }
+.wiki-preview.lw-markdown-page pre:not(:where(.lw-inline-view *)) { padding: 16px 18px; background: var(--muted); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.65; }
+.wiki-preview.lw-markdown-page pre code:not(:where(.lw-inline-view *)) { padding: 0; background: transparent; }
+.wiki-preview.lw-markdown-page img:not(:where(.lw-inline-view *)) { max-width: 100%; height: auto; border-radius: 6px; }
+.wiki-preview.lw-markdown-page table:not(:where(.lw-inline-view *)) { display: block; width: 100%; overflow-x: auto; margin: 24px 0; border-collapse: collapse; font-size: 13px; }
+.wiki-preview.lw-markdown-page table thead:not(:where(.lw-inline-view *)) { display: table-header-group; }
+.wiki-preview.lw-markdown-page table th:not(:where(.lw-inline-view *)), .wiki-preview.lw-markdown-page table td:not(:where(.lw-inline-view *)) { border: 1px solid var(--border); padding: 10px 14px; min-width: 100px; text-align: left; }
+.wiki-preview.lw-markdown-page table th:not(:where(.lw-inline-view *)) { background: var(--muted); font-weight: 500; }
 .wiki-preview [id] { scroll-margin-top: 20px; }
 .wiki-reader-outline { display: none; }
 .wiki-outline-title { padding: 0 8px; margin-bottom: 12px; font-size: 11px; font-weight: 500; color: var(--foreground); }

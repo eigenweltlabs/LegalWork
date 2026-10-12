@@ -54,9 +54,19 @@ describe("saved view records", () => {
     await writeFile(join(root, "Broken.view.json"), '{"id":"invalid"}');
     expect((await repository().list()).issues[0].code).toBe("view_invalid_record");
   });
+  test("project dashboards persist arbitrary source datasets and refresh with a revision-checked update", async () => {
+    const repo = repository();
+    const saved = await repo.create({ ...input, mode: "dashboard" });
+    expect(await repo.location(saved.id)).toBe(`Views/${saved.id}.view.json`);
+    expect((await repo.read(saved.id)).datasets).toEqual(input.datasets);
+    const datasets = { invoices: { rows: [{ file: "invoice.csv", total: 250 }], total: 1, asOf: 200, revision: "csv-2", truncated: false } };
+    const updated = await repo.update(saved.id, { ...input, mode: "dashboard", datasets }, saved.revision);
+    expect(updated.datasets).toEqual(datasets);
+    expect((await repo.read(saved.id)).revision).not.toBe(saved.revision);
+    await expect(repo.update(saved.id, input, saved.revision)).rejects.toMatchObject({ status: 409 });
+  });
   test("a workspace report cannot make a live wiki query", async () => {
-    await expect(repository().create({ ...input, mode: "dashboard" })).rejects.toMatchObject({ code: "workspace_view_requires_snapshot" });
-    await expect(repository().create({ ...input, queries: { data: { fields: ["title"] } } })).rejects.toMatchObject({ code: "workspace_view_requires_snapshot" });
+    await expect(repository().create({ ...input, queries: { data: { fields: ["title"] } } })).rejects.toMatchObject({ code: "workspace_view_requires_datasets" });
   });
   test("symlinked destination cannot write outside the workspace", async () => {
     const elsewhere = await mkdtemp(join(tmpdir(), "legalwork-outside-"));

@@ -46,6 +46,19 @@ test("history never auto-opens and manual closure is respected while streaming",
   expect(opened).toHaveLength(1);
   expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs).toHaveLength(0);
 });
+test("project dashboards stream beside their chat and stay in that project's tabs", async () => {
+  const project = { ...context, workspaceId: "project" };
+  const scope = "workspace:project";
+  usePanelTabStore.getState().openTab(scope, { type: "chat", id: "chat:session", sessionId: "session", label: "Chat" });
+  const openProject = (tab: ViewDraftTab) => usePanelTabStore.getState().openTab(scope, tab, "main", undefined, { besideChat: true });
+  await syncViewGeneration(project, pending, openProject);
+  expect(usePanelTabStore.getState().sessions[scope].panes[1].activeTabId).toBe(id);
+  await syncViewGeneration(project, { ...pending, input: { input: { program: 'root = Text("Invoice' } } }, openProject);
+  expect(useViewGenerationStore.getState().entries[id].program).toBe('root = Text("Invoice');
+  await syncViewGeneration(project, { ...done, output: { ...saved, owner: { kind: "workspace", id: "project" } } }, openProject);
+  expect(usePanelTabStore.getState().sessions[scope].tabs).toContainEqual(expect.objectContaining({ type: "view", owner: { kind: "workspace", id: "project" } }));
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"]).toBeUndefined();
+});
 test("view cards stay outside collapsed generic tool groups", () => {
   const groups = getAssistantRenderGroups([pending], false);
   expect(groups).toMatchObject([{ kind: "view", part: pending }]);

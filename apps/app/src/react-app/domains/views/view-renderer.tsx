@@ -36,10 +36,10 @@ function ResolvedView({ client, view, refreshKey, openSource }: { client: Legalw
   const results = useQuery({
     queryKey: ["view-data", client.baseUrl, view.owner.kind, view.owner.id, view.id, view.revision, refreshKey],
     queryFn: async (): Promise<Record<string, WikiDataResult>> => {
-      if (view.mode === "report") return view.datasets ?? {};
+      if (view.mode === "report" || !Object.keys(view.queries).length) return view.datasets ?? {};
       if (view.owner.kind !== "wiki") throw new Error("This view has no wiki data source");
       const entries = await Promise.all(Object.entries(view.queries).map(async ([name, query]) => [name, await client.queryWiki(view.owner.id, query)]));
-      return Object.fromEntries(entries);
+      return { ...view.datasets, ...Object.fromEntries(entries) };
     },
     refetchInterval: view.mode === "dashboard" ? 15_000 : false,
   });
@@ -88,7 +88,7 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
   if (!client) return <p className="lw-saved-view-error">Connect to view this report.</p>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>
-    {view.data && <div className="lw-saved-view-toolbar">{!inline && <span>{view.data.mode === "dashboard" ? "Live dashboard" : "Report snapshot"}</span>}<Button size="icon-xs" variant="ghost" aria-label="Refresh view" onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button></div>}
+    {view.data && <div className="lw-saved-view-toolbar">{!inline && <span>{view.data.mode === "report" ? "Report snapshot" : Object.keys(view.data.queries).length ? "Live dashboard" : "Dashboard"}</span>}<Button size="icon-xs" variant="ghost" aria-label="Refresh view" onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button></div>}
     {view.error ? <div role="alert" className="lw-saved-view-error">{view.error.message}<Button size="sm" variant="ghost" onClick={() => void view.refetch()}>Retry</Button></div> : !view.data ? <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />Loading view…</div> : <ResolvedView client={client} view={view.data} refreshKey={refreshKey} openSource={openSource} />}
   </div>;
 }
