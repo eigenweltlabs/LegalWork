@@ -43,6 +43,7 @@ import { seedPermissionState, seedQuestionState } from "@/react-app/domains/sess
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { eigenweltEntitlementsQueryKey } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
+import { LegalworkControlProvider } from "@/react-app/shell/control/control-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
@@ -740,15 +741,17 @@ previewRoot.render(
             <ReloadCoordinatorProvider>
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
-                  <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
-                    const path = folder ? `${folder}/${file.name}` : file.name;
-                    if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
-                    files = [...files, { name: file.name, path, kind: "file", size: file.size }];
-                    localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: await file.text(), updatedAt: Date.now() }));
-                    return { name: file.name, path, status: "copied" };
-                  })) }; }}><SessionPreview /></ProjectFileImportContext>
-                  <PlansPreview />
-                  <Toaster /><DocumentDiscardDialog />
+                  <LegalworkControlProvider>
+                    <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
+                      const path = folder ? `${folder}/${file.name}` : file.name;
+                      if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
+                      files = [...files, { name: file.name, path, kind: "file", size: file.size }];
+                      localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: await file.text(), updatedAt: Date.now() }));
+                      return { name: file.name, path, status: "copied" };
+                    })) }; }}><SessionPreview /></ProjectFileImportContext>
+                    <PlansPreview />
+                    <Toaster /><DocumentDiscardDialog />
+                  </LegalworkControlProvider>
                 </MemoryRouter>
               </WorkspaceProvider>
             </ReloadCoordinatorProvider>

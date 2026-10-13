@@ -13,6 +13,9 @@ import { workflowsPanelKey } from "../../session/panel/panel-scope";
 import { usePanelTabStore, useSessionPanelState } from "../../session/panel/panel-tab-store";
 import { SidePanel } from "../../session/panel/side-panel";
 
+// Keep this identity stable: control registration updates the surrounding app.
+const noControlSessions: readonly string[] = [];
+
 export function WorkflowsWorkspace({ workspaceId, client, children, active = true }: {
   active?: boolean;
   workspaceId: string;
@@ -51,7 +54,7 @@ export function WorkflowsWorkspace({ workspaceId, client, children, active = tru
     </ResizablePanelGroup>
     {panel.tabs.length > 0 && <DocumentPane destination={visible ? host : null}>
       <ControlActionScope active={visible}>
-        <SidePanel sessionId={scope} client={client ?? null} workspaceId={workspaceId} workspaceRoot="" controlSessionIds={[]}
+        <SidePanel sessionId={scope} client={client ?? null} workspaceId={workspaceId} workspaceRoot="" controlSessionIds={noControlSessions}
           tabDestination={{ kind: "workflows", workspaceId }} visible={visible}
           onClose={() => useUiStateStore.getState().setSidePanelState(scope, null)} />
       </ControlActionScope>
