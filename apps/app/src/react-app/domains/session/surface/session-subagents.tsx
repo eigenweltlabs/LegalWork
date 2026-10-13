@@ -8,7 +8,6 @@ import { SubagentDot, subagentColors } from "@/components/chat/subagent-dot";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
-import { cn } from "@/lib/utils";
 import { useQueryCacheState } from "../../../infra/query-cache-state";
 import { emptyInteractionSessions, interactionSessionIds, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
@@ -36,7 +35,7 @@ export function SessionSubagents({ workspaceId, workspaceRoot, sessionId, client
   const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
   const agents = sessionSubagents(sessionId, sessions, statuses, waiting?.filter(id => !stopped.includes(id)));
   const ids = agents.map(agent => agent.id).sort().join("|");
-  const colors = useMemo(() => subagentColors(ids.split("|")), [ids]);
+  const colors = useMemo(() => subagentColors(sessionId, sessions), [sessionId, sessions]);
   const runs = useQuery({
     queryKey: ["subagent-run-status", workspaceId], enabled: Boolean(client && ids),
     queryFn: async () => ({ started: Date.now(), statuses: unwrap(await client!.session.status({ directory: workspaceRoot.trim() || undefined })) }),
@@ -71,7 +70,7 @@ export function SessionSubagents({ workspaceId, workspaceRoot, sessionId, client
   return <div className="pointer-events-none absolute inset-x-3 top-2 z-40 flex flex-col items-end">
     <Button variant="ghost" size="sm" className="pointer-events-auto mr-9 h-8 min-w-7 gap-1.5 rounded-full bg-dls-surface/90 px-2 text-muted-foreground" onClick={() => setOpen(value => !value)}
       aria-expanded={open} aria-label={t("session.subagents_running", { count })} title={t("session.subagents_running", { count })}>
-      <span aria-hidden className="flex -space-x-1">{agents.slice(0, 3).map(agent => <span key={agent.id} className={cn("size-2.5 rounded-full ring-2 ring-dls-surface", colors.get(agent.id), !isRunningSubagent(agent.status) && "opacity-50")} />)}</span>
+      <span aria-hidden className="flex items-center gap-1.5 px-0.5">{agents.slice(0, 3).map(agent => <SubagentDot key={agent.id} color={colors.get(agent.id)} status={agent.status} compact />)}</span>
       {count > 0 ? <span className="text-[11px] leading-none tabular-nums">{count}</span> : null}
     </Button>
     {open && <section aria-label={t("session.subagents")} className="pointer-events-auto mt-1 w-72 max-w-full rounded-lg border bg-popover text-popover-foreground shadow-md">

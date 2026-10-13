@@ -44,6 +44,7 @@ import {
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
+import { ChatTabIcon } from "@/components/chat/chat-tab-icon";
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
@@ -341,6 +342,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
 
 type SidePanelTabProps = {
   tab: PanelTabEntry;
+  workspaceId: string | null;
   fileSource?: ProjectFileSource;
   projectId?: string;
   pane: ViewerPane;
@@ -359,7 +361,7 @@ type SidePanelTabProps = {
   onDragChange: (tabId: string | null) => void;
 };
 
-function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
+function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
   const tabRef = React.useRef<HTMLDivElement>(null);
   const sourceName = useProjectFiles()?.projects.find(project => project.projectId === fileSource?.projectId)?.name;
   const label = tab.type === "artifact" && tab.value && !tab.storage
@@ -415,7 +417,7 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
             ) : (
               <Globe />
             )
-          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <MessageSquare /> : tab.type === "review" ? <TableProperties /> : tab.type === "task" ? (
+          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <ChatTabIcon workspaceId={workspaceId} sessionId={tab.sessionId} /> : tab.type === "review" ? <TableProperties /> : tab.type === "task" ? (
             <ListTodo />
           ) : tab.type === "workflow" ? (
             <Workflow />
@@ -1041,7 +1043,7 @@ function SidePanelContent({
       <div data-window-caption-controls={docked && pane.id === controlsPane} className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
-            {paneTabs.map(tab => <SidePanelTab key={tab.id} projectId={projectId} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
+            {paneTabs.map(tab => <SidePanelTab key={tab.id} workspaceId={workspaceId} projectId={projectId} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
               onOpenWindow={onOpenTabWindow} onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onClosePane={closePaneTabs} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
