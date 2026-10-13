@@ -1,4 +1,4 @@
-# Editable email and calendar drafts
+# Editable drafts and requested document navigation
 
 The agent can present a draft directly in chat. Email shows the recipient,
 subject, message and attachment chips. Event cards show the title, a date tile,
@@ -23,6 +23,16 @@ not used. The helper checks that every attachment was imported before opening.
 Outlook uses its selected sending account. Native
 mail actions use plain text; advanced fields remain in the EML export.
 Both native mail actions require macOS Automation consent.
+
+On Windows, the primary **Open in Mail** action passes a `mailto:` compose link
+to Electron's `shell.openExternal`, respecting the user's default mail app.
+It supplies To/Cc/Bcc, subject and plain-text body. This protocol cannot carry
+attachments; the card shows an attachment notice when needed, and `.eml`
+retains the full draft. The dropdown also offers **Open in classic Outlook**,
+which creates and saves an editable COM mail item with attachments imported
+by value before the staging files are deleted. New Outlook does not expose
+that COM API, so it uses the default-app or web action. No helper sends mail.
+PowerShell receives message data as UTF-8 JSON on stdin, never as code.
 
 The implementation imports the patch supplied in
 `legalwork-email-calendar-drafts.zip` and includes review corrections:
@@ -54,36 +64,82 @@ pnpm --filter @legalwork/app typecheck
 pnpm --filter legalwork-server typecheck
 pnpm --filter legalwork-server build
 pnpm test:drafts:build
-pnpm --filter legalwork-server exec bun test src/email-drafts/routes.test.ts src/opencode-plugins/legalwork-draft-tools.test.ts src/opencode-plugins/legalwork-calendar-tools.test.ts src/legalwork-runtime-config.test.ts
+pnpm --filter legalwork-server exec bun test src/email-drafts/routes.test.ts src/opencode-plugins/legalwork-draft-tools.test.ts src/opencode-plugins/legalwork-calendar-tools.test.ts src/legalwork-runtime-config.test.ts src/opencode-plugins/legalwork-extensions-preview.test.ts
 node scripts/i18n-audit.mjs --ci
 pnpm --filter @legalwork/desktop test
 pnpm --filter @legalwork/desktop typecheck:electron
 pnpm --filter @legalwork/desktop check:electron
 ```
 
-Results: 21 draft tests, 1,210 app tests and 20 HTTP/plugin/runtime tests passed.
-Both typechecks, the server build and the i18n audit passed.
-The Node build smoke test also passed. Electron was launched on macOS with an
-existing development profile; the app reached ready state and loaded saved
-workspaces and sessions without a module-resolution error.
-For the Apple Mail fix, 224 desktop tests passed (2 skipped), including four
-native compose regressions; 1,210 app tests, both app/desktop typechecks and the
-IPC bridge check passed. On macOS, a synthetic draft was saved and verified in
-Mail's editable composer with To/Cc/Bcc, Unicode text and an intact attachment.
+Results after merging `origin/dev`: 21 draft tests, 1,213 app tests, 20
+HTTP/plugin/runtime tests and 29 document-control plugin tests passed.
+App, server and Electron typechecks, the server build, Node build smoke test,
+i18n audit and Electron bridge coverage check passed. Desktop tests: 232 passed,
+3 skipped on macOS. A Windows CI job now runs portable draft tests and the native
+mail tests, including the production PowerShell program with a COM test double.
 
-For the Outlook follow-up, 228 desktop tests passed (2 skipped), including eight
-native mail regressions. App tests (1,210), both typechecks and the IPC bridge
-check passed. Outlook 16.113.4 on this Mac opened a synthetic native draft with
-To/Cc/Bcc, Unicode text and an attachment. The subject and body were edited in
-Outlook, then the draft was closed and reopened from Drafts. Quick Look showed
-the exact attachment text after the temporary source copy had been removed.
-No email was sent, and synthetic drafts were moved to Deleted Items afterward.
+Electron launched on macOS with the existing development profile and loaded
+saved workspaces and sessions without a module-resolution error. Apple Mail
+showed a saved, editable synthetic draft with To/Cc/Bcc, Unicode text and an
+intact attachment. Outlook 16.113.4 opened a native synthetic draft with the same
+fields. The subject and body were edited, then the draft was closed and reopened
+from Drafts. Quick Look showed the exact attachment bytes after the temporary
+source copy was removed. No email was sent; synthetic drafts were moved to
+Deleted Items afterward. Outlook templates silently omitted attachments on this
+Mac, so the implementation uses native message creation instead. Automation
+consent was enabled with the user's approval.
 
-The installed Outlook silently omitted attachments when importing both our
-EML-based template and a template exported by Outlook itself. Template opening
-is therefore not used. Initial native scripting failed until macOS Automation
-consent was enabled with the user's approval. The work account also reported
-that it needed sign-in again; account authentication was not changed.
+Windows 11 24H2 VM verification: all 13 native-mail tests passed, including the
+actual PowerShell program with a COM test double. The VM has new Outlook
+1.2026.922.300 as its default mail handler and no classic Outlook COM registration.
+The classic-Outlook helper correctly reported that limitation. The production
+compose-link helper and Electron 43.7.5 `shell.openExternal` handoff returned
+success with the synthetic To/Cc/Bcc, Unicode subject and multiline body. After
+the user completed initial sign-in, Windows opened an editable composer in its
+default app, new Outlook. To/Cc/Bcc, Unicode subject/body and line breaks
+were correct. The subject and body were edited, saved, closed and reopened from
+Drafts with those edits preserved. This exercised the production URL helper and
+Electron handoff from a small isolated Electron harness. The default-app route
+uses `mailto:` and cannot attach files. Real classic-Outlook COM attachment
+import remains unverified because that client is not installed. No message was
+sent.
+
+![Saved and reopened draft in the Windows default mail app](windows-default-mail.png)
+
+## Requested document navigation
+
+`inapp_documents_navigate` shows a PDF or Word page, PowerPoint slide, or Excel
+sheet/range. Its tool description and fixed agent instructions say to use it
+only when the user explicitly asks to navigate or show a location. Reading,
+analyzing, summarizing or citing a document is not a navigation request.
+The tool takes only `path` and `target`; no request quote or extra confirmation
+is required. It validates the calling session, exact active path, file format
+and destination, and is unavailable to scheduled agents.
+
+Example destinations, after listing/selecting the intended document:
+
+```json
+{"path":"contract.pdf","target":{"kind":"page","page":5}}
+{"path":"contract.docx","target":{"kind":"page","page":5}}
+{"path":"presentation.pptx","target":{"kind":"slide","slide":3}}
+{"path":"budget.xlsx","target":{"kind":"cells","sheet":"Rates","range":"B20:D22"}}
+```
+
+Navigation works in read-only views and does not edit or save. DOCX pages refer
+to the current rendered layout. PDF requests reload the built-in viewer with a
+page destination, so zoom/search state can reset. PDFium owns page-count bounds;
+the result reports the requested page, not a verified current page.
+
+Browser checks used actual viewer components with synthetic repository fixtures:
+Word page 2, PowerPoint slide 2, Excel `Rates!B20:D22`, and PDF page 2. Each showed
+the requested destination with zero saves and no dirty state. Out-of-range slides
+and cells were rejected. These component checks were separate from the server
+routing tests; a live model was not used for the navigation checks.
+
+![Word page 2](navigation/word-page.png)
+![PowerPoint slide 2](navigation/powerpoint-slide.png)
+![Excel sheet and range](navigation/excel-range.png)
+![PDF page 2](navigation/pdf-page.png)
 
 ## Browser verification
 
@@ -107,6 +163,8 @@ browser's wide and narrow layouts:
    Explicit reload recovers the latest saved revision.
 
 ![Compact email and event draft cards](drafts-overview.jpg)
+
+![Joined email action and menu](email-split-button.png)
 
 ![Revision conflict preserves the edited subject](draft-conflict.jpg)
 
