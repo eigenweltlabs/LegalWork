@@ -1,3 +1,5 @@
+import { parseWikiPageUrl, wikiPageUrl } from "@legalwork/types/wiki";
+import { deriveOpenTargets } from "../src/react-app/domains/session/artifacts/open-target";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { viewPanelTab } from "../src/react-app/domains/views/view-reference";
 import { wikiPanelTab, wikiTabForFileTarget } from "../src/react-app/domains/wiki/wiki-tabs";
@@ -8,6 +10,20 @@ import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateS
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("source links open the owning wiki from a project and survive URL encoding", () => {
+    const path = "Firm/People/Daniel Obi.md";
+    const url = wikiPageUrl("wiki-1", path);
+    const reference = parseWikiPageUrl(url);
+    expect(reference).toEqual({ wikiId: "wiki-1", path });
+    if (!reference) throw new Error("Expected wiki reference");
+    const tab = wikiPanelTab("local", reference.wikiId, { kind: "page", path: reference.path }, "Daniel Obi");
+    usePanelTabStore.getState().openTab("workspace:project", tab);
+    expect(usePanelTabStore.getState().sessions["workspace:project"].tabs).toEqual([tab]);
+    expect(deriveOpenTargets([{ id: "answer", role: "assistant", parts: [{ type: "text", text: `[Daniel Obi](${url})` }] }])).toEqual([]);
+    expect(parseWikiPageUrl(wikiPageUrl("wiki-1", "People/Müller & Co. (EU).md"))?.path).toBe("People/Müller & Co. (EU).md");
+    for (const invalid of ["legalwork-wiki://wiki-1/../secret.md", "legalwork-wiki://wiki-1/%2e%2e/secret.md", "legalwork-wiki://wiki-1//etc/file.md", "legalwork-wiki://wiki-1/a%00.md", "legalwork-wiki://wiki-1/a%ZZ.md"]) expect(parseWikiPageUrl(invalid)).toBeNull();
+  });
+
   test("chat chips and the file tree open the same wiki page tab", () => {
     const wiki = { id: "firm", root: "/wikis/firm" };
     const path = "Clients/Belmont Ridge Bank National Association.md";

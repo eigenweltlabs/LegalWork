@@ -19,6 +19,7 @@ let otherRoot = "";
 let wikis: WikiVault[] = [];
 let malformed = false;
 let conflict = false;
+let unavailableWiki = "";
 let requests: { path: string; method: string; body: unknown; authorization: string | null;
   agentToken: string | null; sessionId: string | null; directory: string | null }[] = [];
 let documents = new Map<string, WikiDocument>();
@@ -46,6 +47,7 @@ beforeEach(async () => {
   requests = [];
   malformed = false;
   conflict = false;
+  unavailableWiki = "";
   process.env.LEGALWORK_SERVER_URL = SERVER;
   process.env.LEGALWORK_SERVER_TOKEN = "wiki-test-token";
   delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
@@ -60,6 +62,7 @@ beforeEach(async () => {
       directory: headers.get("x-legalwork-wiki-agent-directory") });
     if (url.pathname === "/wikis") return response(malformed ? { items: [{ id: "wrong" }] } : { items: wikis });
     if (url.pathname === "/workspaces") return response({ items: [{ id: "project-1", path: projectRoot }] });
+    if (url.pathname === `/wikis/${unavailableWiki}/search`) return response({ code: "offline", message: "Offline" }, 503);
     if (url.pathname.endsWith("/search")) return response({ items: [{ path: "Notes.md", title: "Useful note", type: "research",
       properties: { status: "draft", sources: ["original"] }, links: [], excerpt: "Useful note", revision: "revision-1", updatedAt: 1 }] });
     if (url.pathname.endsWith("/page")) {
@@ -93,6 +96,53 @@ afterEach(async () => {
 });
 
 describe("wiki agent access", () => {
+  test("project questions can search accessible wikis without listing or loading workflows", async () => {
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const found = JSON.parse(await tool.wiki_search.execute({ query: "Daniel Obi" }));
+    expect(found.searched_wikis.map((wiki: { wiki_id: string }) => wiki.wiki_id)).toEqual(["wiki-1"]);
+    expect(found.pages[0]).toMatchObject({ wiki_id: "wiki-1", wiki_name: "wiki-1", url: "legalwork-wiki://wiki-1/Notes.md" });
+    expect(requests.filter(request => request.path.endsWith("/search?q=Daniel+Obi"))).toHaveLength(1);
+    expect(requests.some(request => request.path.includes("/page"))).toBe(false);
+    expect(JSON.parse(await tool.wiki_search.execute({ wiki_id: "wiki-2", query: "Daniel Obi" })).code).toBe("wiki_access_denied");
+    expect(requests.some(request => request.path.startsWith("/wikis/wiki-2/"))).toBe(false);
+  });
+
+  test("combined search bounds results and exposes unavailable wikis instead of treating them as no match", async () => {
+    wikis[1]!.allowInProjects = true;
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const result = JSON.parse(await tool.wiki_search.execute({ query: "note", limit: 1 }));
+    expect(result.pages).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(result.searched_wikis).toHaveLength(2);
+    unavailableWiki = "wiki-2";
+    const partial = JSON.parse(await tool.wiki_search.execute({ query: "note" }));
+    expect(partial.pages).toHaveLength(1);
+    expect(partial.unavailable).toEqual([{ wiki_id: "wiki-2", wiki_name: "wiki-2" }]);
+    const own = await LegalWorkWikiTools({ directory: wikiRoot });
+    expect(JSON.parse(await own.tool.wiki_search.execute({ query: "note" })).searched_wikis).toEqual([{ wiki_id: "wiki-1", wiki_name: "wiki-1" }]);
+  });
+
+  test("available knowledge is announced once per change without mutating system text or reading pages", async () => {
+    const plugin = await LegalWorkWikiTools({ directory: projectRoot });
+    const initialSystem: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, initialSystem);
+    const first: { message: { id: string }; parts: object[] } = { message: { id: "one" }, parts: [] };
+    await plugin["chat.message"]({ sessionID: "project-chat" }, first);
+    expect(JSON.stringify(first.parts)).toContain('wiki-knowledge');
+    expect(JSON.stringify(first.parts)).toContain('wiki-1');
+    expect(JSON.stringify(first.parts)).not.toContain('wiki-2');
+    const unchanged: { message: { id: string }; parts: object[] } = { message: { id: "two" }, parts: [] };
+    await plugin["chat.message"]({ sessionID: "project-chat" }, unchanged);
+    expect(unchanged.parts).toEqual([]);
+    wikis[0]!.allowInProjects = false;
+    const removed: { message: { id: string }; parts: object[] } = { message: { id: "three" }, parts: [] };
+    await plugin["chat.message"]({ sessionID: "project-chat" }, removed);
+    expect(JSON.stringify(removed.parts)).toContain("No wiki knowledge is currently accessible");
+    const nextSystem: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, nextSystem);
+    expect(nextSystem).toEqual(initialSystem);
+    expect(requests.some(request => request.path.includes("/page"))).toBe(false);
+  });
   test("team synced wikis remain discoverable to agents", async () => {
     wikis[0]!.sync = { kind: "team", wikiId: "c925776b-e784-485a-acd7-53d37f3d196e", orgId: "firm" };
     const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
@@ -201,6 +251,7 @@ describe("wiki agent content and revisions", () => {
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });
     const result = JSON.parse(await plugin.tool.wiki_read.execute({ wiki_id: "wiki-1", path: "Notes.md", max_chars: 10 }));
     expect(result.revision).toBe("revision-1");
+    expect(result.url).toBe("legalwork-wiki://wiki-1/Notes.md");
     expect(result.next_offset).toBe(10);
     expect(result.content).toContain("SOURCE DATA");
     expect(result.content).toContain("# Useful n");

@@ -1153,7 +1153,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: pane?.id } : { kind: "evals" }}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>
+            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: tab.type === "chat" ? undefined : pane?.id } : { kind: "evals" }}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>
           </div></ControlActionScope>
         </DocumentPane>];
       })}

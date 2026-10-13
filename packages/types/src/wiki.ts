@@ -1,4 +1,22 @@
 /** Wiki content and configuration live in Markdown; these are API projections. */
+export type WikiPageReference = { wikiId: string; path: string };
+
+/** App-owned source references retain wiki identity when cited from projects. */
+export function wikiPageUrl(wikiId: string, path: string): string {
+  return `legalwork-wiki://${encodeURIComponent(wikiId)}/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+export function parseWikiPageUrl(value: string): WikiPageReference | null {
+  const match = /^legalwork-wiki:\/\/([^/]+)\/(.+)$/.exec(value.trim());
+  if (!match) return null;
+  try {
+    const wikiId = decodeURIComponent(match[1]);
+    const path = decodeURIComponent(match[2]);
+    if (!wikiId || /[/\\\s\x00-\x1f]/.test(wikiId) || path.length > 4096 || /[\\\x00-\x1f]/.test(path) || !/\.md$/i.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) return null;
+    return { wikiId, path };
+  } catch { return null; }
+}
+
 export type WikiValue = string | number | boolean | null | WikiValue[] | { [key: string]: WikiValue };
 
 /** Kept so older registrations remain readable while their sharing is upgraded. */

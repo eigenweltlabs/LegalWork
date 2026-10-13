@@ -317,7 +317,7 @@ function scanText(
     if (!href) continue;
     // LegalMemory reference links are chips with their own click behavior,
     // never workspace files or browser URLs.
-    if (LEGALMEMORY_URI_PATTERN.test(href)) continue;
+    if (LEGALMEMORY_URI_PATTERN.test(href) || href.startsWith("legalwork-wiki://")) continue;
     if (/^(?:https?|wss?):\/\//i.test(href)) {
       addTarget(map, targetFromUrl(href, confidence, reason));
     } else if (options.includeFiles) {

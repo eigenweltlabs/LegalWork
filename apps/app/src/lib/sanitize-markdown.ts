@@ -23,6 +23,7 @@ export function sanitizeMarkdownHtml(value: string) {
       "data-legalwork-shiki",
       "data-legalwork-task-ref",
       "data-legalwork-view-ref",
+      "data-legalwork-wiki-ref",
       "data-legalwork-view-block",
       "decoding",
       "disabled",

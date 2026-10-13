@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
 import { useOpenTargets } from "@/lib/target-provider";
 import { resolveHrefOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
+import { parseWikiPageUrl } from "@legalwork/types/wiki";
+import { wikiPanelTab } from "@/react-app/domains/wiki/wiki-tabs";
 
 import { applyTextHighlights } from "./text-highlights";
 import { LinkActionMenu } from "./link-action-menu";
@@ -221,6 +223,7 @@ const baseMarkedOptions = {
       // A task chip: the agent links a task it filed or worked on the way it
       // links a document, and the click opens it in the Tasks pane.
       if (parseViewReference(href)) return `<a href="#" data-legalwork-view-ref="${originalHref}" class="inline-flex rounded-md border px-2 py-0.5 text-sm">${this.parser.parseInline(tokens)}</a>`;
+      if (parseWikiPageUrl(href)) return `<a href="#" data-legalwork-wiki-ref="${originalHref}"${titleAttr} class="inline-flex rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-sm font-medium no-underline hover:bg-muted">${this.parser.parseInline(tokens)}</a>`;
       const taskLink = parseTaskLink(href);
       if (taskLink) {
         const inboxIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
@@ -422,6 +425,14 @@ function MarkdownBlockInner({
 
     const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
+
+      const wikiLink = event.target.closest<HTMLElement>("[data-legalwork-wiki-ref]");
+      if (wikiLink) {
+        event.preventDefault(); event.stopPropagation();
+        const reference = parseWikiPageUrl(wikiLink.dataset.legalworkWikiRef ?? "");
+        if (reference && viewHost?.client) requestViewTab(wikiPanelTab(viewHost.client.baseUrl, reference.wikiId, { kind: "page", path: reference.path }, wikiLink.textContent?.trim() || reference.path));
+        return;
+      }
 
       const viewLink = event.target.closest<HTMLElement>("[data-legalwork-view-ref]");
       if (viewLink) {
