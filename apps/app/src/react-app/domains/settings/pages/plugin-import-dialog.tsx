@@ -12,7 +12,7 @@ import { t } from "@/i18n";
 import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
 import claudeLogo from "@/assets/claude-logo.svg";
 import { HubTabs } from "../segmented-tabs";
-import { groupPluginImportCandidates, pluginImportCandidateKey, pluginImportName } from "./plugin-import-presentation";
+import { groupPluginImportCandidates, pluginImportCandidateKey, pluginImportDestination, pluginImportName } from "./plugin-import-presentation";
 import { packageParts } from "./skill-packages";
 import type { SkillImportSource } from "./skills-view";
 
@@ -51,12 +51,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const providerButton = useRef<HTMLButtonElement>(null);
   const selected = previews.find(item => item.root === selectedRoot);
   const singleComponent = selected?.components.length === 1 ? selected.components[0] : undefined;
+  const destination = selected ? pluginImportDestination(selected) : null;
+  const wholePlugin = destination?.tab === "plugins";
   const compactReview = step === "review" && (busy || selected !== undefined && selected.components.length <= 1);
-  const ReviewIcon = singleComponent ? componentIcons[singleComponent.type] : Package;
+  const ReviewIcon = singleComponent && !wholePlugin ? componentIcons[singleComponent.type] : Package;
   const packageName = selected ? pluginImportName(selected) : "";
   const componentName = singleComponent ? pluginImportName(singleComponent) : "";
   const differentComponentName = singleComponent !== undefined && componentName.toLocaleLowerCase() !== packageName.toLocaleLowerCase();
-  const showPackageName = differentComponentName && selected?.format !== "skills" && selected?.format !== "connectors";
   const groups = groupPluginImportCandidates(candidates);
   const search = query.trim().toLocaleLowerCase();
   const narrowed = search.length > 0 || filter !== "all";
@@ -229,12 +230,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             <div className="flex items-center gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground"><ReviewIcon className="size-5" /></div>
               <div className="min-w-0 space-y-0.5">
-                <div className="flex flex-wrap items-baseline gap-x-2"><h3 className="break-words text-base font-medium">{differentComponentName ? componentName : packageName}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>
-                <p className="text-sm text-muted-foreground">{singleComponent ? componentLabel(singleComponent.type) : t(selected.components.length ? "extensions.import_plugin" : "extensions.import_no_components")}{showPackageName ? <span> · {t("extensions.import_bundled_connector", { name: packageName })}</span> : null}</p>
+                <div className="flex flex-wrap items-baseline gap-x-2"><h3 className="break-words text-base font-medium">{differentComponentName && !wholePlugin ? componentName : packageName}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>
+                <p className="text-sm text-muted-foreground">{wholePlugin && selected.components.length ? <>{t("extensions.import_plugin")}{singleComponent ? ` · ${packageParts([singleComponent.type])}` : ""}</> : singleComponent ? componentLabel(singleComponent.type) : t("extensions.import_no_components")}</p>
               </div>
             </div>
             {selected.description && selected.format !== "connectors" ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}
-            {singleComponent?.type === "mcp" ? <p className="text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}
+            {wholePlugin && differentComponentName ? <p className="text-sm text-muted-foreground">{componentName}</p> : null}
+            {destination?.connectorName ? <p className="text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}
           </div>
           {selected.components.length > 1 ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border divide-y divide-border">
             {componentTypes.map(type => {

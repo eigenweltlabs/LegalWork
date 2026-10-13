@@ -1,6 +1,16 @@
-import type { PluginImportCandidate } from "@legalwork/types/plugin-import";
+import type { PluginImportCandidate, PluginImportPreview } from "@legalwork/types/plugin-import";
 import { t } from "@/i18n";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
+
+/** A whole plugin remains a plugin even when its only component is a connector. */
+export function pluginImportDestination(preview: PluginImportPreview): { tab: "connectors" | "skills" | "plugins"; connectorName: string | null } {
+  if (preview.format === "connectors") {
+    const connector = preview.components.length === 1 && preview.components[0]?.type === "mcp" ? preview.components[0] : null;
+    return { tab: "connectors", connectorName: connector?.installedName ?? null };
+  }
+  if (preview.format === "skills" && preview.components.every(component => component.type === "skill")) return { tab: "skills", connectorName: null };
+  return { tab: "plugins", connectorName: null };
+}
 
 export function pluginImportName(plugin: { name: string; displayName?: string }): string {
   if (plugin.displayName) return plugin.displayName;

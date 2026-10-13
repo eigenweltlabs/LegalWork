@@ -743,8 +743,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           }
         },
         markReloadRequired: reloadCoordinator.markReloadRequired,
+        refreshConnectors: () => connectionsStore.refreshMcpServers({ includeStatus: false }),
       }),
-    [legalworkServerStore, reloadCoordinator.markReloadRequired],
+    [legalworkServerStore, connectionsStore, reloadCoordinator.markReloadRequired],
   );
   const legalworkServerSnapshot = useLegalworkServerStoreSnapshot(legalworkServerStore);
   const connectionsSnapshot = useConnectionsStoreSnapshot(connectionsStore);

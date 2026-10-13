@@ -73,6 +73,9 @@ let emptyServerList = false;
 let configExists = true;
 let registrationFailed = false;
 let serverEnables: unknown[] = [];
+let engineStatusWait: Promise<void> | undefined;
+let engineStatusStarted: (() => void) | undefined;
+let engineStatusRequests = 0;
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
@@ -140,6 +143,9 @@ describe("connection store success reporting", () => {
     configExists = true;
     registrationFailed = false;
     serverEnables = [];
+    engineStatusWait = undefined;
+    engineStatusStarted = undefined;
+    engineStatusRequests = 0;
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -165,7 +171,11 @@ describe("connection store success reporting", () => {
           return Response.json({ items: emptyServerList ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
-        return Response.json(status);
+        const engineStatus = status;
+        engineStatusRequests += 1;
+        engineStatusStarted?.();
+        await engineStatusWait;
+        return Response.json(engineStatus);
       },
     });
   });
@@ -175,6 +185,65 @@ describe("connection store success reporting", () => {
     if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
     else Reflect.deleteProperty(globalThis, "window");
     globalThis.fetch = originalFetch;
+  });
+
+  test("saved connector configuration is visible while engine status is still loading", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    const store = makeStore();
+    const refreshing = store.refreshMcpServers();
+    await started;
+    try {
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+    } finally { finishStatus(); await refreshing; store.dispose(); }
+  });
+
+  test("import completion can refresh saved configuration without waiting for an engine check", async () => {
+    const store = makeStore();
+    try {
+      await store.refreshMcpServers({ includeStatus: false });
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(engineStatusRequests).toBe(0);
+    } finally { store.dispose(); }
+  });
+
+  test("a pending status check cannot update the previous workspace after selection changes", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    const store = makeStore();
+    const oldRefresh = store.refreshMcpServers();
+    await started;
+    selectedWorkspaceId = "other-workspace";
+    engineStatusWait = undefined;
+    emptyServerList = true;
+    try {
+      await store.refreshMcpServers();
+      finishStatus();
+      await oldRefresh;
+      expect(store.getSnapshot().mcpServers).toEqual([]);
+      expect(store.getSnapshot().mcpStatuses).toEqual({});
+    } finally { finishStatus(); await oldRefresh; store.dispose(); }
+  });
+
+  test("an older engine-status request cannot erase a connector fetched after an import", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    emptyServerList = true;
+    const store = makeStore();
+    const oldRefresh = store.refreshMcpServers();
+    await started;
+    engineStatusWait = undefined;
+    emptyServerList = false;
+    try {
+      await store.refreshMcpServers();
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      finishStatus();
+      await oldRefresh;
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+    } finally { finishStatus(); await oldRefresh; store.dispose(); }
   });
 
   test("OAuth waits for verified completion, emits once, and retains the final success message", async () => {

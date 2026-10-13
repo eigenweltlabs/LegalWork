@@ -21,6 +21,7 @@ import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { SkillCard } from "@/app/types";
 import type { SkillDetailsStore } from "./skill-details-dialog";
 import type { PluginDetailsAccess } from "./plugin-details-dialog";
+import { pluginImportDestination } from "./plugin-import-presentation";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -207,11 +208,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           </DialogContent>
         </Dialog> : null}
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => {
-          const connector = preview.components.length === 1 && preview.components[0]?.type === "mcp" ? preview.components[0] : null;
+          const destination = pluginImportDestination(preview);
           setImportVersion(value => value + 1);
           setSource("all");
-          selectTab(connector || preview.format === "connectors" ? "connectors" : preview.format === "skills" && preview.components.every(item => item.type === "skill") ? "skills" : "plugins");
-          setConnectorToOpen(connector?.installedName ?? null);
+          selectTab(destination.tab);
+          setConnectorToOpen(destination.connectorName);
           props.onRefresh();
         }}
           returnFocus={importButton}

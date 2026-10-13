@@ -199,6 +199,8 @@ export function createExtensionsStore(options: {
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
+  /** Publish saved connectors before an import or bundle creation is shown as complete. */
+  refreshConnectors?: () => Promise<void>;
 }) {
   const listeners = new Set<() => void>();
 
@@ -579,6 +581,7 @@ export function createExtensionsStore(options: {
   async function createWorkflowPlugin(input: PluginCreateRequest) {
     const target = await pluginImportTarget();
     const result = await target.client.createWorkflowPlugin(target.id, input);
+    if (input.connectors.length) await options.refreshConnectors?.();
     await refreshSkills({ force: true });
     return result.item;
   }
@@ -593,6 +596,7 @@ export function createExtensionsStore(options: {
   async function installPluginImport(request: PluginImportRequest) {
     const target = await pluginImportTarget();
     const result = await target.client.installPluginImport(target.id, request);
+    if (result.preview.components.some(component => component.type === "mcp")) await options.refreshConnectors?.();
     await refreshSkills({ force: true });
     return result.preview;
   }
@@ -615,6 +619,7 @@ export function createExtensionsStore(options: {
         throw new Error(t("extensions.server_unavailable_github_plugins"));
       }
       const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url });
+      if (result.item.files.some(file => file.objectType === "mcp")) await options.refreshConnectors?.();
       await refreshSkills({ force: true });
       return {
         ok: true,

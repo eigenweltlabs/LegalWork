@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
-import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportCandidateKey, pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
+import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportCandidateKey, pluginImportConnectorName, pluginImportDestination, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
+import type { PluginImportPreview } from "@legalwork/types/plugin-import";
 import { readWorkspaceImports } from "../src/app/lib/extension-imports";
+
+test("whole plugins containing one connector remain plugins; only connector imports open connector setup", () => {
+  const preview: PluginImportPreview = { id: "import:claude:github:global", digest: "reviewed", name: "github", description: null, version: null, format: "claude", root: "", fileCount: 2, bytes: 300, warnings: [], components: [{ type: "mcp", name: "github", installedName: "github-unique-installed-name" }] };
+  for (const format of ["claude", "codex", "portable"] satisfies PluginImportPreview["format"][]) {
+    expect(pluginImportDestination({ ...preview, format })).toEqual({ tab: "plugins", connectorName: null });
+  }
+  expect(pluginImportDestination({ ...preview, format: "connectors" })).toEqual({ tab: "connectors", connectorName: "github-unique-installed-name" });
+  expect(pluginImportDestination({ ...preview, format: "connectors", components: [...preview.components, { type: "mcp", name: "other", installedName: "another-unique-name" }] })).toEqual({ tab: "connectors", connectorName: null });
+  expect(pluginImportDestination({ ...preview, format: "skills", components: [{ type: "skill", name: "review", installedName: "review-installed-name" }] })).toEqual({ tab: "skills", connectorName: null });
+});
 
 test("provider display names hide internal app IDs without changing plugin identity", () => {
   expect(pluginImportName({ name: "app-6a9a3c1cd0108191807da33c4cd319ed", displayName: "Clerk" })).toBe("Clerk");
