@@ -126,7 +126,7 @@ Connector setup reuses the same **HubTabs** segmented switcher as Integrations a
 
 ![Connector setup with URL and Local server tabs](images/integrations-connector-command-tabs.png)
 
-Connector details have only Remove and Close in the footer. Share with firm is available through the library row menu. Native Electron verified the simplified footer without changing connector access or signing in. `pnpm --filter @legalwork/app typecheck` passed, and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed all 8 tests.
+Personal connector details retain only Remove in the footer; the top-right cross closes the dialog. Read-only connectors have no footer. Share with firm is available through the library row menu. Native Electron verified the simplified footer without changing connector access or signing in. `pnpm --filter @legalwork/app typecheck` passed, and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed all 8 tests.
 
 ![Connector details footer](images/integrations-connector-details.png)
 
@@ -134,12 +134,12 @@ Installed team connectors that require their own account now show **Sign in to u
 
 ![Team connector sign-in requirement and action](images/integrations-team-signin.png)
 
-Team connector details now use the existing icon/header, access rows, buttons and alert components. Automatic connectors show **Managed by your firm** in the header and no enablement row. Optional connectors show an **Enable connector** switch with the explanation that it allows agents to use the connector. Account access has one applicable sign-in or personal-key action, while connected accounts, firm-provided access and open access explain their state without prompting for credentials. Missing sign-in addresses and registration/connection failures have clear explanations; pending actions are disabled with progress indicators. Close is secondary to the account action. Existing optional-membership review and key/sign-in flows remain intact.
+Team connector details now use the existing icon/header, access rows, buttons and alert components. Automatic connectors show **Managed by your firm** in the header and no enablement row. Optional connectors show an **Enable connector** switch with the explanation that it allows agents to use the connector. Account access has one applicable sign-in or personal-key action, while connected accounts, firm-provided access and open access explain their state without prompting for credentials. Missing sign-in addresses and registration/connection failures have clear explanations; pending actions are disabled with progress indicators. The top-right cross closes the popup; team connectors have no footer. Existing optional-membership review and key/sign-in flows remain intact.
 
 Native Electron verified the actual Linear popup, with no misleading Use in chats row. A local browser fixture using the production row and dialog checked 12 states: sign-in required, signed in, optional unadded/added, personal key missing/saved, firm/open access, missing sign-in address, connection failure, registration required and pending changes. No account or membership action was submitted. `pnpm --filter @legalwork/app exec bun test tests/firm-connector-details.test.tsx tests/mcp-library.test.tsx` passed 17 tests. App type checking, production build and translations passed, with 5,768 keys in English/German and the existing build chunk-size warning.
 
 ![Actual firm-managed connector popup in Electron](images/integrations-team-popup.png)
 
-![Optional connector popup from a local fixture](images/integrations-team-popup-optional.png)
 
-![Connection failure popup from a local fixture](images/integrations-team-popup-error.png)
+
+Footer Close buttons are removed from personal and team connector details. Native Electron verified both dialogs and closing them with the top-right cross. `pnpm --filter @legalwork/app typecheck` and `pnpm --filter @legalwork/app exec bun test tests/firm-connector-details.test.tsx tests/mcp-library.test.tsx` passed again (17 tests).

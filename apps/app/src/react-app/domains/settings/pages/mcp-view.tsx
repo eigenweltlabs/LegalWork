@@ -1385,10 +1385,9 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
         </details>
       </div>
       {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
-      <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
-        {props.entry.source !== "config.global" ? <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button> : null}
-        <Button size="sm" className="ms-auto" onClick={() => props.onSelect(null)}>{t("common.close")}</Button>
-      </DialogFooter>
+      {props.entry.source !== "config.global" ? <DialogFooter className="justify-start sm:justify-start">
+        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
+      </DialogFooter> : null}
     </DialogContent>
   </Dialog>;
 }

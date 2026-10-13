@@ -10,7 +10,7 @@ import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { McpStatus, McpStatusMap } from "@/app/types";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { IconTile } from "@/react-app/design-system/surface";
@@ -134,7 +134,6 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
         </DialogHeader>
         <FirmConnectorAccessSettings item={item} status={connector ? props.statuses[connector.serverName] : undefined} busy={props.busy || busy}
           onAddedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} onSignIn={signIn} onManageKey={() => setKeyOpen(true)} />
-        <DialogFooter><Button variant="outline" size="sm" onClick={() => setDetailsOpen(false)}>{t("common.close")}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
     {keyOpen ? <MemberKeyDialog name={name} onSave={saveKey} onClose={() => setKeyOpen(false)} /> : null}
