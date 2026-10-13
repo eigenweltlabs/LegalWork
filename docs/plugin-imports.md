@@ -121,3 +121,7 @@ Earlier native checks covered both providers' discovery, folder/ZIP pickers, com
 ![Dedicated GitHub import](images/integrations-github-import.png)
 
 The common-tools menu passed app type checking, the focused 20-test suite and the production build. Native Electron verified the same menu entries on Connectors, Skills and File storage, opening Imported packages from Connectors and File storage without changing categories, and returning focus to More on close. Open skills folder from File storage revealed the existing skills directory in Finder. No package, account or membership was changed.
+
+Connector setup uses **URL / Local command** tabs above the shared name field. URL shows the server address and request-header controls with Continue; Local command shows the command field with Add. Remote workers retain URL-only setup. Native Electron verified switching in both directions with mouse and keyboard, without submitting the form or running a command. App type checking passed; `pnpm --filter @legalwork/app exec bun test tests/add-mcp-modal.test.tsx tests/mcp-custom-connector.test.ts` passed all 20 tests, and `pnpm --filter @legalwork/app test:i18n` passed with 5,757 keys in English/German.
+
+![Connector setup with URL and Local command tabs](images/integrations-connector-command-tabs.png)

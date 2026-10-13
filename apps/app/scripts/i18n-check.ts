@@ -76,6 +76,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "settings.status_label", "settings.default_label", "settings.diag_default",
   "mcp.apps_title", "mcp.your_apps", "mcp.available_apps", "mcp.server_type", "mcp.logout_label",
   "mcp.oauth_scope", "mcp.oauth_client_id", "mcp.oauth_client_secret", "mcp.server_url",
+  "add_mcp.url_tab", // URL is the same acronym in German.
   "mcp.server_command_placeholder", "mcp.server_name_placeholder", "mcp.server_url_placeholder",
   "mcp.type_remote", "mcp.friendly_status_offline", "mcp.config_file", "mcp.scope_global",
   "mcp.scope_project", "mcp.technical_details", "mcp.last_synced", "mcp.oauth_advanced_title",

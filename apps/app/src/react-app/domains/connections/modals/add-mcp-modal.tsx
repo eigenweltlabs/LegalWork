@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TextInput } from "../../../design-system/text-input";
 import type { McpDirectoryInfo } from "@/app/constants";
@@ -343,7 +344,17 @@ export function AddMcpModal(props: AddMcpModalProps) {
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
           {step === "details" ? (
-            <>
+            <Tabs
+              value={local ? "command" : "url"}
+              onValueChange={(value) => setCommand(value === "command" ? "" : null)}
+              className="gap-4"
+            >
+              {!props.isRemoteWorkspace ? (
+                <TabsList className="w-full" aria-label={t("mcp.connection_type")}>
+                  <TabsTrigger value="url" disabled={primaryBusy}>{t("add_mcp.url_tab")}</TabsTrigger>
+                  <TabsTrigger value="command" disabled={primaryBusy}>{t("add_mcp.local_tab")}</TabsTrigger>
+                </TabsList>
+              ) : null}
               <TextInput
                 label={t("add_mcp.name_label")}
                 placeholder={t("add_mcp.name_placeholder")}
@@ -351,15 +362,16 @@ export function AddMcpModal(props: AddMcpModalProps) {
                 value={form.name}
                 onChange={(event) => patch({ name: event.currentTarget.value })}
               />
-              {local ? (
+              <TabsContent value="command" aria-label={t("add_mcp.local_tab")}>
                 <TextInput
                   label={t("mcp.server_command")}
                   placeholder={t("mcp.server_command_placeholder")}
                   hint={t("mcp.server_command_hint")}
-                  value={command}
+                  value={command ?? ""}
                   onChange={(event) => setCommand(event.currentTarget.value)}
                 />
-              ) : (
+              </TabsContent>
+              <TabsContent value="url" className="space-y-4" aria-label={t("add_mcp.url_tab")}>
                 <TextInput
                   label={t("mcp.server_url")}
                   placeholder={t("mcp.server_url_placeholder")}
@@ -368,20 +380,12 @@ export function AddMcpModal(props: AddMcpModalProps) {
                   spellCheck={false}
                   onChange={(event) => patch({ url: event.currentTarget.value })}
                 />
-              )}
-              {local ? null : <CustomConnectorHeaderFields form={form} onChange={patch} />}
-              {props.isRemoteWorkspace ? (
-                <p className="text-[11px] text-dls-secondary">{t("mcp.remote_workspace_url_hint")}</p>
-              ) : (
-                <button
-                  type="button"
-                  className="text-xs text-dls-secondary underline underline-offset-4 hover:text-dls-text"
-                  onClick={() => setCommand(local ? null : "")}
-                >
-                  {local ? t("add_mcp.url_toggle") : t("add_mcp.local_toggle")}
-                </button>
-              )}
-            </>
+                <CustomConnectorHeaderFields form={form} onChange={patch} />
+                {props.isRemoteWorkspace ? (
+                  <p className="text-[11px] text-dls-secondary">{t("mcp.remote_workspace_url_hint")}</p>
+                ) : null}
+              </TabsContent>
+            </Tabs>
           ) : null}
 
           {step !== "details" ? (
