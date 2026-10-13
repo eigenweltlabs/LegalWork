@@ -28,7 +28,7 @@ test("draft HTTP routes enforce auth, revisions, workspace boundaries and read-o
         const path = "/workspace/project/" + kind + "-drafts";
         const input = kind === "email"
           ? { to: "client@example.com", subject: "Review contract", body: "Please review.", attachments: [{ path: "contract.txt", contentType: "text/plain" }] }
-          : { title: "Contract review", start: "2026-10-13T14:00:00", end: "2026-10-13T15:00:00", timeZone: "Europe/Berlin" };
+          : { title: "Contract review", start: "2026-10-13T14:00:00", end: "2026-10-13T15:00:00", timeZone: "Europe/Berlin", attendees: "guest@example.com", organizer: "host@example.com", location: "Office", url: "https://example.com/meeting", reminders: [15, 60] };
         assert.equal((await call(path, "POST", input, "bad")).status, 401);
         assert.equal((await call(path, "POST", input, viewer)).status, 403);
         const created = await call(path, "POST", input);
@@ -52,6 +52,40 @@ test("draft HTTP routes enforce auth, revisions, workspace boundaries and read-o
         }
         assert.equal((await call(itemPath, "PUT", draft)).status, 409);
         assert.deepEqual((await (await call(itemPath)).json()).draft, saved);
+        if (kind === "calendar") {
+          const action = "/workspace/project/calendar/drafts/" + saved.id;
+          assert.equal((await (await call(action)).json()).item, null);
+          assert.equal((await call(action, "POST", { draftRevision: saved.revision }, "bad")).status, 401);
+          assert.equal((await call(action, "POST", { draftRevision: saved.revision }, viewer)).status, 403);
+          assert.equal((await call("/workspace/other/calendar/drafts/" + saved.id, "POST", { draftRevision: saved.revision })).status, 404);
+          assert.equal((await call(action, "POST", { draftRevision: draft.revision })).status, 409);
+          const added = await call(action, "POST", { draftRevision: saved.revision });
+          assert.equal(added.status, 200);
+          const status = await added.json(), entry = status.item;
+          assert.equal(status.savedRevision, saved.revision);
+          assert.equal(entry.kind, "event");
+          assert.equal(entry.title, saved.title);
+          assert.equal(entry.start, saved.start);
+          assert.equal(entry.timeZone, saved.timeZone);
+          assert.deepEqual(entry.reminders, [15, 60]);
+          for (const value of ["ATTENDEE", "guest@example.com", "ORGANIZER", "host@example.com", "LOCATION:Office", "URL:https://example.com/meeting", "BEGIN:VALARM"]) assert.ok(entry.ical.includes(value), value);
+          assert.equal((await (await call(action)).json()).item.id, entry.id);
+          assert.equal((await call(action, "POST", { draftRevision: saved.revision })).status, 409);
+          const edited = (await (await call(itemPath, "PUT", { ...saved, title: "Rescheduled review" })).json()).draft;
+          const replaced = await call(action, "POST", { draftRevision: edited.revision, calendarRevision: entry.revision });
+          assert.equal(replaced.status, 200);
+          const replacement = (await replaced.json()).item;
+          assert.equal(replacement.id, entry.id);
+          assert.equal(replacement.title, "Rescheduled review");
+          assert.equal((await call(action, "POST", { draftRevision: edited.revision, calendarRevision: entry.revision })).status, 409);
+          assert.equal((await (await call("/workspace/project/calendar")).json()).items.length, 1);
+          config.readOnly = true;
+          assert.equal((await call(action, "POST", { draftRevision: edited.revision, calendarRevision: replacement.revision })).status, 403);
+          config.readOnly = false;
+          const removed = (await (await call("/workspace/project/calendar/" + entry.id + "/delete", "POST", { revision: replacement.revision })).json()).item;
+          assert.equal((await (await call(action)).json()).savedRevision, null);
+          assert.equal((await call(action, "POST", { draftRevision: edited.revision, calendarRevision: removed.revision })).status, 410);
+        }
         const invalid = kind === "email" ? { ...input, subject: "Injected\\r\\nBcc: other@example.com" } : { ...input, end: input.start };
         assert.equal((await call(path, "POST", invalid)).status, 400);
         config.readOnly = true;

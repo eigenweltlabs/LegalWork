@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
 import { LegalWorkDraftTools } from "./legalwork-draft-tools.js";
 
+test("meeting requests use the editable card without a connected calendar or background save", async () => {
+  const plugin = await LegalWorkDraftTools(), output = { system: ["Existing instructions"] };
+  await plugin["experimental.chat.system.transform"]({}, output);
+  expect(output.system[0]).toBe("Existing instructions");
+  expect(output.system[1]).toContain("legalwork_calendar_event_draft");
+  expect(output.system[1]).toContain("without connecting Google or Outlook");
+  expect(output.system[1]).toContain("do not save the event in the background");
+  expect(output.system[1]).toContain("guest emails in attendees");
+  expect(plugin.tool.legalwork_calendar_event_draft.description).toContain("Add to LegalWork calendar");
+});
+
 test("draft tools use the chat's project, carry revisions, and surface server conflicts", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
   const requests: Array<{ path: string; method: string; body: unknown }> = [];

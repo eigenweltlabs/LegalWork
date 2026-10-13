@@ -40,6 +40,11 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
     if (!client) throw new Error("Connect to this project to edit the event.");
     return client.calendarEventDraft(workspaceId, initial.id);
   } });
+  const calendarKey = ["calendar", client?.baseUrl, workspaceId, "draft", initial.id];
+  const calendarQuery = useQuery({ queryKey: calendarKey, enabled: available, queryFn: async () => {
+    if (!client) throw new Error("Connect to this project to add the event.");
+    return client.calendarEventDraftStatus(workspaceId, initial.id);
+  } });
   const [draft, setDraft] = useState<CalendarEventDraft | null>(null), [baseline, setBaseline] = useState<CalendarEventDraft | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -58,7 +63,8 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
   const current = draft;
   const editable = available && !query.isError && !busy;
   const change = (patch: Partial<CalendarEventDraft>) => { setDraft({ ...current, ...patch }); setError(null); };
-  const run = async (action: "save" | "system" | "download" | "google" | "outlook") => {
+  const added = !dirty && calendarQuery.data?.savedRevision === current.revision;
+  const run = async (action: "save" | "legalwork" | "system" | "download" | "google" | "outlook") => {
     if (!client || !editable || busyRef.current) return;
     const popup = (action === "google" || action === "outlook") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
     if (popup) popup.opener = null;
@@ -66,7 +72,12 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
     try {
       const saved = dirty ? (await client.saveCalendarEventDraft(workspaceId, current)).draft : current;
       setDraft(saved); setBaseline(saved); cache.setQueryData(key, { draft: saved });
-      if (action === "google" || action === "outlook") {
+      if (action === "legalwork") {
+        if (!calendarQuery.data) throw new Error("Could not load the LegalWork calendar. Try again.");
+        const result = await client.addCalendarEventDraft(workspaceId, saved.id, { draftRevision: saved.revision, calendarRevision: calendarQuery.data.item?.revision, ...(sessionId ? { sessionId } : {}) });
+        cache.setQueryData(calendarKey, result);
+        void cache.invalidateQueries({ queryKey: ["calendar"] });
+      } else if (action === "google" || action === "outlook") {
         const link = calendarComposeLink(saved, action);
         if (link.length > 8000) throw new Error("This event is too long for a calendar link. Download the .ics instead.");
         if (popup) popup.location.href = link; else await openDesktopUrl(link);
@@ -83,7 +94,7 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
           window.setTimeout(() => URL.revokeObjectURL(url), 10000);
         }
       }
-    } catch (problem) { popup?.close(); setError(problem instanceof Error ? problem.message : "Could not save or open the event."); }
+    } catch (problem) { popup?.close(); setError(problem instanceof Error ? problem.message : "Could not save or open the event."); if (action === "legalwork") void calendarQuery.refetch(); }
     finally { busyRef.current = false; setBusy(false); }
   };
   const localStart = calendarDraftLocalValue(current.start, current.timeZone);
@@ -130,16 +141,15 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
       </div>}
     </fieldset>
     {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setAllDay(result.data.draft.start.length === 10); setError(null); } })}>Discard edits and reload</Button></div>}
-    <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
+    <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-3">
       {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
-      <div className="flex-1" />
-      <div className="flex items-center gap-1">
-        <Button size="sm" disabled={!editable} className="gap-2 rounded-lg px-3.5" onClick={() => void run("system")}>Open in Calendar<ArrowUpRight className="size-3.5" /></Button>
-        <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Open event in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
+      <Button size="sm" variant="ghost" disabled={!editable || calendarQuery.isPending || added} className="gap-2" onClick={() => void run("legalwork")}>{added ? <Check className="size-3.5" /> : <CalendarDays className="size-3.5" />}{added ? "Added to LegalWork calendar" : calendarQuery.data?.item ? "Update LegalWork calendar" : "Add to LegalWork calendar"}</Button>
+      <div className="ml-auto flex items-center gap-0">
+        <Button size="sm" disabled={!editable} className="gap-2 rounded-l-lg rounded-r-none border-r-0 bg-clip-border px-3.5 motion-safe:active:not-aria-[haspopup]:translate-y-0" onClick={() => void run("system")}>Open in Calendar<ArrowUpRight className="size-3.5" /></Button>
+        <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" className="rounded-l-none rounded-r-lg border-l-background/20 bg-clip-border" disabled={!editable} aria-label="Open event in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onClick={() => void run("google")}><CalendarDays />Open in Google Calendar</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("outlook")}><CalendarDays />Open in Outlook</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("download")}><Download />Download .ics</DropdownMenuItem>
-          <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">Download .ics to keep guests and reminders. Review in your calendar before inviting anyone.</p>
         </DropdownMenuContent></DropdownMenu>
       </div>
     </div>

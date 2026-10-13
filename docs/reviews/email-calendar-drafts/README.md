@@ -71,7 +71,7 @@ pnpm --filter @legalwork/desktop typecheck:electron
 pnpm --filter @legalwork/desktop check:electron
 ```
 
-Results after merging `origin/dev`: 21 draft tests, 1,213 app tests, 20
+Results after merging `origin/dev`: 21 draft tests, 1,213 app tests, 21
 HTTP/plugin/runtime tests and 29 document-control plugin tests passed.
 App, server and Electron typechecks, the server build, Node build smoke test,
 i18n audit and Electron bridge coverage check passed. Desktop tests: 232 passed,
@@ -105,6 +105,38 @@ import remains unverified because that client is not installed. No message was
 sent.
 
 ![Saved and reopened draft in the Windows default mail app](windows-default-mail.png)
+
+
+## Calendar card and default app
+
+Ordinary meeting requests now explicitly use `legalwork_calendar_event_draft`
+instead of silently creating a project calendar entry or requiring a Google
+connection. A live agent request for a meeting with `calendar-test@example.com`
+produced the editable event card with the guest in the attendee field.
+
+The primary **Open in Calendar** split button hands the `.ics` file to the
+computer's default calendar app. **Add to LegalWork calendar** is a separate
+button. The menu retains Google Calendar, Outlook and `.ics` download, without
+the explanatory footer. In web or remote-file situations without a local desktop
+path, the system action downloads the portable file.
+
+Adding saves pending card edits, then creates one event from the stored draft.
+Guests, organizer, location, URL and alarms remain in the ICS; native LegalWork
+reminders and the chat link are retained. Later card edits update the same UID
+with both draft and calendar revision checks. The added state survives reload.
+Stale revisions, a different workspace, viewer permissions, read-only mode and
+deleted entries cannot silently overwrite or recreate an event.
+
+Verified the button against the actual API, then edited and reloaded the card:
+one entry remained, with the latest title and guest/organizer/location/reminder
+data intact. Twenty-two focused calendar, draft-route and tool tests passed,
+as did all 1,213 app tests, app/server typechecks and the build smoke test.
+Clicking the live card's primary action launched this Mac's default Calendar app
+at its Add event destination dialog. The import was cancelled; no invitation
+was sent and no external calendar entry was added.
+
+![Calendar card with default-app primary action](calendar-add-button.png)
+![Live agent produced the calendar widget](calendar-live-agent.png)
 
 ## Requested document navigation
 
@@ -187,8 +219,8 @@ pnpm dev:electron
    conflict without discarding local edits.
 
 Screenshots are provided instead of a recording because the browser tooling
-used for this review exposes still captures. Native Calendar imports and
-signed-in Gmail, Google Calendar and Outlook web compose screens were not exercised.
+used for this review exposes still captures. Completed native Calendar imports and signed-in Gmail, Google Calendar and
+Outlook web compose screens were not exercised.
 Web links omit attachments and some advanced fields; the download preserves
 those details. This feature does not connect accounts or send messages or
 invitations.
