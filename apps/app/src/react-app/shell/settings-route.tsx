@@ -70,6 +70,7 @@ import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
+import "@/react-app/domains/settings/actaport-config";
 import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
@@ -1667,9 +1668,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     googleWorkspaceConnected,
     setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,
-    connectMcp: async (entry) => {
-      await connectionsStore.connectMcp(entry);
-    },
+    connectMcp: (entry) => connectionsStore.connectMcp(entry),
+    removeMcp: (name) => connectionsStore.removeMcp(name),
     refreshMcpServers: () => connectionsStore.refreshMcpServers(),
     providers,
     providerConnectedIds,

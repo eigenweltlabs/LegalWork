@@ -44,7 +44,7 @@ export type LegalWorkExtensionResource = {
   packageName?: string;
   providerId?: string;
   mcpServerName?: string;
-  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.uiMcp";
+  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.uiMcp" | "legalwork.actaportMcp";
   required?: boolean;
 };
 
@@ -151,6 +151,20 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 }
 
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
+  {
+    schemaVersion: 1,
+    id: "actaport",
+    name: "Actaport",
+    get description() { return t("actaport.description"); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { src: "/legalwork-mark.svg" },
+    composer: { get prompt() { return t("actaport.prompt"); } },
+    resources: [{ type: "mcp", id: "actaport-mcp", mcpServerName: "actaport", command: ["legalwork-actaport-mcp"], localCommandRef: "legalwork.actaportMcp", required: true }],
+    contributions: [{ type: "settings-panel", ref: "actaport", location: "settings-detail" }],
+    enablement: [{ type: "mcp-connected", ref: "actaport", label: "Actaport" }],
+    lifecycle: { reload: ["mcp"], detection: ["mcp:actaport"] },
+    platform: ["darwin", "linux", "windows"],
+  },
   {
     schemaVersion: 1,
     id: "legalwork-voice",

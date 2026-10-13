@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../src/app/mcp-connect-state";
 import type { McpDirectoryInfo } from "../src/app/constants";
+import { MCP_QUICK_CONNECT } from "../src/app/constants";
 import type { McpStatusMap, ReloadReason, ReloadTrigger } from "../src/app/types";
 import { createClient } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -73,6 +74,8 @@ let remoteSaveStarted: (() => void) | undefined;
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
+      if (command === "getActaportMcpCommand") return ["node", "/tmp/bundled-actaport/index.mjs"];
+      if (command === "getActaportMcpEnvironment") return { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0" };
       if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: true, content: config };
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
@@ -147,6 +150,7 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
+          if (status.actaport) return Response.json({ items: [{ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"] }, source: "config.local" }] });
           return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }] });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
@@ -252,6 +256,25 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
     expect(store.getSnapshot().mcpConnectingName).toBeNull();
     expect(connectedEvents()).toHaveLength(0);
+  });
+
+  test("Actaport resolves its bundled command and saves only the private connection reference", async () => {
+    const actaport = MCP_QUICK_CONNECT.find((item) => item.serverName === "actaport");
+    if (!actaport) throw new Error("Missing Actaport extension");
+    status = { actaport: { status: "connected" } };
+    expect(await makeStore().connectMcp(actaport)).toBe(true);
+    expect(serverAdds).toHaveLength(1);
+    expect(serverAdds[0]).toMatchObject({ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"],
+      environment: { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0" } } });
+    expect(JSON.stringify(serverAdds)).not.toContain("clientSecret");
+    expect(JSON.stringify(serverAdds)).not.toContain("password");
+  });
+
+  test("Actaport desktop credentials cannot be sent to a remote worker", async () => {
+    const actaport = MCP_QUICK_CONNECT.find((item) => item.serverName === "actaport");
+    if (!actaport) throw new Error("Missing Actaport extension");
+    expect(await makeStore(true).connectMcp(actaport)).toBe(false);
+    expect(serverAdds).toHaveLength(0);
   });
 
   test("a save that finishes after switching workspaces cannot start OAuth for the new selection", async () => {

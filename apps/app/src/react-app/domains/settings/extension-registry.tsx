@@ -14,6 +14,12 @@ export type ExtensionConfigContext = {
   extensionConnections?: Record<string, boolean>;
   onExtensionConnectionChange?: (extensionId: string, connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
+  actaport?: {
+    connected: boolean;
+    onConnect: () => boolean | void | Promise<boolean | void>;
+    onDisconnect: () => void | Promise<void>;
+    onRefresh: () => void | Promise<void>;
+  };
   computerUse?: {
     connected: boolean;
     connecting: boolean;

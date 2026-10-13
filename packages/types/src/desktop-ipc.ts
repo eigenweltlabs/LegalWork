@@ -452,6 +452,13 @@ export type DesktopCommandMap = {
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
   getComputerUseMcpCommand: { args: []; result: string[] };
+  getActaportMcpCommand: { args: []; result: string[] };
+  getActaportMcpEnvironment: { args: []; result: Record<string, string> };
+  actaportStatus: { args: []; result: { configured: boolean; secureStorage: boolean; allowWrites: boolean } };
+  actaportConnect: { args: [credentials: { realm: string; clientId: string; clientSecret: string; username: string; password: string }]; result: { configured: boolean; secureStorage: boolean; allowWrites: boolean } };
+  actaportTest: { args: []; result: { ok: boolean } };
+  actaportSetWriteAccess: { args: [enabled: boolean]; result: { configured: boolean; secureStorage: boolean; allowWrites: boolean } };
+  actaportDisconnect: { args: []; result: { configured: boolean; secureStorage: boolean; allowWrites: boolean } };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use
