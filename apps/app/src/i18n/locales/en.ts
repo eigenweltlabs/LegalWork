@@ -40,6 +40,7 @@ export default {
   "integrations.connector_account_access": "Account access",
   "integrations.connector_account_hint": "Manage saved sign-in for this connector.",
   "integrations.connector_enabled": "Enable connector",
+  "integrations.connector_needs_enable": "Enable to use",
   "integrations.team_managed": "Managed by your firm",
   "integrations.team_chat_access_hint": "Allow agents to use this connector.",
   "integrations.team_sign_in_hint": "Sign in with your {name} account to use this connector.",

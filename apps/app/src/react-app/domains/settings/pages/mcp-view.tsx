@@ -1329,7 +1329,7 @@ function McpConfiguredServerRow(props: {
 }) {
   return (
     <>
-      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<McpConnectorStatus {...props} />}
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={props.status === "disabled" ? <span className="text-xs text-muted-foreground">{t("integrations.connector_needs_enable")}</span> : <McpConnectorStatus {...props} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
         onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />

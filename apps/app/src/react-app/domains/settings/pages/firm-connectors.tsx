@@ -95,7 +95,7 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
   const needsKey = installed && connector?.access === "member" && !connector.hasOwnKey;
   const needsSignIn = installed && connector?.access === "oauth" && status !== "connected";
   const canSignIn = needsSignIn && connector?.url;
-  const state = !installed ? null : needsKey ? t("firm_hub.connector_needs_key")
+  const state = !installed ? t("integrations.connector_needs_enable") : needsKey ? t("firm_hub.connector_needs_key")
     : status === "needs_auth" || status === "needs_client_registration" ? t("firm_hub.connector_needs_sign_in")
     : status === "failed" ? t("firm_hub.connector_failed")
     : needsSignIn ? t("firm_hub.connector_needs_sign_in") : null;

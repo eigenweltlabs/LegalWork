@@ -50,6 +50,7 @@ const de = {
   "integrations.connector_account_access": "Kontozugriff",
   "integrations.connector_account_hint": "Gespeicherte Anmeldung für diesen Konnektor verwalten.",
   "integrations.connector_enabled": "Konnektor aktivieren",
+  "integrations.connector_needs_enable": "Aktivieren, um ihn zu nutzen",
   "integrations.team_managed": "Von Ihrer Kanzlei verwaltet",
   "integrations.team_chat_access_hint": "Erlauben Sie Agenten, diesen Konnektor zu verwenden.",
   "integrations.team_sign_in_hint": "Melden Sie sich mit Ihrem {name}-Konto an, um diesen Konnektor zu verwenden.",

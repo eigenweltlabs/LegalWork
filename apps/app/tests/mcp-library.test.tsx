@@ -42,6 +42,9 @@ test("ready connectors and active built-ins come before paused connectors withou
   expect(html).toContain('aria-label="Actions for paused"');
   expect(html).toContain('aria-label="Actions for Attio"');
   expect(html).not.toContain('role="switch"');
+  expect(html.match(/Enable to use/g)).toHaveLength(1);
+  expect(html).not.toContain(">Ready<");
+  expect(html).not.toContain(">Paused<");
 });
 
 test("empty library points to directory or own connector instead of rendering the catalog", () => {
@@ -100,6 +103,8 @@ test("optional team connectors remain discoverable without exposing account acti
   expect(html).toContain('aria-label="Actions for Team Research"');
   expect(html).not.toContain('role="switch"');
   expect(html).not.toContain(">Sign in<");
+  expect(html).not.toContain("Sign in to use it");
+  expect(html.match(/Enable to use/g)).toHaveLength(2);
 });
 
 test("team connector account and key requirements remain visible without inline controls", () => {
@@ -123,6 +128,7 @@ test("connected and failed team OAuth connectors retain their actual state", () 
   const item: FirmHubItem = { ...teamResearch, connector: { ...teamResearch.connector!, access: "oauth" } };
   const connected = renderTeamLibrary([item], { mcpStatuses: { research: { status: "connected" } } });
   expect(connected).not.toContain("Sign in to use it");
+  expect(connected.match(/Enable to use/g)).toHaveLength(1);
   const failed = renderTeamLibrary([item], { mcpStatuses: { research: { status: "failed", error: "Connection refused" } } });
   expect(failed).toContain("Not reachable right now");
   expect(failed).not.toContain("Sign in to use it");
