@@ -17,6 +17,7 @@ import { IconTile } from "@/react-app/design-system/surface";
 import { IntegrationLibraryRow } from "./integration-library";
 import { FIRM_HUB_QUERY_KEY, useFirmHub } from "../../connections/firm-hub";
 import { MemberKeyDialog } from "../../connections/org-policy-ui";
+import { ConnectorStatus, connectorStatusText, resolveConnectorState } from "./connector-status";
 
 export const firmConnectorName = (slug: string) => slug.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, letter => letter.toUpperCase());
 
@@ -74,7 +75,7 @@ export function FirmConnectorAccessSettings(props: {
     </div>
     {installed && (status?.status === "failed" || status?.status === "needs_client_registration") ? <Alert variant="destructive">
       <CircleAlert />
-      <AlertTitle>{t(status.status === "failed" ? "firm_hub.connector_failed" : "integrations.team_sign_in_setup")}</AlertTitle>
+      <AlertTitle>{connectorStatusText(status.status)}</AlertTitle>
       <AlertDescription><p>{t("integrations.team_connection_help")}</p>{status.error ? <p className="break-words">{status.error}</p> : null}</AlertDescription>
     </Alert> : null}
   </div>;
@@ -95,10 +96,7 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
   const needsKey = installed && connector?.access === "member" && !connector.hasOwnKey;
   const needsSignIn = installed && connector?.access === "oauth" && status !== "connected";
   const canSignIn = needsSignIn && connector?.url;
-  const state = !installed ? t("integrations.connector_needs_enable") : needsKey ? t("firm_hub.connector_needs_key")
-    : status === "needs_auth" || status === "needs_client_registration" ? t("firm_hub.connector_needs_sign_in")
-    : status === "failed" ? t("firm_hub.connector_failed")
-    : needsSignIn ? t("firm_hub.connector_needs_sign_in") : null;
+  const state = resolveConnectorState({ enabled: installed, status, needsKey, needsSignIn });
 
   function signIn() {
     if (canSignIn && connector?.url) props.onSignIn(connector.serverName, connector.url);
@@ -121,7 +119,7 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
   }
 
   return <>
-    <IntegrationLibraryRow name={name} description={item.description} icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Plug className="size-4 text-muted-foreground" /></span>} source={t("firm_hub.scope_team")} status={state ? <span className="text-xs text-muted-foreground">{state}</span> : null} busy={props.busy || busy} onOpen={() => setDetailsOpen(true)}
+    <IntegrationLibraryRow name={name} description={item.description} icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Plug className="size-4 text-muted-foreground" /></span>} source={t("firm_hub.scope_team")} status={<ConnectorStatus state={state} />} busy={props.busy || busy} onOpen={() => setDetailsOpen(true)}
       actions={canSignIn ? <DropdownMenuItem disabled={props.busy || busy} onClick={signIn}><LogIn />{t("firm_hub.sign_in")}</DropdownMenuItem> : undefined} />
     <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
       <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">

@@ -63,14 +63,9 @@ import { HubTabs, type HubTab } from "../segmented-tabs";
 import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { FirmConnectorLibrary, FirmConnectorRow, firmConnectorName } from "./firm-connectors";
+import { ConnectorStatus, resolveConnectorState, type ConnectorState } from "./connector-status";
 
-export type ReactMcpStatus =
-  | "connected"
-  | "needs_auth"
-  | "needs_client_registration"
-  | "failed"
-  | "disabled"
-  | "disconnected";
+export type ReactMcpStatus = ConnectorState;
 
 export type SkillItem = {
   name: string;
@@ -148,53 +143,6 @@ const quickCardFeaturedClass =
 const featuredTagClass =
   "shrink-0 rounded-full bg-[rgba(var(--dls-accent-rgb),0.12)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-accent";
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
-const statusDot = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
-      return "bg-green-9";
-    case "needs_auth":
-    case "needs_client_registration":
-      return "bg-amber-9";
-    case "disabled":
-      return "bg-gray-8";
-    case "disconnected":
-      return "bg-gray-7";
-    default:
-      return "bg-red-9";
-  }
-};
-
-const friendlyStatus = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
-      return t("mcp.friendly_status_ready");
-    case "needs_auth":
-    case "needs_client_registration":
-      return t("mcp.friendly_status_needs_signin");
-    case "disabled":
-      return t("mcp.friendly_status_paused");
-    case "disconnected":
-      return t("mcp.friendly_status_offline");
-    default:
-      return t("mcp.friendly_status_issue");
-  }
-};
-
-const statusBadgeStyle = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
-      return "bg-green-3 text-green-11";
-    case "needs_auth":
-    case "needs_client_registration":
-      return "bg-amber-3 text-amber-11";
-    case "disabled":
-    case "disconnected":
-      return "bg-gray-3 text-gray-11";
-    default:
-      return "bg-red-3 text-red-11";
-  }
-};
-
 const serviceIcon = (name: string) => {
   const lower = name.toLowerCase();
   if (lower.includes("notion")) return BookOpen;
@@ -421,9 +369,7 @@ export function McpView(props: McpViewProps) {
     entry.config.type === "remote" && entry.config.oauth !== false;
 
   const resolveStatus = (entry: McpServerEntry): ReactMcpStatus => {
-    if (entry.config.enabled === false) return "disabled";
-    const resolved = props.mcpStatuses[entry.name];
-    return resolved?.status ?? "disconnected";
+    return resolveConnectorState({ enabled: entry.config.enabled !== false, status: props.mcpStatuses[entry.name]?.status });
   };
 
   const hiddenCount = quickConnectList.filter((entry) => isLegalWorkExtensionHidden(entry)).length +
@@ -930,9 +876,9 @@ function McpQuickConnectSection(props: {
                 <div className="mt-auto flex items-center justify-between gap-2 pt-4">
                   <div className="flex flex-wrap items-center gap-2">
                     {configured ? (
-                      <span className="text-xs text-muted-foreground">{t("mcp.friendly_status_ready")}</span>
+                      <ConnectorStatus state="connected" />
                     ) : someMet ? (
-                      <span className="text-xs text-muted-foreground">{t("mcp.friendly_status_needs_signin")}</span>
+                      <ConnectorStatus state="needs_auth" />
                     ) : (
                       <span className="text-xs text-muted-foreground">{typeLabel}</span>
                     )}
@@ -1168,7 +1114,7 @@ function McpConfiguredServerRow(props: {
   const owner = importedConnectorPlugin(props.entry.name, useIntegrationLibraryLayout()?.importedPackages);
   return (
     <>
-      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={props.status === "disabled" ? <span className="text-xs text-muted-foreground">{t("integrations.connector_needs_enable")}</span> : <McpConnectorStatus {...props} />}
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={<ConnectorStatus state={props.status} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
         onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />
@@ -1185,7 +1131,7 @@ function McpConfiguredServerIcon(props: Parameters<typeof McpConfiguredServerRow
 
 function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0]) {
   if (props.onToggleEnabled && props.entry.source !== "config.global" && (props.status === "connected" || props.status === "disabled")) return null;
-  return <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><span className={`size-1.5 rounded-full ${statusDot(props.status)}`} />{friendlyStatus(props.status)}</span>;
+  return <ConnectorStatus state={props.status} />;
 }
 
 function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0]) {

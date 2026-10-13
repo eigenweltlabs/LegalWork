@@ -8,6 +8,7 @@ import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
 import { IntegrationLibraryLayoutContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
+import type { McpStatus } from "../src/app/types";
 
 const noop = () => {};
 const attioUrl = "https://example.invalid/attio";
@@ -72,6 +73,39 @@ function renderTeamLibrary(items: FirmHubItem[], overrides: Partial<McpViewProps
 
 const teamResearch: FirmHubItem = { id: "research", kind: "mcp", name: "team-research", description: "Search the firm's research library", installation: "automatic", added: false, connector: { serverName: "research", url: "https://example.invalid/research", access: "firm", keyName: null, hasOwnKey: false } };
 
+const matchingStates: { state?: McpStatus; label: string | null; dot: string | null }[] = [
+  { state: { status: "needs_auth" }, label: "Sign in to use it", dot: "bg-amber-9" },
+  { state: { status: "needs_client_registration", error: "Client registration required" }, label: "Sign-in setup is incomplete", dot: "bg-amber-9" },
+  { state: { status: "failed", error: "Connection refused" }, label: "Issue", dot: "bg-red-9" },
+  { state: { status: "disabled" }, label: "Enable to use", dot: null },
+  { state: { status: "connected" }, label: null, dot: null },
+  { label: "Offline", dot: "bg-gray-7" },
+];
+
+for (const { state, label, dot } of matchingStates) {
+  test(`personal, plugin and team connector rows present ${state?.status ?? "disconnected"} consistently`, () => {
+    const plugin: ImportedPlugin = { pluginId: "research-plugin", marketplaceId: null, name: "research-plugin", description: null, updatedAt: null, importedAt: 1, files: [
+      { configObjectId: "plugin-server", versionId: null, objectType: "mcp", title: "Research plugin", path: "opencode.jsonc#mcp.plugin-server", updatedAt: null },
+    ] };
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queries.setQueryData(FIRM_HUB_QUERY_KEY, { connected: true, items: [{ ...teamResearch, connector: { ...teamResearch.connector!, access: state ? "oauth" : "firm" } }] });
+    const html = renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, importedPackages: [plugin] }}><McpView {...props} quickConnect={[]} mcpServers={[
+      { name: "personal", config: { type: "remote", url: "https://example.invalid/personal" } },
+      { name: "plugin-server", config: { type: "remote", url: "https://example.invalid/plugin" } },
+    ]} mcpStatuses={state ? { personal: state, "plugin-server": state, research: state } : {}} firmClient={createLegalworkServerClient({ baseUrl: "https://example.invalid" })} /></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
+    queries.clear();
+    expect(html).toContain("Plugin: Research Plugin");
+    expect(html).toContain(">Team<");
+    if (label) expect(html.split(label)).toHaveLength(4);
+    if (dot) expect(html.split(dot)).toHaveLength(4);
+    else expect(html).not.toContain("rounded-full");
+    expect(html).not.toContain("Sign in needed");
+    expect(html).not.toContain("Not reachable right now");
+    expect(html).not.toContain(">Ready<");
+    expect(html).not.toContain(">Paused<");
+  });
+}
+
 test("source tabs isolate connectors without misclassifying team engine configuration as personal", () => {
   const overrides = { mcpServers: [...props.mcpServers, { name: "research", config: { type: "remote", url: "https://example.invalid/research" } }] };
   const personal = renderTeamLibrary([teamResearch], overrides, "personal");
@@ -114,6 +148,7 @@ test("team connector account and key requirements remain visible without inline 
   expect(oauth).toContain('aria-label="Actions for Team Research"');
   const member = renderTeamLibrary([{ ...teamResearch, connector: { ...teamResearch.connector!, access: "member" } }]);
   expect(member).toContain("Add your key to use it");
+  expect(member).toContain("bg-amber-9");
 });
 
 test("automatically installed team OAuth connectors show sign-in before the engine checks them", () => {
@@ -139,7 +174,7 @@ test("connected and failed team OAuth connectors retain their actual state", () 
   expect(connected).not.toContain("Sign in to use it");
   expect(connected.match(/Enable to use/g)).toHaveLength(1);
   const failed = renderTeamLibrary([item], { mcpStatuses: { research: { status: "failed", error: "Connection refused" } } });
-  expect(failed).toContain("Not reachable right now");
+  expect(failed).toContain("Issue");
   expect(failed).not.toContain("Sign in to use it");
 });
 

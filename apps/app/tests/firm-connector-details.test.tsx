@@ -68,7 +68,7 @@ test("firm-provided and open access never ask members for credentials", () => {
 test("connection and registration failures keep their explanation visible", () => {
   const failed = render(item, { status: "failed", error: "Service unavailable" });
   expect(failed).toContain('role="alert"');
-  expect(failed).toContain("Not reachable right now");
+  expect(failed).toContain("Issue");
   expect(failed).toContain("Service unavailable");
   const registration = render(item, { status: "needs_client_registration", error: "Client registration required" });
   expect(registration).toContain("Sign-in setup is incomplete");

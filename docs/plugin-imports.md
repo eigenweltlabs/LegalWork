@@ -31,6 +31,16 @@ For manifest-free ZIP bundles containing skills and MCP configuration, the impor
 
 This organization follows the installed-item management and separate discovery flows documented in [ChatGPT account management](https://help.openai.com/en/articles/20001494-connecting-and-managing-app-accounts-in-chatgpt), [Claude connectors](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities), and [Claude's directory](https://support.claude.com/en/articles/14328846-browse-skills-connectors-and-plugins-in-one-directory), reviewed October 11, 2026. LegalWork keeps its existing design-system tokens and the four-category library navigation.
 
+## Connector status consistency
+
+Personal, plugin and team connectors now use one state resolver and presenter for labels and indicators. Sign-in uses **Sign in to use it** with an amber dot; disabled entries use **Enable to use** without a dot; missing personal keys use **Add your key to use it** with an amber dot; incomplete sign-in setup uses **Sign-in setup is incomplete** with an amber dot; failed connections use **Issue** with a red dot; disconnected entries use **Offline** with a gray dot. Connected entries have no redundant Ready label. Directory sign-in prompts, connector details and team error titles use the same wording. Optional membership and missing keys take precedence, while actual failures and setup errors are preserved instead of becoming generic sign-in prompts.
+
+The mismatch came from separate presentation logic in `mcp-view.tsx` and `firm-connectors.tsx`, including different translation keys and missing team indicators. Both receive the same runtime status map. Team metadata supplies firm ownership, membership and personal-account requirements; keeping those permissions separate is necessary. The screen's remaining structural debt is the large connector component mixing directory browsing, library orchestration and detail controls. Further cleanup should split those responsibilities and adapt source metadata to shared presentation, while retaining the existing server, account and ownership APIs.
+
+Verification: four new rendered-library regressions failed before the fix. The final suite passed **978 app tests across 147 files**, app TypeScript checks and **5,785 translation keys × English/German**. The state matrix covers personal/plugin/team sign-in, setup, failure, disabled, connected and disconnected rows, including matching indicator colors. Existing tests cover optional membership, key requirements, account actions and read-only controls. Native Electron verified the actual GitLab plugin and Linear team rows with identical sign-in text and indicators. No connector or provider account was changed.
+
+![Matching plugin and team connector statuses in Electron](images/integrations-connector-statuses-aligned.png)
+
 ## Plugin details
 
 Plugin details now have a fixed header, a bounded scroll area and readable component names instead of execution identifiers. Larger bundles have an in-plugin search that matches component names and skill descriptions; small bundles keep the compact layout without a search field. Skills, connectors, commands and agents appear in consistent clickable rows, grouped only by the types actually present.
