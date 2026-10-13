@@ -14,6 +14,8 @@ All library entries use the same icon, name, one-line description and three-dot 
 
 Healthy empty connector configurations are quiet: they do not show the old “No MCP servers configured” banner or instructions to create `opencode.json`. The combined library owns the empty state and includes firm-managed connectors. Unused configuration-file panels, project/global file controls, duplicate headers, sync labels and their read/state wiring are removed. Connector setup, sign-in, sharing and directory messages use connector terminology; real connection, registration and permission errors remain visible.
 
+Importing exactly one connector switches to Connectors and opens its details once the installed entry is available, clearing any library search that would hide it. The installed result supplies the connector identity. The review explains the next setup step; routine paused-import and reauthentication notices are not compatibility warnings. Actual unsupported settings, missing credentials and invalid addresses still have compatibility notes. Choosing Sign in on a disabled OAuth connector enables that connector first, then starts the normal sign-in flow. Activation failures do not open sign-in, workspace changes cancel the handoff, and engine reload is deferred until sign-in ends. Local or unauthenticated connectors retain their enablement control.
+
 Imported plugin skills and MCP connectors appear once in their respective main libraries, with a **Plugin: {name}** label. Search also matches the owning plugin's name. Ownership comes from recorded installation destinations, so an unrelated item with the same name does not gain a plugin label. New standalone imports retain their source type and are not labelled as plugin components. The package manager remains available under More → Imported packages; package details list the names of its skills, connectors, commands and agents. Import, Refresh and package removal refresh the shared ownership metadata for both libraries.
 
 For manifest-free ZIP bundles containing skills and MCP configuration, the importer removes the complete common enclosing folder path. An extra export folder no longer leaves the connector configuration outside the detected package root.
@@ -98,6 +100,12 @@ Personal, team and built-in skills use the same row spacing across their list bo
 
 Latest checks:
 
+- Single connector setup: the full app suite passed **969 tests across 147 files**, the focused import/account/library suite passed **49 tests**, and the server import/install suite passed **34 tests**. App/server type checking, translations (**5,755 keys × English/German**) and the production app/runtime builds passed with the existing app chunk-size warning. A temporary browser fixture using the production Integrations/import/connector components verified a clean review, import-result identity, delayed list refresh, search clearing, automatic details opening and the Sign in control. Store regressions cover enabling before sign-in, rejected activation and switching workspaces during activation. The fixture was removed; no real provider account was connected. The Electron dev app was restarted with the updated importer.
+
+![Clean review for one connector, sample-data verification](images/import-connector-clean-review.png)
+
+![Details open automatically after importing one connector, sample-data verification](images/import-connector-direct-details.png)
+
 - Legacy connector UI cleanup: `pnpm --filter @legalwork/app test` passed **966 tests across 147 files**. The focused connector/store/account suite passed **57 tests**, including healthy empty server/file configurations, team-only rows and retained registration errors. App type checking, translations (**5,754 keys × English/German**) and the production build passed with the existing chunk-size warning. Native Electron verified the actual Linear team row without the legacy banner, the directory's connector wording and returning to the list. No connector, account or membership was changed.
 
 ![Actual desktop connector library without the obsolete configuration banner](images/integrations-no-legacy-mcp-banner.png)
@@ -106,7 +114,7 @@ Latest checks:
 
 ![Individual bundled connectors alongside standalone configurations, sample-source verification](images/import-bundled-connectors.png)
 
-![One bundled connector selected for import, sample-source verification](images/import-bundled-connector-review.png)
+![One bundled connector selected for import, sample-source verification](images/import-connector-clean-review.png)
 
 - Plugin-component visibility: `pnpm --filter @legalwork/app test` passed **961 tests across 147 files**. App/server type checking, app build and translation checks passed (**5,770 keys × English/German**), with the existing app chunk-size warning. `pnpm --filter legalwork-server exec bun test src/connector-imports.test.ts src/plugin-imports.test.ts src/cloud-plugins.test.ts src/claude-plugin-bundle.e2e.test.ts` passed **29 tests**. A browser fixture using the production Integrations/import/package components and in-memory stores verified a ChatGPT plugin import, immediate skill/connector visibility, plugin-name search, named package contents, and removal preserving personal/built-in items. The fixture was removed; no real connector or account was changed.
 

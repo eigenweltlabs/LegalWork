@@ -342,17 +342,16 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
       const client = record(auth.client) ? auth.client : {};
       normalized.oauth = { ...(str(client.clientId) ? { clientId: client.clientId } : {}), ...(Array.isArray(auth.baseScopes) ? { scope: auth.baseScopes.filter(scope => typeof scope === "string").join(" ") } : {}) };
       if (auth.authorizationUrl || auth.tokenUrl || (client.tokenEndpointAuthMethod && client.tokenEndpointAuthMethod !== "none")) { normalized.enabled = false; warnings.push(`Connector ${serverName}: OAuth endpoint overrides or confidential client registration need manual configuration before connecting.`); }
-      warnings.push(`Connector ${serverName}: sign in again in LegalWork. Provider-managed app connections and tokens are not portable.`);
     }
     const unresolved = JSON.stringify(normalized).match(/\$\{(?!CLAUDE_PLUGIN_ROOT|CODEX_PLUGIN_ROOT)[^}]+\}/g);
     if (unresolved || normalized.cwd || auth?.type === "api_key" || normalized.userConfig) {
       normalized.enabled = false;
-      warnings.push(`Connector ${serverName} is imported disabled: configure its environment, working directory or credentials in LegalWork before connecting.`);
+      warnings.push(`Connector ${serverName}: configure its environment, working directory or credentials in LegalWork before connecting.`);
     }
     if (typeof normalized.url === "string" && (!normalized.url.trim() || /\$\{|[{}]/.test(normalized.url))) {
       normalized.url = "https://configure-before-connecting.invalid/mcp";
       normalized.enabled = false;
-      warnings.push(`Connector ${serverName}: its URL needs configuration. The connector is disabled and the original URL is preserved in the source package.`);
+      warnings.push(`Connector ${serverName}: enter a valid URL before connecting. The original URL is preserved in the source package.`);
     }
     if (normalized.headersHelper) normalized.enabled = false;
     if (Array.isArray(normalized.command) && (!normalized.command.length || normalized.command.some(part => typeof part !== "string") || !str(normalized.command[0]))) fail(`Invalid command array for connector ${serverName}`);
@@ -404,7 +403,7 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     const root = request.source.connector.pluginRoot;
     if (!roots.includes(root) || request.root !== undefined && request.root !== root) fail("Selected plugin connector root was not found.");
     const selectedFiles = bundledConnectorFiles(subFiles(files, root), request);
-    return [planPackage(selectedFiles, root, request, workspaceRoot, ["Imported disabled. Enable this connector in LegalWork and sign in again if required. Other plugin components are not installed."])];
+    return [planPackage(selectedFiles, root, request, workspaceRoot)];
   }
   if (request.root !== undefined && !roots.includes(request.root)) fail("Selected plugin root was not found.");
   return roots.filter(root => request.root === undefined || root === request.root).map(root => planPackage(subFiles(files, root), root, request, workspaceRoot));

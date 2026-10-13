@@ -64,6 +64,7 @@ test("selected bundled imports use effective MCP precedence and exclude other co
     const [plan] = await resolvePluginImports(selectedRequest(provider, source, "search"), root);
     expect(plan!.preview.components.map(component => [component.type, component.name])).toEqual([["mcp", "search"]]);
     expect(plan!.preview.format).toBe("connectors");
+    expect(plan!.preview.warnings).toEqual([]);
     expect(plan!.resolved.plugin.sourceKind).toBe("connector");
     expect(plan!.resolved.plugin.displayName).toBe("Search");
     const text = JSON.stringify(plan!.resolved);

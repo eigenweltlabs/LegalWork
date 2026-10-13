@@ -72,6 +72,7 @@ let remoteSaveStarted: (() => void) | undefined;
 let emptyServerList = false;
 let configExists = true;
 let registrationFailed = false;
+let serverEnables: unknown[] = [];
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
@@ -138,6 +139,7 @@ describe("connection store success reporting", () => {
     emptyServerList = false;
     configExists = true;
     registrationFailed = false;
+    serverEnables = [];
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -146,6 +148,13 @@ describe("connection store success reporting", () => {
       value: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const pathname = new URL(request.url).pathname;
+        if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/enabled$/.test(pathname)) {
+          serverEnables.push(await request.json());
+          remoteSaveStarted?.();
+          await remoteSaveWait;
+          if (saveError) return Response.json({ code: "enable_failed", message: saveError }, { status: 500 });
+          return Response.json({ ok: true });
+        }
         if (/^\/workspace\/[^/]+\/mcp$/.test(pathname)) {
           if (request.method === "POST") {
             serverAdds.push(await request.json());
@@ -212,6 +221,39 @@ describe("connection store success reporting", () => {
     const store = makeStore();
     await store.refreshMcpServers();
     expect(store.getSnapshot().mcpStatus).toBe("Could not connect these connectors: test-server. Refresh and try again.");
+  });
+
+  test("signing in to an imported disabled connector enables it first and defers reload until sign-in ends", async () => {
+    const store = makeStore();
+    await store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false, oauth: {} } });
+    expect(serverEnables).toEqual([{ enabled: true }]);
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(true);
+    expect(store.getSnapshot().mcpAuthEntry?.serverName).toBe("test-server");
+    expect(reloads).toEqual([]);
+    store.closeMcpAuthModal();
+    expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "updated" } }]);
+  });
+
+  test("a rejected enable cannot start sign-in or claim successful activation", async () => {
+    saveError = "You cannot enable this connector";
+    const store = makeStore();
+    await store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false } });
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+    expect(store.getSnapshot().mcpStatus).toBe(saveError);
+    expect(reloads).toEqual([]);
+  });
+
+  test("changing workspaces while activation is pending cannot open its sign-in in the new workspace", async () => {
+    let finish: (() => void) | undefined;
+    remoteSaveWait = new Promise(resolve => { finish = resolve; });
+    const started = new Promise<void>(resolve => { remoteSaveStarted = resolve; });
+    const store = makeStore();
+    const opening = store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false } });
+    await started;
+    selectedWorkspaceId = "other";
+    finish?.();
+    await opening;
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
   });
 
   test("closing sign-in never emits a success event, but still applies the saved connector", async () => {

@@ -797,13 +797,20 @@ export function createConnectionsStore(options: {
     return legalworkClient.registerMcpClient(legalworkWorkspaceId, { url, ...(headers ? { headers } : {}) });
   }
 
-  function authorizeMcp(entry: McpServerEntry) {
+  async function authorizeMcp(entry: McpServerEntry) {
     if (entry.config.type !== "remote" || entry.config.oauth === false) {
       setStateField("mcpStatus", t("mcp.login_unavailable"));
       return;
     }
 
     cancelPendingMcpAuth();
+    const generation = pendingMcpAuthGeneration;
+    const workspaceKey = getMcpAuthWorkspaceKey();
+    if (entry.config.enabled === false) {
+      if (!(await updateMcpEnabled(entry.name, true))) return;
+      if (disposed || generation !== pendingMcpAuthGeneration || workspaceKey !== getMcpAuthWorkspaceKey()) return;
+      pendingReloadTrigger = { type: "mcp", name: entry.name, action: "updated" };
+    }
     mutateState((current) => ({
       ...current,
       mcpAuthEntry: mcpAuthEntryFromServer(entry),
@@ -1006,25 +1013,30 @@ export function createConnectionsStore(options: {
   // clobber inline comments — settings-route.tsx already gates the prop so
   // this never gets called when the server is unavailable. Reload UX comes
   // from the existing reload-required popup; no extra banner here.
-  async function setMcpEnabled(name: string, enabled: boolean) {
+  async function updateMcpEnabled(name: string, enabled: boolean): Promise<boolean> {
     try {
       const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
         await resolveWritableLegalworkTarget();
 
       if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
         setStateField("mcpStatus", t("mcp.toggle_requires_server"));
-        return;
+        return false;
       }
 
       await legalworkClient.setMcpEnabled(legalworkWorkspaceId, name, enabled);
-      options.markReloadRequired?.("mcp", { type: "mcp", name, action: "updated" });
       await refreshMcpServers();
+      return true;
     } catch (error) {
       setStateField(
         "mcpStatus",
         error instanceof Error ? error.message : t("mcp.toggle_failed"),
       );
+      return false;
     }
+  }
+
+  async function setMcpEnabled(name: string, enabled: boolean) {
+    if (await updateMcpEnabled(name, enabled)) options.markReloadRequired?.("mcp", { type: "mcp", name, action: "updated" });
   }
 
   function closeMcpAuthModal() {

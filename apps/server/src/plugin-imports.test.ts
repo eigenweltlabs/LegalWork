@@ -72,7 +72,7 @@ describe("complete plugin imports", () => {
     expect(JSON.stringify(mcp)).toContain("override.example");
     expect(JSON.stringify(mcp)).not.toContain("default.example");
     expect(plan!.preview.warnings.join(" ")).toContain("hooks");
-    expect(plan!.preview.warnings.join(" ")).toContain("imported disabled");
+    expect(plan!.preview.warnings.join(" ")).toContain("configure its environment");
     expect(plan!.resourceFiles.some(file => file.path.endsWith("assets/icon.png") && file.bytes[1] === 255)).toBe(true);
     const content = plan!.resolved.memberships.find(m => m.configObject?.objectType === "command")?.configObject?.latestVersion?.rawSourceText;
     expect(content).not.toContain("patent:search");

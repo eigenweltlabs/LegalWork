@@ -253,7 +253,8 @@ const isDirectoryTool = (entry: McpDirectoryInfo) => entry.kind === "ui-control"
 type ExtensionFilter = "all" | "mcp" | "builtin" | "skill" | "plugin";
 
 export function McpView(props: McpViewProps) {
-  const importedPackages = useIntegrationLibraryLayout()?.importedPackages;
+  const libraryLayout = useIntegrationLibraryLayout();
+  const importedPackages = libraryLayout?.importedPackages;
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
@@ -267,6 +268,13 @@ export function McpView(props: McpViewProps) {
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [detailsFromDirectory, setDetailsFromDirectory] = useState(false);
   const [librarySearch, setLibrarySearch] = useState("");
+  useEffect(() => {
+    const name = libraryLayout?.connectorToOpen;
+    if (!name || !props.mcpServers.some(entry => entry.name === name)) return;
+    setLibrarySearch("");
+    props.setSelectedMcp(name);
+    libraryLayout.onConnectorOpened?.();
+  }, [libraryLayout?.connectorToOpen, libraryLayout?.onConnectorOpened, props.mcpServers, props.setSelectedMcp]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   const directoryFilters: HubTab<ExtensionFilter>[] = [
@@ -1179,6 +1187,12 @@ function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0])
 }
 
 function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  const [signingIn, setSigningIn] = useState(false);
+  const signIn = async () => {
+    setSigningIn(true);
+    try { await props.onAuthorize(props.entry); }
+    finally { setSigningIn(false); }
+  };
   return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
     <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
       <DialogHeader className="pe-6">
@@ -1191,8 +1205,8 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
           <McpConnectorToggle {...props} />
         </div>
         {props.supportsOauth(props.entry) ? <div className="flex items-center justify-between gap-4 py-5">
-          <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t("integrations.connector_account_hint")}</p></div>
-          {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy} onClick={() => props.onAuthorize(props.entry)}>{t("mcp.login_action")}</Button>}
+          <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t(props.entry.config.enabled === false && props.onToggleEnabled ? "integrations.connector_enable_signin_hint" : "integrations.connector_account_hint")}</p></div>
+          {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy || signingIn || props.togglingMcp !== null} onClick={() => void signIn()}>{signingIn ? <Loader2 className="animate-spin" /> : null}{t("mcp.login_action")}</Button>}
         </div> : null}
         <details className="group pt-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><Code2 className="size-3.5" />{t("mcp.technical_details")}<ChevronDown className="ms-auto size-3.5 transition-transform group-open:rotate-180" /></summary>

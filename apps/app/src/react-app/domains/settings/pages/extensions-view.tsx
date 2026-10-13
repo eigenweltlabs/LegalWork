@@ -111,6 +111,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
+  const [connectorToOpen, setConnectorToOpen] = useState<string | null>(null);
+  const onConnectorOpened = useCallback(() => setConnectorToOpen(null), []);
+  useEffect(() => setConnectorToOpen(null), [packageTarget]);
   const addSequence = useRef(0);
   const onAddHandled = useCallback(() => setAddRequest(null), []);
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
@@ -137,7 +140,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -169,7 +172,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             <ImportedPackages extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={refresh} showEmpty />
           </DialogContent>
         </Dialog> : null}
-        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }}
+        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => {
+          const connector = preview.components.length === 1 && preview.components[0]?.type === "mcp" ? preview.components[0] : null;
+          setImportVersion(value => value + 1);
+          setSource("all");
+          selectTab(connector || preview.format === "connectors" ? "connectors" : "skills");
+          setConnectorToOpen(connector?.installedName ?? null);
+          props.onRefresh();
+        }}
           returnFocus={importButton}
           canImportPlugins={canImportPlugins && !props.busy}
           canImportSkills={canImportSkills && !props.busy}

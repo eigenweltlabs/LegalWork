@@ -12,7 +12,7 @@ import type { ImportedPlugin } from "@/app/lib/extension-imports";
 export type IntegrationLibrarySource = "all" | "personal" | "team";
 export type IntegrationLibraryKind = "connector" | "skill" | "storage";
 export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number };
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[] } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[] } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 

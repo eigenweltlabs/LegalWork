@@ -147,9 +147,9 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalling(true);
     setError(null);
     try {
-      await props.store.installPluginImport({ source, scope: "global", root: selected.root, digest: selected.digest });
+      const installed = await props.store.installPluginImport({ source, scope: "global", root: selected.root, digest: selected.digest });
       toast.success(t(selected.format === "connectors" ? "extensions.import_connector_success" : "extensions.import_success", { name: pluginImportName(selected) }));
-      props.onImported(selected);
+      props.onImported(installed);
       props.onClose();
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); }
     finally { if (mounted.current) setInstalling(false); }
@@ -218,7 +218,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           </div>
         </> : busy ? <div className="flex min-h-72 flex-col items-center justify-center gap-3" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
           {previews.length > 1 ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("extensions.import_select_package")}</p><div className="flex flex-wrap gap-2">{previews.map(item => <Button key={item.root} size="sm" variant={selectedRoot === item.root ? "secondary" : "outline"} disabled={installing} aria-pressed={selectedRoot === item.root} onClick={() => setSelectedRoot(item.root)}>{pluginImportName(item)}</Button>)}</div></div> : null}
-          <div className="space-y-1"><div className="flex items-baseline gap-2"><h3 className="text-lg font-medium">{pluginImportName(selected)}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>{selected.description ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}{selected.format === "connectors" ? <p className="pt-1 text-sm text-muted-foreground">{t("extensions.import_connector_paused")}</p> : null}<p className="pt-1 text-sm text-muted-foreground">{packageParts(selected.components.map(item => item.type)) || t("extensions.import_no_components")}</p></div>
+          <div className="space-y-1"><div className="flex items-baseline gap-2"><h3 className="text-lg font-medium">{pluginImportName(selected)}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>{selected.description ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}{selected.components.length === 1 && selected.components[0]?.type === "mcp" ? <p className="pt-1 text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}<p className="pt-1 text-sm text-muted-foreground">{packageParts(selected.components.map(item => item.type)) || t("extensions.import_no_components")}</p></div>
           {selected.components.length ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border">
             {componentTypes.map(type => {
               const items = selected.components.filter(item => item.type === type);

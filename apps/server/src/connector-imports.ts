@@ -92,7 +92,7 @@ export async function connectorImportBundle(provider: PluginImportProvider, path
   catch { throw new ApiError(400, "invalid_connector_import", "Could not read this connector configuration. Rescan and select an ordinary JSON or TOML configuration file."); }
   const original = own(servers(source, provider, connector.project), connector.name);
   if (!record(original)) throw new ApiError(400, "invalid_connector_import", "This connector is no longer in its source configuration. Rescan and choose it again.");
-  const warnings = ["This standalone connector is imported disabled. Review its settings in Connectors, then enable it. Saved OAuth sessions are not transferred; sign in again if required."];
+  const warnings: string[] = [];
   const config = provider === "chatgpt" ? normalizeCodex(original, warnings) : { ...original };
   config.enabled = false;
   if (original.type === "sdk") throw new ApiError(400, "invalid_connector_import", "This connector requires its original SDK host and cannot run as a standalone MCP server.");
