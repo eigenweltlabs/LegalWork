@@ -1387,10 +1387,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
       <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
         {props.entry.source !== "config.global" ? <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button> : null}
-        <div className="flex items-center gap-2">
-          {props.canShareWithFirm && props.onShareWithFirm ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name))}><Share2 className="size-4" />{t("firm_hub.share_with_firm")}</Button> : null}
-          <Button size="sm" onClick={() => props.onSelect(null)}>{t("common.close")}</Button>
-        </div>
+        <Button size="sm" className="ms-auto" onClick={() => props.onSelect(null)}>{t("common.close")}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

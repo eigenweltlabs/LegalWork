@@ -125,3 +125,7 @@ The common-tools menu passed app type checking, the focused 20-test suite and th
 Connector setup reuses the same **HubTabs** segmented switcher as Integrations and Recorder for **URL / Local server**, above the shared name field. Its shape, spacing, selected surface and focus treatment come from that shared component. URL shows the server address and request-header controls with Continue; Local server shows the command field with Add. Remote workers retain URL-only setup. Native Electron verified switching in both directions with mouse and keyboard, without submitting the form or running a command. App type checking and the production build passed; `pnpm --filter @legalwork/app exec bun test tests/add-mcp-modal.test.tsx tests/mcp-custom-connector.test.ts tests/integration-libraries.test.tsx` passed all 29 tests, and `pnpm --filter @legalwork/app test:i18n` passed with 5,757 keys in English/German.
 
 ![Connector setup with URL and Local server tabs](images/integrations-connector-command-tabs.png)
+
+Connector details have only Remove and Close in the footer. Share with firm is available through the library row menu. Native Electron verified the simplified footer without changing connector access or signing in. `pnpm --filter @legalwork/app typecheck` passed, and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed all 8 tests.
+
+![Connector details footer](images/integrations-connector-details.png)
