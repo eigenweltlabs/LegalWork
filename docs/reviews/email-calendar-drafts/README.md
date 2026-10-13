@@ -13,7 +13,16 @@ the workspace API and staged privately for Mail, so remote project paths never
 become local attachment paths. The temporary copies are removed after handoff.
 The helper has no send action. HTML and custom Reply-To remain in the EML
 download; the card explains this when either field is populated. Other desktop
-platforms use a mailto compose link.
+platforms use a mailto compose link. The main action and its menu form one split
+button. On macOS, the menu has separate Outlook app and Outlook web actions.
+
+The native Outlook action creates an outgoing message with its `make` command,
+adds recipients and attachments, and opens its editable composer. Outlook
+persists the draft itself; its scripting `save` command exports a file and is
+not used. The helper checks that every attachment was imported before opening.
+Outlook uses its selected sending account. Native
+mail actions use plain text; advanced fields remain in the EML export.
+Both native mail actions require macOS Automation consent.
 
 The implementation imports the patch supplied in
 `legalwork-email-calendar-drafts.zip` and includes review corrections:
@@ -62,6 +71,20 @@ native compose regressions; 1,210 app tests, both app/desktop typechecks and the
 IPC bridge check passed. On macOS, a synthetic draft was saved and verified in
 Mail's editable composer with To/Cc/Bcc, Unicode text and an intact attachment.
 
+For the Outlook follow-up, 228 desktop tests passed (2 skipped), including eight
+native mail regressions. App tests (1,210), both typechecks and the IPC bridge
+check passed. Outlook 16.113.4 on this Mac opened a synthetic native draft with
+To/Cc/Bcc, Unicode text and an attachment. The subject and body were edited in
+Outlook, then the draft was closed and reopened from Drafts. Quick Look showed
+the exact attachment text after the temporary source copy had been removed.
+No email was sent, and synthetic drafts were moved to Deleted Items afterward.
+
+The installed Outlook silently omitted attachments when importing both our
+EML-based template and a template exported by Outlook itself. Template opening
+is therefore not used. Initial native scripting failed until macOS Automation
+consent was enabled with the user's approval. The work account also reported
+that it needed sign-in again; account authentication was not changed.
+
 ## Browser verification
 
 The screenshots use synthetic data in an isolated temporary workspace. They
@@ -107,7 +130,7 @@ pnpm dev:electron
 
 Screenshots are provided instead of a recording because the browser tooling
 used for this review exposes still captures. Native Calendar imports and
-signed-in Gmail, Google Calendar and Outlook compose screens were not exercised.
+signed-in Gmail, Google Calendar and Outlook web compose screens were not exercised.
 Web links omit attachments and some advanced fields; the download preserves
 those details. This feature does not connect accounts or send messages or
 invitations.
