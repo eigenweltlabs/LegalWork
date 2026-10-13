@@ -47,6 +47,53 @@ async function temp(fn: (root: string, config: ServerConfig) => Promise<void>) {
 async function writeFixture(root: string, files: FixtureFiles) { for (const [path, value] of Object.entries(files)) { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), value, { mode: path === "bin/tool" ? 0o755 : 0o600 }); } }
 
 describe("complete plugin imports", () => {
+  test("routine connector setup and automatic naming do not become compatibility notes", async () => {
+    const files = {
+      ".claude-plugin/plugin.json": JSON.stringify({ name: "setup", onboardingSkill: "help", mcpServers: {
+        github: { url: "https://${HOST}/mcp", headers: { Authorization: "Bearer ${GITHUB_TOKEN}" }, oauth: { clientId: "client" }, cwd: "${WORKDIR}", userConfig: { token: {} }, transport: "http", timeout: 60 },
+        local: { command: "node", env: { SETTING: "${SETTING:-default}" } },
+      } }),
+      "skills/one/SKILL.md": "---\nname: duplicate\ndescription: First\n---\nFirst.",
+      "skills/two/SKILL.md": "---\nname: duplicate\ndescription: Second\n---\nSecond.",
+    };
+    const [plan] = await resolvePluginImports(request(files), "/project");
+    expect(plan!.preview.warnings).toEqual([]);
+    expect(new Set(plan!.preview.components.filter(item => item.type === "skill").map(item => item.installedName)).size).toBe(2);
+    const mcp = JSON.stringify(plan!.resolved.memberships.find(item => item.configObject?.objectType === "mcp"));
+    expect(mcp).toContain("https://configure-before-connecting.invalid/mcp");
+    expect(mcp).toContain('"enabled":false');
+    expect(mcp).toContain("${GITHUB_TOKEN}");
+    expect(mcp).toContain('"SETTING":"default"');
+  });
+
+  test("compatibility notes explain actual omitted behavior and model changes instead of generic review instructions", async () => {
+    const files = {
+      ".claude-plugin/plugin.json": JSON.stringify({ name: "limitations", hooks: {}, mcpServers: {
+        helper: { url: "https://helper.example/mcp", headersHelper: "script.js" },
+        customAuth: { url: "https://auth.example/mcp", extensions: { "com.openai": { auth: { type: "oauth", authorizationUrl: "https://auth.example/login" } } } },
+      } }),
+      "agents/examiner.md": '---\nname: examiner\ndescription: Examine\nmodel: sonnet\nallowed-tools: [Search]\ncontext: fork\n---\nRun !`external-command` with ${CLAUDE_SESSION_ID}.',
+    };
+    const [plan] = await resolvePluginImports(request(files), "/project");
+    const notes = plan!.preview.warnings.join("\n");
+    expect(notes).toContain("runtime substitutions and dynamic commands will not run");
+    expect(notes).toContain('source model "sonnet" will not be selected automatically');
+    expect(notes).toContain("tool restrictions, separate execution context will not carry over");
+    expect(notes).toContain("automatic credential script will not run");
+    expect(notes).toContain("custom sign-in endpoints and confidential-client authentication will not be imported");
+    expect(notes).toContain("Automatic hooks (hooks) will not run");
+    expect(notes).not.toMatch(/review .*settings|configure .*before connecting|metadata is preserved/);
+  });
+
+  test("a source-only package clearly says that no usable components will be installed", async () => {
+    const [plan] = await resolvePluginImports(request({ ".claude-plugin/plugin.json": JSON.stringify({ name: "unsupported", mcpServers: "server.mcpb" }), "server.mcpb": "source bundle" }), "/project");
+    expect(plan!.preview.components).toEqual([]);
+    expect(plan!.preview.warnings).toEqual([
+      "Connector bundle server.mcpb: its connectors will not be installed. This bundle format is not supported.",
+      "No usable skills, agents, commands or connectors will be installed. Only source files will be saved.",
+    ]);
+  });
+
   test("discovery, preview and installed packages retain display metadata separately from identity", async () => temp(async (root, config) => {
     const source = join(root, ".agents/plugins/clerk");
     const files = { ".codex-plugin/plugin.json": JSON.stringify({ name: "app-internal", interface: { displayName: "Clerk", shortDescription: "Authentication tools" } }), "skills/search/SKILL.md": skill };
@@ -72,7 +119,7 @@ describe("complete plugin imports", () => {
     expect(JSON.stringify(mcp)).toContain("override.example");
     expect(JSON.stringify(mcp)).not.toContain("default.example");
     expect(plan!.preview.warnings.join(" ")).toContain("hooks");
-    expect(plan!.preview.warnings.join(" ")).toContain("configure its environment");
+    expect(plan!.preview.warnings.join(" ")).not.toContain("configure its environment");
     expect(plan!.resourceFiles.some(file => file.path.endsWith("assets/icon.png") && file.bytes[1] === 255)).toBe(true);
     const content = plan!.resolved.memberships.find(m => m.configObject?.objectType === "command")?.configObject?.latestVersion?.rawSourceText;
     expect(content).not.toContain("patent:search");
@@ -84,7 +131,7 @@ describe("complete plugin imports", () => {
     expect(plan!.preview.format).toBe("codex");
     expect(plan!.resolved.plugin.sourceKind).toBe("plugin");
     expect(plan!.preview.components.map(c => c.type)).toEqual(["skill", "mcp"]);
-    expect(plan!.preview.warnings.join(" ")).toContain("provider app IDs");
+    expect(plan!.preview.warnings.join(" ")).toContain("Provider app IDs");
     expect(plan!.resourceFiles.some(f => f.path.endsWith("scripts/shared.py"))).toBe(true);
   });
   test("portable metadata stays canonical and inline OpenAI extension replaces legacy overlay", async () => {

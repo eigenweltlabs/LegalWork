@@ -76,11 +76,25 @@ test("maps Codex environment and HTTP authentication fields without reading envi
   expect(text).toContain('"enabled":false');
   expect(remote!.preview.format).toBe("connectors");
   expect(remote!.resolved.plugin.sourceKind).toBe("connector");
-  expect(remote!.preview.warnings.some(warning => warning.includes("tool filters"))).toBe(true);
+  expect(remote!.preview.warnings.some(warning => warning.includes("tool restrictions"))).toBe(true);
   const [local] = await resolvePluginImports({ ...request, source: { ...request.source, connector: { name: "local" } } }, root);
   expect(JSON.stringify(local!.resolved)).toContain('"args":["server.js","argument with spaces"]');
   expect(JSON.stringify(local!.resolved)).toContain('"IMPORT_TOKEN":"${IMPORT_TOKEN}"');
   expect(JSON.stringify(local!.resolved)).toContain('"FIXED":"literal"');
+}));
+
+test("ordinary connector setup has no compatibility warning, while unsupported account and permission behavior does", async () => fixture(async root => {
+  const path = join(root, "config.toml");
+  await write(path, '[mcp_servers.github]\nurl = "https://github.example/mcp"\nbearer_token_env_var = "GITHUB_TOKEN"\nstartup_timeout_sec = 20\ntool_timeout_sec = 60\n[mcp_servers.github.oauth]\nclient_id = "client"\ncallback_port = 4000\ncallback_url = "http://localhost:4000/callback"\n[mcp_servers.bound]\nurl = "https://bound.example/mcp"\nauth = "chatgpt"\ndisabled_tools = ["delete"]\ndefault_tools_approval_mode = "never"\n');
+  const [setup] = await resolvePluginImports({ source: { provider: "chatgpt", path, connector: { name: "github" } }, scope: "global" }, root);
+  expect(setup!.preview.warnings).toEqual([]);
+  expect(JSON.stringify(setup!.resolved)).toContain('"enabled":false');
+  expect(JSON.stringify(setup!.resolved)).toContain('"Authorization":"Bearer ${GITHUB_TOKEN}"');
+  const [bound] = await resolvePluginImports({ source: { provider: "chatgpt", path, connector: { name: "bound" } }, scope: "global" }, root);
+  expect(bound!.preview.warnings).toEqual([
+    "ChatGPT-only authentication is not supported for this connector.",
+    "Codex tool restrictions and approval rules will not carry over. LegalWork's tool permissions apply instead.",
+  ]);
 }));
 
 test("imports only a selected connector, replaces it, prunes its old entry and removes it globally", async () => fixture(async root => {

@@ -202,7 +202,7 @@ function packageConnectors(files: PackageFiles, manifest: Record<string, unknown
   const configPaths = new Set([".mcp.json", "mcp.json"]);
   const mergeMcp = (value: unknown) => {
     if (typeof value === "string") {
-      if (/\.(mcpb|dxt)$|^https?:/i.test(value)) { warnings.push(`MCP bundle ${value} is preserved but requires manual setup.`); return; }
+      if (/\.(mcpb|dxt)$|^https?:/i.test(value)) { warnings.push(`Connector bundle ${value}: its connectors will not be installed. This bundle format is not supported.`); return; }
       const path = safePath(value);
       configPaths.add(path);
       mergeMcp(jsonFile(files, path));
@@ -270,7 +270,6 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
     let installedName = `${slug(name).slice(0, 20)}-${createHash("sha256").update(id).digest("hex").slice(0, 8)}-${slug(originalName).slice(0, 32)}`;
     if (seen.has(`${type}:${installedName}`)) {
       installedName = `${installedName.slice(0, 54).replace(/-+$/, "")}-${createHash("sha256").update(sourcePath).digest("hex").slice(0, 8)}`;
-      warnings.push(`${type} ${originalName}: a duplicate component name was disambiguated. Use the component mapping in the imported instructions.`);
     }
     const key = `${type}:${installedName}`;
     seen.add(key);
@@ -278,13 +277,18 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
     let body = parsed.body.replace(/\$\{(?:(?:CLAUDE|CODEX)_PLUGIN_ROOT|PLUGIN_ROOT)\}/g, absoluteBundle)
       .replace(/\$\{CLAUDE_SKILL_DIR\}/g, join(absoluteBundle, dirname(sourcePath)))
       .replace(/\$\{CLAUDE_PROJECT_DIR\}/g, workspaceRoot);
-    if (/\$\{CLAUDE_(SESSION_ID|EFFORT|PLUGIN_DATA)\}|!`/.test(body)) warnings.push(`${type} ${originalName}: runtime variables or dynamic command injection require adapting to LegalWork; no injected command runs during import.`);
+    if (/\$\{CLAUDE_(SESSION_ID|EFFORT|PLUGIN_DATA)\}|!`/.test(body)) warnings.push(`${type} ${originalName}: Claude runtime substitutions and dynamic commands will not run in LegalWork.`);
     // Links and code paths retain a usable location even when outside a skill's folder.
     body = body.replace(/\]\((\.\.?\/[^)]+)\)/g, (_, relative: string) => `](${join(absoluteBundle, dirname(sourcePath), relative).replace(/\\/g, "/")})`);
     body += `\n\nImported package resources: ${absoluteBundle.replace(/\\/g, "/")}. Resolve package-relative paths there.\n`;
     if (components.some(entry => entry.type === "mcp")) body += "\nImported connector names are listed in the package's LegalWork import report.\n";
-    if (str(parsed.data.model) && !str(parsed.data.model)?.includes("/")) warnings.push(`${type} ${originalName}: choose a LegalWork model; provider aliases such as sonnet/opus cannot be mapped automatically.`);
-    if (parsed.data["allowed-tools"] || parsed.data["disable-model-invocation"] || parsed.data.context || parsed.data.hooks || parsed.data.permissionMode || parsed.data.skills || parsed.data.mcpServers) warnings.push(`${type} ${originalName}: platform-specific execution or permission metadata is preserved in the source; review it in LegalWork before use.`);
+    if (str(parsed.data.model) && !str(parsed.data.model)?.includes("/")) warnings.push(`${type} ${originalName}: the source model "${str(parsed.data.model)}" will not be selected automatically. LegalWork's current model will be used instead.`);
+    const unsupportedExecution = {
+      "allowed-tools": "tool restrictions", "disable-model-invocation": "manual-only invocation", context: "separate execution context",
+      hooks: "automatic hooks", permissionMode: "permission mode", skills: "automatic skill loading", mcpServers: "embedded connector declarations",
+    };
+    const ignored = Object.entries(unsupportedExecution).filter(([field]) => parsed.data[field]).map(([, label]) => label);
+    if (ignored.length) warnings.push(`${type} ${originalName}: ${ignored.join(", ")} will not carry over. LegalWork's own execution and tool permissions apply.`);
     const content = buildFrontmatter({ ...parsed.data, name: installedName }) + "\n" + body;
     memberships.push({ configObjectId: key, configObject: { id: key, objectType: type, title: installedName, description: str(parsed.data.description) ?? originalName, currentRelativePath: target, status: "active", updatedAt: null, latestVersion: { id: createHash("sha256").update(raw).digest("hex"), rawSourceText: content, normalizedPayloadJson: null } } });
     components.push({ type, name: originalName, installedName });
@@ -330,28 +334,25 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
     if (!record(original)) fail(`Invalid MCP server: ${serverName}`);
     const expanded = expandRoot(original, absoluteBundle);
     if (!record(expanded)) fail(`Invalid MCP server: ${serverName}`);
-    if (/\$\{[A-Za-z_][A-Za-z0-9_]*:-/.test(JSON.stringify(original))) warnings.push(`Connector ${serverName}: environment defaults use their declared fallback; review locally configured values before connecting.`);
     const normalized: Record<string, unknown> = { ...expanded };
     if (Array.isArray(normalized.args)) normalized.args = normalized.args.map(argument => typeof argument === "string" && files.has(argument.replace(/^\.\//, "")) ? join(absoluteBundle, argument.replace(/^\.\//, "")) : argument);
     if (typeof normalized.command === "string" && !normalized.url) normalized.env = { ...(record(normalized.env) ? normalized.env : {}), CLAUDE_PLUGIN_ROOT: absoluteBundle, CODEX_PLUGIN_ROOT: absoluteBundle, PLUGIN_ROOT: absoluteBundle };
-    if (normalized.headersHelper || normalized.transport || normalized.timeout || normalized.oauth && request.source.provider === "claude") warnings.push(`Connector ${serverName}: review transport, authentication and helper settings in LegalWork; the original configuration is preserved.`);
+    if (normalized.headersHelper) warnings.push(`Connector ${serverName}: its automatic credential script will not run. LegalWork does not support this authentication helper.`);
     if (typeof normalized.command === "string" && /^\.\//.test(normalized.command)) normalized.command = join(absoluteBundle, safePath(normalized.command));
     const auth = record(normalized.extensions) && record(normalized.extensions["com.openai"]) && record(normalized.extensions["com.openai"].auth) ? normalized.extensions["com.openai"].auth : null;
     if (auth?.type === "none") normalized.oauth = false;
     else if (auth?.type === "oauth" || auth?.type === "mixed") {
       const client = record(auth.client) ? auth.client : {};
       normalized.oauth = { ...(str(client.clientId) ? { clientId: client.clientId } : {}), ...(Array.isArray(auth.baseScopes) ? { scope: auth.baseScopes.filter(scope => typeof scope === "string").join(" ") } : {}) };
-      if (auth.authorizationUrl || auth.tokenUrl || (client.tokenEndpointAuthMethod && client.tokenEndpointAuthMethod !== "none")) { normalized.enabled = false; warnings.push(`Connector ${serverName}: OAuth endpoint overrides or confidential client registration need manual configuration before connecting.`); }
+      if (auth.authorizationUrl || auth.tokenUrl || (client.tokenEndpointAuthMethod && client.tokenEndpointAuthMethod !== "none")) { normalized.enabled = false; warnings.push(`Connector ${serverName}: custom sign-in endpoints and confidential-client authentication will not be imported.`); }
     }
     const unresolved = JSON.stringify(normalized).match(/\$\{(?!CLAUDE_PLUGIN_ROOT|CODEX_PLUGIN_ROOT)[^}]+\}/g);
     if (unresolved || normalized.cwd || auth?.type === "api_key" || normalized.userConfig) {
       normalized.enabled = false;
-      warnings.push(`Connector ${serverName}: configure its environment, working directory or credentials in LegalWork before connecting.`);
     }
     if (typeof normalized.url === "string" && (!normalized.url.trim() || /\$\{|[{}]/.test(normalized.url))) {
       normalized.url = "https://configure-before-connecting.invalid/mcp";
       normalized.enabled = false;
-      warnings.push(`Connector ${serverName}: enter a valid URL before connecting. The original URL is preserved in the source package.`);
     }
     if (normalized.headersHelper) normalized.enabled = false;
     if (Array.isArray(normalized.command) && (!normalized.command.length || normalized.command.some(part => typeof part !== "string") || !str(normalized.command[0]))) fail(`Invalid command array for connector ${serverName}`);
@@ -363,12 +364,14 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   }
   if (Object.keys(normalizedServers).length) memberships.push({ configObjectId: `${id}/mcp`, configObject: { id: `${id}/mcp`, objectType: "mcp", title: name, description: null, currentRelativePath: null, status: "active", updatedAt: null, latestVersion: { id: "mcp", rawSourceText: null, normalizedPayloadJson: { mcpServers: normalizedServers } } } });
   if (resourceFiles.length > 10000 || resourceFiles.reduce((total, file) => total + file.bytes.length, 0) > 128 * 1024 * 1024) fail("Installed package resources exceed 128 MB or 10,000 files. Import a smaller plugin folder.");
-  const unsupported = ["hooks", "lspServers", "outputStyles", "settings", "workflows", "dependencies", "userConfig", "themes", "monitors", "evals"];
-  for (const field of unsupported) if (manifest[field] || (field === "hooks" && files.has("hooks/hooks.json")) || (field === "lspServers" && files.has(".lsp.json")) || [...files.keys()].some(path => path.startsWith(`${field}/`))) warnings.push(`${field}: original files/configuration are preserved, but this platform-specific feature is not activated by LegalWork.`);
-  if (manifest.experimental) warnings.push("Experimental Claude components are preserved but are not activated by LegalWork.");
-  if (manifest.onboardingSkill) warnings.push("The onboarding skill is imported; invoke it manually after installing.");
-  if (manifest.apps || files.has(".app.json")) warnings.push("ChatGPT app connections are preserved in the source. Reconnect each app using LegalWork connectors; provider app IDs cannot be imported as credentials.");
-  if (components.length === 0) warnings.push("This package has no supported skills, agents, commands or MCP servers. Only its complete source will be stored.");
+  const unsupported = {
+    hooks: "Automatic hooks", lspServers: "Language-server integrations", outputStyles: "Custom output styles", settings: "Platform settings",
+    workflows: "Platform workflow definitions", dependencies: "Automatic dependency installation", userConfig: "Provider setup forms", themes: "Themes", monitors: "Background monitors", evals: "Evaluation runners",
+  };
+  for (const [field, label] of Object.entries(unsupported)) if (manifest[field] || (field === "hooks" && files.has("hooks/hooks.json")) || (field === "lspServers" && files.has(".lsp.json")) || [...files.keys()].some(path => path.startsWith(`${field}/`))) warnings.push(`${label} (${field}) will not run in LegalWork. Their source files will be saved without activating them.`);
+  if (manifest.experimental) warnings.push("Experimental Claude features will not run in LegalWork. Their source files will be saved without activating them.");
+  if (manifest.apps || files.has(".app.json")) warnings.push("ChatGPT app connections will not be imported. Provider app IDs are saved as source files, not installed as working connectors.");
+  if (components.length === 0) warnings.push("No usable skills, agents, commands or connectors will be installed. Only source files will be saved.");
   const hash = createHash("sha256").update(JSON.stringify({ provider: request.source.provider, root, scope: request.scope, workspaceRoot: resolve(workspaceRoot) }));
   for (const file of [...files.values()].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update(String(file.mode)).update(file.bytes);
   const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: "path" in request.source && request.source.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };

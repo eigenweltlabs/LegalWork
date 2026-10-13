@@ -15,6 +15,7 @@ export type PluginImportPreview = {
   fileCount: number;
   bytes: number;
   components: Array<{ type: "skill" | "agent" | "command" | "mcp"; name: string; installedName: string }>;
+  /** Import-time losses or behavior changes, not routine post-import setup. */
   warnings: string[];
 };
 export type PluginImportRequest = { source: PluginImportSource; root?: string; scope: PluginImportScope; digest?: string };

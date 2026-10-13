@@ -77,11 +77,10 @@ function normalizeCodex(original: Record<string, unknown>, warnings: string[]): 
   if (Object.keys(headers).length) config.headers = headers;
   if (record(original.oauth)) {
     config.oauth = typeof original.oauth.client_id === "string" ? { clientId: original.oauth.client_id } : {};
-    if (original.oauth.callback_url || original.oauth.callback_port) warnings.push("OAuth callback settings must be configured in LegalWork before signing in.");
   }
-  if (original.auth === "chatgpt") warnings.push("This connector uses your ChatGPT account. Reconnect it with supported credentials in LegalWork; ChatGPT account sessions cannot be transferred.");
-  const policies = ["enabled_tools", "disabled_tools", "tools", "default_tools_approval_mode", "required", "startup_timeout_sec", "tool_timeout_sec"];
-  if (policies.some(key => original[key] !== undefined)) warnings.push("Codex tool filters, approval policies and timeout settings are preserved in the source record. Configure their equivalents in LegalWork before enabling this connector.");
+  if (original.auth === "chatgpt") warnings.push("ChatGPT-only authentication is not supported for this connector.");
+  const policies = ["enabled_tools", "disabled_tools", "tools", "default_tools_approval_mode"];
+  if (policies.some(key => original[key] !== undefined)) warnings.push("Codex tool restrictions and approval rules will not carry over. LegalWork's tool permissions apply instead.");
   return config;
 }
 

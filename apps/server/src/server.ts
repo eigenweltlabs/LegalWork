@@ -1932,7 +1932,7 @@ function createRoutes(
     const plans = await resolvePluginImports(request, workspace.path);
     if (action === "preview") {
       const installed = await readInstalledCloudPlugins(config, request.scope === "global" ? GLOBAL_MCP_ID : workspace.id);
-      return jsonResponse({ items: plans.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This replaces the installed package with the same name in the selected scope, including its existing files and connector configuration."] : [])] })) });
+      return jsonResponse({ items: plans.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This import replaces the installed package with this name, including its files and connector settings."] : [])] })) });
     }
     ensureWritable(config);
     if (plans.length !== 1 || !request.digest || request.digest !== plans[0].preview.digest) throw new ApiError(409, "plugin_preview_changed", "The plugin changed or has not been reviewed. Preview it again before importing.");
