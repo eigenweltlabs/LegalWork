@@ -218,6 +218,9 @@ export function McpView(props: McpViewProps) {
   const [legalworkUiMcpEnvironment, setLegalworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
+  useEffect(() => {
+    if (libraryLayout?.directoryRequest) setDirectoryOpen(true);
+  }, [libraryLayout?.directoryRequest]);
   const [detailsFromDirectory, setDetailsFromDirectory] = useState(false);
   const [librarySearch, setLibrarySearch] = useState("");
   useEffect(() => {

@@ -31,6 +31,12 @@ For manifest-free ZIP bundles containing skills and MCP configuration, the impor
 
 This organization follows the installed-item management and separate discovery flows documented in [ChatGPT account management](https://help.openai.com/en/articles/20001494-connecting-and-managing-app-accounts-in-chatgpt), [Claude connectors](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities), and [Claude's directory](https://support.claude.com/en/articles/14328846-browse-skills-connectors-and-plugins-in-one-directory), reviewed October 11, 2026. LegalWork keeps its existing design-system tokens and the four-category library navigation.
 
+**Browse directory** is a global toolbar action, immediately to the left of Import on Plugins, Connectors, Skills and File storage. It opens the existing shared app/connector directory from every category. Closing it preserves the selected category and its library search; the inactive connector library does not render its search into another category's toolbar. Read-only clients can browse, and busy states disable the action. The existing directory setup, account and policy flows are reused.
+
+Global-directory verification: app TypeScript checks and **35 focused tests across 3 files** passed. Native Electron verified opening/closing from all four categories, returning to each selected category and preserving a Plugins search. No account, connector or plugin was changed.
+
+![Global Browse directory action on Plugins in Electron](images/integrations-global-browse-directory.png)
+
 ## Connector status consistency
 
 Personal, plugin and team connectors now use one state resolver and presenter for labels and indicators. Sign-in uses **Sign in to use it** with an amber dot; disabled entries use **Enable to use** without a dot; missing personal keys use **Add your key to use it** with an amber dot; incomplete sign-in setup uses **Sign-in setup is incomplete** with an amber dot; failed connections use **Issue** with a red dot; disconnected entries use **Offline** with a gray dot. Connected entries have no redundant Ready label. Directory sign-in prompts, connector details and team error titles use the same wording. Optional membership and missing keys take precedence, while actual failures and setup errors are preserved instead of becoming generic sign-in prompts.

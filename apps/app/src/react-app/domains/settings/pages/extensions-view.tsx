@@ -133,8 +133,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const storageForbidden = useOrgPolicyForbids("storage.allowPersonal");
   const pluginsForbidden = useOrgPolicyForbids("plugins.allowCustom");
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
-  const [leadingActionsTarget, setLeadingActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
+  const [directoryRequest, setDirectoryRequest] = useState(0);
   useEffect(() => setTab(initialTab), [initialTab]);
   const selectTab = (next: ExtensionsTab) => {
     setTab(next);
@@ -157,9 +157,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     setAddRequest({ kind, id: ++addSequence.current });
   };
   const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
+  const libraryLayout = { actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined }}>
+    <IntegrationLibraryLayoutContext.Provider value={libraryLayout}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -167,7 +168,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
-            <div ref={setLeadingActionsTarget} className="flex items-center gap-2 empty:hidden" />
+            <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryRequest(value => value + 1)}>{t("mcp.browse_directory")}</Button>
             {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <IntegrationAddMenu triggerRef={addButton} disabled={props.busy} actions={[
               { label: t("plugin_create.kind"), icon: Package, disabled: !props.pluginCreation || !canImportPlugins || pluginsForbidden || (skillsForbidden && connectorsForbidden), onClick: async () => { if (await orgPolicyAllows("plugins.allowCustom")) setCreatePluginOpen(true); } },
@@ -246,7 +247,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
 
         <HubScopeContext.Provider value="local">
-          {tab === "connectors" ? props.mcpView : null}
+          <IntegrationLibraryLayoutContext.Provider value={tab === "connectors" ? libraryLayout : { ...libraryLayout, actions: null, search: null }}>
+            <div hidden={tab !== "connectors"}>{props.mcpView}</div>
+          </IntegrationLibraryLayoutContext.Provider>
 
           {tab === "storage" ? props.storageView : null}
 

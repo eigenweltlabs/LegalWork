@@ -24,6 +24,21 @@ test("read-only clients keep visible but disabled import actions", () => {
   for (const button of importButtons) expect(button).toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
 });
 
+test("Browse directory is a single global action before Import on every category, including read-only clients", () => {
+  const sections: ExtensionsViewProps["initialSection"][] = ["plugins", "mcp", "skills", "storage"];
+  for (const initialSection of sections) {
+    for (const canEditPlugins of [true, false]) {
+      const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection={initialSection} canEditPlugins={canEditPlugins} />);
+      const buttons = html.match(/<button\b[^>]*>Browse directory<\/button>/g) ?? [];
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]).not.toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
+      expect(html.indexOf("Browse directory")).toBeLessThan(html.indexOf(">Import</button>"));
+    }
+  }
+  const busy = renderToStaticMarkup(<ExtensionsView {...props} busy />);
+  expect(busy).toMatch(/<button\b[^>]*\sdisabled=""[^>]*>Browse directory<\/button>/);
+});
+
 test("the public Plugins route selects the bundle tab in normal and developer modes", () => {
   for (const developerMode of [false, true]) {
     const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="plugins" developerMode={developerMode} />);
