@@ -382,7 +382,18 @@ export type OfficeAddinOpenAppResult = {
 // The command map
 // ---------------------------------------------------------------------------
 
+export type AppleMailDraftInput = {
+  subject: string;
+  body: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  attachments: { name: string; data: Uint8Array }[];
+};
+
 export type DesktopCommandMap = {
+  composeAppleMailDraft: { args: [draft: AppleMailDraftInput]; result: void };
   // Native windows
   openAppWindow: {
     args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];

@@ -375,6 +375,10 @@ export async function openDesktopPath(target: string): Promise<void> {
   }
 }
 
+export async function composeAppleMailDraft(draft: import("@legalwork/types/desktop-ipc").AppleMailDraftInput): Promise<void> {
+  await invokeElectronHelper("composeAppleMailDraft", draft);
+}
+
 export async function revealDesktopItemInDir(target: string): Promise<void> {
   await invokeElectronHelper("__revealItemInDir", target);
 }

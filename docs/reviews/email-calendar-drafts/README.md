@@ -7,6 +7,14 @@ options controls; the date block expands when the user wants to change it.
 Save appears only while the draft has edits. Opening or downloading also saves
 pending edits first.
 
+On macOS, Open in Apple Mail creates and saves a visible compose window with
+To, Cc, Bcc, subject, message text and attachments. Files are downloaded through
+the workspace API and staged privately for Mail, so remote project paths never
+become local attachment paths. The temporary copies are removed after handoff.
+The helper has no send action. HTML and custom Reply-To remain in the EML
+download; the card explains this when either field is populated. Other desktop
+platforms use a mailto compose link.
+
 The implementation imports the patch supplied in
 `legalwork-email-calendar-drafts.zip` and includes review corrections:
 
@@ -39,6 +47,9 @@ pnpm --filter legalwork-server build
 pnpm test:drafts:build
 pnpm --filter legalwork-server exec bun test src/email-drafts/routes.test.ts src/opencode-plugins/legalwork-draft-tools.test.ts src/opencode-plugins/legalwork-calendar-tools.test.ts src/legalwork-runtime-config.test.ts
 node scripts/i18n-audit.mjs --ci
+pnpm --filter @legalwork/desktop test
+pnpm --filter @legalwork/desktop typecheck:electron
+pnpm --filter @legalwork/desktop check:electron
 ```
 
 Results: 21 draft tests, 1,210 app tests and 20 HTTP/plugin/runtime tests passed.
@@ -46,6 +57,10 @@ Both typechecks, the server build and the i18n audit passed.
 The Node build smoke test also passed. Electron was launched on macOS with an
 existing development profile; the app reached ready state and loaded saved
 workspaces and sessions without a module-resolution error.
+For the Apple Mail fix, 224 desktop tests passed (2 skipped), including four
+native compose regressions; 1,210 app tests, both app/desktop typechecks and the
+IPC bridge check passed. On macOS, a synthetic draft was saved and verified in
+Mail's editable composer with To/Cc/Bcc, Unicode text and an intact attachment.
 
 ## Browser verification
 
@@ -91,7 +106,7 @@ pnpm dev:electron
    conflict without discarding local edits.
 
 Screenshots are provided instead of a recording because the browser tooling
-used for this review exposes still captures. Native Mail/Calendar imports and
+used for this review exposes still captures. Native Calendar imports and
 signed-in Gmail, Google Calendar and Outlook compose screens were not exercised.
 Web links omit attachments and some advanced fields; the download preserves
 those details. This feature does not connect accounts or send messages or

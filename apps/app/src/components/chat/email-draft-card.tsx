@@ -1,11 +1,10 @@
-import { isLocalDraftServer } from "./draft-file-actions";
 import { artifactDocumentKey, registerUnsavedDocument } from "@/react-app/domains/session/artifacts/docx-document-state";
 import { useEffect, useId, useRef, useState } from "react";
 import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Check, ChevronDown, Download, FileText, Loader2, Mail, Paperclip, SlidersHorizontal, X } from "lucide-react";
-import { EmailDraftSchema, type EmailDraft } from "@legalwork/types/email-draft";
-import { openDesktopPath, openDesktopUrl } from "@/app/lib/desktop";
+import { EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "@legalwork/types/email-draft";
+import { composeAppleMailDraft, openDesktopUrl } from "@/app/lib/desktop";
 import { isElectronRuntime } from "@/app/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +49,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const fieldId = useId();
+  const appleMail = isElectronRuntime() && window.__LEGALWORK_ELECTRON__?.meta?.platform === "darwin";
   const dirty = draft !== baseline;
   const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, `${initial.id}:${fieldId}`), initial.subject || "Email draft", () => dirtyRef.current), [workspaceId, sessionId, initial.id, initial.subject, fieldId]);
@@ -89,14 +89,24 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
         const anchor = document.createElement("a"); anchor.href = url; anchor.download = "email-draft.eml"; anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 10000);
       } else if (action !== "save") {
-        const workspaces = action === "system" && isElectronRuntime() ? await client?.listWorkspaces() : null;
-        const workspace = workspaces?.items.find(item => item.id === workspaceId);
-        if (workspace?.workspaceType === "local" && client && isLocalDraftServer(client.baseUrl)) {
-          await openDesktopPath(`${workspace.path.replace(/[/\\]+$/, "")}/${saved.path}`);
+        if (action === "system" && appleMail) {
+          if (!client) throw new Error("The draft is unavailable.");
+          const attachments = [];
+          let total = 0;
+          for (const item of saved.attachments) {
+            const file = await client.downloadWorkspaceFile(workspaceId, item.path);
+            total += file.data.byteLength;
+            if (total > 20 * 1024 * 1024) throw new Error("Attachments must total 20 MB or less.");
+            attachments.push({ name: item.name || item.path.split("/").pop() || "attachment", data: new Uint8Array(file.data) });
+          }
+          await composeAppleMailDraft({
+            subject: saved.subject, body: saved.body, from: saved.from,
+            to: emailAddressSpecs(saved.to), cc: emailAddressSpecs(saved.cc), bcc: emailAddressSpecs(saved.bcc), attachments,
+          });
           return;
         }
         const link = emailComposeLink(saved, action);
-        if (link.length > 8000) throw new Error("This draft is too long for a compose link. Download the .eml and open it in your email app.");
+        if (link.length > 8000) throw new Error("This draft is too long for a compose link. Shorten the message or download .eml to export it.");
         if (popup) popup.location.href = link;
         else if (action === "system" && !isElectronRuntime()) window.location.href = link;
         else await openDesktopUrl(link);
@@ -151,18 +161,20 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
       </div>
       <input ref={fileInput} type="file" multiple className="hidden" aria-label="Attach files" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void upload(files); }} />
     </fieldset>
+    {appleMail && (current.html || current.replyTo) && <p className="px-5 pb-3 text-xs text-muted-foreground">Apple Mail uses the message text. HTML and custom Reply-To are included in the .eml download.</p>}
+    {!appleMail && current.attachments.length > 0 && <p className="px-5 pb-3 text-xs text-muted-foreground">Attach files in your mail app, or download .eml to keep attachments.</p>}
     {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setError(null); } })}>Discard edits and reload</Button></div>}
     <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
       <Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Attach files" title="Attach files" onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button>
       {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
       <div className="flex-1" />
       <div className="flex items-center gap-1">
-        <Button size="sm" disabled={!editable} className="gap-2 rounded-lg px-3.5" onClick={() => void run("system")}>Open in Mail<ArrowUpRight className="size-3.5" /></Button>
+        <Button size="sm" disabled={!editable} className="gap-2 rounded-lg px-3.5" onClick={() => void run("system")}>{appleMail ? "Open in Apple Mail" : "Open in Mail"}<ArrowUpRight className="size-3.5" /></Button>
         <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Open draft in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onClick={() => void run("gmail")}><Mail />Open in Gmail</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("outlook")}><Mail />Open in Outlook</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("download")}><Download />Download .eml</DropdownMenuItem>
-          <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">Gmail and Outlook links use plain text. Add attachments in your email app. Download .eml to keep all draft details.</p>
+          <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">Compose links use plain text. Add attachments in your email app. Download .eml to keep all draft details.</p>
         </DropdownMenuContent></DropdownMenu>
       </div>
     </div>
