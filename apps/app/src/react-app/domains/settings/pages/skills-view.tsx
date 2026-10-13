@@ -1032,7 +1032,7 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      {selectedSkill ? <SkillDetailsDialog key={selectedSkill.name} skill={selectedSkill} extensions={extensions} busy={props.busy} canEdit={props.canInstallSkillCreator} initialEditing onClose={() => setSelectedSkill(null)} /> : null}
+      {selectedSkill ? <SkillDetailsDialog key={selectedSkill.name} skill={selectedSkill} extensions={extensions} busy={props.busy} canEdit={props.canInstallSkillCreator} initialEditing={isWorkflowsView} onClose={() => setSelectedSkill(null)} /> : null}
 
       {firmSkill ? (
         <FirmSkillDialog name={firmSkill.name} added={firmSkill.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmSkill(null)} />
