@@ -223,6 +223,15 @@
 .wiki-markdown-editor { min-height: 320px; }
 .wiki-markdown-editor > .lw-markdown-editor { height: auto; min-height: 320px; }
 .wiki-markdown-editor .mdxeditor-diff-source-wrapper { overflow: visible; }
+.wiki-markdown-editor :is(h2, h3) { scroll-margin-top: 20px; }
+.wiki-reader-outline button.wiki-outline-link { width: 100%; text-align: start; cursor: pointer; }
+@container wiki-main (min-width: 900px) {
+  .wiki-editor-with-outline { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 40px; max-width: 1090px; margin: 0 auto; padding: 0 clamp(32px, 4vw, 56px); }
+  .wiki-editor-with-outline > .mdxeditor-root-contenteditable { min-width: 0; }
+  .wiki-editor-with-outline .lw-markdown-page { max-width: none; padding-inline: 0; }
+  .wiki-editor-with-outline > .wiki-reader-outline { padding-top: 35px; }
+  .wiki-editor-content:has(.wiki-editor-with-outline) > :is(.wiki-page-header, .wiki-backlinks) { max-width: 1090px; padding-right: calc(clamp(32px, 4vw, 56px) + 210px); }
+}
 /* Computed backlinks flow after the body, outside the editable/saved document. */
 .wiki-page-with-backlinks > .wiki-markdown-editor,
 .wiki-page-with-backlinks > .wiki-markdown-editor > .lw-markdown-editor { min-height: 0; }

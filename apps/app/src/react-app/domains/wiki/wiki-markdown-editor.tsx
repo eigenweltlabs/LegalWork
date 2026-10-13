@@ -4,12 +4,13 @@ import { ArtifactMarkdownEditor } from "../session/artifacts/artifact-markdown-e
 import { wikiEditorLinkTarget, wikiLinkFromMarkdown, wikiLinkSyntax, wikiLinkToMarkdown } from "./wiki-markdown-syntax";
 import { preserveWikiPageHeading } from "./wiki-page-heading";
 import { wikiTitlePlugin } from "./wiki-title-plugin";
+import { wikiOutlinePlugin } from "./wiki-outline-plugin";
 import { WikiLinkDialog, WikiLinkTargetsContext, type WikiLinkTarget } from "./wiki-link-dialog";
 
 const wikiLinksPlugin = realmPlugin({ init(realm) {
   realm.pubIn({ [addSyntaxExtension$]: wikiLinkSyntax, [addMdastExtension$]: wikiLinkFromMarkdown, [addToMarkdownExtension$]: wikiLinkToMarkdown });
 } });
-const extensions = [wikiLinksPlugin(), wikiTitlePlugin()];
+const extensions = [wikiLinksPlugin(), wikiTitlePlugin(), wikiOutlinePlugin()];
 
 export function WikiMarkdownEditor({ linkTargets = [], ...props }: ComponentProps<typeof ArtifactMarkdownEditor> & { linkTargets?: WikiLinkTarget[] }) {
   const pageLink = (event: MouseEvent<HTMLDivElement>) => {
