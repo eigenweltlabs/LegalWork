@@ -44,6 +44,8 @@ export const legalworkProjectToolsPluginPath = () => legalworkPluginPath("legalw
 export const legalworkReviewToolsPluginPath = () => legalworkPluginPath("legalwork-review-tools");
 export const legalworkOrgPolicyGuardPluginPath = () => legalworkPluginPath("legalwork-org-policy-guard");
 
+export const legalworkDraftToolsPluginPath = () => legalworkPluginPath("legalwork-draft-tools");
+
 export const legalworkCalendarToolsPluginPath = () => legalworkPluginPath("legalwork-calendar-tools");
 
 export const legalworkScheduledTaskToolsPluginPath = () => legalworkPluginPath("legalwork-scheduled-task-tools");

@@ -1,0 +1,170 @@
+import { isLocalDraftServer } from "./draft-file-actions";
+import { artifactDocumentKey, registerUnsavedDocument } from "@/react-app/domains/session/artifacts/docx-document-state";
+import { useEffect, useId, useRef, useState } from "react";
+import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpRight, Check, ChevronDown, Download, FileText, Loader2, Mail, Paperclip, SlidersHorizontal, X } from "lucide-react";
+import { EmailDraftSchema, type EmailDraft } from "@legalwork/types/email-draft";
+import { openDesktopPath, openDesktopUrl } from "@/app/lib/desktop";
+import { isElectronRuntime } from "@/app/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Surface } from "@/react-app/design-system/surface";
+import { useMessageList } from "./message-list-provider";
+import { emailComposeLink, type EmailApp } from "./email-draft-links";
+
+export function isEmailDraftTool(part: ToolUIPart | DynamicToolUIPart) {
+  return ["legalwork_email_draft", "legalwork_email_draft_update"].includes(getToolName(part));
+}
+export function parseEmailDraftCard(output: unknown) {
+  try {
+    const value: unknown = typeof output === "string" ? JSON.parse(output) : output;
+    const payload = value && typeof value === "object" && "referenceData" in value ? value.referenceData : value;
+    const parsed = EmailDraftSchema.safeParse(payload && typeof payload === "object" && "draft" in payload ? payload.draft : null);
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
+}
+
+export function EmailDraftToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
+  if (part.state !== "output-available" && part.state !== "output-error") return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Preparing email draft…</p>;
+  const initial = part.state === "output-available" ? parseEmailDraftCard(part.output) : null;
+  return initial ? <EmailDraftCard key={initial.id} initial={initial} /> : <p role="alert" className="text-sm text-destructive">Could not create the email draft.</p>;
+}
+
+function EmailDraftCard({ initial }: { initial: EmailDraft }) {
+  const { legalworkClient: client, workspaceId, sessionId } = useMessageList();
+  const cache = useQueryClient();
+  const key = ["email-draft", client?.baseUrl, workspaceId, initial.id];
+  const available = Boolean(client && workspaceId === initial.workspaceId);
+  const query = useQuery({ queryKey: key, enabled: available, queryFn: async () => {
+    if (!client) throw new Error("Connect to this project to edit the draft.");
+    return client.emailDraft(workspaceId, initial.id);
+  } });
+  const [draft, setDraft] = useState<EmailDraft | null>(null);
+  const [baseline, setBaseline] = useState<EmailDraft | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const fieldId = useId();
+  const dirty = draft !== baseline;
+  const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, `${initial.id}:${fieldId}`), initial.subject || "Email draft", () => dirtyRef.current), [workspaceId, sessionId, initial.id, initial.subject, fieldId]);
+  useEffect(() => {
+    if (query.data && !dirty) { setDraft(query.data.draft); setBaseline(query.data.draft); }
+  }, [query.data, dirty]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  if (!draft) return <Surface className="my-3 w-full max-w-2xl p-5"><p role={query.isError || !available ? "alert" : "status"}>{query.isError || !available ? "Connect to this project to load the email draft." : "Loading email draft…"}</p></Surface>;
+  const editable = available && !query.isError && !busy;
+  const current = draft;
+  const change = (patch: Partial<EmailDraft>) => { setDraft({ ...current, ...patch }); setError(null); };
+
+  const save = async () => {
+    if (!client || !editable) throw new Error("The draft is unavailable.");
+    if (!dirty) return current;
+    const result = await client.saveEmailDraft(workspaceId, current);
+    setDraft(result.draft); setBaseline(result.draft);
+    cache.setQueryData(key, result);
+    return result.draft;
+  };
+  const run = async (action: "save" | "download" | EmailApp) => {
+    if (busyRef.current) return;
+    // Reserve a browser window during the click so saving cannot trigger a popup block.
+    const popup = (action === "gmail" || action === "outlook") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
+    if (popup) popup.opener = null;
+    busyRef.current = true; setBusy(true); setError(null);
+    try {
+      const saved = await save();
+      if (action === "download") {
+        if (!client) throw new Error("The draft is unavailable.");
+        const result = await client.downloadWorkspaceFile(workspaceId, saved.path);
+        const url = URL.createObjectURL(new Blob([result.data], { type: "message/rfc822" }));
+        const anchor = document.createElement("a"); anchor.href = url; anchor.download = "email-draft.eml"; anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } else if (action !== "save") {
+        const workspaces = action === "system" && isElectronRuntime() ? await client?.listWorkspaces() : null;
+        const workspace = workspaces?.items.find(item => item.id === workspaceId);
+        if (workspace?.workspaceType === "local" && client && isLocalDraftServer(client.baseUrl)) {
+          await openDesktopPath(`${workspace.path.replace(/[/\\]+$/, "")}/${saved.path}`);
+          return;
+        }
+        const link = emailComposeLink(saved, action);
+        if (link.length > 8000) throw new Error("This draft is too long for a compose link. Download the .eml and open it in your email app.");
+        if (popup) popup.location.href = link;
+        else if (action === "system" && !isElectronRuntime()) window.location.href = link;
+        else await openDesktopUrl(link);
+      }
+    } catch (problem) { popup?.close(); setError(problem instanceof Error ? problem.message : "Could not save or open the draft."); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const upload = async (files: File[]) => {
+    if (!client || !editable || busyRef.current) return;
+    busyRef.current = true; setBusy(true); setError(null);
+    try {
+      if (files.length + current.attachments.length > 20 || files.reduce((sum, file) => sum + file.size, 0) > 20 * 1024 * 1024) throw new Error("Choose at most 20 attachments, totaling 20 MB or less.");
+      // Keep each successful upload if a later file fails.
+      for (const file of files) {
+        const name = file.name.replace(/[\\/\r\n\u0000]/g, "_");
+        const path = `.legalwork/email-drafts/attachments/${crypto.randomUUID()}/${name}`;
+        await client.writeWorkspaceBinaryFile(workspaceId, { path, data: await file.arrayBuffer() });
+        setDraft(previous => previous ? { ...previous, attachments: [...previous.attachments, { path, name, contentType: file.type || "application/octet-stream" }] } : previous);
+      }
+    } catch (problem) { setError(problem instanceof Error ? problem.message : "Could not attach the file."); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const optionalFields: Array<{ key: "from" | "replyTo" | "cc" | "bcc"; label: string }> = [
+    { key: "cc", label: "Cc" }, { key: "bcc", label: "Bcc" },
+    { key: "from", label: "From" }, { key: "replyTo", label: "Reply-To" },
+  ];
+  return <Surface className="my-3 w-full max-w-2xl overflow-hidden rounded-2xl shadow-[0_2px_12px_-5px_rgb(0_0_0/0.12)]">
+    <div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-5 py-3">
+      <Mail className="size-3.5 text-muted-foreground" />
+      <h3 className="flex-1 text-xs font-medium text-muted-foreground">Email draft</h3>
+      <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+        {busy ? <><Loader2 className="size-3 animate-spin" />Saving</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />Saved</>}
+      </span>
+      <Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Email options" title="Cc, Bcc, sender and formatting" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>
+    </div>
+    <fieldset disabled={!editable} className="min-w-0">
+      <div className="flex items-center gap-3 border-b border-border/50 px-5 py-2.5">
+        <label htmlFor={`${fieldId}-to`} className="text-xs text-muted-foreground">To</label>
+        <Input id={`${fieldId}-to`} title={current.to} value={current.to} onChange={event => change({ to: event.target.value })} placeholder="Recipient email" className="h-7 rounded-sm border-transparent bg-transparent px-0 text-sm shadow-none hover:enabled:border-transparent focus-visible:ring-0" />
+        {(current.cc || current.bcc) && <Button size="xs" variant="ghost" className="shrink-0 text-[11px]" onClick={() => setOptionsOpen(!optionsOpen)}>{[current.cc && "Cc", current.bcc && "Bcc"].filter(Boolean).join(" / ")}</Button>}
+      </div>
+      {optionsOpen && <div id={`${fieldId}-options`} className="space-y-2 border-b border-border/50 bg-muted/20 px-5 py-4">
+        {optionalFields.map(({ key, label }) => <div key={key} className="grid grid-cols-[3.5rem_1fr] items-center gap-3"><label htmlFor={`${fieldId}-${key}`} className="text-xs text-muted-foreground">{label}</label><Input id={`${fieldId}-${key}`} value={current[key]} onChange={event => change({ [key]: event.target.value })} className="h-8 text-xs" placeholder="Optional" /></div>)}
+        <details className="pt-1"><summary className="cursor-pointer text-xs text-muted-foreground">HTML formatting</summary><label htmlFor={`${fieldId}-html`} className="sr-only">HTML alternative</label><Textarea id={`${fieldId}-html`} className="mt-2 font-mono text-xs" value={current.html} onChange={event => change({ html: event.target.value })} /><p className="mt-2 text-[11px] text-muted-foreground">Editing the message clears this alternative so your latest text is used.</p></details>
+      </div>}
+      <div className="px-5 pb-4 pt-5 sm:px-6">
+        <label htmlFor={`${fieldId}-subject`} className="sr-only">Subject</label>
+        <Textarea id={`${fieldId}-subject`} value={current.subject} onChange={event => change({ subject: event.target.value })} placeholder="Subject" rows={1} className="mb-4 min-h-0 rounded-sm border-transparent bg-transparent p-0 text-lg font-medium leading-snug tracking-tight shadow-none hover:enabled:border-transparent focus-visible:ring-0 md:text-lg" />
+        <label htmlFor={`${fieldId}-body`} className="sr-only">Message</label>
+        <Textarea id={`${fieldId}-body`} value={current.body} onChange={event => change({ body: event.target.value, html: "" })} className="min-h-40 rounded-sm border-transparent bg-transparent p-0 text-sm leading-7 shadow-none hover:enabled:border-transparent focus-visible:ring-0" placeholder="Write your message…" />
+        {current.attachments.length > 0 && <ul className="mt-5 flex flex-wrap gap-2">{current.attachments.map((item, index) => <li key={`${item.path}-${index}`} className="group flex max-w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/35 py-1.5 pl-2.5 pr-1 text-xs"><FileText className="size-3.5 shrink-0 text-muted-foreground" /><span className="max-w-52 truncate" title={item.name || item.path}>{item.name || item.path.split("/").pop()}</span><Button variant="ghost" size="icon-xs" aria-label={`Remove ${item.name || item.path}`} onClick={() => change({ attachments: current.attachments.filter((_, i) => i !== index) })}><X className="size-3" /></Button></li>)}</ul>}
+      </div>
+      <input ref={fileInput} type="file" multiple className="hidden" aria-label="Attach files" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void upload(files); }} />
+    </fieldset>
+    {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setError(null); } })}>Discard edits and reload</Button></div>}
+    <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
+      <Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Attach files" title="Attach files" onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button>
+      {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
+      <div className="flex-1" />
+      <div className="flex items-center gap-1">
+        <Button size="sm" disabled={!editable} className="gap-2 rounded-lg px-3.5" onClick={() => void run("system")}>Open in Mail<ArrowUpRight className="size-3.5" /></Button>
+        <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Open draft in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuItem onClick={() => void run("gmail")}><Mail />Open in Gmail</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void run("outlook")}><Mail />Open in Outlook</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void run("download")}><Download />Download .eml</DropdownMenuItem>
+          <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">Gmail and Outlook links use plain text. Add attachments in your email app. Download .eml to keep all draft details.</p>
+        </DropdownMenuContent></DropdownMenu>
+      </div>
+    </div>
+  </Surface>;
+}

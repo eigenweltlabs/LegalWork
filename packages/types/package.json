@@ -44,6 +44,8 @@
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
+    "./calendar-event-draft": "./src/calendar-event-draft.ts",
+    "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",

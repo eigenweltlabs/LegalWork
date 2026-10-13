@@ -1,3 +1,5 @@
+import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
+import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -3190,6 +3192,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/inbox/${encodeURIComponent(inboxId)}`,
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
+
+    calendarEventDraft: (workspaceId: string, id: string) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar-drafts/${encodeURIComponent(id)}`, { token, hostToken }),
+    saveCalendarEventDraft: (workspaceId: string, draft: CalendarEventDraft) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar-drafts/${encodeURIComponent(draft.id)}`, { token, hostToken, method: "PUT", body: draft }),
+    emailDraft: (workspaceId: string, id: string) => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/email-drafts/${encodeURIComponent(id)}`, { token, hostToken }),
+    saveEmailDraft: (workspaceId: string, draft: EmailDraft) => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/email-drafts/${encodeURIComponent(draft.id)}`, { token, hostToken, method: "PUT", body: draft }),
 
     readWorkspaceFile: (workspaceId: string, path: string) =>
       requestJson<LegalworkWorkspaceFileContent>(

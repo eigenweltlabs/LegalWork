@@ -113,6 +113,8 @@ import { DocumentPreparation } from "./document-preparation/service.js";
 import { ReviewService } from "./reviews/service.js";
 import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
+import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts.js";
+import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
@@ -1699,6 +1701,8 @@ function createRoutes(
     };
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
+  registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
     listSessions: async (workspace, search) => unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.list({ limit: 200, search }), "/session"),
     getSession: async (workspace, id) => {
