@@ -96,7 +96,7 @@ import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { WikiPagePicker } from "../../wiki/wiki-page-picker";
 import { WikiPane, type WikiPaneProps } from "../../wiki/wiki-pane";
-import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
+import { wikiPanelTab, wikiTabForFileTarget, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
 import {
   EVALS_PANEL_SESSION_ID,
@@ -624,6 +624,15 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
 
+    const wikiTab = wikiWorkspace && props.wiki?.client
+      ? wikiTabForFileTarget(props.wiki.serverUrl, wikiWorkspace, target) : null;
+    if (wikiTab) {
+      openTab(panelStateSessionId, wikiTab);
+      preserveSidePanelOnPanelOpenRef.current = true;
+      setCurrentSidePanel("panel");
+      return;
+    }
+
     if (!isCollectibleArtifactTarget(target)) {
       if (isOpenableFileTarget(target)) {
         if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
@@ -654,7 +663,7 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, props.wiki?.client, props.wiki?.serverUrl, wikiWorkspace, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);

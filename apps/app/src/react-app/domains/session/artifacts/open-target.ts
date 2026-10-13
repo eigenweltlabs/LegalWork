@@ -232,6 +232,50 @@ export function resolvePathOpenTarget(
   return built ? { ...built, exists: true } : null;
 }
 
+function localPathFromHref(href: string) {
+  const trimmed = href.trim();
+
+  if (!trimmed || trimmed.startsWith("#") || /^(?:https?|mailto):/i.test(trimmed)) {
+    return "";
+  }
+
+  if (/^file:/i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const host = decodeURIComponent(parsed.hostname);
+      const pathname = decodeURIComponent(parsed.pathname);
+      const localPath = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+
+      if (host && host !== "localhost") {
+        return `//${host}${localPath.startsWith("/") ? localPath : `/${localPath}`}`;
+      }
+
+      return localPath;
+    } catch {
+      return "";
+    }
+  }
+
+  const path = trimmed.split(/[?#]/)[0] ?? trimmed;
+  try { return decodeURIComponent(path); }
+  catch { return path; }
+}
+
+export function resolveHrefOpenTarget(href: string, openTargets: OpenTarget[]) {
+  if (/^https?:\/\//i.test(href)) {
+    return { id: `url:${href}`, kind: "url", value: href, name: href, preview: "browser", confidence: 100, reason: "link" } satisfies OpenTarget;
+  }
+  const path = localPathFromHref(href);
+
+  if (!path) {
+    return null;
+  }
+
+  // Prefer a verified transcript artifact; otherwise build one from the path so
+  // plain file mentions (not just edited/attached files) are openable too.
+  return resolvePathOpenTarget(path, openTargets);
+}
+
 /**
  * Resolve a transcript file badge (PDF, DOCX, image, …) to an openable target.
  * Returns null for inline-only attachments with no recoverable workspace path
@@ -277,7 +321,7 @@ function scanText(
     if (/^(?:https?|wss?):\/\//i.test(href)) {
       addTarget(map, targetFromUrl(href, confidence, reason));
     } else if (options.includeFiles) {
-      addTarget(map, targetFromFile(href, confidence, reason));
+      addTarget(map, targetFromFile(localPathFromHref(href), confidence, reason));
     }
   }
 

@@ -24,7 +24,7 @@ import { bundledLanguages, codeToHtml } from "shiki";
 import { cn } from "@/lib/utils";
 import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
 import { useOpenTargets } from "@/lib/target-provider";
-import { resolvePathOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
+import { resolveHrefOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 
 import { applyTextHighlights } from "./text-highlights";
 import { LinkActionMenu } from "./link-action-menu";
@@ -73,48 +73,6 @@ function safeHref(href: string) {
   }
 
   return "#";
-}
-
-function localPathFromHref(href: string) {
-  const trimmed = href.trim();
-
-  if (!trimmed || trimmed.startsWith("#") || /^(?:https?|mailto):/i.test(trimmed)) {
-    return "";
-  }
-
-  if (/^file:/i.test(trimmed)) {
-    try {
-      const parsed = new URL(trimmed);
-      const host = decodeURIComponent(parsed.hostname);
-      const pathname = decodeURIComponent(parsed.pathname);
-      const localPath = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
-
-      if (host && host !== "localhost") {
-        return `//${host}${localPath.startsWith("/") ? localPath : `/${localPath}`}`;
-      }
-
-      return localPath;
-    } catch {
-      return "";
-    }
-  }
-
-  return trimmed.split(/[?#]/)[0] ?? trimmed;
-}
-
-function openTargetForHref(href: string, openTargets: OpenTarget[]) {
-  if (/^https?:\/\//i.test(href)) {
-    return { id: `url:${href}`, kind: "url", value: href, name: href, preview: "browser", confidence: 100, reason: "link" } satisfies OpenTarget;
-  }
-  const path = localPathFromHref(href);
-
-  if (!path) {
-    return null;
-  }
-
-  // Prefer a verified transcript artifact; otherwise build one from the path so
-  // plain file mentions (not just edited/attached files) are openable too.
-  return resolvePathOpenTarget(path, openTargets);
 }
 
 function alignAttribute(align: Tokens.TableCell["align"]) {
@@ -504,7 +462,7 @@ function MarkdownBlockInner({
         event.preventDefault();
         event.stopPropagation();
         const href = chevron.dataset.legalworkLinkChevron ?? "";
-        const target = openTargetForHref(href, openTargets);
+        const target = resolveHrefOpenTarget(href, openTargets);
         if (target) {
           setLinkMenu((current) => current?.anchor === chevron ? null : { target, anchor: chevron });
         }
@@ -514,7 +472,7 @@ function MarkdownBlockInner({
       const link = event.target.closest("a[data-legalwork-link-href]");
       if (link instanceof HTMLAnchorElement) {
         const href = link.dataset.legalworkLinkHref ?? link.getAttribute("href") ?? "";
-        const target = openTargetForHref(href, openTargets);
+        const target = resolveHrefOpenTarget(href, openTargets);
 
         if (target && onOpenTarget) {
           event.preventDefault();
@@ -539,7 +497,7 @@ function MarkdownBlockInner({
       if (!(event.target instanceof Element) || !onOpenTarget) return;
       const anchor = event.target.closest<HTMLAnchorElement>("a[data-legalwork-link-href]");
       if (!anchor) return;
-      const target = openTargetForHref(anchor.dataset.legalworkLinkHref ?? "", openTargets);
+      const target = resolveHrefOpenTarget(anchor.dataset.legalworkLinkHref ?? "", openTargets);
       if (!target) return;
       event.preventDefault();
       setLinkMenu({ target, anchor });

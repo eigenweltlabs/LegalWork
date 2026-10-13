@@ -1,12 +1,41 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { viewPanelTab } from "../src/react-app/domains/views/view-reference";
-import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
+import { wikiPanelTab, wikiTabForFileTarget } from "../src/react-app/domains/wiki/wiki-tabs";
+import { resolveHrefOpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { restorePanelLayout, setFileSidebarState, setSidePanelState, useUiStateStore } from "../src/react-app/shell/ui-state-store";
 
 beforeEach(() => usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} }));
 
 describe("Wiki navigation in the standard viewer", () => {
+  test("chat chips and the file tree open the same wiki page tab", () => {
+    const wiki = { id: "firm", root: "/wikis/firm" };
+    const path = "Clients/Belmont Ridge Bank National Association.md";
+    const page = wikiPanelTab("local", wiki.id, { kind: "page", path }, "Belmont Ridge Bank National Association");
+    const store = usePanelTabStore.getState();
+    store.openTab("workspace:wiki", page);
+    for (const href of [path.split("/").map(encodeURIComponent).join("/"), `file://${wiki.root}/${path.split("/").map(encodeURIComponent).join("/")}`]) {
+      const target = resolveHrefOpenTarget(href, []);
+      if (!target) throw new Error("Expected a file target");
+      const tab = wikiTabForFileTarget("local", wiki, target);
+      expect(tab).toEqual(page);
+      if (tab) store.openTab("workspace:wiki", tab);
+    }
+    expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs).toEqual([page]);
+  });
+
+  test("wiki attachments keep their owner and unrelated files keep normal routing", () => {
+    const wiki = { id: "firm", root: "/wikis/firm" };
+    const target = resolveHrefOpenTarget("Templates/Engagement%20letter.docx", []);
+    if (!target) throw new Error("Expected a file target");
+    expect(wikiTabForFileTarget("local", wiki, target)).toEqual(wikiPanelTab("local", wiki.id, { kind: "asset", path: "Templates/Engagement letter.docx" }, "Engagement letter.docx"));
+    for (const path of ["/wikis/other/Guide.md", "../other/Guide.md", "/wikis/firm-other/Guide.md", "/wikis/firm/../other/Guide.md", "C:/elsewhere/Guide.md"]) {
+      expect(wikiTabForFileTarget("local", wiki, { ...target, value: path })).toBeNull();
+    }
+    expect(wikiTabForFileTarget("local", wiki, { ...target, value: "Views/overview.view.json", preview: "view" })).toBeNull();
+    expect(wikiTabForFileTarget("local", wiki, { ...target, kind: "url", value: "https://example.com/Guide.md" })).toBeNull();
+  });
+
   test("desktop restart reconnects known local wiki pages and views while preserving split panes", () => {
     const store = usePanelTabStore.getState();
     const old = "http://127.0.0.1:4001", current = "http://127.0.0.1:4002";
