@@ -21,6 +21,7 @@ import { listSkills } from "./skills.js";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  legalworkPluginPath,
   legalworkExtensionsPreviewPluginPath,
   legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
@@ -305,6 +306,7 @@ export async function buildLegalworkRuntimeConfigObject(
       "opencode-anthropic-auth",
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),
+      bundledPluginSpec(legalworkPluginPath("legalwork-cache-regression-probe"), config),
       bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),
       bundledPluginSpec(legalworkAnthropicAdaptiveThinkingPluginPath(), config),
       bundledPluginSpec(legalworkAnthropicToolSchemaPluginPath(), config),
