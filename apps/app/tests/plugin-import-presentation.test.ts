@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { groupPluginImportCandidates, pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
+import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
 import { readWorkspaceImports } from "../src/app/lib/extension-imports";
 
 test("provider display names hide internal app IDs without changing plugin identity", () => {
@@ -28,10 +28,12 @@ test("discovery groups copies by canonical identity and keeps the latest version
 test("installed package parsing retains its display name and all-projects scope", () => {
   const imports = readWorkspaceImports({ cloudImports: { plugins: { internal: {
     pluginId: "internal", name: "app-internal", displayName: "Clerk", scope: "global", files: [],
+    sourceKind: "plugin",
   } } } });
   expect(imports.plugins.internal?.name).toBe("app-internal");
   expect(imports.plugins.internal?.displayName).toBe("Clerk");
   expect(imports.plugins.internal?.scope).toBe("global");
+  expect(imports.plugins.internal?.sourceKind).toBe("plugin");
 });
 
 test("connector discovery keeps same-name services and same-file entries independently selectable", () => {
@@ -44,4 +46,23 @@ test("connector discovery keeps same-name services and same-file entries indepen
   expect(groups).toHaveLength(4);
   expect(pluginImportConnectorName("connector-search-abcdef12-12345678-plugin-global-patent-search-abcdef")).toBe("Patent Search");
   expect(pluginImportConnectorName("custom-search")).toBe("custom-search");
+});
+
+test("plugin ownership follows recorded skill and connector destinations across global, project and Windows paths", () => {
+  const plugins = Object.values(readWorkspaceImports({ cloudImports: { plugins: { patent: {
+    pluginId: "patent", name: "patent-studio", displayName: "Patent Studio", files: [
+      { configObjectId: "review", objectType: "skill", title: "Claim Review", path: ".opencode/skills/patent-studio-plugin/claim-review/SKILL.md" },
+      { configObjectId: "search", objectType: "mcp", title: "Patent Search", path: "opencode.jsonc#mcp.patent-search" },
+    ],
+  } } } }).plugins);
+  for (const path of ["/home/.config/opencode/skills/patent-studio-plugin/claim-review", "/project/.opencode/skills/patent-studio-plugin/claim-review/SKILL.md", "C:\\Users\\Tester\\.config\\opencode\\skills\\patent-studio-plugin\\claim-review\\SKILL.md"]) {
+    expect(importedSkillPlugin({ path }, plugins)?.pluginId).toBe("patent");
+  }
+  expect(importedSkillPlugin({ path: "/project/.opencode/skills/claim-review/SKILL.md" }, plugins)).toBeUndefined();
+  expect(importedSkillPlugin({ path: "/project/.opencode/skills/other-patent-studio-plugin/claim-review/SKILL.md" }, plugins)).toBeUndefined();
+  expect(importedConnectorPlugin("patent-search", plugins)?.pluginId).toBe("patent");
+  expect(importedConnectorPlugin("patent-search-copy", plugins)).toBeUndefined();
+  expect(importedConnectorPlugin("patent-search", [])).toBeUndefined();
+  expect(importedConnectorPlugin("patent-search", plugins.map(plugin => ({ ...plugin, sourceKind: "connector" })))).toBeUndefined();
+  expect(importedSkillPlugin({ path: "/global/skills/patent-studio-plugin/claim-review" }, plugins.map(plugin => ({ ...plugin, sourceKind: "skill" })))).toBeUndefined();
 });

@@ -45,6 +45,7 @@ export type CloudPluginResolved = {
     id: string;
     name: string;
     displayName?: string;
+    sourceKind?: "plugin" | "skill" | "connector";
     description: string | null;
     updatedAt: string | null;
   };
@@ -62,6 +63,7 @@ export type CloudImportedPluginFile = {
 
 export type CloudImportedPlugin = {
   scope?: "global";
+  sourceKind?: "plugin" | "skill" | "connector";
   pluginId: string;
   marketplaceId: string | null;
   name: string;
@@ -463,6 +465,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
     }) : [];
     const plugin: CloudImportedPlugin = {
       ...(value.scope === "global" ? { scope: "global" } : {}),
+      ...(value.sourceKind === "plugin" || value.sourceKind === "skill" || value.sourceKind === "connector" ? { sourceKind: value.sourceKind } : {}),
       pluginId,
       marketplaceId: readString(value.marketplaceId),
       name,
@@ -729,6 +732,7 @@ export async function installCloudPlugin(input: {
 
   const imported: CloudImportedPlugin = {
     ...(input.global ? { scope: "global" } : {}),
+    ...(input.resolved.plugin.sourceKind ? { sourceKind: input.resolved.plugin.sourceKind } : {}),
     pluginId: input.resolved.plugin.id,
     marketplaceId: input.marketplaceId,
     name: input.resolved.plugin.name,

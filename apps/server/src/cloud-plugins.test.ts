@@ -57,6 +57,7 @@ describe("cloud plugin installs", () => {
         resolved: {
           plugin: {
             id: "plugin_1",
+            sourceKind: "plugin",
             name: "Creative Brief Plugin",
             description: "Brief writing workflow",
             updatedAt: "2026-06-02T00:00:00.000Z",
@@ -105,6 +106,7 @@ describe("cloud plugin installs", () => {
 
       const installed = await readInstalledCloudPlugins(config, WORKSPACE_ID);
       expect(installed.plugins.plugin_1?.name).toBe("Creative Brief Plugin");
+      expect(installed.plugins.plugin_1?.sourceKind).toBe("plugin");
       expect(installed.marketplaces.marketplace_1?.pluginIds).toEqual(["plugin_1"]);
 
       const skillPath = join(root, ".opencode", "skills", "creative-brief-plugin", "brief-builder", "SKILL.md");

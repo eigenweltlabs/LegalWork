@@ -14,6 +14,7 @@ export default {
   "integrations.all_sources": "All sources",
   "integrations.source_all": "All",
   "integrations.source_personal": "Personal",
+  "integrations.plugin_source": "Plugin: {name}",
   "skills.packages_desc": "Manage imported bundles. Their skills and connectors also appear in the main libraries.",
   "integrations.description": "Manage connectors, skills and file storage.",
   "integrations.add_connector": "Add connector",

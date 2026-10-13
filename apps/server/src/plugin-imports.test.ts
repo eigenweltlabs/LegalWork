@@ -82,6 +82,7 @@ describe("complete plugin imports", () => {
     const files = { ".codex-plugin/plugin.json": JSON.stringify({ name: "legal-tools", skills: "./nested/skills", mcpServers: "./.mcp.json", apps: "./.app.json" }), "nested/skills/claim/SKILL.md": skill, ".mcp.json": '{"mcpServers":{"search":{"url":"https://search.example/mcp"}}}', ".app.json": '{"apps":{"app":"plugin_asdk_app_1"}}', "scripts/shared.py": "shared" };
     const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive(files) }, scope: "project" }, "/project");
     expect(plan!.preview.format).toBe("codex");
+    expect(plan!.resolved.plugin.sourceKind).toBe("plugin");
     expect(plan!.preview.components.map(c => c.type)).toEqual(["skill", "mcp"]);
     expect(plan!.preview.warnings.join(" ")).toContain("provider app IDs");
     expect(plan!.resourceFiles.some(f => f.path.endsWith("scripts/shared.py"))).toBe(true);
@@ -95,6 +96,10 @@ describe("complete plugin imports", () => {
   test("supports manifest-free skill collections and inline command definitions", async () => {
     const [collection] = await resolvePluginImports(request({ "one/SKILL.md": skill, "two/SKILL.md": skill.replace("name: search", "name: second") }), "/project");
     expect(collection!.preview.components).toHaveLength(2);
+    expect(collection!.resolved.plugin.sourceKind).toBe("skill");
+    const [bundle] = await resolvePluginImports(request({ "SKILL.md": skill, ".mcp.json": '{"mcpServers":{"search":{"url":"https://example.invalid/mcp"}}}' }), "/project");
+    expect(bundle!.preview.components).toHaveLength(2);
+    expect(bundle!.resolved.plugin.sourceKind).toBe("plugin");
     const [inline] = await resolvePluginImports(request({ ".claude-plugin/plugin.json": '{"name":"inline","commands":{"about":{"content":"Explain the plugin.","description":"About"}}}' }), "/project");
     expect(inline!.preview.components).toHaveLength(1); expect(JSON.stringify(inline!.resolved)).toContain("Explain the plugin.");
   });

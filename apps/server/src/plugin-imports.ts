@@ -336,7 +336,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
       version.rawSourceText = buildFrontmatter(parsed.data) + "\n" + body + `\nComponent mapping: ${components.map(entry => `${entry.type} ${entry.name} → ${entry.installedName}`).join(", ")}.\n`;
     }
   }
-  return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null }, memberships }, resourceFiles };
+  return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null, sourceKind: preview.format === "connectors" ? "connector" : preview.format === "skills" && components.every(component => component.type === "skill") ? "skill" : "plugin" }, memberships }, resourceFiles };
 }
 export async function resolvePluginImports(request: PluginImportRequest, workspaceRoot: string): Promise<PluginImportPlan[]> {
   if ("path" in request.source && request.source.connector) {

@@ -16,6 +16,7 @@ import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationMoreMen
 import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 import { ImportedPackages } from "./skill-packages";
+import type { ImportedPlugin } from "@/app/lib/extension-imports";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -43,6 +44,7 @@ export type ExtensionsViewProps = {
   /** Engine plugins are code for developers: their tab shows only in developer mode. */
   developerMode: boolean;
   selectedWorkspaceRoot: string;
+  workspaceKey?: string;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
   canUseGlobalScope: boolean;
@@ -97,6 +99,15 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const moreButton = useRef<HTMLButtonElement>(null);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
+  const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
+  const packageTarget = props.workspaceKey ?? props.selectedWorkspaceRoot;
+  useEffect(() => {
+    let stopped = false;
+    if (props.skillTools) void props.skillTools.importedPackages()
+      .then(items => { if (!stopped) setPackageLibrary({ target: packageTarget, items }); })
+      .catch(error => { if (!stopped) toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); });
+    return () => { stopped = true; };
+  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
@@ -126,7 +137,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   return (
-    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, ownsMoreMenu: true }}>
+    <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined }}>
       <section className="w-full min-w-0 max-w-4xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -155,7 +166,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages extensions={props.skillTools} busy={props.busy} revision={importVersion} showEmpty />
+            <ImportedPackages extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={refresh} showEmpty />
           </DialogContent>
         </Dialog> : null}
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => { setImportVersion(value => value + 1); setSource("all"); selectTab(preview.format === "connectors" ? "connectors" : "skills"); props.onRefresh(); }}

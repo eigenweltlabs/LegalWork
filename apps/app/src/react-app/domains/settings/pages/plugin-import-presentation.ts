@@ -1,5 +1,6 @@
 import type { PluginImportCandidate } from "@legalwork/types/plugin-import";
 import { t } from "@/i18n";
+import type { ImportedPlugin } from "@/app/lib/extension-imports";
 
 export function pluginImportName(plugin: { name: string; displayName?: string }): string {
   if (plugin.displayName) return plugin.displayName;
@@ -18,6 +19,20 @@ export function pluginImportSkillName(skill: { name: string; path: string }): st
 export function pluginImportConnectorName(name: string): string {
   const imported = name.match(/^.+-[a-f0-9]{8}-plugin-(?:global|[a-f0-9]{8})-(.+)-[a-f0-9]{6}$/i);
   return imported ? pluginImportName({ name: imported[1] }) : name;
+}
+
+/** Match installed components by their recorded destination, never a name prefix. */
+export function importedConnectorPlugin(name: string, plugins: readonly ImportedPlugin[] = []) {
+  return plugins.find(plugin => plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector" && plugin.files.some(file => file.objectType === "mcp" && file.path === `opencode.jsonc#mcp.${name}`));
+}
+
+export function importedSkillPlugin(skill: { path: string }, plugins: readonly ImportedPlugin[] = []) {
+  const path = skill.path.replace(/\\/g, "/").replace(/\/SKILL\.md\/?$/i, "").replace(/\/$/, "");
+  return plugins.find(plugin => plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector" && plugin.files.some(file => {
+    if (file.objectType !== "skill") return false;
+    const destination = file.path.replace(/\\/g, "/").replace(/^\.opencode\//, "/").replace(/\/SKILL\.md$/i, "");
+    return destination.startsWith("/skills/") && path.endsWith(destination);
+  }));
 }
 
 /** One row per plugin; keep other copies available in the source details. */

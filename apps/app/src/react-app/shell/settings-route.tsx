@@ -2328,6 +2328,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <ExtensionsView
             busy={busy}
+            workspaceKey={selectedWorkspace?.id}
             showHeader
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}

@@ -1,7 +1,7 @@
 import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { Blocks, Loader2, Package } from "lucide-react";
+import { Blocks, Bot, Loader2, Package, Plug, Terminal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
-import { pluginImportName } from "./plugin-import-presentation";
+import { pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
 
 /**
  * Two parts of the Skills tab: the packages imported into this workspace (a
@@ -40,6 +40,24 @@ export function packageParts(types: readonly string[]): string {
     .join(" · ");
 }
 
+export function ImportedPackageContents({ plugin }: { plugin: ImportedPlugin }) {
+  const sections = [
+    { type: "skill", label: "skills.package_skills", Icon: Blocks },
+    { type: "mcp", label: "skills.package_connectors", Icon: Plug },
+    { type: "command", label: "skills.package_commands", Icon: Terminal },
+    { type: "agent", label: "skills.package_agents", Icon: Bot },
+  ];
+  if (!sections.some(section => plugin.files.some(file => file.objectType === section.type))) return <p className="text-sm text-muted-foreground">{t("extensions.import_no_components")}</p>;
+  return <div className="space-y-5">{sections.map(({ type, label, Icon }) => {
+    const files = plugin.files.filter(file => file.objectType === type);
+    if (!files.length) return null;
+    return <section key={type} className="space-y-2">
+      <h3 className="text-sm font-medium">{t(label, { count: files.length })}</h3>
+      <ul className="space-y-2">{files.map(file => <li key={file.path} className="flex items-center gap-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 break-words">{type === "mcp" && file.path.startsWith("opencode.jsonc#mcp.") ? pluginImportConnectorName(file.path.slice("opencode.jsonc#mcp.".length)) : file.title}</span></li>)}</ul>
+    </section>;
+  })}</div>;
+}
+
 export function ImportedPackages(props: {
   extensions: SkillPackagesStore;
   busy: boolean;
@@ -47,6 +65,7 @@ export function ImportedPackages(props: {
   revision: number;
   searchQuery?: string;
   showEmpty?: boolean;
+  onChanged?: () => void;
 }) {
   const { extensions } = props;
   const [packages, setPackages] = useState<ImportedPlugin[]>([]);
@@ -74,6 +93,7 @@ export function ImportedPackages(props: {
     try {
       await extensions.removeImportedPackage(plugin.pluginId);
       setPackages((list) => list.filter((each) => each.pluginId !== plugin.pluginId));
+      props.onChanged?.();
       toast.success(t("skills.package_removed", { name: pluginImportName(plugin) }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("skills.unknown_error"));
@@ -97,10 +117,9 @@ export function ImportedPackages(props: {
         ))}
       </div>
       <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
           <DialogHeader><DialogTitle>{selected ? pluginImportName(selected) : ""}</DialogTitle><DialogDescription>{selected?.description || t("integrations.import_description")}</DialogDescription></DialogHeader>
-          <p className="text-sm text-muted-foreground">{selected ? packageParts(selected.files.map(file => file.objectType)) : ""}</p>
-          <DialogFooter><Button onClick={() => setSelected(null)}>{t("common.close")}</Button></DialogFooter>
+          {selected ? <ImportedPackageContents plugin={selected} /> : null}
         </DialogContent>
       </Dialog>
       <ConfirmModal

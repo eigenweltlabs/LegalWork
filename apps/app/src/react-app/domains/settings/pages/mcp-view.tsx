@@ -43,7 +43,7 @@ import {
 import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
-import { pluginImportConnectorName } from "./plugin-import-presentation";
+import { importedConnectorPlugin, pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -301,6 +301,7 @@ const isDirectoryTool = (entry: McpDirectoryInfo) => entry.kind === "ui-control"
 type ExtensionFilter = "all" | "mcp" | "builtin" | "skill" | "plugin";
 
 export function McpView(props: McpViewProps) {
+  const importedPackages = useIntegrationLibraryLayout()?.importedPackages;
   const showHeader = props.showHeader !== false;
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
@@ -521,7 +522,10 @@ export function McpView(props: McpViewProps) {
   const libraryQuery = librarySearch.trim().toLocaleLowerCase();
   const matchesLibrary = (name: string, description?: string) =>
     `${name} ${description ?? ""}`.toLocaleLowerCase().includes(libraryQuery);
-  const libraryServers = props.mcpServers.filter(entry => matchesLibrary(displayName(entry.name), resolveQuickConnectMatch(entry.name)?.description));
+  const libraryServers = props.mcpServers.filter(entry => {
+    const owner = importedConnectorPlugin(entry.name, importedPackages);
+    return matchesLibrary(`${displayName(entry.name)} ${owner ? pluginImportName(owner) : ""}`, resolveQuickConnectMatch(entry.name)?.description);
+  });
   const libraryEntries = quickConnectList.filter(entry =>
     !isQuickConnectConfigured(entry) && isEntryConfigured(entry) && !isLegalWorkExtensionHidden(entry) && matchesLibrary(entry.name, entry.description));
   const openEntryDetails = (entry: McpDirectoryInfo) => {
@@ -1327,9 +1331,10 @@ function McpConfiguredServerRow(props: {
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
 }) {
+  const owner = importedConnectorPlugin(props.entry.name, useIntegrationLibraryLayout()?.importedPackages);
   return (
     <>
-      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={props.status === "disabled" ? <span className="text-xs text-muted-foreground">{t("integrations.connector_needs_enable")}</span> : <McpConnectorStatus {...props} />}
+      <IntegrationLibraryRow name={props.displayName(props.entry.name)} description={props.directoryEntry?.description ?? t("integrations.custom_connector")} source={owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : undefined} icon={<McpConfiguredServerIcon {...props} />} busy={props.busy} onOpen={() => props.onSelect(props.entry.name)} status={props.status === "disabled" ? <span className="text-xs text-muted-foreground">{t("integrations.connector_needs_enable")}</span> : <McpConnectorStatus {...props} />}
         onShare={props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(props.entry.name, props.displayName(props.entry.name)) : undefined}
         onRemove={props.entry.source !== "config.global" ? () => props.onRemove(props.entry.name) : undefined} />
       <McpConfiguredServerDetails {...props} />

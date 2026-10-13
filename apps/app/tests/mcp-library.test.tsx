@@ -7,6 +7,7 @@ import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
 import { IntegrationLibraryLayoutContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
+import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 
 const noop = () => {};
 const attioUrl = "https://example.invalid/attio";
@@ -132,4 +133,17 @@ test("connected and failed team OAuth connectors retain their actual state", () 
   const failed = renderTeamLibrary([item], { mcpStatuses: { research: { status: "failed", error: "Connection refused" } } });
   expect(failed).toContain("Not reachable right now");
   expect(failed).not.toContain("Sign in to use it");
+});
+
+test("plugin connectors appear once in the main library with their owning package and activation requirement", () => {
+  const plugin: ImportedPlugin = { pluginId: "patent", marketplaceId: null, name: "patent-studio", displayName: "Patent Studio", description: null, updatedAt: null, importedAt: 1, files: [
+    { configObjectId: "search", versionId: null, objectType: "mcp", title: "Patent Studio", path: "opencode.jsonc#mcp.paused", updatedAt: null },
+    { configObjectId: "missing", versionId: null, objectType: "mcp", title: "Not installed", path: "opencode.jsonc#mcp.not-installed", updatedAt: null },
+  ] };
+  const html = renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, importedPackages: [plugin] }}><McpView {...props} /></IntegrationLibraryLayoutContext.Provider>);
+  expect(html.match(/aria-label="Actions for paused"/g)).toHaveLength(1);
+  expect(html.match(/Plugin: Patent Studio/g)).toHaveLength(1);
+  expect(html).toContain("Manage your CRM");
+  expect(html).toContain("Enable to use");
+  expect(html).not.toContain("Not installed");
 });

@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { storageInputSchema } from "@legalwork/types/file-storage";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains/settings/pages/skills-view";
-import { BuiltInSkills } from "../src/react-app/domains/settings/pages/skill-packages";
+import { BuiltInSkills, ImportedPackageContents } from "../src/react-app/domains/settings/pages/skill-packages";
+import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
 import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationLibrarySearchContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
@@ -61,6 +62,25 @@ test("built-in search includes commands and omits unrelated entries", () => {
   expect(html).toContain("PDF Tools");
   expect(html).not.toContain("DOCX Redline");
   expect(renderToStaticMarkup(<BuiltInSkills searchQuery="no-match" showEmpty />)).toContain("No matching skills");
+});
+
+test("plugin skills stay in the Skills library and package details list their actual components", () => {
+  const plugin: ImportedPlugin = { pluginId: "patent", marketplaceId: null, name: "patent-studio", displayName: "Patent Studio", description: null, updatedAt: null, importedAt: 1, files: [
+    { configObjectId: "review", versionId: null, objectType: "skill", title: "Claim Review", path: ".opencode/skills/patent-studio-plugin/claim-review/SKILL.md", updatedAt: null },
+    { configObjectId: "search", versionId: null, objectType: "mcp", title: "Patent Studio", path: "opencode.jsonc#mcp.patent-search", updatedAt: null },
+    { configObjectId: "bundle", versionId: null, objectType: "bundle", title: "Complete source package", path: ".opencode/imported-plugins/patent-studio", updatedAt: null },
+  ] };
+  const html = renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, importedPackages: [plugin] }}><SkillsView workspaceName="Test" busy={false} showHeader={false} canInstallSkillCreator canUseDesktopTools extensions={{ ...extensions, skills: () => [...skills, { name: "claim-review", path: "/global/skills/patent-studio-plugin/claim-review", description: "Review claims" }] }} onOpenLink={noop} createSessionAndOpen={noop} /></IntegrationLibraryLayoutContext.Provider>);
+  expect(html.match(/aria-label="Actions for claim-review"/g)).toHaveLength(1);
+  expect(html.match(/Plugin: Patent Studio/g)).toHaveLength(1);
+  expect(html).toContain("skill-13");
+  const contents = renderToStaticMarkup(<ImportedPackageContents plugin={plugin} />);
+  expect(contents).toContain("Claim Review");
+  expect(contents).toContain("patent-search");
+  expect(contents).toContain("1 skill");
+  expect(contents).toContain("1 connector");
+  expect(contents).not.toContain("Complete source package");
+  expect(renderToStaticMarkup(<ImportedPackageContents plugin={{ ...plugin, files: [] }} />)).toContain("Source files only");
 });
 
 function renderSkillSources(source: IntegrationLibrarySource, query = "") {

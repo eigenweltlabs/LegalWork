@@ -75,6 +75,7 @@ test("maps Codex environment and HTTP authentication fields without reading envi
   expect(text).toContain('"clientId":"registered-client"');
   expect(text).toContain('"enabled":false');
   expect(remote!.preview.format).toBe("connectors");
+  expect(remote!.resolved.plugin.sourceKind).toBe("connector");
   expect(remote!.preview.warnings.some(warning => warning.includes("tool filters"))).toBe(true);
   const [local] = await resolvePluginImports({ ...request, source: { ...request.source, connector: { name: "local" } } }, root);
   expect(JSON.stringify(local!.resolved)).toContain('"args":["server.js","argument with spaces"]');

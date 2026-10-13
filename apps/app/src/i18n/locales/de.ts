@@ -24,6 +24,7 @@ const de = {
   "integrations.all_sources": "Alle Quellen",
   "integrations.source_all": "Alle",
   "integrations.source_personal": "Persönlich",
+  "integrations.plugin_source": "Aus dem Plugin {name}",
   "skills.packages_desc": "Verwalten Sie importierte Pakete. Ihre Skills und Konnektoren stehen auch in den jeweiligen Bibliotheken.",
   "integrations.description": "Verwalten Sie Konnektoren, Skills und Dateispeicher.",
   "integrations.add_connector": "Konnektor hinzufügen",

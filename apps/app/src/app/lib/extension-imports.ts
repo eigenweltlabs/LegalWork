@@ -38,6 +38,7 @@ export type ImportedPluginFile = {
 
 export type ImportedPlugin = {
   scope?: "global";
+  sourceKind?: "plugin" | "skill" | "connector";
   pluginId: string;
   marketplaceId: string | null;
   name: string;
@@ -172,6 +173,7 @@ export function readWorkspaceImports(value: unknown): WorkspaceImports {
         : [];
       const imported = {
         pluginId,
+        ...(entry.sourceKind === "plugin" || entry.sourceKind === "skill" || entry.sourceKind === "connector" ? { sourceKind: entry.sourceKind } : {}),
         ...(entry.scope === "global" ? { scope: "global" } : {}),
         marketplaceId: typeof entry.marketplaceId === "string" ? entry.marketplaceId.trim() || null : null,
         name,

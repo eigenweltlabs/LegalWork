@@ -84,7 +84,7 @@ import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import { BuiltInSkills, ImportedPackages, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
-import { pluginImportSkillName } from "./plugin-import-presentation";
+import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
@@ -397,9 +397,10 @@ export function SkillsView(props: SkillsViewProps) {
     if (!query) return skills;
     return skills.filter((skill) => {
       const description = skill.description ?? "";
-      return skill.name.toLowerCase().includes(query) || pluginImportSkillName(skill).toLowerCase().includes(query) || description.toLowerCase().includes(query);
+      const owner = importedSkillPlugin(skill, libraryLayout?.importedPackages);
+      return skill.name.toLowerCase().includes(query) || pluginImportSkillName(skill).toLowerCase().includes(query) || description.toLowerCase().includes(query) || Boolean(owner && pluginImportName(owner).toLowerCase().includes(query));
     });
-  }, [searchQuery, skills]);
+  }, [searchQuery, skills, libraryLayout?.importedPackages]);
 
   // Workflows render as a paginated 2-column card grid (6 per page); skills keep
   // the hairline ledger. Page resets whenever the filtered set shrinks or search changes.
@@ -823,7 +824,8 @@ export function SkillsView(props: SkillsViewProps) {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : pluginImportSkillName(skill);
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
-                  if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? t("firm_hub.scope_team") : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
+                  const owner = importedSkillPlugin(skill, libraryLayout?.importedPackages);
+                  if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? t("firm_hub.scope_team") : owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
                     onExport={!skill.firm && props.canUseDesktopTools ? () => void exportSkill(skill) : undefined}
                     onShare={!skill.firm && props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(skill.name, "skill", displayName) : undefined}
                     onRemove={!skill.firm && props.canUseDesktopTools ? () => setUninstallTarget(skill) : undefined} />;
