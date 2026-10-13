@@ -49,7 +49,9 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const fieldId = useId();
-  const nativeMail = isElectronRuntime() && window.__LEGALWORK_ELECTRON__?.meta?.platform === "darwin";
+  const platform = isElectronRuntime() ? window.__LEGALWORK_ELECTRON__?.meta?.platform : undefined;
+  const nativeMail = platform === "darwin";
+  const nativeOutlook = nativeMail || platform === "windows";
   const dirty = draft !== baseline;
   const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, `${initial.id}:${fieldId}`), initial.subject || "Email draft", () => dirtyRef.current), [workspaceId, sessionId, initial.id, initial.subject, fieldId]);
@@ -89,7 +91,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
         const anchor = document.createElement("a"); anchor.href = url; anchor.download = "email-draft.eml"; anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 10000);
       } else if (action !== "save") {
-        if ((action === "system" || action === "outlook-app") && nativeMail) {
+        if ((action === "system" && nativeMail) || (action === "outlook-app" && nativeOutlook)) {
           if (!client) throw new Error("The draft is unavailable.");
           const attachments = [];
           let total = 0;
@@ -106,7 +108,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
           });
           return;
         }
-        if (action === "outlook-app") throw new Error("Open Outlook from the macOS desktop app.");
+        if (action === "outlook-app") throw new Error("Open Outlook from the macOS or Windows desktop app.");
         const link = emailComposeLink(saved, action);
         if (link.length > 8000) throw new Error("This draft is too long for a compose link. Shorten the message or download .eml to export it.");
         if (popup) popup.location.href = link;
@@ -174,7 +176,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
         <Button size="sm" disabled={!editable} className="gap-2 rounded-l-lg rounded-r-none border-r-0 bg-clip-border px-3.5 motion-safe:active:not-aria-[haspopup]:translate-y-0" onClick={() => void run("system")}>{nativeMail ? "Open in Apple Mail" : "Open in Mail"}<ArrowUpRight className="size-3.5" /></Button>
         <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" className="rounded-l-none rounded-r-lg border-l-background/20 bg-clip-border" disabled={!editable} aria-label="Open draft in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onClick={() => void run("gmail")}><Mail />Open in Gmail</DropdownMenuItem>
-          {nativeMail && <DropdownMenuItem onClick={() => void run("outlook-app")}><Mail />Open in Outlook app</DropdownMenuItem>}
+          {nativeOutlook && <DropdownMenuItem onClick={() => void run("outlook-app")}><Mail />{platform === "windows" ? "Open in classic Outlook" : "Open in Outlook app"}</DropdownMenuItem>}
           <DropdownMenuItem onClick={() => void run("outlook")}><Mail />Open in Outlook web</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("download")}><Download />Download .eml</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>

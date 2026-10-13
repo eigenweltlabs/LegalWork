@@ -57,6 +57,47 @@ function run() {
   mail.activate();
 }`;
 
+// Classic Outlook's COM API imports attachments before the private staging
+// directory is removed. New Outlook has no COM API; its web/mailto actions
+// remain available separately. Message data never becomes PowerShell source.
+export const WINDOWS_OUTLOOK_DRAFT_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+$draft = [Console]::In.ReadToEnd() | ConvertFrom-Json
+try { $outlook = New-Object -ComObject Outlook.Application }
+catch { [Console]::Error.WriteLine('LEGALWORK_OUTLOOK_UNAVAILABLE'); exit 1 }
+try {
+  $message = $outlook.CreateItem(0)
+  $message.Subject = [string]$draft.subject
+  $message.BodyFormat = 1
+  $message.Body = [string]$draft.body
+  foreach ($address in $draft.to) { $recipient = $message.Recipients.Add([string]$address); $recipient.Type = 1 }
+  foreach ($address in $draft.cc) { $recipient = $message.Recipients.Add([string]$address); $recipient.Type = 2 }
+  foreach ($address in $draft.bcc) { $recipient = $message.Recipients.Add([string]$address); $recipient.Type = 3 }
+  $message.Save()
+  foreach ($file in $draft.attachments) { $null = $message.Attachments.Add([string]$file, 1) }
+  if ($message.Attachments.Count -ne @($draft.attachments).Count) { throw 'Attachment import failed' }
+  $message.Save()
+  $message.Display($false)
+} catch { [Console]::Error.WriteLine('LEGALWORK_OUTLOOK_DRAFT_FAILED'); exit 1 }
+`;
+
+/** @param {string} input */
+function runWindowsOutlookScript(input) {
+  return new Promise((resolve, reject) => {
+    const executable = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", Buffer.from(WINDOWS_OUTLOOK_DRAFT_SCRIPT, "utf16le").toString("base64")],
+      { timeout: 120000, maxBuffer: 64000, windowsHide: true }, (error, _stdout, stderr) => {
+        if (!error) { resolve(undefined); return; }
+        reject(new Error(stderr.includes("LEGALWORK_OUTLOOK_UNAVAILABLE")
+          ? "This action requires classic Outlook for Windows. For new Outlook, use Open in Mail or Outlook web."
+          : "Outlook could not finish opening the draft. Check Outlook for a partially created draft before trying again."));
+      });
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
+  });
+}
+
 /** @param {string} input
  * @param {string} script
  * @param {string} appName
@@ -92,6 +133,7 @@ async function runOutlookScript(input) {
 
 /** @param {unknown} input @param {MailDraftOptions} [options] */
 export async function composeAppleMailDraft(input, options = {}) {
+  if ((options.platform ?? process.platform) !== "darwin") throw new Error("Apple Mail drafts are available on macOS only.");
   return composeNativeMailDraft(input, "Apple Mail", {
     ...options, runScript: options.runScript ?? (value => runMailScript(value, APPLE_MAIL_DRAFT_SCRIPT, "Apple Mail", "Mail")),
   });
@@ -99,7 +141,8 @@ export async function composeAppleMailDraft(input, options = {}) {
 
 /** @param {unknown} input @param {MailDraftOptions} [options] */
 export async function composeOutlookDraft(input, options = {}) {
-  return composeNativeMailDraft(input, "Outlook", { ...options, runScript: options.runScript ?? runOutlookScript });
+  const platform = options.platform ?? process.platform;
+  return composeNativeMailDraft(input, "Outlook", { ...options, runScript: options.runScript ?? (platform === "win32" ? runWindowsOutlookScript : runOutlookScript) });
 }
 
 /** Stages attachments until the mail application saves its own draft. Never sends mail.
@@ -108,8 +151,11 @@ export async function composeOutlookDraft(input, options = {}) {
  * @param {{ platform?: string, runScript: (input: string) => Promise<unknown> }} options
  */
 async function composeNativeMailDraft(input, appName, { platform = process.platform, runScript }) {
-  if (platform !== "darwin") throw new Error(`${appName} drafts are available on macOS only.`);
+  if (platform !== "darwin" && platform !== "win32") throw new Error(`${appName} drafts are available on macOS and Windows only.`);
   const draft = draftSchema.parse(input);
+  if (platform === "win32" && draft.attachments.some(({ name }) => /[<>:"|?*]|[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name))) {
+    throw new Error("An attachment filename is not supported on Windows. Rename it and try again.");
+  }
   if (draft.attachments.reduce((size, item) => size + item.data.byteLength, 0) > 20 * 1024 * 1024) {
     throw new Error("Attachments must total 20 MB or less.");
   }
