@@ -153,8 +153,15 @@ function packageRoots(files: PackageFiles, provider: PluginImportProvider): stri
   if (files.has("SKILL.md") || [...files.keys()].some(path => /^(skills\/.*\/SKILL\.md|commands\/.*\.md|agents\/.*\.md)$/.test(path))) return [""];
   const skillRoots = [...files.keys()].filter(path => path.endsWith("/SKILL.md")).map(path => dirname(path).replace(/\\/g, "/"));
   if (!skillRoots.length) return [];
-  const first = [...files.keys()][0]?.split("/")[0];
-  return first && [...files.keys()].every(path => path.startsWith(`${first}/`)) ? [first] : [""];
+  const keys = [...files.keys()];
+  const folders = keys[0]?.split("/").slice(0, -1) ?? [];
+  let root = "";
+  for (const folder of folders) {
+    const candidate = root ? `${root}/${folder}` : folder;
+    if (!keys.every(path => path.startsWith(`${candidate}/`))) break;
+    root = candidate;
+  }
+  return [root];
 }
 function subFiles(files: PackageFiles, root: string): PackageFiles {
   if (!root) return files;

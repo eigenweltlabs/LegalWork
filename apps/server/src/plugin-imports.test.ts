@@ -99,6 +99,7 @@ describe("complete plugin imports", () => {
     expect(collection!.resolved.plugin.sourceKind).toBe("skill");
     const [bundle] = await resolvePluginImports(request({ "SKILL.md": skill, ".mcp.json": '{"mcpServers":{"search":{"url":"https://example.invalid/mcp"}}}' }), "/project");
     expect(bundle!.preview.components).toHaveLength(2);
+    expect(bundle!.preview.root).toBe("export/patent");
     expect(bundle!.resolved.plugin.sourceKind).toBe("plugin");
     const [inline] = await resolvePluginImports(request({ ".claude-plugin/plugin.json": '{"name":"inline","commands":{"about":{"content":"Explain the plugin.","description":"About"}}}' }), "/project");
     expect(inline!.preview.components).toHaveLength(1); expect(JSON.stringify(inline!.resolved)).toContain("Explain the plugin.");
