@@ -40,6 +40,8 @@ export function createActaportConnection(options) {
   /** @type {import('../../../packages/actaport-mcp/src/auth.js').TokenProvider | undefined} */
   let tokenProvider;
   let allowWrites = false;
+  /** @type {import('../../../packages/actaport-mcp/src/toolsets.js').Toolset[]} */
+  let toolsets = [];
   let generation = 0;
   let changes = Promise.resolve();
 
@@ -60,7 +62,8 @@ export function createActaportConnection(options) {
     const encrypted = await readFile(credentialsPath);
     const payload = JSON.parse(options.safeStorage.decryptString(encrypted));
     const credentials = auth.credentialsSchema.parse(payload.credentials);
-    return { credentials, allowWrites: payload.allowWrites === true };
+    return { credentials, allowWrites: payload.allowWrites === true,
+      toolsets: auth.toolsetsSchema.parse(payload.toolsets ?? []) };
   }
 
   async function tokens(force = false) {
@@ -71,6 +74,7 @@ export function createActaportConnection(options) {
       if (version !== generation) throw new Error("The Actaport connection changed.");
       if (!tokenProvider) {
         allowWrites = saved.allowWrites;
+        toolsets = saved.toolsets;
         tokenProvider = auth.createTokenProvider(saved.credentials, { fetch: options.fetch });
       }
     }
@@ -78,20 +82,22 @@ export function createActaportConnection(options) {
     const token = await provider(force);
     // Disconnect/replace must also invalidate token requests that were already in flight.
     if (version !== generation || provider !== tokenProvider) throw new Error("The Actaport connection changed.");
-    return { ...token, allowWrites };
+    return { ...token, allowWrites, toolsets };
   }
 
-  async function persist(credentials, writes) {
+  async function persist(credentials, writes, selected) {
     await mkdir(options.directory, { recursive: true, mode: 0o700 });
-    await writePrivateFile(credentialsPath, options.safeStorage.encryptString(JSON.stringify({ credentials, allowWrites: writes })));
+    await writePrivateFile(credentialsPath, options.safeStorage.encryptString(JSON.stringify({ credentials, allowWrites: writes, toolsets: selected })));
   }
 
   async function status() {
     const secureStorage = encryptionAvailable();
+    const auth = await options.loadAuth();
+    const groups = { coreToolCount: auth.coreToolCount, toolsets: auth.toolsetSummaries };
     try {
       const saved = await stored();
-      return { configured: true, secureStorage, allowWrites: saved.allowWrites };
-    } catch { return { configured: false, secureStorage, allowWrites: false }; }
+      return { configured: true, secureStorage, allowWrites: saved.allowWrites, enabledToolsets: saved.toolsets, ...groups };
+    } catch { return { configured: false, secureStorage, allowWrites: false, enabledToolsets: [], ...groups }; }
   }
 
   /** @param {import('../../../packages/actaport-mcp/src/auth.js').TokenProvider} [provider] */
@@ -116,19 +122,31 @@ export function createActaportConnection(options) {
     if (!parsed.success) throw new Error("Enter all five Actaport API credentials. The Kanzlei-Alias must be a valid realm.");
     const next = auth.createTokenProvider(parsed.data, { fetch: options.fetch });
     try { await test(next); } catch { throw new Error("Actaport could not verify these credentials. Check the API add-on and API user access."); }
-    await persist(parsed.data, false);
+    await persist(parsed.data, false, []);
     generation++;
     tokenProvider = next;
     allowWrites = false;
+    toolsets = [];
     return status();
   }
 
   async function setWriteAccess(enabled) {
     if (typeof enabled !== "boolean") throw new Error("Write access must be enabled or disabled explicitly.");
     const saved = await stored();
-    await persist(saved.credentials, enabled);
+    await persist(saved.credentials, enabled, saved.toolsets);
     generation++;
     allowWrites = enabled;
+    return status();
+  }
+
+  async function setToolsets(input) {
+    const auth = await options.loadAuth();
+    const parsed = auth.toolsetsSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Select valid Actaport tool groups.");
+    const saved = await stored();
+    await persist(saved.credentials, saved.allowWrites, parsed.data);
+    generation++;
+    toolsets = parsed.data;
     return status();
   }
 
@@ -136,6 +154,7 @@ export function createActaportConnection(options) {
     generation++;
     tokenProvider = undefined;
     allowWrites = false;
+    toolsets = [];
     await rm(credentialsPath, { force: true });
     return status();
   }
@@ -178,7 +197,12 @@ export function createActaportConnection(options) {
     try { await starting; } finally { starting = undefined; }
   }
 
-  async function environment() { await start(); return { ACTAPORT_CONNECTION_FILE: discoveryPath, ACTAPORT_ALLOW_WRITES: (await status()).allowWrites ? "1" : "0" }; }
+  async function environment() {
+    await start();
+    const saved = await status();
+    return { ACTAPORT_CONNECTION_FILE: discoveryPath, ACTAPORT_ALLOW_WRITES: saved.allowWrites ? "1" : "0",
+      ACTAPORT_TOOLSETS: saved.enabledToolsets.join(",") };
+  }
   async function close() {
     await starting?.catch(() => undefined);
     const instance = server;
@@ -188,5 +212,6 @@ export function createActaportConnection(options) {
     tokenProvider = undefined;
   }
   return { status, connect: (input) => mutate(() => connect(input)), test: () => test(),
-    setWriteAccess: (enabled) => mutate(() => setWriteAccess(enabled)), disconnect: () => mutate(disconnect), environment, close };
+    setWriteAccess: (enabled) => mutate(() => setWriteAccess(enabled)), setToolsets: (input) => mutate(() => setToolsets(input)),
+    disconnect: () => mutate(disconnect), environment, close };
 }

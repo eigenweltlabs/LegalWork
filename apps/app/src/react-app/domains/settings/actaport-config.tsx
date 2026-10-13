@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import type { ActaportConnectionStatus, ActaportToolset } from "@legalwork/types/desktop-ipc";
 import { desktopBridge } from "@/app/lib/desktop";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -21,9 +22,33 @@ const fields: Array<{ name: keyof typeof emptyCredentials; label: string; secret
 
 registerExtensionConfig("actaport", (context) => <ActaportConfig context={context.actaport} />);
 
+export function ActaportToolsets({ status, busy, onChange }: {
+  status: ActaportConnectionStatus; busy: boolean; onChange: (selected: ActaportToolset[]) => void;
+}) {
+  const total = status.coreToolCount + status.toolsets.filter((group) => status.enabledToolsets.includes(group.id))
+    .reduce((count, group) => count + group.readTools + (status.allowWrites ? group.writeTools : 0), 0);
+  return <div className="space-y-3">
+    <div className="space-y-1">
+      <p className="text-sm font-medium">{t("actaport.toolsets")}</p>
+      <p className="text-xs text-muted-foreground">{t("actaport.core_tools", { count: status.coreToolCount })}</p>
+      <p role="status" className="text-xs text-muted-foreground">{t("actaport.tools_count", { count: total })}</p>
+    </div>
+    {status.toolsets.map((group) => <div key={group.id} className="space-y-1">
+      <Label htmlFor={`actaport-toolset-${group.id}`} className="leading-normal">
+        <Checkbox id={`actaport-toolset-${group.id}`} disabled={busy} checked={status.enabledToolsets.includes(group.id)}
+          onCheckedChange={(checked) => onChange(checked ? [...status.enabledToolsets, group.id] : status.enabledToolsets.filter((id) => id !== group.id))} />
+        {t(`actaport.toolset_${group.id}`)}
+      </Label>
+      <p className="pl-6 text-xs text-muted-foreground">{t(`actaport.toolset_${group.id}_hint`)}</p>
+      <p className="pl-6 text-xs text-muted-foreground">{t("actaport.toolset_count", { count: group.readTools + (status.allowWrites ? group.writeTools : 0) })}</p>
+    </div>)}
+    <p className="text-xs text-muted-foreground">{t("actaport.toolsets_hint")}</p>
+  </div>;
+}
+
 export function ActaportConfig({ context }: { context?: ExtensionConfigContext["actaport"] }) {
   const [credentials, setCredentials] = useState(emptyCredentials);
-  const [status, setStatus] = useState<{ configured: boolean; secureStorage: boolean; allowWrites: boolean } | null>(null);
+  const [status, setStatus] = useState<ActaportConnectionStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -76,6 +101,9 @@ export function ActaportConfig({ context }: { context?: ExtensionConfigContext["
         <Button type="submit" disabled={!desktop || !status?.secureStorage || busy}>{busy ? t("actaport.working") : t("actaport.save_connect")}</Button>
       </form>}
       {status?.configured && <div className="space-y-3 border-t border-border pt-4">
+        <ActaportToolsets status={status} busy={busy} onChange={(selected) => {
+          void run(async () => { setStatus(await desktopBridge.actaportSetToolsets(selected)); await connectMcp(); });
+        }} />
         <Label htmlFor="actaport-writes" className="leading-normal">
           <Checkbox id="actaport-writes" checked={status.allowWrites} disabled={busy} onCheckedChange={(checked) => {
             void run(async () => { setStatus(await desktopBridge.actaportSetWriteAccess(checked)); await connectMcp(); });

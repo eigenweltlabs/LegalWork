@@ -4,14 +4,16 @@ import { z } from "zod";
 import { ActaportError, createTokenProvider, credentialsSchema, type TokenProvider } from "./auth.js";
 import { ActaportClient } from "./client.js";
 import { createActaportServer } from "./server.js";
+import { parseToolsets, selectedOperationIds, toolsetsSchema } from "./toolsets.js";
 
 const bridgeSchema = z.object({ baseUrl: z.url(), token: z.string().min(32) });
-const accessSchema = z.object({ accessToken: z.string().min(1), expiresAt: z.number(), allowWrites: z.boolean() });
+const accessSchema = z.object({ accessToken: z.string().min(1), expiresAt: z.number(), allowWrites: z.boolean(), toolsets: toolsetsSchema.default([]) });
 
 async function main() {
   const connectionFile = process.env.ACTAPORT_CONNECTION_FILE;
   const credentialsFile = process.env.ACTAPORT_CREDENTIALS_FILE;
   let allowWrites = process.env.ACTAPORT_ALLOW_WRITES === "1";
+  let toolsets = parseToolsets(connectionFile ? undefined : process.env.ACTAPORT_TOOLSETS);
   let provider: TokenProvider;
   if (connectionFile) {
     const descriptor = bridgeSchema.parse(JSON.parse(await readFile(connectionFile, "utf8")));
@@ -24,6 +26,7 @@ async function main() {
       const result = accessSchema.parse(await response.json());
       // Enforce the current setting on every call, including already-running MCP processes.
       allowWrites = result.allowWrites;
+      toolsets = result.toolsets;
       return result;
     };
     await provider();
@@ -33,8 +36,9 @@ async function main() {
     provider = createTokenProvider(credentialsSchema.parse(JSON.parse(await readFile(credentialsFile, "utf8"))));
   } else throw new Error("Connect Actaport in LegalWork, or set ACTAPORT_CREDENTIALS_FILE to a private credential file.");
   const client = new ActaportClient(provider, { fileRoot: process.env.ACTAPORT_FILE_ROOT,
-    get allowWrites() { return allowWrites; } });
-  const server = createActaportServer(client, allowWrites);
+    get allowWrites() { return allowWrites; },
+    isOperationEnabled: (operation) => selectedOperationIds(toolsets, true).has(operation.operationId) });
+  const server = createActaportServer(client, { allowWrites, toolsets });
   await server.connect(new StdioServerTransport());
   const close = async () => { await server.close(); process.exit(0); };
   process.on("SIGTERM", close);

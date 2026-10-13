@@ -1912,6 +1912,9 @@ const desktopCommandHandlers = {
   "actaportSetWriteAccess": async (event, ...args) => {
       return getActaportConnection().setWriteAccess(args[0]);
   },
+  "actaportSetToolsets": async (event, ...args) => {
+      return getActaportConnection().setToolsets(args[0]);
+  },
   "actaportDisconnect": async (event, ...args) => {
       return getActaportConnection().disconnect();
   },

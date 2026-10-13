@@ -75,7 +75,7 @@ Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
       if (command === "getActaportMcpCommand") return ["node", "/tmp/bundled-actaport/index.mjs"];
-      if (command === "getActaportMcpEnvironment") return { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0" };
+      if (command === "getActaportMcpEnvironment") return { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0", ACTAPORT_TOOLSETS: "" };
       if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: true, content: config };
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
@@ -265,7 +265,7 @@ describe("connection store success reporting", () => {
     expect(await makeStore().connectMcp(actaport)).toBe(true);
     expect(serverAdds).toHaveLength(1);
     expect(serverAdds[0]).toMatchObject({ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"],
-      environment: { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0" } } });
+      environment: { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0", ACTAPORT_TOOLSETS: "" } } });
     expect(JSON.stringify(serverAdds)).not.toContain("clientSecret");
     expect(JSON.stringify(serverAdds)).not.toContain("password");
   });

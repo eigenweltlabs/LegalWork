@@ -27,11 +27,16 @@ function inside(root: string, path: string) {
 export class ActaportClient {
   constructor(private readonly token: TokenProvider, private readonly options: {
     fetch?: typeof fetch; origin?: string; fileRoot?: string; allowWrites?: boolean;
+    isOperationEnabled?: (operation: Operation) => boolean;
   } = {}) {}
 
   async execute(operation: Operation, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (!operation.validate(input)) throw new ActaportError("invalid_arguments", `Invalid arguments: ${operation.validate.errors?.map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")}`);
     if (!operation.readOnly && !this.options.allowWrites) throw new ActaportError("read_only", "Actaport writes are disabled. Enable write access in connection settings.");
+    const checkToolset = () => {
+      if (this.options.isOperationEnabled?.(operation) === false) throw new ActaportError("tool_disabled", "This tool group is disabled. Select it in Actaport connection settings.");
+    };
+    checkToolset();
     let path = operation.path;
     for (const field of pathParameters(path)) path = path.replace(field.template, encodeURIComponent(String(input[field.name])));
     const origin = this.options.origin ?? ACTAPORT_ORIGIN;
@@ -52,6 +57,7 @@ export class ActaportClient {
     let access = await this.token();
     const request = async () => {
       if (!operation.readOnly && !this.options.allowWrites) throw new ActaportError("read_only", "Actaport writes are disabled.");
+      checkToolset();
       headers.set("Authorization", `Bearer ${access.accessToken}`);
       try {
         return await (this.options.fetch ?? fetch)(url, { method: operation.method, headers, body,

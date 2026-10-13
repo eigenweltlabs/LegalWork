@@ -39,7 +39,12 @@ test("credentials are encrypted; the private bridge releases tokens only and rev
   const connection = createActaportConnection({ directory, safeStorage, loadAuth, fetch: providerFetch });
   try {
     assert.equal((await connection.status()).configured, false);
-    assert.deepEqual(await connection.connect(credentials), { configured: true, secureStorage: true, allowWrites: false });
+    const connected = await connection.connect(credentials);
+    assert.equal(connected.configured, true);
+    assert.equal(connected.allowWrites, false);
+    assert.deepEqual(connected.enabledToolsets, []);
+    assert.equal(connected.coreToolCount, 15);
+    assert.equal(connected.toolsets.length, 4);
     const encrypted = await readFile(path.join(directory, "actaport-credentials.enc"));
     assert.equal(encrypted.includes(Buffer.from("private-password")), false);
     assert.equal(encrypted.includes(Buffer.from("private-secret")), false);
@@ -53,7 +58,7 @@ test("credentials are encrypted; the private bridge releases tokens only and rev
     assert.equal((await fetch(`${descriptor.baseUrl}token`, { method: "POST", headers: { ...headers, Origin: "https://attacker.example" } })).status, 401);
     let response = await fetch(`${descriptor.baseUrl}token`, { method: "POST", headers, body: "{}" });
     const result = await response.json();
-    assert.deepEqual(Object.keys(result).sort(), ["accessToken", "allowWrites", "expiresAt"]);
+    assert.deepEqual(Object.keys(result).sort(), ["accessToken", "allowWrites", "expiresAt", "toolsets"]);
     assert.equal(result.accessToken, "private-token");
     assert.equal(result.allowWrites, false);
     await connection.setWriteAccess(true);
@@ -77,6 +82,52 @@ test("Linux plaintext fallback and invalid credentials cannot be saved", async (
     assert.equal((await connection.status()).secureStorage, false);
     await assert.rejects(connection.connect(credentials), /Secure credential storage/);
     await assert.rejects(readFile(path.join(directory, "actaport-credentials.enc")), { code: "ENOENT" });
+  } finally { await connection.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("tool groups persist privately, survive permission changes and revoke through the bridge", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "legalwork-actaport-groups-"));
+  const safeStorage = storage();
+  const connection = createActaportConnection({ directory, safeStorage, loadAuth, fetch: providerFetch });
+  try {
+    await connection.connect(credentials);
+    const environment = await connection.environment();
+    assert.equal(environment.ACTAPORT_TOOLSETS, "");
+    const descriptor = JSON.parse(await readFile(environment.ACTAPORT_CONNECTION_FILE, "utf8"));
+    const access = async () => (await fetch(`${descriptor.baseUrl}token`, { method: "POST",
+      headers: { Authorization: `Bearer ${descriptor.token}` }, body: "{}" })).json();
+    await access(); // Initialise the live token cache before changing settings.
+    assert.deepEqual((await connection.setToolsets(["finance", "uploads"])).enabledToolsets, ["finance", "uploads"]);
+    assert.deepEqual((await access()).toolsets, ["finance", "uploads"]);
+    assert.equal((await connection.environment()).ACTAPORT_TOOLSETS, "finance,uploads");
+    const changed = await connection.setWriteAccess(true);
+    assert.deepEqual(changed.enabledToolsets, ["finance", "uploads"]);
+    const restored = createActaportConnection({ directory, safeStorage, loadAuth, fetch: providerFetch });
+    assert.deepEqual((await restored.status()).enabledToolsets, ["finance", "uploads"]);
+    await assert.rejects(connection.setToolsets(["unknown"]), /valid Actaport tool groups/);
+    await assert.rejects(connection.setToolsets(["finance", "finance"]), /valid Actaport tool groups/);
+    assert.deepEqual((await connection.status()).enabledToolsets, ["finance", "uploads"]);
+    await connection.setToolsets([]);
+    assert.deepEqual((await access()).toolsets, []);
+    assert.equal((await access()).allowWrites, true);
+    // Replacing credentials starts again with the small read-only set.
+    const replaced = await connection.connect(credentials);
+    assert.deepEqual(replaced.enabledToolsets, []);
+    assert.equal(replaced.allowWrites, false);
+  } finally { await connection.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("credentials saved before tool groups were introduced migrate to the minimal set", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "legalwork-actaport-legacy-"));
+  const safeStorage = storage();
+  const connection = createActaportConnection({ directory, safeStorage, loadAuth, fetch: providerFetch });
+  try {
+    await writeFile(path.join(directory, "actaport-credentials.enc"), safeStorage.encryptString(JSON.stringify({ credentials, allowWrites: true })), { mode: 0o600 });
+    const saved = await connection.status();
+    assert.equal(saved.configured, true);
+    assert.equal(saved.allowWrites, true);
+    assert.deepEqual(saved.enabledToolsets, []);
+    assert.equal((await connection.environment()).ACTAPORT_TOOLSETS, "");
   } finally { await connection.close(); await rm(directory, { recursive: true, force: true }); }
 });
 

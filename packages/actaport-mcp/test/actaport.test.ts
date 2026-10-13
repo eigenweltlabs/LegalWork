@@ -162,14 +162,14 @@ describe("API execution", () => {
 
 test("real MCP handshake, tool discovery and calls respect write mode and redact errors", async () => {
   const api = new ActaportClient(token, { fetch: mockFetch(() => new Response("private-token private-secret", { status: 500 })) });
-  const server = createActaportServer(api);
+  const server = createActaportServer(api, { toolsets: ["administration"] });
   const client = new Client({ name: "test-client", version: "1" });
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(operations.filter((item) => item.readOnly).length);
+    expect(tools.tools).toHaveLength(28);
     expect(tools.tools.every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
     const result = await client.callTool({ name: "actaport_get_user_info", arguments: {} });
     expect(result.isError).toBe(true);
