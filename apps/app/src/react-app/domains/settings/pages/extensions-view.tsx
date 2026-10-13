@@ -41,7 +41,7 @@ type SuggestedPlugin = {
 
 export type ExtensionsViewProps = {
   busy: boolean;
-  /** Engine plugins are code for developers: their tab shows only in developer mode. */
+  /** Engine plugin management is available through More only in developer mode. */
   developerMode: boolean;
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
@@ -70,34 +70,34 @@ export type ExtensionsViewProps = {
   showHeader?: boolean;
 };
 
-// The Integrations page covers connectors (MCP), file storage and skills; in
-// developer mode also the engine's plugins (code it loads).
+// Installed workflow bundles have their own library. Engine extensions stay
+// behind a developer-only action rather than sharing the Plugins category.
 // Built per render, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze the tabs in whatever language loaded first.
-const tabs = (developerMode: boolean): HubTab<ExtensionsTab>[] => {
+const tabs = (): HubTab<ExtensionsTab>[] => {
   const items: HubTab<ExtensionsTab>[] = [
+    { id: "plugins", label: t("extensions.filter_plugins") },
     { id: "connectors", label: t("extensions.connectors_label") },
     { id: "skills", label: "Skills" },
     { id: "storage", label: t("storage.tab") },
   ];
-  if (developerMode) items.push({ id: "plugins", label: t("extensions.engine_plugins") });
   return items;
 };
 
 export function ExtensionsView(props: ExtensionsViewProps) {
-  // An old link to the Plugins tab opens Skills, where the built-in ones are now.
   const initialTab: ExtensionsTab =
     props.initialSection === "storage" ? "storage" : props.initialSection === "plugins"
-      ? props.developerMode ? "plugins" : "skills"
+      ? "plugins"
       : props.initialSection === "skills"
         ? "skills"
-        : "connectors";
+        : props.initialSection === "mcp" ? "connectors" : "plugins";
   const [importOpen, setImportOpen] = useState(false);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const [packagesOpen, setPackagesOpen] = useState(false);
+  const [enginePluginsOpen, setEnginePluginsOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
   const packageTarget = props.workspaceKey ?? props.selectedWorkspaceRoot;
@@ -128,11 +128,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
   };
 
-  const TABS = tabs(props.developerMode);
+  const TABS = tabs();
   const canImportPlugins = props.canEditPlugins && props.canUseGlobalScope;
   const canImportSkills = Boolean(props.skillImports && props.canImportSkills);
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
+  const packageRemoved = (pluginId: string) => {
+    setPackageLibrary(current => current ? { ...current, items: current.items.filter(item => item.pluginId !== pluginId) } : null);
+    refresh();
+  };
   const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
+  const importedPackage = () => { setSource("all"); selectTab("plugins"); refresh(); };
   const requestAdd = (kind: IntegrationLibraryKind) => {
     setSource("all");
     selectTab(kind === "connector" ? "connectors" : kind === "skill" ? "skills" : "storage");
@@ -163,20 +168,27 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                 try { await props.skillTools.revealSkillsFolder(); }
                 catch (error) { toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); }
               }}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+              {props.developerMode ? <DropdownMenuItem disabled={props.busy} onClick={() => setEnginePluginsOpen(true)}><Package />{t("extensions.engine_plugins")}</DropdownMenuItem> : null}
             </IntegrationMoreMenu>
           </div>
         </div>
         {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={refresh} showEmpty />
+            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} showEmpty />
+          </DialogContent>
+        </Dialog> : null}
+        {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
+          <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-3xl">
+            <DialogHeader><DialogTitle>{t("extensions.engine_plugins")}</DialogTitle><DialogDescription>{t("plugins.desc")}</DialogDescription></DialogHeader>
+            <PluginsView extensions={props.extensions} busy={props.busy} selectedWorkspaceRoot={props.selectedWorkspaceRoot} canEditPlugins={props.canEditPlugins} canUseGlobalScope={props.canUseGlobalScope} accessHint={props.accessHint} suggestedPlugins={props.suggestedPlugins} />
           </DialogContent>
         </Dialog> : null}
         {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => {
           const connector = preview.components.length === 1 && preview.components[0]?.type === "mcp" ? preview.components[0] : null;
           setImportVersion(value => value + 1);
           setSource("all");
-          selectTab(connector || preview.format === "connectors" ? "connectors" : "skills");
+          selectTab(connector || preview.format === "connectors" ? "connectors" : preview.format === "skills" && preview.components.every(item => item.type === "skill") ? "skills" : "plugins");
           setConnectorToOpen(connector?.installedName ?? null);
           props.onRefresh();
         }}
@@ -192,12 +204,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             setSkillImportSource(importSource);
             setSkillImportOpen(true);
           } : undefined} /> : null}
-        {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedSkills} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
+        {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedPackage} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <div ref={setSearchTarget} className="min-w-0 flex-1 empty:hidden sm:flex-none" />
-            {tab !== "plugins" ? <DropdownMenu>
+            <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
                 <ListFilter className="size-3.5" />{source === "all" ? t("integrations.filter") : source === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
               </DropdownMenuTrigger>
@@ -208,7 +220,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
                   <DropdownMenuRadioItem value="team" closeOnClick>{t("firm_hub.scope_team")}</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
-            </DropdownMenu> : null}
+            </DropdownMenu>
           </div>
         </div>
 
@@ -219,17 +231,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" ? (
-            <PluginsView
-              extensions={props.extensions}
-              busy={props.busy}
-              selectedWorkspaceRoot={props.selectedWorkspaceRoot}
-              canEditPlugins={props.canEditPlugins}
-              canUseGlobalScope={props.canUseGlobalScope}
-              accessHint={props.accessHint}
-              suggestedPlugins={props.suggestedPlugins}
-            />
-          ) : null}
+          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} library showEmpty /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>

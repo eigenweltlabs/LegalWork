@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { storageInputSchema } from "@legalwork/types/file-storage";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains/settings/pages/skills-view";
-import { BuiltInSkills, ImportedPackageContents } from "../src/react-app/domains/settings/pages/skill-packages";
+import { BuiltInSkills, ImportedPackageContents, ImportedPackages } from "../src/react-app/domains/settings/pages/skill-packages";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
@@ -81,6 +81,24 @@ test("plugin skills stay in the Skills library and package details list their ac
   expect(contents).toContain("1 connector");
   expect(contents).not.toContain("Complete source package");
   expect(renderToStaticMarkup(<ImportedPackageContents plugin={{ ...plugin, files: [] }} />)).toContain("Source files only");
+});
+
+test("the Plugins library separates bundles from standalone imports while the import manager retains all records", () => {
+  const plugin: ImportedPlugin = { sourceKind: "plugin", pluginId: "import:claude:patent:global", marketplaceId: null, name: "patent", displayName: "Patent Studio", description: "Patent research", updatedAt: null, importedAt: 1, files: [] };
+  const items: ImportedPlugin[] = [plugin, { ...plugin, sourceKind: "skill", pluginId: "skill", displayName: "Standalone drafting" }, { ...plugin, sourceKind: "connector", pluginId: "connector", displayName: "Standalone search" }, { ...plugin, sourceKind: undefined, pluginId: "legacy", displayName: "Existing package" }];
+  const render = (library: boolean, source: IntegrationLibrarySource = "all", searchQuery = "") => renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source, importedPackages: items }}><ImportedPackages extensions={extensions} busy={false} revision={0} library={library} searchQuery={searchQuery} showEmpty /></IntegrationLibraryLayoutContext.Provider>);
+  const all = render(true);
+  expect(all).toContain("Patent Studio");
+  expect(all).toContain("Existing package");
+  expect(all).toContain("Claude");
+  expect(all).not.toContain("Standalone drafting");
+  expect(all).not.toContain("Standalone search");
+  expect(render(true, "personal")).toContain("Patent Studio");
+  expect(render(true, "team")).toContain("Team plugins are not available yet.");
+  expect(render(true, "team")).not.toContain("Patent Studio");
+  expect(render(true, "all", "missing")).toContain("No matching plugins");
+  expect(render(false)).toContain("Standalone drafting");
+  expect(render(false)).toContain("Standalone search");
 });
 
 function renderSkillSources(source: IntegrationLibrarySource, query = "") {

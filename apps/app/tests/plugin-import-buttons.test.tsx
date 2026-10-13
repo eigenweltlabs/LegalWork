@@ -24,6 +24,17 @@ test("read-only clients keep visible but disabled import actions", () => {
   for (const button of importButtons) expect(button).toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
 });
 
+test("the public Plugins route selects the bundle tab in normal and developer modes", () => {
+  for (const developerMode of [false, true]) {
+    const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="plugins" developerMode={developerMode} />);
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Plugins<\/button>/);
+    expect(html).toContain("Connectors");
+    expect(html).toContain("File storage");
+    expect(html).not.toContain("Engine plugins");
+    expect(html).not.toContain("plugins.config_label");
+  }
+});
+
 test("skill imports remain available when plugin editing is read-only, with one Import entry point", () => {
   const skillImports: ExtensionsViewProps["skillImports"] = {
     skills: () => [], scanGithubSkills: async () => ({ ref: "main", skills: [] }), previewClaudePlugin: async () => { throw new Error("not invoked"); },

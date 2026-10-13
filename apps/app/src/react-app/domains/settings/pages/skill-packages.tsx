@@ -1,4 +1,4 @@
-import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState } from "./integration-library";
+import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState, IntegrationSearch, useIntegrationLibraryLayout } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
 import { Blocks, Bot, Loader2, Package, Plug, Terminal } from "lucide-react";
@@ -14,7 +14,7 @@ import { BUILT_IN_SKILLS } from "../built-in-skills";
 import { pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
 
 /**
- * Two parts of the Skills tab: the packages imported into this workspace (a
+ * Installed bundles in the Plugins tab and all import records in its manager (a
  * package brings skills, connectors and commands at once; each part also shows
  * in its own list) and the skills built into LegalWork.
  */
@@ -65,17 +65,24 @@ export function ImportedPackages(props: {
   revision: number;
   searchQuery?: string;
   showEmpty?: boolean;
-  onChanged?: () => void;
+  onChanged?: (pluginId: string) => void;
+  /** The public Plugins library excludes standalone skill/connector imports. */
+  library?: boolean;
+  canRemove?: boolean;
 }) {
   const { extensions } = props;
-  const [packages, setPackages] = useState<ImportedPlugin[]>([]);
-  const [loading, setLoading] = useState(true);
+  const layout = useIntegrationLibraryLayout();
+  const cached = layout?.importedPackages;
+  const [packages, setPackages] = useState<readonly ImportedPlugin[]>(cached ?? []);
+  const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<ImportedPlugin | null>(null);
   const [removing, setRemoving] = useState<ImportedPlugin | null>(null);
 
   useEffect(() => {
     let stopped = false;
+    if (cached !== undefined) { setPackages(cached); setLoading(false); setError(""); return; }
     setLoading(true);
     setError("");
     extensions.importedPackages()
@@ -87,38 +94,41 @@ export function ImportedPackages(props: {
     return () => {
       stopped = true;
     };
-  }, [extensions, props.revision]);
+  }, [extensions, props.revision, cached]);
 
   async function remove(plugin: ImportedPlugin) {
     try {
       await extensions.removeImportedPackage(plugin.pluginId);
       setPackages((list) => list.filter((each) => each.pluginId !== plugin.pluginId));
-      props.onChanged?.();
+      props.onChanged?.(plugin.pluginId);
       toast.success(t("skills.package_removed", { name: pluginImportName(plugin) }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("skills.unknown_error"));
     }
   }
 
-  const query = props.searchQuery?.trim().toLowerCase() ?? "";
-  const visiblePackages = packages.filter(plugin => !query || [pluginImportName(plugin), plugin.description ?? "", packageParts(plugin.files.map(file => file.objectType))].join(" ").toLowerCase().includes(query));
-  if (loading) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>;
-  if (error) return <p role="alert" className="text-sm text-destructive">{error}</p>;
-  if (visiblePackages.length === 0 && !props.showEmpty) return null;
+  const query = (props.searchQuery ?? searchQuery).trim().toLowerCase();
+  const team = props.library && layout?.source === "team";
+  const visiblePackages = packages.filter(plugin => (!props.library || plugin.sourceKind === undefined || plugin.sourceKind === "plugin") && (!query || [pluginImportName(plugin), plugin.description ?? "", packageParts(plugin.files.map(file => file.objectType))].join(" ").toLowerCase().includes(query)));
+  if (!props.library && !loading && !error && visiblePackages.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
+      {props.library ? <IntegrationSearch toolbar value={searchQuery} onChange={setSearchQuery} label={t("integrations.search_plugins")} /> : null}
+      {team ? <IntegrationEmptyState icon={Package} title={t("integrations.team_plugins_unavailable")} /> : loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <>
       <IntegrationGroupHeading hideInLibrary title={t("skills.packages_title")} count={visiblePackages.length} />
-      {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t("integrations.no_packages")} description={t(query ? "integrations.search_hint" : "integrations.import_description")} /> : null}
+      {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t(props.library ? query ? "integrations.no_plugin_matches" : "integrations.no_plugins" : "integrations.no_packages")} description={t(query ? "integrations.search_hint" : props.library ? "integrations.plugins_import_hint" : "integrations.import_description")} /> : null}
       <div className="space-y-1">
         {visiblePackages.map((plugin) => (
-          <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType))}
+          <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType)) || t("extensions.import_no_components")}
+            source={props.library ? plugin.pluginId.startsWith("import:chatgpt:") ? "ChatGPT" : plugin.pluginId.startsWith("import:claude:") ? "Claude" : undefined : undefined}
             icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
-            onRemove={() => setRemoving(plugin)} />
+            onRemove={props.canRemove === false ? undefined : () => setRemoving(plugin)} />
         ))}
       </div>
+      </>}
       <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
         <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
-          <DialogHeader><DialogTitle>{selected ? pluginImportName(selected) : ""}</DialogTitle><DialogDescription>{selected?.description || t("integrations.import_description")}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{selected ? pluginImportName(selected) : ""}</DialogTitle><DialogDescription>{selected?.description || (selected ? packageParts(selected.files.map(file => file.objectType)) : "") || t("extensions.import_no_components")}</DialogDescription></DialogHeader>
           {selected ? <ImportedPackageContents plugin={selected} /> : null}
         </DialogContent>
       </Dialog>
