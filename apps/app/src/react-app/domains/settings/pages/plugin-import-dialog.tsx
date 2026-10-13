@@ -24,8 +24,8 @@ export type PluginImportStore = {
 const componentTypes: PluginImportPreview["components"][number]["type"][] = ["skill", "mcp", "agent", "command"];
 type ImportFilter = "all" | "plugin" | "skill" | "connector";
 const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal };
-const componentTitle = (type: PluginImportPreview["components"][number]["type"]) =>
-  t(type === "skill" ? "skills.title" : type === "mcp" ? "extensions.connectors_label" : type === "agent" ? "composer.agents_label" : "dashboard.commands");
+const componentLabel = (type: PluginImportPreview["components"][number]["type"]) =>
+  t(type === "skill" ? "extensions.import_skill" : type === "mcp" ? "integrations.connector" : type === "agent" ? "composer.agent_label" : "session.permission_detail_command");
 
 export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null> }) {
   const [provider, setProvider] = useState<PluginImportProvider | null>(null);
@@ -50,6 +50,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const searchInput = useRef<HTMLInputElement>(null);
   const providerButton = useRef<HTMLButtonElement>(null);
   const selected = previews.find(item => item.root === selectedRoot);
+  const singleComponent = selected?.components.length === 1 ? selected.components[0] : undefined;
+  const compactReview = step === "review" && (busy || selected !== undefined && selected.components.length <= 1);
+  const ReviewIcon = singleComponent ? componentIcons[singleComponent.type] : Package;
+  const packageName = selected ? pluginImportName(selected) : "";
+  const componentName = singleComponent ? pluginImportName(singleComponent) : "";
+  const differentComponentName = singleComponent !== undefined && componentName.toLocaleLowerCase() !== packageName.toLocaleLowerCase();
+  const showPackageName = differentComponentName && selected?.format !== "skills" && selected?.format !== "connectors";
   const groups = groupPluginImportCandidates(candidates);
   const search = query.trim().toLocaleLowerCase();
   const narrowed = search.length > 0 || filter !== "all";
@@ -156,7 +163,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   };
 
   return <Dialog open onOpenChange={open => { if (!open && !installing) props.onClose(); }}>
-    <DialogContent className={provider ? "flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 sm:max-w-2xl" : "bg-background"} showCloseButton={!installing} finalFocus={props.returnFocus}>
+    <DialogContent className={provider ? `flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 ${compactReview ? "sm:max-w-md" : "sm:max-w-2xl"}` : "bg-background"} showCloseButton={!installing} finalFocus={props.returnFocus}>
       {provider === null ? <>
         <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t("integrations.import_choose_provider")}</DialogDescription></DialogHeader>
         <div className="space-y-3">
@@ -168,13 +175,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           </> : null}
         </div>
       </> : <>
-      <DialogHeader className="shrink-0 px-6 pb-5 pt-6">
+      <DialogHeader className="shrink-0 px-6 pb-4 pt-6">
         {step === "choose" ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" disabled={busy} onClick={() => setProvider(null)}><ArrowLeft className="size-3.5" />{t("integrations.change_import_provider")}</Button> : null}
         <div className="mb-1 flex items-center gap-2.5 pe-8">
           {provider === "chatgpt" ? <ChatGptLogo className="size-6 shrink-0" /> : <img src={claudeLogo} alt="" className="size-6 shrink-0" />}
           <DialogTitle>{t(provider === "chatgpt" ? "extensions.import_chatgpt" : "extensions.import_claude")}</DialogTitle>
         </div>
-        <DialogDescription>{t(step === "choose" ? "extensions.import_description" : "extensions.import_review_description")}</DialogDescription>
+        <DialogDescription className={compactReview ? "sr-only" : undefined}>{t(step === "choose" ? "extensions.import_description" : "extensions.import_review_description")}</DialogDescription>
       </DialogHeader>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-5">
@@ -206,7 +213,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
                 const Icon = item.kind === "connector" ? Plug : item.kind === "skill" ? Blocks : Package;
                 return <Button key={pluginImportCandidateKey(item)} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider, path: item.path, connector: item.connector }, pluginImportName(item)); }}>
                   <Icon className="size-5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.bundledIn ? t("extensions.import_bundled_connector", { name: pluginImportName(item.bundledIn) }) : <>{item.kind === "connector" ? `${t("extensions.connectors_label")} · ` : ""}{item.description || t(item.kind === "skill" ? "extensions.import_skill" : "extensions.import_plugin")}</>}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.bundledIn ? t("extensions.import_bundled_connector", { name: pluginImportName(item.bundledIn) }) : item.description || t(item.kind === "skill" ? "extensions.import_skill" : item.kind === "connector" ? "integrations.connector" : "extensions.import_plugin")}</span></span>
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Button>;
@@ -216,18 +223,28 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             <span className="text-sm text-muted-foreground">{t("extensions.import_file_source")}</span>
             <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void chooseFolder()}><FolderOpen />{t("extensions.import_choose_folder")}</Button><Button variant="outline" size="sm" onClick={() => zipInput.current?.click()}><FileArchive />{t("extensions.import_choose_zip")}</Button></div>
           </div>
-        </> : busy ? <div className="flex min-h-72 flex-col items-center justify-center gap-3" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
+        </> : busy ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
           {previews.length > 1 ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("extensions.import_select_package")}</p><div className="flex flex-wrap gap-2">{previews.map(item => <Button key={item.root} size="sm" variant={selectedRoot === item.root ? "secondary" : "outline"} disabled={installing} aria-pressed={selectedRoot === item.root} onClick={() => setSelectedRoot(item.root)}>{pluginImportName(item)}</Button>)}</div></div> : null}
-          <div className="space-y-1"><div className="flex items-baseline gap-2"><h3 className="text-lg font-medium">{pluginImportName(selected)}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>{selected.description ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}{selected.components.length === 1 && selected.components[0]?.type === "mcp" ? <p className="pt-1 text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}<p className="pt-1 text-sm text-muted-foreground">{packageParts(selected.components.map(item => item.type)) || t("extensions.import_no_components")}</p></div>
-          {selected.components.length ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground"><ReviewIcon className="size-5" /></div>
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex flex-wrap items-baseline gap-x-2"><h3 className="break-words text-base font-medium">{differentComponentName ? componentName : packageName}</h3>{selected.version ? <span className="text-xs text-muted-foreground">{selected.version}</span> : null}</div>
+                <p className="text-sm text-muted-foreground">{singleComponent ? componentLabel(singleComponent.type) : t(selected.components.length ? "extensions.import_plugin" : "extensions.import_no_components")}{showPackageName ? <span> · {t("extensions.import_bundled_connector", { name: packageName })}</span> : null}</p>
+              </div>
+            </div>
+            {selected.description && selected.format !== "connectors" ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}
+            {singleComponent?.type === "mcp" ? <p className="text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}
+          </div>
+          {selected.components.length > 1 ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border divide-y divide-border">
             {componentTypes.map(type => {
               const items = selected.components.filter(item => item.type === type);
               if (!items.length) return null;
               const Icon = componentIcons[type];
-              return <div key={type} className="px-4 py-3 first:pt-4 last:pb-4"><h4 className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground"><Icon className="size-4" />{componentTitle(type)}<span className="tabular-nums">{items.length}</span></h4><ul className="space-y-1.5 ps-6">{items.map(item => <li key={item.installedName} className="truncate text-sm">{pluginImportName(item)}</li>)}</ul></div>;
+              return <div key={type} className="px-4 py-3"><h4 className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground"><Icon className="size-4" />{packageParts(items.map(item => item.type))}</h4><ul className="space-y-1.5 ps-6">{items.map(item => <li key={item.installedName} className="break-words text-sm">{pluginImportName(item)}</li>)}</ul></div>;
             })}
           </div> : null}
-          {selected.warnings.length ? <details className="rounded-xl border border-border bg-muted/30 px-4 py-3"><summary className="cursor-pointer text-sm font-medium"><span className="inline-flex items-center gap-2"><TriangleAlert className="size-4 text-amber-11" />{t("extensions.import_compatibility", { count: selected.warnings.length })}</span></summary><ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-relaxed text-muted-foreground">{selected.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details> : null}
+          {selected.warnings.length === 1 ? <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5"><TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-11" /><p className="text-sm leading-relaxed text-muted-foreground">{selected.warnings[0]}</p></div> : selected.warnings.length > 1 ? <details className="rounded-xl border border-border bg-muted/30 px-4 py-3"><summary className="cursor-pointer text-sm font-medium"><span className="inline-flex items-center gap-2"><TriangleAlert className="size-4 text-amber-11" />{t("extensions.import_compatibility", { count: selected.warnings.length })}</span></summary><ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-relaxed text-muted-foreground">{selected.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul></details> : null}
           <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">{t("extensions.import_details")}</summary><div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3"><p className="break-all text-xs text-muted-foreground">{source && "path" in source ? source.path : sourceLabel}</p><p className="text-xs text-muted-foreground">{t("extensions.import_file_count", { count: selected.fileCount })} · {(selected.bytes / 1024 / 1024).toFixed(1)} MB</p><p className="text-xs leading-relaxed text-muted-foreground">{t(source && "path" in source && source.connector?.pluginRoot !== undefined ? "extensions.import_bundled_connector_resources" : selected.format === "connectors" ? "extensions.import_connector_resources" : "extensions.import_resources")}</p>{copies.length > 1 ? <div className="space-y-2"><p className="text-xs font-medium">{t("extensions.import_other_copies")}</p>{copies.map(copy => <Button key={pluginImportCandidateKey(copy)} variant="outline" size="sm" className="h-auto w-full justify-start whitespace-normal text-start" disabled={installing} aria-pressed={source !== null && "path" in source && source.path === copy.path} onClick={() => void preview({ provider, path: copy.path, connector: copy.connector }, pluginImportName(copy))}><span className="min-w-0"><span className="block">{copy.version || pluginImportName(copy)}</span><span className="block break-all text-xs text-muted-foreground">{copy.path}</span></span></Button>)}</div> : null}</div></details>
         </> : null}
         {error ? <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
@@ -235,9 +252,9 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
 
       <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden" aria-label={t("extensions.import_choose_zip")} onChange={event => { void upload(event.target.files, false); event.target.value = ""; }} />
       <input ref={element => { folderInput.current = element; element?.setAttribute("webkitdirectory", ""); }} type="file" multiple className="hidden" aria-label={t("extensions.import_choose_folder")} onChange={event => { void upload(event.target.files, true); event.target.value = ""; }} />
-      <DialogFooter className="mx-0 mb-0 shrink-0 items-center gap-3 px-6 py-4 sm:justify-end">
-        {step === "choose" ? <Button variant="outline" onClick={props.onClose}>{t("common.close")}</Button> : <div className="flex items-center gap-2"><Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !selected || !source} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : "extensions.import_install")}</Button></div>}
-      </DialogFooter>
+      {step === "review" ? <DialogFooter className="mx-0 mb-0 shrink-0 flex-row items-center justify-between gap-3 px-6 py-4 sm:justify-between">
+        <Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !selected || !source} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : "extensions.import_install")}</Button>
+      </DialogFooter> : null}
       </>}
     </DialogContent>
   </Dialog>;
