@@ -6,7 +6,9 @@ import { zipSync, strToU8 } from "fflate";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports } from "./plugin-imports.js";
 import { installPluginImport } from "./plugin-import-install.js";
 import { pluginNamespace, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
-import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
+import { globalSkillsDir } from "./workspace-files.js";
 import { startServer } from "./server.js";
 import { runtimeMcpMapForWorkspace } from "./mcp.js";
 import type { PluginImportRequest } from "@legalwork/types/plugin-import";
@@ -47,6 +49,68 @@ async function temp(fn: (root: string, config: ServerConfig) => Promise<void>) {
 async function writeFixture(root: string, files: FixtureFiles) { for (const [path, value] of Object.entries(files)) { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), value, { mode: path === "bin/tool" ? 0o755 : 0o600 }); } }
 
 describe("complete plugin imports", () => {
+  test("creation lists personal items without project skills or credential values", async () => temp(async (root, config) => {
+    await writeFixture(globalSkillsDir(), { "claim-review/SKILL.md": "---\nname: claim-review\ndescription: Review patent claims\n---\nReview." });
+    await writeFixture(join(root, ".opencode/skills"), { "project-only/SKILL.md": "---\nname: project-only\ndescription: Project only\n---\nProject." });
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { linear: { type: "remote", url: "https://linear.example/mcp", headers: { Authorization: "secret" } } } }));
+    const options = await pluginCreateOptions(config);
+    expect(options.skills.map(item => item.name)).toEqual(["claim-review"]);
+    expect(options.connectors).toEqual([{ name: "linear" }]);
+    expect(JSON.stringify(options)).not.toContain("secret");
+  }));
+
+  test("created plugins own complete skill copies and connectors; removal preserves the originals", async () => temp(async (root, config) => {
+    const source = { "claim-review/SKILL.md": "---\nname: claim-review\ndescription: Review claims\nmetadata:\n  jurisdiction: EU\n---\nRead [guide](./references/guide.md).", "claim-review/references/guide.md": "Review guide", "claim-review/scripts/run.py": "print('review')" };
+    await writeFixture(globalSkillsDir(), source);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { linear: { type: "remote", url: "https://linear.example/mcp", enabled: true, oauth: {} } } }));
+    const plan = await planPluginCreation(config, root, parsePluginCreateRequest({ name: "Patent Toolkit", description: "Draft and review", skills: ["claim-review"], connectors: ["linear"] }));
+    expect(plan.preview.id).toBe("local:patent-toolkit:global");
+    expect(plan.resolved.plugin.sourceKind).toBe("plugin");
+    expect(plan.resolved.plugin.displayName).toBe("Patent Toolkit");
+    const installed = await installPluginImport(config, "test", root, plan, true);
+    expect(installed.files.filter(file => file.objectType !== "bundle")).toHaveLength(2);
+    const copiedSkill = plan.preview.components.find(item => item.type === "skill")!;
+    const copiedConnector = plan.preview.components.find(item => item.type === "mcp")!;
+    const namespace = pluginNamespace(plan.preview.name, plan.preview.id);
+    const skillFolder = join(globalSkillsDir(), namespace, copiedSkill.installedName);
+    expect(await readFile(join(skillFolder, "references/guide.md"), "utf8")).toBe("Review guide");
+    expect(await readFile(join(skillFolder, "SKILL.md"), "utf8")).toContain("jurisdiction: EU");
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[copiedConnector.installedName]?.enabled).toBe(false);
+    await removeCloudPlugin({ serverConfig: config, workspaceId: GLOBAL_MCP_ID, workspaceRoot: root, pluginId: installed.pluginId, scope: "global" });
+    expect(await readFile(join(globalSkillsDir(), "claim-review/SKILL.md"), "utf8")).toBe(source["claim-review/SKILL.md"]);
+    expect(Object.keys((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {})).toEqual(["linear"]);
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[installed.pluginId]).toBeUndefined();
+  }));
+
+  test("bundling an imported skill also copies and rebases its original package resources", async () => temp(async (root, config) => {
+    const [original] = await resolvePluginImports({ ...request(), scope: "global" }, root);
+    await installPluginImport(config, "test", root, original!, true);
+    const selected = original!.preview.components.find(item => item.type === "skill")!;
+    const created = await planPluginCreation(config, root, { name: "Independent toolkit", skills: [selected.installedName], connectors: [] });
+    const plugin = await installPluginImport(config, "test", root, created, true);
+    const createdSkill = created.preview.components.find(item => item.type === "skill")!;
+    const copied = await readFile(join(globalSkillsDir(), pluginNamespace(created.preview.name, created.preview.id), createdSkill.installedName, "SKILL.md"), "utf8");
+    expect(copied).toContain(`/resources/${pluginNamespace(original!.preview.name, original!.preview.id)}/`);
+    expect(copied).not.toContain(`imported-plugins/${pluginNamespace(original!.preview.name, original!.preview.id)}/`);
+    await removeCloudPlugin({ serverConfig: config, workspaceId: GLOBAL_MCP_ID, workspaceRoot: root, pluginId: original!.preview.id, scope: "global" });
+    const guide = copied.match(/\]\(([^)]+)\)/)?.[1];
+    expect(guide).toBeDefined();
+    expect(await readFile(guide!, "utf8")).toBe("Reference data");
+    expect(created.resourceFiles.some(file => file.path.includes("/resources/") && file.path.endsWith("bin/tool"))).toBe(true);
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[plugin.pluginId]).toBeDefined();
+  }));
+
+  test("creation rejects empty selections, vanished skills and linked resources", async () => temp(async (root, config) => {
+    expect(() => parsePluginCreateRequest({ name: "Empty", skills: [], connectors: [] })).toThrow("Choose at least one");
+    expect(() => parsePluginCreateRequest({ name: "Duplicate", skills: ["same", "same"], connectors: [] })).toThrow("only once");
+    await expect(planPluginCreation(config, root, { name: "Missing", skills: ["../outside"], connectors: [] })).rejects.toMatchObject({ code: "plugin_item_missing" });
+    await expect(planPluginCreation(config, root, { name: "Missing", skills: [], connectors: ["constructor"] })).rejects.toMatchObject({ code: "plugin_item_missing" });
+    await writeFixture(globalSkillsDir(), { "linked/SKILL.md": "---\nname: linked\ndescription: Linked resources\n---\nRead." });
+    await writeFile(join(root, "outside.txt"), "private");
+    await symlink(join(root, "outside.txt"), join(globalSkillsDir(), "linked", "outside.txt"));
+    await expect(planPluginCreation(config, root, { name: "Unsafe", skills: ["linked"], connectors: [] })).rejects.toMatchObject({ code: "invalid_plugin_import" });
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins).toEqual({});
+  }));
   test("routine connector setup and automatic naming do not become compatibility notes", async () => {
     const files = {
       ".claude-plugin/plugin.json": JSON.stringify({ name: "setup", onboardingSkill: "help", mcpServers: {
@@ -274,6 +338,32 @@ describe("complete plugin imports", () => {
   });
 });
 
+
+test("creation API requires the owner, rejects duplicate names and makes the bundle visible across projects", async () => temp(async (root, config) => {
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) });
+  config.workspaces[0]!.baseUrl = `http://127.0.0.1:${engine.port}`;
+  config.workspaces.push({ ...config.workspaces[0]!, id: "second", name: "Second" });
+  await writeFixture(globalSkillsDir(), { "review/SKILL.md": "---\nname: review\ndescription: Review claims\n---\nReview." });
+  const server = await startServer(config);
+  const base = `http://127.0.0.1:${server.port}/workspace/test`;
+  const headers = { Authorization: "Bearer test", "Content-Type": "application/json" };
+  const owner = { ...headers, "X-LegalWork-Host-Token": "host" };
+  const payload = { name: "Claims toolkit", skills: ["review"], connectors: [] };
+  try {
+    expect((await fetch(`${base}/workflow-plugins/options`, { headers })).status).toBe(401);
+    expect((await fetch(`${base}/workflow-plugins/options`, { headers: owner })).status).toBe(200);
+    const create = (body: typeof payload, auth: Record<string, string> = owner) => fetch(`${base}/workflow-plugins`, { method: "POST", headers: auth, body: JSON.stringify(body) });
+    expect((await create(payload, headers)).status).toBe(401);
+    const simultaneous = await Promise.all([create(payload), create({ ...payload, name: "Claims Toolkit" })]);
+    expect(simultaneous.map(response => response.status).sort()).toEqual([200, 409]);
+    const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[createdPluginId(payload.name)]!;
+    const listing = await fetch(`http://127.0.0.1:${server.port}/workspace/second/cloud-plugins`, { headers });
+    expect(await listing.text()).toContain(installed.pluginId);
+    config.readOnly = true;
+    expect((await create({ ...payload, name: "Read only" })).status).toBe(403);
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[createdPluginId("Read only")]).toBeUndefined();
+  } finally { await server.stop(); engine.stop(true); }
+}));
 
 test("import API previews, enforces ownership, rejects stale sources and manages global packages across projects", async () => temp(async (root, config) => {
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) });

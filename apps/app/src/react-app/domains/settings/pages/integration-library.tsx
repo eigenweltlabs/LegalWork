@@ -42,11 +42,11 @@ export function IntegrationLibraryActions({ children }: { children: ReactNode })
 
 export type IntegrationAddAction = { label: string; onClick: () => void | Promise<void>; icon: LucideIcon; disabled?: boolean };
 
-export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean }) {
+export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean; triggerRef?: RefObject<HTMLButtonElement | null> }) {
   const [only] = props.actions;
-  if (props.actions.length === 1 && only) return <Button size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{t("common.add")}</Button>;
+  if (props.actions.length === 1 && only) return <Button ref={props.triggerRef} size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{t("common.add")}</Button>;
   return <DropdownMenu>
-    <DropdownMenuTrigger render={<Button size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
+    <DropdownMenuTrigger render={<Button ref={props.triggerRef} size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end">{props.actions.map(action => { const Icon = action.icon; return <DropdownMenuItem key={action.label} disabled={action.disabled} onClick={action.onClick}><Icon />{action.label}</DropdownMenuItem>; })}</DropdownMenuContent>
   </DropdownMenu>;
 }

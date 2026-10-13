@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
-import { pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
+import { pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
 
 /**
  * Installed bundles in the Plugins tab and all import records in its manager (a
@@ -53,7 +53,7 @@ export function ImportedPackageContents({ plugin }: { plugin: ImportedPlugin }) 
     if (!files.length) return null;
     return <section key={type} className="space-y-2">
       <h3 className="text-sm font-medium">{t(label, { count: files.length })}</h3>
-      <ul className="space-y-2">{files.map(file => <li key={file.path} className="flex items-center gap-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 break-words">{type === "mcp" && file.path.startsWith("opencode.jsonc#mcp.") ? pluginImportConnectorName(file.path.slice("opencode.jsonc#mcp.".length)) : file.title}</span></li>)}</ul>
+      <ul className="space-y-2">{files.map(file => <li key={file.path} className="flex items-center gap-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 break-words">{type === "skill" ? pluginImportSkillName({ name: file.title, path: file.path }) : type === "mcp" && file.path.startsWith("opencode.jsonc#mcp.") ? pluginImportConnectorName(file.path.slice("opencode.jsonc#mcp.".length)) : file.title}</span></li>)}</ul>
     </section>;
   })}</div>;
 }

@@ -19,3 +19,7 @@ export type PluginImportPreview = {
   warnings: string[];
 };
 export type PluginImportRequest = { source: PluginImportSource; root?: string; scope: PluginImportScope; digest?: string };
+
+/** A personal bundle composed from items already in LegalWork's library. */
+export type PluginCreateRequest = { name: string; description?: string; skills: string[]; connectors: string[] };
+export type PluginCreateOptions = { skills: Array<{ name: string; path: string; description: string }>; connectors: Array<{ name: string }> };

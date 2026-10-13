@@ -39,11 +39,11 @@ function safePath(value: string): string {
   if (!name || name.startsWith("/") || /^[a-z]:/i.test(name) || name.includes("\0") || name.split("/").some(part => !part || part === ".." || part === "." || /[:<>"|?*]/.test(part) || /[ .]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part))) fail(`Unsafe plugin path: ${value}`);
   return name;
 }
-type PackageFile = { path: string; bytes: Uint8Array; mode: number };
+export type PackageFile = { path: string; bytes: Uint8Array; mode: number };
 type PackageFiles = Map<string, PackageFile>;
 export type PluginImportPlan = { preview: PluginImportPreview; resolved: CloudPluginResolved; resourceFiles: PackageFile[] };
 
-async function readFolder(root: string): Promise<PackageFiles> {
+export async function readPluginFolder(root: string): Promise<PackageFiles> {
   const files: PackageFiles = new Map();
   let bytes = 0;
   const visit = async (directory: string, prefix: string, depth: number) => {
@@ -123,7 +123,7 @@ async function loadSource(request: PluginImportRequest): Promise<PackageFiles> {
       if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_BYTES) fail("Choose an ordinary ZIP smaller than 64 MB.");
       return readZip(await readFile(path));
     }
-    return readFolder(path);
+    return readPluginFolder(path);
   }
   const base64 = request.source.zipBase64;
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) fail("Invalid ZIP encoding.");
@@ -185,7 +185,7 @@ function paths(value: unknown): string[] {
   return fail("Component paths must be a path string or an array of paths.");
 }
 
-function packageManifest(files: PackageFiles, provider: PluginImportProvider) {
+function packageManifest(files: PackageFiles, provider: PluginImportProvider | "legalwork") {
   const portable = files.has("plugin.json");
   const legacyPath = provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
   const base = portable ? jsonFile(files, "plugin.json") : files.has(legacyPath) ? jsonFile(files, legacyPath) : {};
@@ -244,15 +244,23 @@ function bundledConnectorFiles(files: PackageFiles, request: PluginImportRequest
 }
 
 function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
-  const { portable, legacyPath, base, manifest } = packageManifest(files, request.source.provider);
-  const name = str(base.name) ?? str(manifest.name) ?? (files.has("SKILL.md") ? str(parseFrontmatter(textFile(files, "SKILL.md")).data.name) : null) ?? basename(root || ("path" in request.source ? request.source.path : "imported-plugin"));
+  return planPluginFiles(files, root, { provider: request.source.provider, scope: request.scope, path: "path" in request.source ? request.source.path : undefined, connector: "path" in request.source && Boolean(request.source.connector) }, workspaceRoot, connectorWarnings);
+}
+
+export function planCreatedPlugin(files: PackageFiles, workspaceRoot: string, id: string): PluginImportPlan {
+  return planPluginFiles(files, "", { provider: "legalwork", scope: "global", id }, workspaceRoot);
+}
+
+function planPluginFiles(files: PackageFiles, root: string, target: { provider: PluginImportProvider | "legalwork"; scope: "global" | "project"; path?: string; connector?: boolean; id?: string }, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
+  const { portable, legacyPath, base, manifest } = packageManifest(files, target.provider);
+  const name = str(base.name) ?? str(manifest.name) ?? (files.has("SKILL.md") ? str(parseFrontmatter(textFile(files, "SKILL.md")).data.name) : null) ?? basename(root || target.path || "imported-plugin");
   const presentation = record(manifest.interface) ? manifest.interface : {};
   const displayName = str(presentation.displayName) ?? undefined;
   const description = str(presentation.shortDescription) ?? str(base.description) ?? str(manifest.description);
-  const id = `import:${request.source.provider}:${name}:${request.scope}`;
+  const id = target.id ?? `import:${target.provider}:${name}:${target.scope}`;
   const namespace = pluginNamespace(name, id);
   const bundlePath = `.opencode/imported-plugins/${namespace}`;
-  const absoluteBundle = resolveWorkspaceInstallPath(workspaceRoot, bundlePath, request.scope === "global");
+  const absoluteBundle = resolveWorkspaceInstallPath(workspaceRoot, bundlePath, target.scope === "global");
   const warnings: string[] = [...connectorWarnings];
   const components: PluginImportPreview["components"] = [];
   const memberships: CloudPluginResolved["memberships"] = [];
@@ -313,7 +321,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
       for (const entry of matches) addDocument(type, entry);
     }
   };
-  if (!("path" in request.source && request.source.connector)) {
+  if (!target.connector) {
     selectDocuments(manifest.skills, files.has("SKILL.md") || (!portable && !files.has(legacyPath) && ![...files.keys()].some(path => path.startsWith("skills/"))) ? ["."] : ["skills"], "skill");
     selectDocuments(manifest.agents, manifest.agents ? [] : ["agents"], "agent");
     if (record(manifest.commands)) {
@@ -358,7 +366,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
     if (Array.isArray(normalized.command) && (!normalized.command.length || normalized.command.some(part => typeof part !== "string") || !str(normalized.command[0]))) fail(`Invalid command array for connector ${serverName}`);
     if (normalized.args && (!Array.isArray(normalized.args) || normalized.args.some(part => typeof part !== "string"))) fail(`Invalid arguments for connector ${serverName}`);
     if (!str(normalized.url) && !(str(normalized.command) || Array.isArray(normalized.command))) fail(`Connector ${serverName} requires a URL or command.`);
-    const installedName = `${namespace}-${request.scope === "global" ? "global" : createHash("sha256").update(resolve(workspaceRoot)).digest("hex").slice(0, 8)}-${slug(serverName)}-${createHash("sha256").update(serverName).digest("hex").slice(0, 6)}`;
+    const installedName = `${namespace}-${target.scope === "global" ? "global" : createHash("sha256").update(resolve(workspaceRoot)).digest("hex").slice(0, 8)}-${slug(serverName)}-${createHash("sha256").update(serverName).digest("hex").slice(0, 6)}`;
     normalizedServers[installedName] = normalized;
     components.push({ type: "mcp", name: serverName, installedName });
   }
@@ -372,9 +380,9 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   if (manifest.experimental) warnings.push("Experimental Claude features will not run in LegalWork. Their source files will be saved without activating them.");
   if (manifest.apps || files.has(".app.json")) warnings.push("ChatGPT app connections will not be imported. Provider app IDs are saved as source files, not installed as working connectors.");
   if (components.length === 0) warnings.push("No usable skills, agents, commands or connectors will be installed. Only source files will be saved.");
-  const hash = createHash("sha256").update(JSON.stringify({ provider: request.source.provider, root, scope: request.scope, workspaceRoot: resolve(workspaceRoot) }));
+  const hash = createHash("sha256").update(JSON.stringify({ provider: target.provider, root, scope: target.scope, workspaceRoot: resolve(workspaceRoot) }));
   for (const file of [...files.values()].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update(String(file.mode)).update(file.bytes);
-  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: "path" in request.source && request.source.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? request.source.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
+  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: target.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? target.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
   let reportName = "LEGALWORK-IMPORT.json";
   for (let i = 2; files.has(reportName); i++) reportName = `LEGALWORK-IMPORT-${i}.json`;
   resourceFiles.push({ path: `${bundlePath}/${reportName}`, bytes: Buffer.from(JSON.stringify(preview, null, 2)), mode: 0o600 });

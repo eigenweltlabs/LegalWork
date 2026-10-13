@@ -1,4 +1,5 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
+import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Package, Plug } from "lucide-react";
@@ -52,6 +53,7 @@ export type ExtensionsViewProps = {
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
+  pluginCreation?: PluginCreateStore;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   canImportSkills?: boolean;
@@ -92,6 +94,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         ? "skills"
         : props.initialSection === "mcp" ? "connectors" : "plugins";
   const [importOpen, setImportOpen] = useState(false);
+  const [createPluginOpen, setCreatePluginOpen] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
@@ -101,6 +105,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
   const packageTarget = props.workspaceKey ?? props.selectedWorkspaceRoot;
+  const currentPackageTarget = useRef(packageTarget);
+  currentPackageTarget.current = packageTarget;
+  useEffect(() => setCreatePluginOpen(false), [packageTarget]);
   useEffect(() => {
     let stopped = false;
     if (props.skillTools) void props.skillTools.importedPackages()
@@ -119,6 +126,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const skillsForbidden = useOrgPolicyForbids("skills.allowCustom");
   const storageForbidden = useOrgPolicyForbids("storage.allowPersonal");
+  const pluginsForbidden = useOrgPolicyForbids("plugins.allowCustom");
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
   const [leadingActionsTarget, setLeadingActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
@@ -155,7 +163,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <div className="flex max-w-full flex-wrap items-center gap-2">
             <div ref={setLeadingActionsTarget} className="flex items-center gap-2 empty:hidden" />
             {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
-            <IntegrationAddMenu disabled={props.busy} actions={[
+            <IntegrationAddMenu triggerRef={addButton} disabled={props.busy} actions={[
+              { label: t("plugin_create.kind"), icon: Package, disabled: !props.pluginCreation || !canImportPlugins || pluginsForbidden || (skillsForbidden && connectorsForbidden), onClick: async () => { if (await orgPolicyAllows("plugins.allowCustom")) setCreatePluginOpen(true); } },
               { label: t("integrations.connector"), icon: Plug, disabled: props.canAddConnector === false || connectorsForbidden, onClick: () => requestAdd("connector") },
               { label: t("skills.eyebrow_skill"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
@@ -172,6 +181,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </IntegrationMoreMenu>
           </div>
         </div>
+        {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={plugin => {
+          if (currentPackageTarget.current !== packageTarget) return;
+          setPackageLibrary(current => ({ target: packageTarget, items: [...(current?.target === packageTarget ? current.items : []).filter(item => item.pluginId !== plugin.pluginId), plugin] }));
+          importedPackage();
+          toast.success(t("plugin_create.created", { name: plugin.displayName ?? plugin.name }));
+        }} /> : null}
         {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>

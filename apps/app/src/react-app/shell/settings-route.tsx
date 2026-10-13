@@ -2339,6 +2339,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             pluginImports={extensionsStore}
+            pluginCreation={extensionsStore}
             skillImports={extensionsStore}
             skillTools={extensionsStore}
             canImportSkills={canWriteWorkspaceSkills}

@@ -69,6 +69,7 @@ import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
+import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
 import { installPluginImport } from "./plugin-import-install.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
@@ -1915,6 +1916,32 @@ function createRoutes(
     );
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, legalwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await pluginCreateOptions(config));
+  });
+  addRoute(routes, "POST", "/workspace/:id/workflow-plugins", "host", async ctx => {
+    ensureWritable(config);
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
+    const input = parsePluginCreateRequest(await readJsonBody(ctx.request));
+    if (input.skills.length) await requireOrgPolicyAllows(config, "skills.allowCustom");
+    if (input.connectors.length) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const item = await withPluginImportLock(async () => {
+      const installed = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+      if (installed.plugins[createdPluginId(input.name)]) throw new ApiError(409, "plugin_exists", "A plugin with this name already exists. Choose another name.");
+      const plan = await planPluginCreation(config, workspace.path, input);
+      await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Create plugin ${input.name}`, paths: [globalOpencodeConfigDir(), globalSkillsDir()] });
+      return installPluginImport(config, workspace.id, workspace.path, plan, true);
+    });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Created plugin ${input.name}`, timestamp: Date.now() });
+    for (const target of config.workspaces) {
+      for (const reason of ["skills", "mcp"] satisfies Array<"skills" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
+      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
+    }
+    return jsonResponse({ item });
   });
 
   addRoute(routes, "GET", "/workspace/:id/plugin-imports/discover", "host", async ctx => {

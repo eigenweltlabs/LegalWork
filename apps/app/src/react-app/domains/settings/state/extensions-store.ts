@@ -1,4 +1,4 @@
-import type { PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateRequest, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
@@ -567,6 +567,16 @@ export function createExtensionsStore(options: {
     const target = await resolveWorkspaceServerTarget();
     if (!target.legalworkClient || !target.legalworkWorkspaceId) throw new Error(t("extensions.server_unavailable_github_plugins"));
     return { client: target.legalworkClient, id: target.legalworkWorkspaceId };
+  }
+  async function pluginCreateOptions() {
+    const target = await pluginImportTarget();
+    return target.client.pluginCreateOptions(target.id);
+  }
+  async function createWorkflowPlugin(input: PluginCreateRequest) {
+    const target = await pluginImportTarget();
+    const result = await target.client.createWorkflowPlugin(target.id, input);
+    await refreshSkills({ force: true });
+    return result.item;
   }
   async function discoverPluginImports(provider: PluginImportProvider) {
     const target = await pluginImportTarget();
@@ -2234,6 +2244,8 @@ export function createExtensionsStore(options: {
     installSkillCreator,
     installHubSkill,
     discoverPluginImports,
+    pluginCreateOptions,
+    createWorkflowPlugin,
     previewPluginImports,
     installPluginImport,
     previewClaudePlugin,
