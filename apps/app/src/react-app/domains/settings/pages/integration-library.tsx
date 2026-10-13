@@ -71,9 +71,9 @@ export function IntegrationLibraryRow(props: { name: string; description: string
     <button type="button" onClick={props.onOpen} aria-haspopup="dialog" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       {props.icon}
       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{props.name}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{props.description}</span></span>
+      {props.source ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{props.source}</span> : null}
+      {props.status}
     </button>
-    {props.source ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{props.source}</span> : null}
-    {props.status}
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.item_actions", { name: props.name })} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end">
