@@ -2372,7 +2372,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 isRemoteWorkspace={isRemoteWorkspace}
                 mcpServers={connectionsSnapshot.mcpServers}
                 mcpStatus={connectionsSnapshot.mcpStatus}
-                mcpLastUpdatedAt={connectionsSnapshot.mcpLastUpdatedAt}
                 mcpStatuses={connectionsSnapshot.mcpStatuses}
                 mcpConnectingName={connectionsSnapshot.mcpConnectingName}
                 selectedMcp={connectionsSnapshot.selectedMcp}
@@ -2398,12 +2397,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
                     : undefined
                 }
-                readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
                 installedSkills={[]}
                 installedPlugins={[]}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
-                showHeader={false}
                 canShareWithFirm={canShareWithFirm}
                 onShareWithFirm={shareIntegrationWithFirm}
                 onOpenTeamShare={canShareWithFirm ? () => {

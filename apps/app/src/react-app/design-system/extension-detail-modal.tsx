@@ -100,7 +100,7 @@ export type ExtensionDetailModalProps = {
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "MCP Server",
+  get mcp() { return t("extension_card.kind_mcp"); },
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
@@ -108,10 +108,10 @@ const kindLabel: Record<ExtensionKind, string> = {
 };
 
 const kindDesc: Record<ExtensionKind, string> = {
-  mcp: "Connects as a Model Context Protocol server, giving your agent access to external tools and data.",
+  mcp: "Gives your agent access to external tools and data.",
   plugin: "Extends LegalWork with additional capabilities managed by your organization.",
   skill: "A reusable workflow that your agent can execute on demand.",
-  "ui-control": "Lets another MCP client inspect and drive this LegalWork desktop UI through a local stdio wrapper.",
+  "ui-control": "Allows an external agent to inspect and control LegalWork.",
   extension: "A LegalWork extension that adds tools, providers, or integrations to your workspace.",
 };
 

@@ -15,12 +15,12 @@ const attio: McpDirectoryInfo = { name: "Attio", serverName: "attio", descriptio
 const available: McpDirectoryInfo = { name: "Directory-only tool", serverName: "directory-only", description: "Available to connect", oauth: false };
 const native: McpDirectoryInfo = { name: "Built-in Browser", serverName: "browser", description: "Browse with LegalWork", kind: "extension", oauth: false };
 const props: McpViewProps = {
-  busy: false, selectedWorkspaceRoot: "/project", isRemoteWorkspace: false, showHeader: false,
+  busy: false, selectedWorkspaceRoot: "/project", isRemoteWorkspace: false,
   mcpServers: [
     { name: "paused", source: "config.remote", config: { type: "remote", url: "https://example.invalid/paused", enabled: false } },
     { name: "attio", source: "config.remote", config: { type: "remote", url: attioUrl, enabled: true } },
   ],
-  mcpStatus: null, mcpLastUpdatedAt: null, mcpStatuses: { attio: { status: "connected" } }, mcpConnectingName: null, selectedMcp: null,
+  mcpStatus: null, mcpStatuses: { attio: { status: "connected" } }, mcpConnectingName: null, selectedMcp: null,
   setSelectedMcp: noop, quickConnect: [attio, available, native], connectMcp: noop, authorizeMcp: noop, logoutMcpAuth: noop, removeMcp: noop,
   setMcpEnabled: async () => {}, isExtensionConnected: entry => entry === native,
 };
@@ -123,6 +123,14 @@ test("automatically installed team OAuth connectors show sign-in before the engi
     expect(html).toContain("Sign in to use it");
     expect(html).toContain('aria-label="Actions for Team Research"');
   }
+});
+
+test("team-only libraries retain account actions without legacy empty/configuration banners", () => {
+  const item: FirmHubItem = { ...teamResearch, connector: { ...teamResearch.connector!, access: "oauth" } };
+  const html = renderTeamLibrary([item], { mcpServers: [], quickConnect: [], mcpStatuses: {} });
+  expect(html).toContain("Team Research");
+  expect(html).toContain("Sign in to use it");
+  expect(html).not.toMatch(/No MCP|opencode\.json|Advanced settings|Synced|No connectors connected yet/);
 });
 
 test("connected and failed team OAuth connectors retain their actual state", () => {

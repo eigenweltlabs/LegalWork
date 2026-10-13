@@ -386,7 +386,7 @@ export function HubDownloadSection({
         message={pendingInstall && followsHub ? t("firm_hub.add_review_body", { sharer: sharedBy(pendingInstall.item) }) : pendingInstall ? (
           <span>
             <strong>{prettifyName(pendingInstall.item.name)}</strong> was shared by {sharedBy(pendingInstall.item)}. Skills can change agent behavior and plugins execute code. Installing may replace a local item with the same name.
-            {pendingInstall.item.hasSecret && pendingInstall.item.canAccessSecret ? " This MCP also includes a copyable shared credential." : ""}
+            {pendingInstall.item.hasSecret && pendingInstall.item.canAccessSecret ? t("hub_download.shared_credential") : ""}
           </span>
         ) : ""}
         confirmLabel={followsHub ? t("firm_hub.add") : pendingInstall?.wasInstalled ? t("hub_download.trust_update") : t("hub_download.trust_install")}

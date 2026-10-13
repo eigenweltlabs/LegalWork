@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
-import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
+import { useEffect, useState, type SetStateAction } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -9,14 +9,12 @@ import {
   Cloud,
   Code2,
   CreditCard,
-  FolderOpen,
   Globe,
   Loader2,
   MonitorSmartphone,
   Plug2,
   Plus,
   Search,
-  Settings2,
   Share2,
   Unplug,
   Zap,
@@ -30,18 +28,15 @@ import { ExtensionDetailModal } from "../../../design-system/extension-detail-mo
 import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
 import { ExtensionMeshAvatar } from "../../../design-system/extension-mesh-avatar";
 import {
-  openDesktopPath,
   openDesktopUrl,
-  readOpencodeConfig,
   revealDesktopItemInDir,
-  type OpencodeConfigFile,
 } from "../../../../app/lib/desktop";
 import {
   getMcpIdentityKey,
   normalizeMcpSlug,
 } from "../../../../app/mcp";
 import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
-import { isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
+import { isDesktopRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { importedConnectorPlugin, pluginImportConnectorName, pluginImportName } from "./plugin-import-presentation";
 import { Button } from "@/components/ui/button";
@@ -60,12 +55,6 @@ import {
   setLegalWorkExtensionEnabled,
   setLegalWorkExtensionHidden,
 } from "../extension-state";
-import {
-  initialMcpViewLocalState,
-  mcpViewLocalReducer,
-  type ConfigScope,
-  type McpViewLocalState,
-} from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 import { orgPolicyAllows, orgPolicyOffText, useOrgPolicyForbids } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
@@ -106,11 +95,8 @@ export type McpViewProps = {
   removeCloudPlugin?: (pluginId: string) => void | Promise<unknown>;
   /** Read skill content by name. */
   readSkill?: (name: string) => Promise<{ content: string } | null>;
-  readConfigFile?: (scope: "project" | "global") => Promise<OpencodeConfigFile | null>;
-  showHeader?: boolean;
   mcpServers: McpServerEntry[];
   mcpStatus: string | null;
-  mcpLastUpdatedAt: number | null;
   mcpStatuses: McpStatusMap;
   mcpConnectingName: string | null;
   selectedMcp: string | null;
@@ -151,7 +137,6 @@ const builtInExtensionDisabledReason = "Disabled by organization";
 // Reference-style connector cards: soft-bordered tiles in a 2-column grid with
 // mono type tags and quiet secondary text — shares the surface language with the
 // Workflows card grid (no accent bars).
-const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 const quickCardClass =
   "group relative flex cursor-pointer flex-col rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-foreground/20 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const quickCardFeaturedClass =
@@ -159,11 +144,6 @@ const quickCardFeaturedClass =
 const featuredTagClass =
   "shrink-0 rounded-full bg-[rgba(var(--dls-accent-rgb),0.12)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-accent";
 const typeTagClass = "shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70";
-const rowIconBtnClass =
-  "inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40";
-const ghostActionClass =
-  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-50";
-
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
     case "connected":
@@ -226,34 +206,6 @@ const serviceIcon = (name: string) => {
   return Plug2;
 };
 
-const serviceColor = (name: string) => {
-  const lower = name.toLowerCase();
-  if (lower.includes("notion")) return "text-gray-12";
-  if (lower.includes("linear")) return "text-blue-11";
-  if (lower.includes("sentry")) return "text-purple-11";
-  if (lower.includes("stripe")) return "text-blue-11";
-  if (lower.includes("context")) return "text-green-11";
-  if (lower.includes("devtools")) {
-    return "text-amber-11";
-  }
-  if (lower.includes("legalwork")) return "text-gray-12";
-  return "text-dls-secondary";
-};
-
-const serviceIconBg = (name: string) => {
-  const lower = name.toLowerCase();
-  if (lower.includes("notion")) return "bg-gray-3 border-gray-6";
-  if (lower.includes("linear")) return "bg-blue-3 border-blue-6";
-  if (lower.includes("sentry")) return "bg-purple-3 border-purple-6";
-  if (lower.includes("stripe")) return "bg-blue-3 border-blue-6";
-  if (lower.includes("context")) return "bg-green-3 border-green-6";
-  if (lower.includes("devtools")) {
-    return "bg-amber-3 border-amber-6";
-  }
-  if (lower.includes("legalwork")) return "bg-gray-3 border-gray-6";
-  return "bg-dls-hover border-dls-border";
-};
-
 // Inline brand icon for ledger rows — reproduces ExtensionCard's icon resolution
 // (direct iconSrc → bundled Simple Icons slug → MarbleAvatar fallback) without
 // importing the card component itself.
@@ -302,7 +254,6 @@ type ExtensionFilter = "all" | "mcp" | "builtin" | "skill" | "plugin";
 
 export function McpView(props: McpViewProps) {
   const importedPackages = useIntegrationLibraryLayout()?.importedPackages;
-  const showHeader = props.showHeader !== false;
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
@@ -343,45 +294,17 @@ export function McpView(props: McpViewProps) {
   const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
-  const [localState, dispatchLocal] = useReducer(
-    mcpViewLocalReducer,
-    initialMcpViewLocalState,
-  );
-  const {
-    logoutOpen,
-    logoutTarget,
-    logoutBusy,
-    removeOpen,
-    removeTarget,
-    configScope,
-    projectConfig,
-    globalConfig,
-    configError,
-    revealBusy,
-    showAdvanced,
-    addMcpModalOpen,
-    togglingMcp,
-  } = localState;
-  const setLocal = <K extends keyof McpViewLocalState>(
-    key: K,
-    value: SetStateAction<McpViewLocalState[K]>,
-  ) => dispatchLocal({ type: "set", key, value });
-  const setLogoutOpen = (value: SetStateAction<boolean>) => setLocal("logoutOpen", value);
-  const setLogoutTarget = (value: SetStateAction<string | null>) => setLocal("logoutTarget", value);
-  const setLogoutBusy = (value: SetStateAction<boolean>) => setLocal("logoutBusy", value);
-  const setRemoveOpen = (value: SetStateAction<boolean>) => setLocal("removeOpen", value);
-  const setRemoveTarget = (value: SetStateAction<string | null>) => setLocal("removeTarget", value);
-  const setConfigScope = (value: SetStateAction<ConfigScope>) => setLocal("configScope", value);
-  const setConfigError = (value: SetStateAction<string | null>) => setLocal("configError", value);
-  const setRevealBusy = (value: SetStateAction<boolean>) => setLocal("revealBusy", value);
-  const setShowAdvanced = (value: SetStateAction<boolean>) => setLocal("showAdvanced", value);
-  const setAddMcpModalOpen = (value: SetStateAction<boolean>) => setLocal("addMcpModalOpen", value);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutTarget, setLogoutTarget] = useState<string | null>(null);
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [addMcpModalOpen, setAddMcpModalOpen] = useState(false);
+  const [togglingMcp, setTogglingMcp] = useState<string | null>(null);
   const managedAdd = useIntegrationAddRequest("connector", async () => {
     if (props.busy || connectorsForbidden || !showLocal) return;
     if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
   });
-  const setTogglingMcp = (value: SetStateAction<string | null>) => setLocal("togglingMcp", value);
-  const configRequestId = useRef(0);
 
   const quickConnectList = props.quickConnect;
 
@@ -422,64 +345,6 @@ export function McpView(props: McpViewProps) {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    const root = props.selectedWorkspaceRoot.trim();
-    const nextId = configRequestId.current + 1;
-    configRequestId.current = nextId;
-    const readConfig = props.readConfigFile;
-    const canReadDesktopConfig = !props.isRemoteWorkspace && isDesktopRuntime();
-
-    if (!readConfig && !canReadDesktopConfig) {
-      dispatchLocal({ type: "configUnavailable" });
-      return;
-    }
-
-    void (async () => {
-      try {
-        setConfigError(null);
-        const [project, global] = await Promise.all([
-          root
-            ? readConfig
-              ? readConfig("project")
-              : canReadDesktopConfig
-              ? readOpencodeConfig("project", root)
-              : Promise.resolve(null)
-            : Promise.resolve(null),
-          readConfig
-            ? readConfig("global")
-            : canReadDesktopConfig
-            ? readOpencodeConfig("global", root)
-            : Promise.resolve(null),
-        ]);
-        if (nextId !== configRequestId.current) return;
-        dispatchLocal({
-          type: "configLoaded",
-          project: project as OpencodeConfigFile | null,
-          global: global as OpencodeConfigFile | null,
-        });
-      } catch (error) {
-        if (nextId !== configRequestId.current) return;
-        dispatchLocal({
-          type: "configLoadError",
-          error: error instanceof Error ? error.message : t("mcp.config_load_failed"),
-        });
-      }
-    })();
-  }, [props.isRemoteWorkspace, props.readConfigFile, props.selectedWorkspaceRoot]);
-
-  const activeConfig = configScope === "project" ? projectConfig : globalConfig;
-
-  const revealLabel = isWindowsPlatform()
-    ? t("mcp.open_file")
-    : t("mcp.reveal_in_finder");
-
-  const canRevealConfig =
-    isDesktopRuntime() &&
-    !props.isRemoteWorkspace &&
-    !revealBusy &&
-    !(configScope === "project" && !props.selectedWorkspaceRoot.trim()) &&
-    Boolean(activeConfig?.exists);
 
   const resolveQuickConnectMatch = (name: string) =>
     quickConnectList.find((candidate) => {
@@ -549,9 +414,6 @@ export function McpView(props: McpViewProps) {
     return resolved?.status ?? "disconnected";
   };
 
-  const connectedCount = props.mcpServers.filter(
-    (entry) => resolveStatus(entry) === "connected",
-  ).length;
   const hiddenCount = quickConnectList.filter((entry) => isLegalWorkExtensionHidden(entry)).length +
     (props.installedSkills ?? []).filter((skill) => isLegalWorkExtensionHidden(getSkillHiddenId(skill))).length +
     (props.installedPlugins ?? []).filter((plugin) => isLegalWorkExtensionHidden(`plugin:${plugin.pluginId}`)).length;
@@ -577,45 +439,9 @@ export function McpView(props: McpViewProps) {
     }
   };
 
-  const revealConfig = async () => {
-    if (!isDesktopRuntime() || revealBusy) return;
-    const root = props.selectedWorkspaceRoot.trim();
-
-    if (configScope === "project" && !root) {
-      setConfigError(t("mcp.pick_workspace_error"));
-      return;
-    }
-
-    setRevealBusy(true);
-    setConfigError(null);
-    try {
-      const resolved = props.readConfigFile
-        ? await props.readConfigFile(configScope)
-        : !props.isRemoteWorkspace
-        ? await readOpencodeConfig(configScope, root)
-        : null;
-      const configFile = resolved as OpencodeConfigFile | null;
-      if (!configFile) {
-        throw new Error(t("mcp.config_load_failed"));
-      }
-      if (isWindowsPlatform()) {
-        await openDesktopPath(configFile.path);
-      } else {
-        await revealDesktopItemInDir(configFile.path);
-      }
-    } catch (error) {
-      setConfigError(
-        error instanceof Error ? error.message : t("mcp.reveal_config_failed"),
-      );
-    } finally {
-      setRevealBusy(false);
-    }
-  };
-
   return (
     <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-5 empty:hidden">
-        {showHeader ? <McpViewHeader connectedCount={connectedCount} /> : null}
         <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} leadingActions={showLocal ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button> : undefined} actions={showLocal ? <>
           {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[
             { label: t("mcp.add_modal_title"), icon: Plus, disabled: connectorsForbidden, onClick: async () => { if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true); } },
@@ -963,22 +789,6 @@ export function McpView(props: McpViewProps) {
         );
       })() : null}
     </section>
-  );
-}
-
-function McpViewHeader(props: { connectedCount: number }) {
-  return (
-    <>
-      <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("mcp.eyebrow_connectors")}</span>
-      <h2 className={`mt-3 ${pageTitleClass}`}>{t("mcp.apps_title")}</h2>
-      <p className="mt-3 max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{t("mcp.apps_subtitle")}</p>
-      {props.connectedCount > 0 ? (
-        <p className="mt-2 font-mono text-[11px] tabular-nums text-dls-secondary">
-          {props.connectedCount.toString().padStart(2, "0")}{" "}
-          {props.connectedCount === 1 ? t("mcp.app_connected") : t("mcp.apps_connected")}
-        </p>
-      ) : null}
-    </>
   );
 }
 
@@ -1395,89 +1205,6 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </DialogFooter> : null}
     </DialogContent>
   </Dialog>;
-}
-
-function McpAdvancedConfigSection(props: {
-  open: boolean;
-  configScope: ConfigScope;
-  activeConfig: OpencodeConfigFile | null;
-  canRevealConfig: boolean;
-  revealBusy: boolean;
-  revealLabel: string;
-  configError: string | null;
-  onToggle: () => void;
-  onScopeChange: (scope: ConfigScope) => void;
-  onReveal: () => Promise<void>;
-}) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-dls-border bg-dls-surface">
-      <button type="button" className="flex w-full items-center justify-between px-5 py-4 transition-colors hover:bg-dls-hover" onClick={props.onToggle}>
-        <div className="flex items-center gap-3">
-          <Settings2 size={16} className="text-dls-secondary" />
-          <div className="text-left">
-            <div className="text-sm font-medium text-dls-text">{t("mcp.advanced_settings")}</div>
-            <div className="text-xs text-dls-secondary">{t("mcp.advanced_settings_hint")}</div>
-          </div>
-        </div>
-        <div className={`transition-transform ${props.open ? "rotate-180" : ""}`}>
-          <ChevronDown size={16} className="text-dls-secondary" />
-        </div>
-      </button>
-      {props.open ? (
-        <div className="animate-in fade-in slide-in-from-top-1 space-y-4 border-t border-dls-border px-5 py-4 duration-200">
-          <div className="flex items-center gap-1.5">
-            <McpConfigScopeButton scope="project" activeScope={props.configScope} onScopeChange={props.onScopeChange} />
-            <McpConfigScopeButton scope="global" activeScope={props.configScope} onScopeChange={props.onScopeChange} />
-          </div>
-          <div className="flex flex-col gap-1 text-xs">
-            <div className="text-dls-secondary">{t("mcp.config_file")}</div>
-            <div className="truncate font-mono text-[11px] text-dls-secondary/80">
-              {props.activeConfig?.path ?? t("mcp.config_not_loaded")}
-            </div>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => void props.onReveal()} disabled={!props.canRevealConfig}>
-                {props.revealBusy ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    {t("mcp.opening_label")}
-                  </>
-                ) : (
-                  <>
-                    <FolderOpen size={14} />
-                    {props.revealLabel}
-                  </>
-                )}
-              </Button>
-            </div>
-            {props.activeConfig && props.activeConfig.exists === false ? <div className="text-[11px] text-dls-secondary">{t("mcp.file_not_found")}</div> : null}
-          </div>
-          {props.configError ? <div className="text-xs text-red-11">{props.configError}</div> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function McpConfigScopeButton(props: {
-  scope: ConfigScope;
-  activeScope: ConfigScope;
-  onScopeChange: (scope: ConfigScope) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-        props.activeScope === props.scope
-          ? "bg-dls-active text-dls-text"
-          : "text-dls-secondary hover:bg-dls-hover hover:text-dls-text"
-      }`}
-      onClick={() => props.onScopeChange(props.scope)}
-    >
-      {props.scope === "project" ? t("mcp.scope_project") : t("mcp.scope_global")}
-    </button>
-  );
 }
 
 export default McpView;

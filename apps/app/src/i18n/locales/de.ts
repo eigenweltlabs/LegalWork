@@ -2478,20 +2478,14 @@ const de = {
   "identities.workspace_scope_prefix": "Workspace-Geltungsbereich:",
   "mcp.disable_app": "Deaktivieren",
   "mcp.enable_app": "Aktivieren",
-  "mcp.reloading_status": "MCP-Server werden neu geladen…",
-  "mcp.toggle_failed": "Der Aktivierungsstatus des MCP konnte nicht aktualisiert werden.",
-  "mcp.toggle_requires_server":
-    "Verbinden Sie sich mit einem LegalWork-Server, um MCPs zu aktivieren oder zu deaktivieren.",
-  "mcp.add_modal_subtitle": "Verbinden Sie LegalWork mit Ihrem eigenen MCP-Server.",
+  "mcp.reloading_status": "Konnektoren werden aktualisiert…",
+  "mcp.settings_readonly": "Sie haben keine Berechtigung, diese Konnektoreinstellungen zu ändern.",
+  "mcp.registration_failed": "Diese Konnektoren konnten nicht verbunden werden: {names}. Aktualisieren Sie die Ansicht und versuchen Sie es erneut.",
+  "mcp.toggle_failed": "Der Konnektor konnte nicht aktiviert oder deaktiviert werden.",
+  "mcp.toggle_requires_server": "Verbinden Sie sich mit LegalWork, um Konnektoren zu aktivieren oder zu deaktivieren.",
+  "mcp.add_modal_subtitle": "Verbinden Sie LegalWork mit Ihren eigenen Tools und Diensten.",
   "mcp.add_modal_title": "Eigenen Konnektor hinzufügen",
   "mcp.add_server_button": "Hinzufügen",
-  "mcp.advanced": "Erweitert",
-  "mcp.advanced_settings": "Erweiterte Einstellungen",
-  "mcp.advanced_settings_hint": "Konfigurationsdateien bearbeiten und Verbindungen manuell verwalten.",
-  "mcp.app_connected": "Konnektor verbunden",
-  "mcp.apps_connected": "Konnektoren verbunden",
-  "mcp.apps_subtitle": "Verbinden Sie Ihre bevorzugten Werkzeuge, damit LegalWork sie für Sie nutzen kann.",
-  "mcp.apps_title": "Konnektoren",
   "mcp.auth.applying_changes_title": "Änderungen werden vor der Anmeldung übernommen",
   "mcp.auth.approve_in_browser":
     "Bestätigen Sie den Zugriff in Ihrem Browser. Dieses Fenster aktualisiert sich, sobald die Autorisierung abgeschlossen ist.",
@@ -2556,8 +2550,7 @@ const de = {
   "mcp.auth.reload_engine_retry": "Änderungen übernehmen und erneut versuchen",
   "mcp.auth.requesting_link": "Der Anmeldelink des Anbieters wird angefordert…",
   "mcp.auth.retry": "Erneut versuchen",
-  "mcp.auth.server_disabled":
-    "Dieser MCP-Server ist deaktiviert. Aktivieren Sie ihn und versuchen Sie es erneut.",
+  "mcp.auth.server_disabled": "Dieser Konnektor ist deaktiviert. Aktivieren Sie ihn und versuchen Sie es erneut.",
   "mcp.auth.setup_hint":
     "Prüfen Sie in der Verbindungseinrichtung die registrierten App-Zugangsdaten Ihres Anbieters und die zulässige Redirect-URL.",
   "mcp.auth.sign_in_timed_out":
@@ -2577,9 +2570,6 @@ const de = {
   "mcp.connector_search_hint": "Versuchen Sie einen anderen Namen oder leeren Sie die Suche.",
   "mcp.cap_signin": "Kontoanmeldung",
   "mcp.cap_tools": "KI-Tools",
-  "mcp.config_file": "Konfigurationsdatei",
-  "mcp.config_load_failed": "Die Konfigurationsdatei konnte nicht geladen werden",
-  "mcp.config_not_loaded": "Noch nicht geladen",
   "mcp.connect": "Verbinden",
   "mcp.connect_failed": "Verbindung nicht möglich. Versuchen Sie es erneut.",
   "mcp.connect_server_first": "Verbinden Sie sich zuerst mit dem Server.",
@@ -2587,17 +2577,14 @@ const de = {
   "mcp.connected_badge": "Verbunden",
   "mcp.connection_failed": "Verbindungsproblem, bitte erneut versuchen",
   "mcp.connection_type": "Verbindung",
-  "mcp.custom_app_cta_hint":
-    "Verbinden Sie Ihren eigenen MCP-Server, ein internes Werkzeug oder eine gehostete App.",
+  "mcp.custom_app_cta_hint": "Verbinden Sie Ihre internen Tools oder gehosteten Apps.",
   "mcp.desktop_required": "Konnektoren erfordern die Desktop-App.",
   "mcp.docs_link": "Mehr erfahren",
-  "mcp.file_not_found": "Konfigurationsdatei noch nicht erstellt",
   "mcp.friendly_status_issue": "Problem",
   "mcp.friendly_status_needs_signin": "Anmeldung erforderlich",
   "mcp.friendly_status_offline": "Offline",
   "mcp.friendly_status_paused": "Pausiert",
   "mcp.friendly_status_ready": "Bereit",
-  "mcp.last_synced": "Synchronisiert",
   "mcp.login_action": "Anmelden",
   "mcp.login_hint": "Verbinden Sie Ihr Konto, um die Einrichtung dieses Konnektors abzuschließen.",
   "mcp.login_unavailable": "Dieser Konnektor unterstützt keine Anmeldung aus LegalWork heraus.",
@@ -2624,8 +2611,6 @@ const de = {
   "mcp.oauth_scope": "OAuth-Scopes",
   "mcp.one_click_connect": "Verbinden mit einem Klick",
   "mcp.open_file": "Datei öffnen",
-  "mcp.opening_label": "Wird geöffnet…",
-  "mcp.pick_workspace_error": "Wählen Sie zuerst einen Workspace-Ordner.",
   "mcp.pick_workspace_first": "Wählen Sie zuerst einen Workspace-Ordner.",
   "mcp.quick_connect_box_desc":
     "Durchsuchen Sie Akten, Ordner und Metadaten in der Box der Kanzlei, jeweils im Rahmen der Berechtigungen der einzelnen Nutzer.",
@@ -2653,8 +2638,7 @@ const de = {
   "mcp.quick_connect_highq_desc":
     "Nur-Lese-Zugriff auf die HighQ-Sites, Dokumente und iSheets der Kanzlei. Geben Sie Ihre HighQ-Instanz und Site an.",
   "mcp.quick_connect_highq_title": "Thomson Reuters HighQ",
-  "mcp.quick_connect_imanage_desc":
-    "Durchsuchen Sie Dokumente und Workspaces im iManage-DMS der Kanzlei, mit Ethical Walls und Protokollierung jedes Aufrufs. Die Administration aktiviert den MCP-Dienst.",
+  "mcp.quick_connect_imanage_desc": "Dokumente und Workspaces im iManage-DMS Ihrer Kanzlei durchsuchen, mit Zugriffsschranken und Protokollierung jeder Anfrage. Ihr Admin aktiviert den Konnektor.",
   "mcp.quick_connect_imanage_title": "iManage",
   "mcp.quick_connect_ironclad_desc":
     "Suche in natürlicher Sprache über die Ironclad-Verträge der Kanzlei, im Rahmen Ihrer Berechtigungen. Angezeigt wird der Endpunkt für Nordamerika.",
@@ -2683,8 +2667,7 @@ const de = {
   "mcp.quick_connect_relativity_desc":
     "Fragen Sie die RelativityOne-eDiscovery-Instanz der Kanzlei in natürlicher Sprache ab und verwalten Sie Mandate, Workspaces und Zugriffe. Geben Sie Ihren Tenant-Hostnamen und die Client-ID vom Relativity-Support an; Sie handeln als angemeldeter Systemadministrator.",
   "mcp.quick_connect_relativity_title": "Relativity",
-  "mcp.quick_connect_ruly_desc":
-    "Durchsuchen Sie gerichtsspezifische Verfahrensordnungen, lokale Regeln und Prozessvorschriften mit belegten Fundstellen. Anmeldung mit einem Klick über Ihr Ruly-Konto; ein aktives MCP-Abonnement ist erforderlich.",
+  "mcp.quick_connect_ruly_desc": "Gerichtsspezifische Regeln, lokale Regeln und Verfahrensvorschriften mit belegten Fundstellen durchsuchen. Melden Sie sich mit Ihrem Ruly-Konto an; ein aktives Abonnement ist erforderlich.",
   "mcp.quick_connect_ruly_title": "Ruly",
   "mcp.quick_connect_sharepoint_desc":
     "Durchsuchen und verwalten Sie Aktendateien in den SharePoint-Sites und in OneDrive der Kanzlei. Geben Sie Ihre Tenant-ID an; die Zustimmung der Administration ist erforderlich.",
@@ -2692,17 +2675,13 @@ const de = {
   "mcp.quick_connect_taxgraph_desc":
     "Durchsuchen Sie einen täglich aktualisierten Wissensgraphen zum deutschen Steuerrecht: Gesetze, BFH-Rechtsprechung und BMF-Schreiben mit Fundstellen.",
   "mcp.quick_connect_taxgraph_title": "TaxGraph",
-  "mcp.remote_workspace_url_hint":
-    "Remote-Worker verbinden sich am schnellsten mit URL-basierten MCP-Servern.",
+  "mcp.remote_workspace_url_hint": "Verwenden Sie bei einem Remote-Worker die URL des Konnektors.",
   "mcp.remove_app": "Entfernen",
   "mcp.remove_failed": "Der Konnektor konnte nicht entfernt werden.",
   "mcp.remove_modal_message":
     "Möchten Sie {server} wirklich entfernen? Sie können den Konnektor jederzeit wieder hinzufügen.",
   "mcp.remove_modal_title": "Konnektor entfernen",
   "mcp.reveal_config_failed": "Die Konfigurationsdatei konnte nicht geöffnet werden",
-  "mcp.reveal_in_finder": "Im Finder anzeigen",
-  "mcp.scope_global": "Alle Workspaces",
-  "mcp.scope_project": "Dieser Workspace",
   "mcp.server_command": "Befehl",
   "mcp.server_command_hint": "Der Shell-Befehl, mit dem der Server gestartet wird.",
   "mcp.server_command_placeholder": "npx -y @modelcontextprotocol/server-sequential-thinking",
@@ -5069,13 +5048,12 @@ const de = {
   "mcp.scope_placeholder_short": "durch Leerzeichen getrennte Scopes",
   "mcp.api_token": "API-Token",
   "mcp.api_token_placeholder": "Fügen Sie Ihr Zugangstoken ein",
-  "mcp.config_read_failed":
-    "Der LegalWork-Server kann die MCP-Konfiguration für diesen Workspace nicht lesen.",
+  "mcp.config_read_failed": "Die Konnektoreinstellungen konnten nicht geladen werden.",
   "mcp.computer_use_helper_unavailable":
     "Die Computer-Use-Hilfsanwendung ist nicht verfügbar. Starten Sie LegalWork neu oder installieren Sie die App erneut.",
-  "mcp.load_servers_failed": "Die MCP-Server konnten nicht geladen werden",
-  "mcp.missing_url": "Die MCP-URL fehlt. Läuft die LegalWork-Desktop-App?",
-  "mcp.missing_command": "Der MCP-Befehl fehlt.",
+  "mcp.load_servers_failed": "Die Konnektoren konnten nicht geladen werden.",
+  "mcp.missing_url": "Die Adresse des Konnektors fehlt.",
+  "mcp.missing_command": "Der Startbefehl des lokalen Konnektors fehlt.",
   "template_workflow.folder_required": "Ein Vorlagenordner ist erforderlich.",
   "template_workflow.already_running": "Es läuft bereits eine Workflow-Erzeugung.",
   "template_workflow.workspace_failed": "Der Vorlagen-Workspace konnte nicht angelegt werden.",
@@ -5086,7 +5064,7 @@ const de = {
   "computer_use.mac_only":
     "Computer Use gibt es nur für Mac und erfordert die LegalWork-Desktop-App unter macOS.",
   "computer_use.setup_title": "Computer-Use-Einrichtung (nur Mac)",
-  "computer_use.step1_title": "1. Computer-Use-MCP verbinden",
+  "computer_use.step1_title": "1. Computer Use verbinden",
   "computer_use.step1_desc":
     "Fügt diesem Workspace den lokalen Computer-Use-Server hinzu, damit der Composer die Steuerungswerkzeuge nutzen kann.",
   "computer_use.step2_title": "2. macOS-Berechtigungen erteilen",
@@ -5104,7 +5082,7 @@ const de = {
   "hub_share.title": "Mit Ihrer Kanzlei teilen",
   "hub_share.item_unavailable": "Dieser Eintrag ist nicht mehr verfügbar.",
   "hub_share.nothing_local": "Es gibt lokal noch nichts zu teilen.",
-  "hub_share.mcp_servers": "MCP-Server",
+  "hub_share.mcp_servers": "Konnektoren",
   "mcp.search_connectors": "Konnektoren durchsuchen…",
   "mcp.no_extensions_found": "Keine Erweiterungen gefunden",
   "mcp.no_extensions_hint":
@@ -5197,7 +5175,7 @@ const de = {
   "add_mcp.name_label": "Name des Connectors",
   "add_mcp.name_placeholder": "Interne Wissensdatenbank",
   "add_mcp.name_hint": "Wird in der Connector-Liste angezeigt.",
-  "add_mcp.url_hint": "Die HTTPS-Adresse, unter der der Server MCP-Anfragen annimmt, zum Beispiel https://mcp.example.com/mcp.",
+  "add_mcp.url_hint": "Die vom Konnektor bereitgestellte HTTPS-Adresse, zum Beispiel https://mcp.example.com/mcp.",
   "add_mcp.continue": "Weiter",
   "add_mcp.back": "Zurück",
   "add_mcp.checking": "Server wird geprüft …",
@@ -5206,7 +5184,7 @@ const de = {
   "add_mcp.found_credentials": "Server gefunden. Er erwartet einen API-Schlüssel statt einer Anmeldung.",
   "add_mcp.unreachable": "Der Server ist nicht erreichbar.",
   "add_mcp.unreachable_hint": "Prüfen Sie die Adresse und ob der Server läuft, und versuchen Sie es dann erneut.",
-  "add_mcp.unknown": "Diese Adresse antwortet nicht wie ein MCP-Server.",
+  "add_mcp.unknown": "Diese Adresse antwortet nicht wie ein Konnektor.",
   "add_mcp.unknown_hint": "Prüfen Sie die Adresse auf der Seite des Anbieters. Wenn sie stimmt, können Sie den Connector trotzdem hinzufügen und die Verbindung versuchen.",
   "add_mcp.check_unavailable": "Der Server konnte von hier aus nicht geprüft werden. Sie können ihn trotzdem hinzufügen und die Verbindung versuchen.",
   "add_mcp.check_failed": "Die Prüfung ist fehlgeschlagen: {message}",
@@ -5262,10 +5240,8 @@ const de = {
   "skills.choose_folder": "Ordner wählen…",
   "skills.choose_zip": "ZIP wählen…",
   "hub_share.include_key": "Schlüssel mitgeben",
-  "hub_share.reviewed_item":
-    "Ich habe diesen Eintrag geprüft. Mitgegebene MCP-Schlüssel werden verschlüsselt, können aber von jedem berechtigten Kanzleimitglied kopiert werden.",
-  "hub_share.reviewed_items":
-    "Ich habe diese Dateien und Konfigurationen geprüft. Mitgegebene MCP-Schlüssel werden verschlüsselt, können aber von jedem berechtigten Kanzleimitglied kopiert werden.",
+  "hub_share.reviewed_item": "Ich habe diesen Eintrag geprüft. Mitgegebene Konnektor-Zugangsdaten werden verschlüsselt, können aber von jedem berechtigten Kanzleimitglied kopiert werden.",
+  "hub_share.reviewed_items": "Ich habe diese Dateien und Konfigurationen geprüft. Mitgegebene Konnektor-Zugangsdaten werden verschlüsselt, können aber von jedem berechtigten Kanzleimitglied kopiert werden.",
   "personalisation.system_prompt_desc":
     "Ergänzen Sie Anweisungen und Kontext, die LegalWork bei jedem Chat auf diesem Host in den System-Prompt aufnimmt.",
   "personalisation.delete_memories_desc":
@@ -5521,13 +5497,11 @@ const de = {
   "extensions.eyebrow_integrations": "Integrationen",
   "mcp.eyebrow_connectors": "Konnektoren",
   "mcp.filter_all": "Alle",
-  "mcp.filter_mcps": "MCPs",
   "mcp.filter_skills": "Skills",
   "mcp.showing_hidden": "Ausgeblendete werden angezeigt",
   "mcp.show_hidden": "Ausgeblendete anzeigen",
   "mcp.show_hidden_count": "Ausgeblendete anzeigen ({count})",
-  "mcp.no_servers_configured": "Noch keine MCP-Server konfiguriert.",
-  "extension_card.kind_mcp": "MCP",
+  "extension_card.kind_mcp": "Konnektor",
   "extension_card.kind_plugin": "Plugin",
   "extension_card.kind_skill": "Skill",
   "extension_card.kind_ui_control": "UI-Steuerung",
@@ -5551,15 +5525,14 @@ const de = {
   "ext.voice_provider_connected": "OpenAI-Provider verbunden",
   "ext.cu_desc":
     "Nur für Mac: Mac-Apps über semantische Bedienhilfen-Referenzen, Screenshots, hintergrundsichere Klicks, Tastatureingaben und den Strict-Modus steuern.",
-  "ext.cu_instructions":
-    "Computer Use gibt es nur für Mac. Es läuft als lokaler MCP-Server auf Basis der macOS-Bedienhilfen. Erteilen Sie die Berechtigungen für Bedienhilfen und Bildschirmaufnahme, wenn macOS danach fragt, und verbinden Sie dann den MCP-Server in diesem Workspace.",
-  "ext.cu_primary_cta": "Computer-Use-MCP verbinden",
+  "ext.cu_instructions": "Computer Use ist auf dem Mac verfügbar. Verbinden Sie es und erteilen Sie die Berechtigungen für Bedienhilfen und Bildschirmaufnahme, wenn macOS danach fragt.",
+  "ext.cu_primary_cta": "Computer Use verbinden",
   "ext.cu_secondary_cta": "macOS-Berechtigungen prüfen",
-  "ext.cu_mcp_label": "Computer-Use-MCP",
+  "ext.cu_mcp_label": "Computer-Use-Konnektor",
   "ext.cu_runtime_label": "macOS-Bedienhilfen-Laufzeit",
   "ext.cu_permissions_label": "Bedienhilfen und Bildschirmaufnahme",
-  "ext.cu_verify_label": "Computer-Use-MCP prüfen",
-  "ext.cu_mcp_connected": "MCP-Server verbunden",
+  "ext.cu_verify_label": "Computer Use prüfen",
+  "ext.cu_mcp_connected": "Konnektor verbunden",
   "ext.cu_ax_permission": "Berechtigung für Bedienhilfen",
   "ext.cu_screen_permission": "Berechtigung für Bildschirmaufnahme",
   "ext.gw_desc": "Erlaubt LegalWork, Ihren Google Kalender und Ihr Google Drive zu lesen (nur lesend).",
@@ -6037,14 +6010,11 @@ const de = {
   "tool.step_finished": "Schritt abgeschlossen",
   "hub_download.admin_approval": "Freigabe durch Administrator erforderlich",
   "hub_download.review_install": "Geteiltes Element prüfen und installieren",
+  "hub_download.shared_credential": " Dieser Konnektor enthält außerdem kopierbare gemeinsame Zugangsdaten.",
   "hub_download.review_update": "Geteiltes Element prüfen und aktualisieren",
   "hub_download.trust_install": "Vertrauen und installieren",
   "hub_download.trust_update": "Vertrauen und aktualisieren",
-  "connections.mcp_readonly":
-    "Der LegalWork-Server ist nicht verfügbar. Die MCP-Konfiguration ist schreibgeschützt.",
-  "connections.pick_workspace_folder": "Wählen Sie einen Workspace-Ordner, um MCP-Server zu laden.",
-  "connections.no_opencode_json":
-    "Noch keine opencode.json gefunden. Erstellen Sie eine, indem Sie ein MCP verbinden.",
+  "connections.mcp_readonly": "LegalWork ist nicht verfügbar. Stellen Sie die Verbindung wieder her, bevor Sie Konnektoreinstellungen ändern.",
   "connections.write_jsonc_failed": "Die opencode.jsonc konnte nicht geschrieben werden",
   "artifact.download_copy": "Kopie herunterladen",
   "artifact.restore_panel": "Dokumentbereich wiederherstellen",

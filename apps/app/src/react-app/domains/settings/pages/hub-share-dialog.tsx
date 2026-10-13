@@ -270,7 +270,7 @@ export function HubShareDialog(props: {
                 {singleItem.kind === "workflow"
                   ? "Workflow"
                   : singleItem.kind === "mcp"
-                    ? "MCP server"
+                    ? t("extension_card.kind_mcp")
                     : singleItem.kind === "review_set"
                       ? t("hub_share.review_set")
                       : "Skill"}

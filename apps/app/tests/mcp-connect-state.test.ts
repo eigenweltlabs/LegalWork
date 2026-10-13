@@ -69,11 +69,14 @@ let restoreAnalytics = () => {};
 let selectedWorkspaceId = "local";
 let remoteSaveWait: Promise<void> | undefined;
 let remoteSaveStarted: (() => void) | undefined;
+let emptyServerList = false;
+let configExists = true;
+let registrationFailed = false;
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
-      if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: true, content: config };
+      if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: configExists, content: config };
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
         return { ok: true };
@@ -83,7 +86,7 @@ Object.assign(browserWindow, {
   },
 });
 
-function makeStore(remote = false) {
+function makeStore(remote = false, fileFallback = false) {
   const legalworkServer = createLegalworkServerStore({
     startupPreference: () => "local",
     documentVisible: () => true,
@@ -112,7 +115,7 @@ function makeStore(remote = false) {
     selectedWorkspaceId: () => selectedWorkspaceId,
     selectedWorkspaceRoot: () => "/tmp/workspace",
     workspaceType: () => remote ? "remote" : "local",
-    legalworkServer: connectedServer,
+    legalworkServer: fileFallback ? legalworkServer : connectedServer,
     runtimeWorkspaceId: () => remote ? "remote" : null,
     developerMode: () => false,
     markReloadRequired: (reason, trigger) => { reloads.push({ reason, trigger }); },
@@ -132,6 +135,9 @@ describe("connection store success reporting", () => {
     selectedWorkspaceId = "local";
     remoteSaveWait = undefined;
     remoteSaveStarted = undefined;
+    emptyServerList = false;
+    configExists = true;
+    registrationFailed = false;
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -147,7 +153,7 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
-          return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }] });
+          return Response.json({ items: emptyServerList ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
         return Response.json(status);
@@ -180,6 +186,32 @@ describe("connection store success reporting", () => {
     expect(connectedEvents()).toHaveLength(1);
     expect(store.getSnapshot().mcpStatus).toBe("Connected");
     expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "added" } }]);
+  });
+
+  test("a healthy empty connector list has no legacy configuration banner", async () => {
+    emptyServerList = true;
+    const store = makeStore();
+    await store.refreshMcpServers();
+    expect(store.getSnapshot().mcpServers).toEqual([]);
+    expect(store.getSnapshot().mcpStatus).toBeNull();
+  });
+
+  test("missing or empty config files use the library empty state without file-setup instructions", async () => {
+    const store = makeStore(false, true);
+    for (const exists of [false, true]) {
+      configExists = exists;
+      await store.refreshMcpServers();
+      expect(store.getSnapshot().mcpServers).toEqual([]);
+      expect(store.getSnapshot().mcpStatus).toBeNull();
+    }
+  });
+
+  test("actual registration failures still explain which connectors need attention", async () => {
+    registrationFailed = true;
+    status = {};
+    const store = makeStore();
+    await store.refreshMcpServers();
+    expect(store.getSnapshot().mcpStatus).toBe("Could not connect these connectors: test-server. Refresh and try again.");
   });
 
   test("closing sign-in never emits a success event, but still applies the saved connector", async () => {
