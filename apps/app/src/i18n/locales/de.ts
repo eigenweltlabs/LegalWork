@@ -5222,7 +5222,7 @@ const de = {
   "add_mcp.local_toggle": "Statt einer URL einen lokalen Befehl ausführen",
   "add_mcp.url_toggle": "Stattdessen eine Server-URL verwenden",
   "add_mcp.url_tab": "URL",
-  "add_mcp.local_tab": "Lokaler Befehl",
+  "add_mcp.local_tab": "Lokaler Server",
   "add_mcp.connect_failed": "Verbindung nicht möglich. Prüfen Sie die Angaben und versuchen Sie es erneut.",
   "add_mcp.found_at": "Gefunden unter {url}. Diese Adresse wird gespeichert.",
   "add_mcp.registering": "Registrierung beim Anmeldeanbieter…",

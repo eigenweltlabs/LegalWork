@@ -4874,7 +4874,7 @@ export default {
   "add_mcp.local_toggle": "Run a local command instead of a URL",
   "add_mcp.url_toggle": "Use a server URL instead",
   "add_mcp.url_tab": "URL",
-  "add_mcp.local_tab": "Local command",
+  "add_mcp.local_tab": "Local server",
   "add_mcp.connect_failed": "Could not connect. Check the details and try again.",
   "add_mcp.found_at": "Found at {url}. That address will be saved.",
   "add_mcp.registering": "Registering with the sign-in provider…",
