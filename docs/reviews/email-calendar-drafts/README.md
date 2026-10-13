@@ -21,6 +21,9 @@ The implementation imports the patch supplied in
   another card's unsaved edits.
 - Exercise actual HTTP authorization, workspace boundaries, read-only mode,
   optimistic revisions, file downloads and agent-tool routing.
+- Bundle draft schemas into the Node server so Electron can load the routes
+  without the workspace TypeScript sources. The build smoke test rejects
+  unbundled workspace dependencies and runs in CI.
 
 ## Validation
 
@@ -33,12 +36,16 @@ pnpm --filter @legalwork/app test
 pnpm --filter @legalwork/app typecheck
 pnpm --filter legalwork-server typecheck
 pnpm --filter legalwork-server build
+pnpm test:drafts:build
 pnpm --filter legalwork-server exec bun test src/email-drafts/routes.test.ts src/opencode-plugins/legalwork-draft-tools.test.ts src/opencode-plugins/legalwork-calendar-tools.test.ts src/legalwork-runtime-config.test.ts
 node scripts/i18n-audit.mjs --ci
 ```
 
 Results: 21 draft tests, 1,210 app tests and 20 HTTP/plugin/runtime tests passed.
 Both typechecks, the server build and the i18n audit passed.
+The Node build smoke test also passed. Electron was launched on macOS with an
+existing development profile; the app reached ready state and loaded saved
+workspaces and sessions without a module-resolution error.
 
 ## Browser verification
 

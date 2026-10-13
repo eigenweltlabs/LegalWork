@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EmailDraftInputSchema, EmailDraftSchema } from "@legalwork/types/email-draft";
+import { EmailDraftInputSchema, EmailDraftSchema } from "../email-drafts/schema.js";
 import { ApiError } from "../errors.js";
 import { draftPaths, readDraft, saveEmailDraft } from "../email-drafts/store.js";
 import { recordAudit } from "../audit.js";

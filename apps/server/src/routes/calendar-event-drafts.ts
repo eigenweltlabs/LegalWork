@@ -1,6 +1,6 @@
 import { eventDraftTimes, renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { z } from "zod";
-import { CalendarEventDraftInputSchema, CalendarEventDraftSchema } from "@legalwork/types/calendar-event-draft";
+import { CalendarEventDraftInputSchema, CalendarEventDraftSchema } from "../calendar-event-drafts/schema.js";
 import { ApiError } from "../errors.js";
 import { draftPaths, readDraft, saveDraftFiles } from "../email-drafts/store.js";
 import { recordAudit } from "../audit.js";

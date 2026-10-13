@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { emailMailboxes, type EmailDraftInput } from "@legalwork/types/email-draft";
+import { emailMailboxes, type EmailDraftInput } from "./schema.js";
 
 export type EmailAttachment = { name: string; contentType: string; data: Buffer };
 const CRLF = "\r\n";
