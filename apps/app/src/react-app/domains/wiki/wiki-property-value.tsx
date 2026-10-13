@@ -8,8 +8,9 @@ export function WikiPropertyValue(props: { value: WikiValue | undefined; pages: 
   const match = /^\[\[([^\]]+)\]\]$/.exec(text);
   if (match) {
     const target = resolveWikiPage(props.pages, match[1], props.fromPath);
-    const label = match[1].split("|").at(-1);
-    return target ? <button className="text-primary underline underline-offset-2" onClick={() => props.onOpen(target.path)}>{label}</button> : <span title={t("wiki.missing_link")} className="text-muted-foreground underline decoration-dotted">{label}</span>;
+    const [path, alias] = match[1].split("|");
+    const label = alias || target?.title || path;
+    return target ? <button className="text-left text-primary underline underline-offset-2" onClick={() => props.onOpen(target.path)}>{label}</button> : <span title={t("wiki.missing_link")} className="text-muted-foreground underline decoration-dotted">{label}</span>;
   }
   return <>{text || "–"}</>;
 }

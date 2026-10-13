@@ -3,7 +3,7 @@ import { ViewList, useSavedViews } from "../views/view-list";
 import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Check, ChevronDown, History, Loader2, LockKeyhole, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, History, Loader2, LockKeyhole, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
 import type { WikiAsset, WikiEntryOperation, WikiPage, WikiSnapshot, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isLoopbackLegalworkServerUrl, LegalworkServerError } from "@/app/lib/legalwork-server";
@@ -24,7 +24,8 @@ import { useWikiDrafts } from "./wiki-drafts";
 import { WikiPreview } from "./wiki-preview";
 import { WikiGraphPane } from "./wiki-graph-pane";
 import { wikiPanelTab, type WikiPanelTab } from "./wiki-tabs";
-import { usePanelTabStore } from "../session/panel/panel-tab-store";
+import { usePanelTabStore, workspacePanelKey } from "../session/panel/panel-tab-store";
+import { wikiWorkspaceRoute } from "../../shell/workspace-routes";
 import { WikiExplorer, type WikiExplorerAction } from "./wiki-explorer";
 import { wikiCopyPath, type WikiTreeEntry } from "./wiki-tree";
 import { WikiFileDialog, type WikiFileDialogAction } from "./wiki-file-dialogs";
@@ -44,6 +45,7 @@ export type WikiPaneProps = {
   workspaces: WikiWorkspaceOption[];
   onWikisChanged?: () => void;
   onOpenWikiSession: (wiki: WikiVault, prompt?: string) => Promise<void>;
+  onOpenWiki: (wiki: WikiVault) => void;
   display?: "navigation" | "tab";
   tab?: WikiPanelTab;
   headerTarget?: HTMLElement | null;
@@ -129,8 +131,10 @@ function WikiContentPane(props: WikiPaneProps) {
     queryClient.setQueryData<{ items: WikiVault[] }>(["wikis", props.serverUrl], (current) => current ? { items: [...current.items.filter((item) => item.id !== updated.id), updated] } : { items: [updated] });
     refresh();
   };
-  const drafts = useWikiDrafts(props.client, props.serverUrl, refresh);
   const wiki = snapshot.data?.wiki ?? list.data?.items.find((item) => item.id === wikiId);
+  const inWikiWorkspace = wiki?.workspaceId === props.workspaceId;
+  const writable = Boolean(inWikiWorkspace && wiki?.writable);
+  const drafts = useWikiDrafts(props.client, props.serverUrl, refresh, writable ? wikiId : null);
   const pages = snapshot.data?.pages ?? EMPTY_PAGES;
   const assets = snapshot.data?.assets ?? EMPTY_ASSETS;
   const savedViews = useSavedViews(props.client, { kind: "wiki", id: wikiId });
@@ -224,7 +228,7 @@ function WikiContentPane(props: WikiPaneProps) {
     finally { setBusy(false); }
   };
   const importFiles = async (items: WikiImportFile[], folder: string) => {
-    if (!props.client || !wiki?.writable) return;
+    if (!props.client || !wiki || !writable) return;
     setBusy(true);
     try {
       const result = await importWikiFiles(props.client, wiki.id, folder, items, [...files, ...folders]);
@@ -259,11 +263,12 @@ function WikiContentPane(props: WikiPaneProps) {
   }, [props.client, wikiId, resolveAssetPath, assets]);
   const uploadAsset = useCallback(async (file: File) => {
     if (!props.client || !wiki) throw new Error(t("wiki.offline"));
+    if (!writable) throw new Error(t("wiki.read_only"));
     const name = file.name.replace(/[\\/<>:"|?*%#\x00-\x1f]/g, "_").replace(/^\.+/, "");
     const target = `Attachments/${crypto.randomUUID().slice(0, 8)}-${name || "file"}`;
     const result = await props.client.uploadWikiAsset(wiki.id, target, await file.arrayBuffer());
     refresh(); return result.path;
-  }, [props.client, wiki, refresh]);
+  }, [props.client, wiki, refresh, writable]);
   const uploadImage = useCallback(async (file: File) => (await uploadAsset(file)).split("/").map(encodeURIComponent).join("/"), [uploadAsset]);
   const downloadAsset = async (source: string) => {
     if (!props.client || !wiki) return;
@@ -302,12 +307,13 @@ function WikiContentPane(props: WikiPaneProps) {
     if (destination?.kind === "asset") { void run(() => openAsset(destination.path)); return; }
     if (destination) { openPage(destination.path, destination.anchor); if (destination.path === path && destination.anchor) scrollToHeading(destination.anchor); }
     else if (/^#?wiki:/.test(href) || href.startsWith("[[") || /\.md(?:#.*)?$/i.test(href)) {
-      if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link"));
+      if (writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link"));
     } else void run(() => openAsset(target));
   };
 
   const changeEntry = async (operation: WikiEntryOperation) => {
     if (!props.client || !wiki) throw new Error(t("wiki.offline"));
+    if (!writable) throw new Error(t("wiki.read_only"));
     if ("baseRevision" in operation) {
       if (drafts.dirty.some((draft) => draft.wikiId === wiki.id && (draft.path === operation.path || draft.path.startsWith(`${operation.path}/`)))) throw new Error(t("wiki.save_before_move"));
     }
@@ -358,7 +364,7 @@ function WikiContentPane(props: WikiPaneProps) {
             <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
             <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
-          <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={Boolean(wiki?.writable)} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={openGraph} onAction={entryAction} onImport={importFiles}>
+          <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={writable} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={openGraph} onAction={entryAction} onImport={importFiles}>
             {snapshot.error ? <p role="alert" className="wiki-search-status">{wikiError(snapshot.error)} <button className="underline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</button></p> : null}
             {searchResult.isFetching && debouncedSearch.trim() ? <div className="wiki-search-status" role="status"><Loader2 size={14} className="animate-spin" />{t("wiki.searching")}</div> : null}
             {searchResult.error && debouncedSearch.trim() ? <p role="alert" className="wiki-search-status text-destructive">{wikiError(searchResult.error)}</p> : null}
@@ -368,19 +374,19 @@ function WikiContentPane(props: WikiPaneProps) {
         </aside> : null}
         {!navigationOnly ? <main className="wiki-main">
           {snapshot.error ? <EmptyWiki message={wikiError(snapshot.error)} action={<Button variant="outline" onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>} /> : snapshot.isLoading ? <WikiLoading /> : surface === "graph" ? <WikiGraphPane pages={pages} focus={path || null} onOpen={openPage} client={props.client} serverUrl={props.serverUrl} wikiId={wikiId} /> : <>
-            {draft?.error ? <div role="alert" className="wiki-notice wiki-error-notice"><span>{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
+            {writable && draft?.error ? <div role="alert" className="wiki-notice wiki-error-notice"><span>{draft.error} {t("wiki.draft_preserved")}</span><Button size="sm" variant="outline" onClick={() => void drafts.save(wikiId, path)}>{t("wiki.retry")}</Button><Button size="sm" variant="outline" onClick={() => { if (!props.client || !wiki) return; void run(async () => { const copyPath = `${path.replace(/\.md$/i, "")}-draft-${Date.now()}.md`; await props.client?.writeWikiPage(wiki.id, { path: copyPath, content: draft.content }); drafts.remove(wiki.id, path); openPage(copyPath); refresh(); }); }}>{t("wiki.save_copy")}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm(t("wiki.discard_confirm"))) void run(() => drafts.load(wikiId, path, true)); }}>{t("wiki.reload_saved")}</Button></div> : null}
             {pageError ? <EmptyWiki message={pageError} action={<Button variant="outline" onClick={() => { setHistoryPath(path); setHistory(true); }}>{t("wiki.history")}</Button>} /> : documentLoading && !draft ? <WikiLoading /> : draft ? <>
-              <ViewHostProvider client={props.client} owner={{ kind: "wiki", id: wikiId }} openSource={openPage}><div ref={editorRegion} className={cn("wiki-page-content", wiki?.writable && "wiki-editor-content", backlinks.length > 0 && "wiki-page-with-backlinks")} key={`${wikiId}:${path}`} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (wiki?.writable) void drafts.save(wikiId, path); } }}>
-                <WikiPageHeader key={`${wikiId}:${path}`} toolbarRef={setToolbarTarget} content={draft.content} fallbackTitle={currentPage?.title ?? path.replace(/\.md$/i, "").split("/").at(-1) ?? ""} pages={pages} path={path} readOnly={!wiki?.writable} onChange={content => drafts.change(wikiId, path, content)} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} />
-                {wiki?.writable ? <Suspense fallback={<WikiLoading />}><MarkdownEditor toolbarTarget={toolbarTarget} externalFrontmatter value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} imageUpload={uploadImage} imagePreview={imagePreview} viewModeRequest={viewModeRequest} linkTargets={linkTargets} onOpenLink={openEditorLink} /></Suspense> : <>
-                  <WikiPreview content={draft.content} path={path} anchor={pageAnchor} pages={pages} files={files} onOpen={openPage} onMissing={(target) => { if (wiki?.writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
+              <ViewHostProvider client={props.client} owner={{ kind: "wiki", id: wikiId }} openSource={openPage}><div ref={editorRegion} className={cn("wiki-page-content", writable && "wiki-editor-content", backlinks.length > 0 && "wiki-page-with-backlinks")} key={`${wikiId}:${path}`} onKeyDownCapture={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); if (writable) void drafts.save(wikiId, path); } }}>
+                <WikiPageHeader key={`${wikiId}:${path}`} toolbarRef={setToolbarTarget} navigation={wiki && !inWikiWorkspace ? <div className="wiki-page-navigation"><span>{wiki.name}</span><a href={`#${wikiWorkspaceRoute(wiki.workspaceId)}`} onClick={event => { event.preventDefault(); usePanelTabStore.getState().openTab(workspacePanelKey(wiki.workspaceId), wikiPanelTab(props.serverUrl, wiki.id, { kind: "page", path, anchor: pageAnchor }, currentPage?.title ?? path)); props.onOpenWiki(wiki); }}>{t("wiki.open_in_wiki")}<ArrowUpRight size={14} /></a></div> : undefined} content={writable ? draft.content : draft.baseline} fallbackTitle={currentPage?.title ?? path.replace(/\.md$/i, "").split("/").at(-1) ?? ""} pages={pages} path={path} readOnly={!writable} onChange={content => drafts.change(wikiId, path, content)} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} />
+                {writable ? <Suspense fallback={<WikiLoading />}><MarkdownEditor toolbarTarget={toolbarTarget} externalFrontmatter value={draft.content} baseline={draft.baseline} onChange={(content) => drafts.change(wikiId, path, content)} imageUpload={uploadImage} imagePreview={imagePreview} viewModeRequest={viewModeRequest} linkTargets={linkTargets} onOpenLink={openEditorLink} /></Suspense> : <>
+                  <WikiPreview content={draft.baseline} path={path} anchor={pageAnchor} pages={pages} files={files} onOpen={openPage} onMissing={(target) => { if (writable) setNewPage(target.split("#")[0]); else toast.error(t("wiki.missing_link")); }} onAsset={(assetPath) => void run(() => openAsset(assetPath))} imagePreview={imagePreview} />
                 </>}
                 {backlinks.length ? <section className="wiki-backlinks" aria-label={t("wiki.backlinks")} contentEditable={false}>
                   <h2>{t("wiki.backlinks")} <span>{backlinks.length}</span></h2>
                   <ul>{backlinks.map((page) => <li key={page.path}><Button variant="link" className="wiki-backlink" onClick={() => openPage(page.path)}>{page.title}</Button></li>)}</ul>
                 </section> : null}
               </div></ViewHostProvider>
-            </> : <EmptyWiki message={t("wiki.empty_pages")} action={<Button disabled={!wiki?.writable} onClick={() => setNewPage("")}>{t("wiki.new_page")}</Button>} />}
+            </> : <EmptyWiki message={t("wiki.empty_pages")} action={<Button disabled={!writable} onClick={() => setNewPage("")}>{t("wiki.new_page")}</Button>} />}
           </>}
           {snapshot.data?.warnings.length ? <details className="wiki-warnings"><summary>{t("wiki.warnings", { count: snapshot.data.warnings.length })}</summary><ul>{snapshot.data.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details> : null}
         </main> : null}
@@ -389,8 +395,8 @@ function WikiContentPane(props: WikiPaneProps) {
     {fileDialog && wiki ? <WikiFileDialog value={fileDialog} folders={folders} onClose={() => setFileDialog(null)} onSubmit={changeEntry} /> : null}
     {newWiki && props.client ? <CreateWikiDialog client={props.client} serverUrl={props.serverUrl} wikis={list.data?.items ?? []} onClose={() => setNewWiki(false)} onCreate={async (input) => { const result = await props.client?.createWiki(input); if (!result) return; setNewWiki(false); acceptWiki(result.wiki); chooseWiki(result.wiki.id, result.wiki); setSharingActionError(result.sharingError ? { wikiId: result.wiki.id, message: result.sharingError } : null); props.onWikisChanged?.(); }} onJoin={async (input) => { const result = await props.client?.joinWiki(input); if (!result) return; setNewWiki(false); acceptWiki(result.wiki); chooseWiki(result.wiki.id, result.wiki); props.onWikisChanged?.(); }} /> : null}
     {settings && props.client && wiki ? <WikiSettingsDialog key={wiki.id} initialTab={settingsTab} client={props.client} serverUrl={props.serverUrl} wiki={wiki} projectWorkspaces={props.workspaces.filter((workspace) => !list.data?.items.some((item) => item.workspaceId === workspace.id))} onClose={() => setSettings(false)} onUpdate={async (input) => { const result = await props.client?.updateWiki(wiki.id, input); if (result) acceptWiki(result.wiki); setSettings(false); }} onShare={async (input, update) => { const result = update ? await props.client?.updateWikiSharing(wiki.id, input) : await props.client?.shareWiki(wiki.id, input); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onStopSharing={async () => { const result = await props.client?.stopWikiSharing(wiki.id); if (result) { acceptWiki(result.wiki); setSharingActionError(null); } }} onForget={async () => { if (drafts.dirty.some((item) => item.wikiId === wiki.id)) throw new Error(t("wiki.save_before_forget")); await props.client?.forgetWiki(wiki.id); setSettings(false); if (tabOnly) props.onCloseTab?.(); else chooseWiki(""); refresh(); }} /> : null}
-    {newPage !== null && props.client && wiki ? <NewWikiPageDialog key={`${wiki.id}:${newPage}`} pages={pages} initialPath={newPage} onClose={() => setNewPage(null)} onCreate={async (newPath, templatePath) => { if (pages.some((page) => page.path.toLocaleLowerCase() === newPath.toLocaleLowerCase())) throw new Error(t("wiki.page_exists")); let content = `# ${newPath.split("/").at(-1)?.replace(/\.md$/i, "")}\n\n`; if (templatePath) { const template = await props.client?.readWikiPage(wiki.id, templatePath); const page = pages.find((entry) => entry.path === templatePath); if (template && page) content = wikiTemplateContent(template.content, page, newPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? newPath); } await props.client?.writeWikiPage(wiki.id, { path: newPath, content }); setNewPage(null); setViewModeRequest({ mode: "rich-text" }); openPage(newPath); refresh(); }} /> : null}
-    {history && props.client && wiki ? <WikiHistoryDialog key={`${wiki.id}:${historyPath}`} client={props.client} serverUrl={props.serverUrl} writable={wiki.writable} wikiId={wiki.id} initialPath={historyPath} onClose={() => setHistory(false)} onRestoreTrash={(trashId) => changeEntry({ action: "restore", trashId })} onRestore={async (restorePath, revisionId) => { if (drafts.get(wiki.id, restorePath)?.content !== drafts.get(wiki.id, restorePath)?.baseline) throw new Error(t("wiki.save_before_restore")); let baseRevision: string | undefined; try { baseRevision = (await props.client?.readWikiPage(wiki.id, restorePath))?.revision; } catch (error) { if (!(error instanceof LegalworkServerError && error.status === 404)) throw error; } await props.client?.restoreWikiPage(wiki.id, { path: restorePath, revisionId, baseRevision }); await drafts.load(wiki.id, restorePath, true); refresh(); toast.success(t("wiki.restored")); }} /> : null}
+    {newPage !== null && props.client && wiki && writable ? <NewWikiPageDialog key={`${wiki.id}:${newPage}`} pages={pages} initialPath={newPage} onClose={() => setNewPage(null)} onCreate={async (newPath, templatePath) => { if (pages.some((page) => page.path.toLocaleLowerCase() === newPath.toLocaleLowerCase())) throw new Error(t("wiki.page_exists")); let content = `# ${newPath.split("/").at(-1)?.replace(/\.md$/i, "")}\n\n`; if (templatePath) { const template = await props.client?.readWikiPage(wiki.id, templatePath); const page = pages.find((entry) => entry.path === templatePath); if (template && page) content = wikiTemplateContent(template.content, page, newPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? newPath); } await props.client?.writeWikiPage(wiki.id, { path: newPath, content }); setNewPage(null); setViewModeRequest({ mode: "rich-text" }); openPage(newPath); refresh(); }} /> : null}
+    {history && props.client && wiki ? <WikiHistoryDialog key={`${wiki.id}:${historyPath}`} client={props.client} serverUrl={props.serverUrl} writable={writable} wikiId={wiki.id} initialPath={historyPath} onClose={() => setHistory(false)} onRestoreTrash={(trashId) => changeEntry({ action: "restore", trashId })} onRestore={async (restorePath, revisionId) => { if (drafts.get(wiki.id, restorePath)?.content !== drafts.get(wiki.id, restorePath)?.baseline) throw new Error(t("wiki.save_before_restore")); let baseRevision: string | undefined; try { baseRevision = (await props.client?.readWikiPage(wiki.id, restorePath))?.revision; } catch (error) { if (!(error instanceof LegalworkServerError && error.status === 404)) throw error; } await props.client?.restoreWikiPage(wiki.id, { path: restorePath, revisionId, baseRevision }); await drafts.load(wiki.id, restorePath, true); refresh(); toast.success(t("wiki.restored")); }} /> : null}
   </div>;
 }
 

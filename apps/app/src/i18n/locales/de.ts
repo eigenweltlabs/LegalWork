@@ -6787,6 +6787,7 @@ const de = {
   "wiki.properties": "Eigenschaften",
   "wiki.autosave_hint": "Änderungen werden automatisch gespeichert",
   "wiki.read_only": "Nur lesen",
+  "wiki.open_in_wiki": "Im Wiki öffnen",
   "wiki.empty_title": "Ihr Wissen an einem Ort",
   "wiki.settings_general": "Allgemein",
   "wiki.settings_agents": "Agentenzugriff",

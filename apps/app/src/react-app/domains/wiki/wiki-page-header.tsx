@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { t } from "@/i18n";
 import { setWikiPageHeading, wikiPageHeading } from "./wiki-page-heading";
 import { WikiPropertiesEditor, type WikiPropertiesEditorProps } from "./wiki-properties-editor";
@@ -15,9 +15,10 @@ function EditableTitle({ title, onCommit }: { title: string; onCommit: (title: s
   }} />;
 }
 
-export function WikiPageHeader(props: WikiPropertiesEditorProps & { fallbackTitle: string; toolbarRef?: (element: HTMLDivElement | null) => void }) {
+export function WikiPageHeader(props: WikiPropertiesEditorProps & { fallbackTitle: string; toolbarRef?: (element: HTMLDivElement | null) => void; navigation?: ReactNode }) {
   const heading = useMemo(() => wikiPageHeading(props.content, props.fallbackTitle), [props.content, props.fallbackTitle]);
   return <header className="wiki-page-header" data-leading-heading={Boolean(heading.heading)}>
+    {props.navigation}
     <div className="wiki-page-title-row">
       <h1 className="wiki-page-title">{props.readOnly ? heading.title : <EditableTitle key={heading.title} title={heading.title} onCommit={title => props.onChange(setWikiPageHeading(props.content, title))} />}</h1>
       {!props.readOnly && <div ref={props.toolbarRef} className="wiki-page-options" />}

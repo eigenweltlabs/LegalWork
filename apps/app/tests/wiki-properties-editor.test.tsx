@@ -40,5 +40,6 @@ test("read-only pages have compact values without editable controls or duplicate
   expect(html).not.toContain("private-id");
   expect(html).not.toContain("Page title");
   expect(html).not.toContain("Add property");
+  expect(html).not.toContain("Clients/Alpha.md");
   expect(html).toContain("Alpha");
 });

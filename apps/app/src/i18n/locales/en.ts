@@ -6398,6 +6398,7 @@ export default {
   "wiki.properties": "Properties",
   "wiki.autosave_hint": "Changes save automatically",
   "wiki.read_only": "Read only",
+  "wiki.open_in_wiki": "Open in wiki",
   "wiki.empty_title": "Your knowledge, in one place",
   "wiki.settings_general": "General",
   "wiki.settings_agents": "Agent access",

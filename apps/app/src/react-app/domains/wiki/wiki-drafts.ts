@@ -52,7 +52,7 @@ export function acceptWikiSave(draft: WikiDraft, sent: string, saved: WikiDocume
     content: draft.content === sent ? saved.content : draft.content, saving: false, error: null };
 }
 
-export function useWikiDrafts(client: LegalworkServerClient | null, scope: string, onSaved: () => void) {
+export function useWikiDrafts(client: Pick<LegalworkServerClient, "readWikiPage" | "writeWikiPage"> | null, scope: string, onSaved: () => void, editableWikiId: string | null) {
   const [drafts, setDrafts] = useState(() => { restoreDrafts(scope); return new Map(retained); });
   const draftRef = useRef(drafts);
   const onSavedRef = useRef(onSaved);
@@ -78,7 +78,7 @@ export function useWikiDrafts(client: LegalworkServerClient | null, scope: strin
   }, [client, scope, set]);
 
   const save = useCallback(async (wikiId: string, path: string) => {
-    if (!client) return false;
+    if (!client || wikiId !== editableWikiId) return false;
     const key = draftKey(scope, wikiId, path);
     const current = draftRef.current.get(key);
     if (!current || current.content === current.baseline) return true;
@@ -98,16 +98,17 @@ export function useWikiDrafts(client: LegalworkServerClient | null, scope: strin
     } finally { pendingSaves.delete(key); } })();
     pendingSaves.set(key, saving);
     return saving;
-  }, [client, scope, set]);
+  }, [client, scope, set, editableWikiId]);
 
   useEffect(() => {
+    if (!editableWikiId) return;
     const timer = window.setTimeout(() => {
       for (const [key, draft] of draftRef.current) {
-        if (key.startsWith(`[${JSON.stringify(scope)},`) && draft.content !== draft.baseline && !draft.error && !draft.saving) void save(draft.wikiId, draft.path);
+        if (draft.wikiId === editableWikiId && key.startsWith(`[${JSON.stringify(scope)},`) && draft.content !== draft.baseline && !draft.error && !draft.saving) void save(draft.wikiId, draft.path);
       }
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [drafts, scope, save]);
+  }, [drafts, scope, save, editableWikiId]);
 
   useEffect(() => {
     restoreDrafts(scope);
@@ -126,6 +127,7 @@ export function useWikiDrafts(client: LegalworkServerClient | null, scope: strin
   return {
     get: (wikiId: string, path: string) => draftRef.current.get(draftKey(scope, wikiId, path)), load, save,
     change: (wikiId: string, path: string, content: string) => {
+      if (wikiId !== editableWikiId) return;
       const key = draftKey(scope, wikiId, path);
       const current = draftRef.current.get(key);
       if (current) set(key, { ...current, content, error: null });
