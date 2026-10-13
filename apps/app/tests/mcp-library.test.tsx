@@ -109,3 +109,21 @@ test("team connector account and key requirements remain visible without inline 
   const member = renderTeamLibrary([{ ...teamResearch, connector: { ...teamResearch.connector!, access: "member" } }]);
   expect(member).toContain("Add your key to use it");
 });
+
+test("automatically installed team OAuth connectors show sign-in before the engine checks them", () => {
+  const item: FirmHubItem = { ...teamResearch, connector: { ...teamResearch.connector!, access: "oauth" } };
+  for (const mcpStatuses of [{}, { research: { status: "disconnected" } }]) {
+    const html = renderTeamLibrary([item], { mcpStatuses });
+    expect(html).toContain("Sign in to use it");
+    expect(html).toContain('aria-label="Actions for Team Research"');
+  }
+});
+
+test("connected and failed team OAuth connectors retain their actual state", () => {
+  const item: FirmHubItem = { ...teamResearch, connector: { ...teamResearch.connector!, access: "oauth" } };
+  const connected = renderTeamLibrary([item], { mcpStatuses: { research: { status: "connected" } } });
+  expect(connected).not.toContain("Sign in to use it");
+  const failed = renderTeamLibrary([item], { mcpStatuses: { research: { status: "failed", error: "Connection refused" } } });
+  expect(failed).toContain("Not reachable right now");
+  expect(failed).not.toContain("Sign in to use it");
+});

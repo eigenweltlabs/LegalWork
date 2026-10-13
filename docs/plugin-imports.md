@@ -129,3 +129,7 @@ Connector setup reuses the same **HubTabs** segmented switcher as Integrations a
 Connector details have only Remove and Close in the footer. Share with firm is available through the library row menu. Native Electron verified the simplified footer without changing connector access or signing in. `pnpm --filter @legalwork/app typecheck` passed, and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed all 8 tests.
 
 ![Connector details footer](images/integrations-connector-details.png)
+
+Installed team connectors that require their own account now show **Sign in to use it** before the engine reports a status. **Sign in** is also available in the existing row menu and details dialog, using the same account flow. Connected accounts show no sign-in prompt; connection failures and member-key requirements retain their own messages, and optional connectors must still be added before sign-in. The regression reproduced the missing label with no engine status and with a disconnected status before the fix. Native Electron verified the actual automatically installed Linear row, menu and details without starting sign-in or changing account access. `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed 10 tests; `pnpm --filter @legalwork/app test` passed 951 tests across 146 files. App type checking and the production build passed, with the existing build chunk-size warning.
+
+![Team connector sign-in requirement and action](images/integrations-team-signin.png)
