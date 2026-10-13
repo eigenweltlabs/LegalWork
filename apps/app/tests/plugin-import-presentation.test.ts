@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
+import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportCandidateKey, pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
 import { readWorkspaceImports } from "../src/app/lib/extension-imports";
 
 test("provider display names hide internal app IDs without changing plugin identity", () => {
@@ -46,6 +46,25 @@ test("connector discovery keeps same-name services and same-file entries indepen
   expect(groups).toHaveLength(4);
   expect(pluginImportConnectorName("connector-search-abcdef12-12345678-plugin-global-patent-search-abcdef")).toBe("Patent Search");
   expect(pluginImportConnectorName("custom-search")).toBe("custom-search");
+});
+
+test("bundled connectors group their plugin's versions while keeping other plugins and standalone configs separate", () => {
+  const connector = { name: "search", pluginRoot: "" };
+  const bundled = { name: "search", kind: "connector", connector, bundledIn: { name: "patent", displayName: "Patent Studio" } } satisfies Partial<import("@legalwork/types/plugin-import").PluginImportCandidate>;
+  const latest = { ...bundled, path: "/cache/new", version: "1.10" };
+  const groups = groupPluginImportCandidates([
+    latest,
+    { ...bundled, path: "/cache/old", version: "1.9" },
+    { ...bundled, bundledIn: { name: "other-patent", displayName: "Patent Studio" }, path: "/cache/other", version: "1" },
+    { name: "search", path: "/config.json", version: null, kind: "connector", connector: { name: "search" } },
+    { name: "patent", path: "/cache/new", version: "1.10", kind: "plugin" },
+  ]);
+  expect(groups).toHaveLength(4);
+  const copies = groups.find(group => group.candidate.bundledIn?.name === "patent");
+  expect(copies?.candidate.path).toBe("/cache/new");
+  expect(copies?.sources.map(source => source.connector)).toEqual([connector, connector]);
+  expect(pluginImportCandidateKey(latest)).not.toBe(pluginImportCandidateKey({ ...latest, connector: { name: "search" } }));
+  expect(pluginImportCandidateKey(latest)).not.toBe(pluginImportCandidateKey({ ...latest, connector: { name: "search", pluginRoot: "nested" } }));
 });
 
 test("plugin ownership follows recorded skill and connector destinations across global, project and Windows paths", () => {

@@ -209,7 +209,9 @@ describe("complete plugin imports", () => {
       await writeFixture(claude, fixtures);
       await writeFixture(personalSkill, { "SKILL.md": skill });
       expect((await discoverPluginImports("chatgpt", root)).map(item => item.path).sort()).toEqual([codex, personalSkill].sort());
-      expect((await discoverPluginImports("claude", root)).map(item => item.path)).toEqual([claude]);
+      const claudeItems = await discoverPluginImports("claude", root);
+      expect(claudeItems.filter(item => item.kind === "plugin").map(item => item.path)).toEqual([claude]);
+      expect(claudeItems.filter(item => item.kind === "connector").map(item => item.name).sort()).toEqual(["local", "remote", "second"]);
     } finally {
       for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     }

@@ -2170,6 +2170,8 @@ export default {
   "extensions.import_connector_success": "{name} imported. Review it in Connectors.",
   "extensions.import_connector_paused": "Imports paused. Review its settings in Connectors, then enable it. You may need to sign in again.",
   "extensions.import_connector_resources": "Only the selected connector configuration is imported. Other settings and saved account sessions are excluded.",
+  "extensions.import_bundled_connector": "From plugin: {name}",
+  "extensions.import_bundled_connector_resources": "Only this connector is installed. Local connectors also keep the plugin's supporting files in their own folder. Other skills and connectors are not installed.",
   "extensions.import_resources": "Supporting files and scripts are included. Generated dependency folders are excluded; some plugins may need their dependencies installed.",
   "extensions.import_other_copies": "Other versions and locations",
   "extensions.import_success": "{name} imported. Find it in Skills and Connectors.",

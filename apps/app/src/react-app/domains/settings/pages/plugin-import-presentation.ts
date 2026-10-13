@@ -35,12 +35,12 @@ export function importedSkillPlugin(skill: { path: string }, plugins: readonly I
   }));
 }
 
-/** One row per plugin; keep other copies available in the source details. */
+/** Keep connector copies together within their plugin, retaining each source choice. */
 export function groupPluginImportCandidates(candidates: PluginImportCandidate[]) {
   const groups = new Map<string, PluginImportCandidate[]>();
   for (const candidate of candidates) {
     // Connectors sharing a name can point at different services or belong to different projects.
-    const key = candidate.connector ? pluginImportCandidateKey(candidate) : `${candidate.kind ?? "plugin"}:${candidate.name}`;
+    const key = candidate.bundledIn ? JSON.stringify(["bundled-connector", candidate.bundledIn.name, candidate.connector?.name]) : candidate.connector ? pluginImportCandidateKey(candidate) : `${candidate.kind ?? "plugin"}:${candidate.name}`;
     const copies = groups.get(key) ?? [];
     copies.push(candidate);
     groups.set(key, copies);
@@ -52,5 +52,5 @@ export function groupPluginImportCandidates(candidates: PluginImportCandidate[])
 }
 
 export function pluginImportCandidateKey(candidate: PluginImportCandidate): string {
-  return JSON.stringify([candidate.path, candidate.connector?.name, candidate.connector?.project]);
+  return JSON.stringify([candidate.path, candidate.connector?.name, candidate.connector?.project, candidate.connector?.pluginRoot]);
 }

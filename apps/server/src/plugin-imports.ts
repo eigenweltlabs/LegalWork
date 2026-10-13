@@ -12,7 +12,7 @@ import { connectorImportBundle, discoverConnectorImports } from "./connector-imp
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
-const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional() });
+const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional(), pluginRoot: z.string().max(4096).optional() });
 const sourceSchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("chatgpt"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
   z.object({ provider: z.literal("claude"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
@@ -24,6 +24,10 @@ export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const source = parsed.data.source;
   if (Boolean(source.path) === Boolean(source.zipBase64)) throw new ApiError(400, "invalid_plugin_import", "Provide exactly one folder path or ZIP.");
   if (source.connector && (!source.path || source.provider === "chatgpt" && source.connector.project)) throw new ApiError(400, "invalid_plugin_import", "Choose a connector from a local configuration file.");
+  if (source.connector?.pluginRoot !== undefined) {
+    if (source.connector.project !== undefined) fail("Choose either a plugin connector or a project configuration connector.");
+    if (source.connector.pluginRoot !== "") safePath(source.connector.pluginRoot);
+  }
   return { ...parsed.data, source: source.path ? { provider: source.provider, path: source.path, ...(source.connector ? { connector: source.connector } : {}) } : { provider: source.provider, zipBase64: source.zipBase64 ?? "" } };
 }
 function fail(message: string): never { throw new ApiError(400, "invalid_plugin_import", message); }
@@ -181,14 +185,66 @@ function paths(value: unknown): string[] {
   return fail("Component paths must be a path string or an array of paths.");
 }
 
-function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
+function packageManifest(files: PackageFiles, provider: PluginImportProvider) {
   const portable = files.has("plugin.json");
-  const legacyPath = request.source.provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
+  const legacyPath = provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
   const base = portable ? jsonFile(files, "plugin.json") : files.has(legacyPath) ? jsonFile(files, legacyPath) : {};
   const openai = record(base.extensions) && record(base.extensions["com.openai"]) ? base.extensions["com.openai"] : null;
   // OpenAI's portable extension replaces the legacy overlay, rather than merging it.
-  const overlay = portable && request.source.provider === "chatgpt" && !openai && files.has(legacyPath) ? jsonFile(files, legacyPath) : openai;
+  const overlay = portable && provider === "chatgpt" && !openai && files.has(legacyPath) ? jsonFile(files, legacyPath) : openai;
   const manifest: Record<string, unknown> = { ...base, ...overlay, ...(portable ? { name: base.name, description: base.description, version: base.version } : {}) };
+  return { portable, legacyPath, base, manifest };
+}
+
+/** Use the same MCP precedence for whole plugins, discovery and individual imports. */
+function packageConnectors(files: PackageFiles, manifest: Record<string, unknown>, portable: boolean, warnings: string[]) {
+  let servers: Record<string, unknown> = {};
+  const configPaths = new Set([".mcp.json", "mcp.json"]);
+  const mergeMcp = (value: unknown) => {
+    if (typeof value === "string") {
+      if (/\.(mcpb|dxt)$|^https?:/i.test(value)) { warnings.push(`MCP bundle ${value} is preserved but requires manual setup.`); return; }
+      const path = safePath(value);
+      configPaths.add(path);
+      mergeMcp(jsonFile(files, path));
+    } else if (Array.isArray(value)) value.forEach(mergeMcp);
+    else if (record(value)) servers = { ...servers, ...(record(value.mcpServers) ? value.mcpServers : value) };
+    else if (value !== undefined) fail("Invalid MCP configuration.");
+  };
+  const defaultMcp = portable ? "mcp.json" : ".mcp.json";
+  if (files.has(defaultMcp)) mergeMcp(defaultMcp);
+  if (manifest.mcpServers !== undefined) mergeMcp(manifest.mcpServers);
+  return { servers, configPaths };
+}
+
+function bundledConnectorFiles(files: PackageFiles, request: PluginImportRequest): PackageFiles {
+  if (!("path" in request.source) || !request.source.connector) fail("Choose a bundled connector.");
+  const selector = request.source.connector;
+  const { portable, legacyPath, base, manifest } = packageManifest(files, request.source.provider);
+  const { servers, configPaths } = packageConnectors(files, manifest, portable, []);
+  const selected = Object.hasOwn(servers, selector.name) ? servers[selector.name] : undefined;
+  if (!record(selected)) fail("This connector is no longer in the plugin. Scan again and select another connector.");
+  if (selected.type === "sdk") fail("Provider-managed SDK connectors need to be reconnected in LegalWork.");
+  const pluginName = str(base.name) ?? str(manifest.name) ?? basename(request.source.path);
+  const presentation = record(manifest.interface) ? manifest.interface : {};
+  const pluginLabel = str(presentation.displayName) ?? pluginName;
+  const identity = createHash("sha256").update(JSON.stringify({ provider: request.source.provider, plugin: pluginName, connector: selector.name })).digest("hex").slice(0, 12);
+  // Local connectors may depend on arbitrary package-relative files. Keep those
+  // in a separate bundle, but never register the plugin's other components or copy its MCP configs.
+  const resources: PackageFiles = new Map();
+  if (selected.command) for (const file of files.values()) {
+    if (!configPaths.has(file.path) && !["plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".app.json"].includes(file.path)) resources.set(file.path, file);
+  }
+  const contents = {
+    [legacyPath]: { name: `connector-${slug(selector.name).slice(0, 32)}-${identity}`, version: manifest.version, interface: { displayName: selector.name.replace(/[-_]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()), shortDescription: `Connector from ${pluginLabel}` } },
+    ".mcp.json": { mcpServers: { [selector.name]: { ...selected, enabled: false } } },
+    "LEGALWORK-CONNECTOR-SOURCE.json": { provider: request.source.provider, plugin: pluginName, pluginRoot: selector.pluginRoot, connector: selector.name },
+  };
+  for (const [path, value] of Object.entries(contents)) resources.set(path, { path, bytes: Buffer.from(JSON.stringify(value, null, 2)), mode: 0o600 });
+  return resources;
+}
+
+function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
+  const { portable, legacyPath, base, manifest } = packageManifest(files, request.source.provider);
   const name = str(base.name) ?? str(manifest.name) ?? (files.has("SKILL.md") ? str(parseFrontmatter(textFile(files, "SKILL.md")).data.name) : null) ?? basename(root || ("path" in request.source ? request.source.path : "imported-plugin"));
   const presentation = record(manifest.interface) ? manifest.interface : {};
   const displayName = str(presentation.displayName) ?? undefined;
@@ -253,32 +309,21 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
       for (const entry of matches) addDocument(type, entry);
     }
   };
-  selectDocuments(manifest.skills, files.has("SKILL.md") || (!portable && !files.has(legacyPath) && ![...files.keys()].some(path => path.startsWith("skills/"))) ? ["."] : ["skills"], "skill");
-  selectDocuments(manifest.agents, manifest.agents ? [] : ["agents"], "agent");
-  if (record(manifest.commands)) {
-    for (const [commandName, definition] of Object.entries(manifest.commands)) {
-      if (!record(definition)) fail(`Invalid command definition: ${commandName}`);
-      const source = str(definition.source);
-      const content = str(definition.content);
-      if (source) addDocument("command", safePath(source), undefined, commandName, definition);
-      else if (content) addDocument("command", `commands/${slug(commandName)}.md`, buildFrontmatter({ description: definition.description, model: definition.model }) + "\n" + content, commandName);
-      else fail(`Command ${commandName} needs source or content.`);
-    }
-  } else selectDocuments(manifest.commands, manifest.commands ? [] : ["commands"], "command");
-
-  const servers: Record<string, unknown> = {};
-  const mergeMcp = (value: unknown) => {
-    if (typeof value === "string") {
-      if (/\.(mcpb|dxt)$|^https?:/i.test(value)) { warnings.push(`MCP bundle ${value} is preserved but requires manual setup.`); return; }
-      const path = safePath(value);
-      mergeMcp(jsonFile(files, path));
-    } else if (Array.isArray(value)) value.forEach(mergeMcp);
-    else if (record(value)) Object.assign(servers, record(value.mcpServers) ? value.mcpServers : value);
-    else if (value !== undefined) fail("Invalid MCP configuration.");
-  };
-  const defaultMcp = portable ? "mcp.json" : ".mcp.json";
-  if (files.has(defaultMcp)) mergeMcp(defaultMcp);
-  if (manifest.mcpServers !== undefined) mergeMcp(manifest.mcpServers);
+  if (!("path" in request.source && request.source.connector)) {
+    selectDocuments(manifest.skills, files.has("SKILL.md") || (!portable && !files.has(legacyPath) && ![...files.keys()].some(path => path.startsWith("skills/"))) ? ["."] : ["skills"], "skill");
+    selectDocuments(manifest.agents, manifest.agents ? [] : ["agents"], "agent");
+    if (record(manifest.commands)) {
+      for (const [commandName, definition] of Object.entries(manifest.commands)) {
+        if (!record(definition)) fail(`Invalid command definition: ${commandName}`);
+        const source = str(definition.source);
+        const content = str(definition.content);
+        if (source) addDocument("command", safePath(source), undefined, commandName, definition);
+        else if (content) addDocument("command", `commands/${slug(commandName)}.md`, buildFrontmatter({ description: definition.description, model: definition.model }) + "\n" + content, commandName);
+        else fail(`Command ${commandName} needs source or content.`);
+      }
+    } else selectDocuments(manifest.commands, manifest.commands ? [] : ["commands"], "command");
+  }
+  const { servers } = packageConnectors(files, manifest, portable, warnings);
   const normalizedServers: Record<string, unknown> = {};
   for (const [serverName, original] of Object.entries(servers)) {
     if (serverName === "$schema") continue;
@@ -346,7 +391,7 @@ function planPackage(files: PackageFiles, root: string, request: PluginImportReq
   return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null, sourceKind: preview.format === "connectors" ? "connector" : preview.format === "skills" && components.every(component => component.type === "skill") ? "skill" : "plugin" }, memberships }, resourceFiles };
 }
 export async function resolvePluginImports(request: PluginImportRequest, workspaceRoot: string): Promise<PluginImportPlan[]> {
-  if ("path" in request.source && request.source.connector) {
+  if ("path" in request.source && request.source.connector && request.source.connector.pluginRoot === undefined) {
     if (request.root !== undefined && request.root !== "") fail("Selected connector root was not found.");
     const bundle = await connectorImportBundle(request.source.provider, request.source.path, request.source.connector);
     const files: PackageFiles = new Map(Object.entries(bundle.files).map(([path, text]) => [path, { path, bytes: Buffer.from(text), mode: 0o600 }]));
@@ -355,6 +400,12 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
   const files = await loadSource(request);
   const roots = packageRoots(files, request.source.provider);
   if (!roots.length) fail("No plugin manifest or SKILL.md found. Choose a plugin folder, skills folder, or their ZIP export.");
+  if ("path" in request.source && request.source.connector?.pluginRoot !== undefined) {
+    const root = request.source.connector.pluginRoot;
+    if (!roots.includes(root) || request.root !== undefined && request.root !== root) fail("Selected plugin connector root was not found.");
+    const selectedFiles = bundledConnectorFiles(subFiles(files, root), request);
+    return [planPackage(selectedFiles, root, request, workspaceRoot, ["Imported disabled. Enable this connector in LegalWork and sign in again if required. Other plugin components are not installed."])];
+  }
   if (request.root !== undefined && !roots.includes(request.root)) fail("Selected plugin root was not found.");
   return roots.filter(root => request.root === undefined || root === request.root).map(root => planPackage(subFiles(files, root), root, request, workspaceRoot));
 }
@@ -365,9 +416,10 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
   const claude = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude");
   const roots = provider === "chatgpt" ? [join(codex, "plugins"), join(home, ".agents", "plugins"), join(home, ".agents", "skills"), join(workspaceRoot, ".agents", "skills"), join(workspaceRoot, ".agents", "plugins")] : [join(claude, "plugins"), join(claude, "skills"), join(workspaceRoot, ".claude", "skills"), join(workspaceRoot, ".claude", "plugins")];
   const results = new Map<string, PluginImportCandidate>();
+  const packages = new Set<string>();
   let visited = 0;
   const visit = async (path: string, depth: number) => {
-    if (depth > 8 || visited++ > 2000 || results.size >= 100) return;
+    if (depth > 8 || visited++ > 2000 || packages.size >= 100 || packages.has(path)) return;
     const info = await lstat(path).catch(() => null);
     if (!info?.isDirectory() || info.isSymbolicLink()) return;
     const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
@@ -380,6 +432,20 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
         if (record(value) && str(value.name)) {
           const presentation = record(value.interface) ? value.interface : {};
           results.set(path, { path, name: str(value.name) ?? basename(path), version: str(value.version), displayName: str(presentation.displayName) ?? undefined, description: str(presentation.shortDescription) ?? str(value.description), kind: "plugin" });
+          packages.add(path);
+          try {
+            const files = await discoveryPackageFiles(path, provider);
+            const { base, manifest: metadata, portable } = packageManifest(files, provider);
+            const ui = record(metadata.interface) ? metadata.interface : {};
+            const plugin = { name: str(base.name) ?? basename(path), displayName: str(ui.displayName) ?? undefined };
+            const version = str(metadata.version);
+            results.set(path, { ...plugin, path, version, description: str(ui.shortDescription) ?? str(base.description) ?? str(metadata.description), kind: "plugin" });
+            const { servers } = packageConnectors(files, metadata, portable, []);
+            for (const [name, definition] of Object.entries(servers)) {
+              if (name === "$schema" || !record(definition) || definition.type === "sdk" || !(str(definition.url) || str(definition.command) || Array.isArray(definition.command))) continue;
+              results.set(JSON.stringify([path, name]), { path, name, version, kind: "connector", connector: { name, pluginRoot: "" }, bundledIn: plugin });
+            }
+          } catch { /* Keep the whole plugin discoverable; its preview reports invalid or unsupported MCP configuration. */ }
           return;
         }
       } catch { /* Other valid installations remain discoverable. */ }
@@ -387,6 +453,7 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
     if (entries.some(entry => entry.name === "SKILL.md" && entry.isFile())) {
       let description: string | null = null;
       try { const info = await lstat(join(path, "SKILL.md")); if (info.size <= 1024 * 1024) description = str(parseFrontmatter(await readFile(join(path, "SKILL.md"), "utf8")).data.description); } catch { /* Metadata is optional; the preview validates the full skill. */ }
+      packages.add(path);
       results.set(path, { path, name: basename(path), version: null, description, kind: "skill" }); return;
     }
     for (const entry of entries) if (entry.isDirectory() && ![".git", "node_modules", ".claude-plugin", ".codex-plugin"].includes(entry.name)) await visit(join(path, entry.name), depth + 1);
@@ -419,6 +486,39 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
     } catch { /* Registry is optional. */ }
   }
   return [...results.values(), ...await discoverConnectorImports(provider, workspaceRoot, home, codex, claude)].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Discovery reads small manifests/configs only, without loading scripts or binary assets. */
+async function discoveryPackageFiles(root: string, provider: PluginImportProvider): Promise<PackageFiles> {
+  const files: PackageFiles = new Map();
+  let bytes = 0;
+  const load = async (value: string) => {
+    const path = safePath(value);
+    if (files.has(path)) return;
+    let absolute = root;
+    const parts = path.split("/");
+    for (const [index, part] of parts.entries()) {
+      absolute = join(absolute, part);
+      const info = await lstat(absolute).catch(() => null);
+      if (!info) return;
+      if (info.isSymbolicLink() || (index < parts.length - 1 ? !info.isDirectory() : !info.isFile())) fail("Plugin metadata must use ordinary files and folders.");
+      if (index === parts.length - 1) {
+        bytes += info.size;
+        if (info.size > 1024 * 1024 || bytes > 4 * 1024 * 1024 || files.size >= 64) fail("Plugin discovery metadata is too large.");
+        const content = await readFile(absolute);
+        if (content.length !== info.size) fail("Plugin changed during discovery. Scan again.");
+        files.set(path, { path, bytes: content, mode: info.mode & 0o777 });
+      }
+    }
+  };
+  for (const path of ["plugin.json", provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json", ".mcp.json", "mcp.json"]) await load(path);
+  const { manifest } = packageManifest(files, provider);
+  const loadReferences = async (value: unknown): Promise<void> => {
+    if (typeof value === "string" && !/\.(mcpb|dxt)$|^https?:/i.test(value)) await load(value);
+    else if (Array.isArray(value)) for (const entry of value) await loadReferences(entry);
+  };
+  await loadReferences(manifest.mcpServers);
+  return files;
 }
 
 /** Serialize package mutations, including removal, so update rollback is safe. */

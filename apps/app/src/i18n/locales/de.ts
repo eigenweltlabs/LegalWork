@@ -2243,6 +2243,8 @@ const de = {
   "extensions.import_connector_success": "{name} importiert. Prüfen Sie ihn unter Konnektoren.",
   "extensions.import_connector_paused": "Wird pausiert importiert. Prüfen Sie die Einstellungen unter Konnektoren und aktivieren Sie ihn dann. Eventuell ist eine erneute Anmeldung nötig.",
   "extensions.import_connector_resources": "Nur die Konfiguration des ausgewählten Konnektors wird importiert. Andere Einstellungen und gespeicherte Kontositzungen werden nicht übernommen.",
+  "extensions.import_bundled_connector": "Aus Plugin: {name}",
+  "extensions.import_bundled_connector_resources": "Nur dieser Konnektor wird installiert. Lokale Konnektoren behalten außerdem die unterstützenden Dateien des Plugins in einem eigenen Ordner. Andere Skills und Konnektoren werden nicht installiert.",
   "extensions.import_resources": "Zugehörige Dateien und Skripte werden übernommen. Generierte Abhängigkeitsordner werden ausgelassen; für einige Plugins müssen Abhängigkeiten installiert werden.",
   "extensions.import_other_copies": "Andere Versionen und Speicherorte",
   "extensions.import_success": "{name} wurde importiert. Sie finden es unter Skills und Konnektoren.",
