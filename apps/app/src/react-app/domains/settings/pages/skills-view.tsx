@@ -65,14 +65,12 @@ import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
 import { fitSkillNameLength } from "@/app/utils";
-import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
 import {
   dismissTemplateWorkflowRun,
   retryTemplateWorkflowImport,
   useTemplateWorkflowRun,
 } from "../state/template-workflow-generation";
 import {
-  SkillResourcesPanel,
   StagedResourcesField,
   flushStagedResources,
   type SkillResourcesStore,
@@ -85,6 +83,7 @@ import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
 import { BuiltInSkills, ImportedPackages, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
 import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
+import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
@@ -225,10 +224,6 @@ type SkillsViewLocalState = {
   customRepoRef: string;
   customRepoError: string | null;
   selectedSkill: SkillCard | null;
-  selectedContent: string;
-  selectedLoading: boolean;
-  selectedDirty: boolean;
-  selectedError: string | null;
   installingSkillCreator: boolean;
   installingHubSkill: string | null;
 };
@@ -246,10 +241,6 @@ const initialSkillsViewLocalState: SkillsViewLocalState = {
   customRepoRef: "main",
   customRepoError: null,
   selectedSkill: null,
-  selectedContent: "",
-  selectedLoading: false,
-  selectedDirty: false,
-  selectedError: null,
   installingSkillCreator: false,
   installingHubSkill: null,
 };
@@ -288,10 +279,6 @@ export function SkillsView(props: SkillsViewProps) {
     customRepoRef,
     customRepoError,
     selectedSkill,
-    selectedContent,
-    selectedLoading,
-    selectedDirty,
-    selectedError,
     installingSkillCreator,
     installingHubSkill,
   } = localState;
@@ -308,10 +295,6 @@ export function SkillsView(props: SkillsViewProps) {
   const setCustomRepoRef = (value: SetStateAction<string>) => setLocal("customRepoRef", value);
   const setCustomRepoError = (value: SetStateAction<string | null>) => setLocal("customRepoError", value);
   const setSelectedSkill = (value: SetStateAction<SkillCard | null>) => setLocal("selectedSkill", value);
-  const setSelectedContent = (value: SetStateAction<string>) => setLocal("selectedContent", value);
-  const setSelectedLoading = (value: SetStateAction<boolean>) => setLocal("selectedLoading", value);
-  const setSelectedDirty = (value: SetStateAction<boolean>) => setLocal("selectedDirty", value);
-  const setSelectedError = (value: SetStateAction<string | null>) => setLocal("selectedError", value);
   const setInstallingSkillCreator = (value: SetStateAction<boolean>) => setLocal("installingSkillCreator", value);
   const setInstallingHubSkill = (value: SetStateAction<string | null>) => setLocal("installingHubSkill", value);
 
@@ -534,29 +517,7 @@ export function SkillsView(props: SkillsViewProps) {
 
 
 
-  const openSkill = useCallback(
-    async (skill: SkillCard) => {
-      if (props.busy) return;
-      setSelectedSkill(skill);
-      setSelectedContent("");
-      setSelectedDirty(false);
-      setSelectedError(null);
-      setSelectedLoading(true);
-      try {
-        const result = await extensions.readSkill(skill.name);
-        if (!result) {
-          setSelectedError(t("skills.skill_load_failed"));
-          return;
-        }
-        setSelectedContent(result.content);
-      } catch (error) {
-        setSelectedError(maskError(error));
-      } finally {
-        setSelectedLoading(false);
-      }
-    },
-    [extensions, maskError, props.busy],
-  );
+  const openSkill = (skill: SkillCard) => { if (!props.busy) setSelectedSkill(skill); };
 
   const exportSkill = useCallback(
     async (skill: SkillCard) => {
@@ -571,37 +532,6 @@ export function SkillsView(props: SkillsViewProps) {
     },
     [extensions, props.busy, props.canUseDesktopTools],
   );
-
-  // Attaching/removing a file rewrites the managed "Attached resources" section
-  // in the SKILL.md on disk. Pull the regenerated section into the editor:
-  // replace the content wholesale when it has no unsaved edits, otherwise
-  // splice just the managed block so the edits survive.
-  const syncEditorAfterResourceChange = useCallback(async () => {
-    const skill = selectedSkill;
-    if (!skill) return;
-    const result = await extensions.readSkill(skill.name);
-    if (!result) return;
-    setSelectedContent((current) =>
-      selectedDirty ? syncAttachedFilesSection(current, result.content) : result.content,
-    );
-  }, [extensions, selectedDirty, selectedSkill]);
-
-  const saveSelectedSkill = useCallback(async () => {
-    if (!selectedSkill || !selectedDirty) return;
-    setSelectedError(null);
-    try {
-      await Promise.resolve(
-        extensions.saveSkill({
-          name: selectedSkill.name,
-          content: selectedContent,
-          description: selectedSkill.description,
-        }),
-      );
-      setSelectedDirty(false);
-    } catch (error) {
-      setSelectedError(maskError(error));
-    }
-  }, [extensions, maskError, selectedContent, selectedDirty, selectedSkill]);
 
   const selectHubRepo = useCallback(
     (repo: HubSkillRepo) => {
@@ -1102,72 +1032,7 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      <Dialog
-        open={Boolean(selectedSkill)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedSkill(null);
-            setSelectedContent("");
-            setSelectedDirty(false);
-            setSelectedError(null);
-            setSelectedLoading(false);
-          }
-        }}
-      >
-        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-            <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-subtle py-4 pl-6 pr-14 space-y-0">
-              <div className="min-w-0 space-y-1">
-                <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? t("skills.eyebrow_automation") : t("skills.eyebrow_skill")}</span>
-                <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill ? pluginImportSkillName(selectedSkill) : ""}</DialogTitle>
-                {selectedSkill?.description ? (
-                  <p className="line-clamp-1 text-sm text-subtext">{selectedSkill.description}</p>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                variant="default"
-                disabled={!selectedDirty || props.busy}
-                onClick={() => void saveSelectedSkill()}
-              >
-                {t("common.save")}
-              </Button>
-            </DialogHeader>
-
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              {selectedError ? <div className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">{selectedError}</div> : null}
-              {selectedLoading ? (
-                <div className="flex items-center gap-2 text-sm text-subtext"><Spinner className="size-4" /> {t("skills.loading")}</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-2xs font-semibold uppercase tracking-wide text-tertiary">Definition</span>
-                      <span className="text-2xs text-tertiary">Markdown</span>
-                    </div>
-                    <textarea
-                      value={selectedContent}
-                      onChange={(event) => {
-                        setSelectedContent(event.currentTarget.value);
-                        setSelectedDirty(true);
-                      }}
-                      className="min-h-[380px] w-full resize-none rounded-2xl border border-subtle bg-sunken px-4 py-3.5 text-[13px] font-mono leading-relaxed text-ink transition-[border-color,box-shadow] focus:border-brand focus:outline-none focus:ring-2 focus:ring-[var(--lw-focus-ring)]"
-                      spellCheck={false}
-                    />
-                  </div>
-                  {/* Firm templates/playbooks packaged inside this skill's own folder. */}
-                  {selectedSkill ? (
-                    <SkillResourcesPanel
-                      skillName={selectedSkill.name}
-                      busy={props.busy}
-                      extensions={extensions}
-                      onChanged={() => void syncEditorAfterResourceChange()}
-                    />
-                  ) : null}
-                </>
-              )}
-            </div>
-        </DialogContent>
-      </Dialog>
+      {selectedSkill ? <SkillDetailsDialog key={selectedSkill.name} skill={selectedSkill} extensions={extensions} busy={props.busy} canEdit={props.canInstallSkillCreator} initialEditing onClose={() => setSelectedSkill(null)} /> : null}
 
       {firmSkill ? (
         <FirmSkillDialog name={firmSkill.name} added={firmSkill.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmSkill(null)} />

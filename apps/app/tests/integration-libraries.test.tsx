@@ -7,6 +7,7 @@ import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { SkillsView, type SkillsExtensionsStore } from "../src/react-app/domains/settings/pages/skills-view";
 import { BuiltInSkills, ImportedPackageContents, ImportedPackages } from "../src/react-app/domains/settings/pages/skill-packages";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
+import { pluginFileInstalledName } from "../src/react-app/domains/settings/pages/plugin-package-contents";
 import { FileStorageView } from "../src/react-app/domains/settings/pages/file-storage-view";
 import { HubScopeContext } from "../src/react-app/domains/settings/pages/hub-scope-context";
 import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationLibrarySearchContext, type IntegrationLibrarySource } from "../src/react-app/domains/settings/pages/integration-library";
@@ -81,6 +82,20 @@ test("plugin skills stay in the Skills library and package details list their ac
   expect(contents).toContain("1 connector");
   expect(contents).not.toContain("Complete source package");
   expect(renderToStaticMarkup(<ImportedPackageContents plugin={{ ...plugin, files: [] }} />)).toContain("Source files only");
+});
+
+test("plugin contents display readable names while opening the exact installed component", () => {
+  const file = { configObjectId: "clerk", versionId: null, objectType: "skill", title: "app-6a9a3c1cd0108191-11ef2684-clerk-android", path: ".opencode/skills/app-6a9a3c1cd0108191807da33c4cd319ed-11ef2684-plugin/app-6a9a3c1cd0108191-11ef2684-clerk-android/SKILL.md", updatedAt: null };
+  const plugin: ImportedPlugin = { pluginId: "clerk", marketplaceId: null, name: "clerk", description: null, updatedAt: null, importedAt: null, files: [file] };
+  const html = renderToStaticMarkup(<ImportedPackageContents plugin={plugin} onOpen={noop} skills={[{ name: file.title, path: file.path, description: "Native Android authentication" }]} />);
+  expect(html).toContain('aria-label="Open Clerk Android"');
+  expect(html).toContain("Native Android authentication");
+  expect(html).not.toContain("app-6a9a3c1cd0108191");
+  expect(pluginFileInstalledName(file)).toBe(file.title);
+  const filtered = renderToStaticMarkup(<ImportedPackageContents plugin={plugin} query="no match" onOpen={noop} />);
+  expect(filtered).toContain("No matching items");
+  expect(filtered).not.toContain("Open Clerk Android");
+  expect(pluginFileInstalledName({ ...file, objectType: "mcp", title: "Plugin owner", path: "opencode.jsonc#mcp.exact-connector-name" })).toBe("exact-connector-name");
 });
 
 test("the Plugins library separates bundles from standalone imports while the import manager retains all records", () => {

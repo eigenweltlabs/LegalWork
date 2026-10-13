@@ -10,7 +10,7 @@ export function pluginImportName(plugin: { name: string; displayName?: string })
 
 /** Imported skills keep their unique execution name; cards show the component name. */
 export function pluginImportSkillName(skill: { name: string; path: string }): string {
-  const owner = skill.path.replace(/\\/g, "/").match(/\/skills\/[^/]+-([a-f0-9]{8})-plugin\/[^/]+(?:\/SKILL\.md)?\/?$/i);
+  const owner = skill.path.replace(/\\/g, "/").match(/\/(?:skills|agents|commands)\/[^/]+-([a-f0-9]{8})-plugin\/[^/]+(?:\/SKILL\.md)?\/?$/i);
   if (!owner) return skill.name;
   const prefix = skill.name.match(new RegExp(`^[a-z0-9-]+-${owner[1]}-(.+)$`));
   return prefix ? pluginImportName({ name: prefix[1] }) : skill.name;

@@ -18,6 +18,9 @@ import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 import { ImportedPackages } from "./skill-packages";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
+import type { SkillCard } from "@/app/types";
+import type { SkillDetailsStore } from "./skill-details-dialog";
+import type { PluginDetailsAccess } from "./plugin-details-dialog";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -56,6 +59,8 @@ export type ExtensionsViewProps = {
   pluginCreation?: PluginCreateStore;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
+  skillDetails?: SkillDetailsStore & { skills: () => SkillCard[]; readPackageComponent: PluginDetailsAccess["readComponent"] };
+  renderPluginConnector?: PluginDetailsAccess["renderConnector"];
   canImportSkills?: boolean;
   canAddConnector?: boolean;
   canAddSkill?: boolean;
@@ -151,6 +156,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     selectTab(kind === "connector" ? "connectors" : kind === "skill" ? "skills" : "storage");
     setAddRequest({ kind, id: ++addSequence.current });
   };
+  const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, leadingActions: leadingActionsTarget, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined }}>
@@ -190,7 +196,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} showEmpty />
+            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} showEmpty />
           </DialogContent>
         </Dialog> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
@@ -246,7 +252,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} library showEmpty /> : null}
+          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} library showEmpty /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>

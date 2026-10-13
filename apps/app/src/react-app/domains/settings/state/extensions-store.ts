@@ -572,6 +572,10 @@ export function createExtensionsStore(options: {
     const target = await pluginImportTarget();
     return target.client.pluginCreateOptions(target.id);
   }
+  async function readPackageComponent(pluginId: string, path: string) {
+    const target = await pluginImportTarget();
+    return target.client.readPackageComponent(target.id, pluginId, path);
+  }
   async function createWorkflowPlugin(input: PluginCreateRequest) {
     const target = await pluginImportTarget();
     const result = await target.client.createWorkflowPlugin(target.id, input);
@@ -2245,6 +2249,7 @@ export function createExtensionsStore(options: {
     installHubSkill,
     discoverPluginImports,
     pluginCreateOptions,
+    readPackageComponent,
     createWorkflowPlugin,
     previewPluginImports,
     installPluginImport,

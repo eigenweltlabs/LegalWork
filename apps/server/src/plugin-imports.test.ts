@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports } from "./plugin-imports.js";
 import { installPluginImport } from "./plugin-import-install.js";
-import { pluginNamespace, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { pluginNamespace, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
 import { globalSkillsDir } from "./workspace-files.js";
@@ -338,6 +338,36 @@ describe("complete plugin imports", () => {
   });
 });
 
+
+test("plugin document API reads only registered instructions and protects global and linked files", async () => temp(async (root, config) => {
+  const [plan] = await resolvePluginImports({ ...request(), scope: "global" }, root);
+  await installPluginImport(config, "test", root, plan!, true);
+  const server = await startServer(config);
+  const base = `http://127.0.0.1:${server.port}/workspace/test/cloud-plugins/${encodeURIComponent(plan!.preview.id)}/file`;
+  const headers = { Authorization: "Bearer test" };
+  const owner = { ...headers, "X-LegalWork-Host-Token": "host" };
+  const command = plan!.resolved.memberships.find(item => item.configObject?.objectType === "command")!.configObject!;
+  const path = command.currentRelativePath!;
+  try {
+    expect((await fetch(`${base}?path=${encodeURIComponent(path)}`, { headers })).status).toBe(401);
+    const allowed = await fetch(`${base}?path=${encodeURIComponent(path)}`, { headers: owner });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("Start workflow");
+    const outside = await fetch(`${base}?path=${encodeURIComponent("../private.md")}`, { headers: owner });
+    expect(outside.status).toBe(404);
+    const bundle = plan!.resourceFiles[0]!.path;
+    expect((await fetch(`${base}?path=${encodeURIComponent(bundle)}`, { headers: owner })).status).toBe(404);
+    config.readOnly = true;
+    expect((await fetch(`${base}?path=${encodeURIComponent(path)}`, { headers: owner })).status).toBe(200);
+    const installedPath = resolveWorkspaceInstallPath(root, path, true);
+    await rm(installedPath);
+    await writeFile(join(root, "private.md"), "outside-secret");
+    await symlink(join(root, "private.md"), installedPath);
+    const linked = await fetch(`${base}?path=${encodeURIComponent(path)}`, { headers: owner });
+    expect(linked.status).not.toBe(200);
+    expect(await linked.text()).not.toContain("outside-secret");
+  } finally { await server.stop(); }
+}));
 
 test("creation API requires the owner, rejects duplicate names and makes the bundle visible across projects", async () => temp(async (root, config) => {
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) });

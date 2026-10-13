@@ -14,6 +14,14 @@
  */
 
 const de = {
+  "plugin_details.back": "Zurück zu {name}",
+  "plugin_details.search": "Dieses Plugin durchsuchen…",
+  "plugin_details.contents": "Plugin-Inhalte",
+  "plugin_details.open_component": "{name} öffnen",
+  "plugin_details.no_matches": "Keine passenden Einträge in diesem Plugin",
+  "plugin_details.unavailable": "Dieser Eintrag ist nicht mehr verfügbar. Aktualisieren Sie die Bibliothek und versuchen Sie es erneut.",
+  "plugin_details.instructions": "Anweisungen",
+  "plugin_details.discard_hint": "Ihre Änderungen wurden nicht gespeichert. Möchten Sie sie verwerfen und diesen Skill verlassen?",
   "plugin_create.kind": "Plugin",
   "plugin_create.title": "Neues Plugin",
   "plugin_create.description": "Bündeln Sie Skills und Konnektoren aus Ihrer Bibliothek.",

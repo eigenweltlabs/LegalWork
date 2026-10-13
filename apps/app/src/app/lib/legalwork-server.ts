@@ -2265,6 +2265,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
+      requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
     pluginCreateOptions: (workspaceId: string) =>
       requestJson<PluginCreateOptions>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins/options`, { token, hostToken, timeoutMs: timeouts.config }),
     createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>

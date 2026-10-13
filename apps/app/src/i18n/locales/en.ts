@@ -4,6 +4,14 @@
  */
 
 export default {
+  "plugin_details.back": "Back to {name}",
+  "plugin_details.search": "Search this plugin…",
+  "plugin_details.contents": "Plugin contents",
+  "plugin_details.open_component": "Open {name}",
+  "plugin_details.no_matches": "No matching items in this plugin",
+  "plugin_details.unavailable": "This item is no longer available. Refresh the library and try again.",
+  "plugin_details.instructions": "Instructions",
+  "plugin_details.discard_hint": "Your changes have not been saved. Discard them and leave this skill?",
   "plugin_create.kind": "Plugin",
   "plugin_create.title": "New plugin",
   "plugin_create.description": "Bundle skills and connectors from your library.",

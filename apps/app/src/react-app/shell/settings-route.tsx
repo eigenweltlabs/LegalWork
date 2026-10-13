@@ -2,7 +2,7 @@ import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-vi
 import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
 import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 
@@ -91,7 +91,7 @@ import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-
 import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
-import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
+import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
@@ -2324,7 +2324,55 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       }
-      case "extensions":
+      case "extensions": {
+        const mcpView: ReactElement<McpViewProps> = (
+          <McpView
+            firmClient={legalworkClient}
+            onFirmConfigApplied={() => {
+              void connectionsStore.refreshMcpServers();
+              void reloadWorkspaceEngineFromUi();
+            }}
+            busy={busy}
+            workspaceKey={selectedWorkspace?.id}
+            selectedWorkspaceRoot={selectedWorkspaceRoot}
+            isRemoteWorkspace={isRemoteWorkspace}
+            mcpServers={connectionsSnapshot.mcpServers}
+            mcpStatus={connectionsSnapshot.mcpStatus}
+            mcpStatuses={connectionsSnapshot.mcpStatuses}
+            mcpConnectingName={connectionsSnapshot.mcpConnectingName}
+            selectedMcp={connectionsSnapshot.selectedMcp}
+            setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
+            quickConnect={extensionItems.quickConnectEntries}
+            enablementContext={enablementContext}
+            builtInExtensionDisabled={builtInExtensionDisabled}
+            connectMcp={connectionsStore.connectMcp}
+            probeMcp={connectionsStore.probeMcp}
+            registerMcpClient={connectionsStore.registerMcpClient}
+            cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
+            configSlotForEntry={extensionController.configSlotForEntry}
+            isExtensionConnected={extensionController.isConnected}
+            authorizeMcp={connectionsStore.authorizeMcp}
+            logoutMcpAuth={(name) => connectionsStore.logoutMcpAuth(name)}
+            removeMcp={(name) => {
+              void connectionsStore.removeMcp(name);
+            }}
+            setMcpEnabled={
+              routeLegalworkStatus === "connected" && routeLegalworkCapabilities?.mcp?.write
+                ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
+                : undefined
+            }
+            installedSkills={[]}
+            installedPlugins={[]}
+            uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
+            readSkill={(name) => extensionsStore.readSkill(name)}
+            canShareWithFirm={canShareWithFirm}
+            onShareWithFirm={shareIntegrationWithFirm}
+            onOpenTeamShare={canShareWithFirm ? () => {
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+          />
+        );
         return (
           <ExtensionsView
             busy={busy}
@@ -2360,54 +2408,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void getReactQueryClient().invalidateQueries({ queryKey: ["firm-hub"] });
             }}
             storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
-            mcpView={
-              <McpView
-                firmClient={legalworkClient}
-                onFirmConfigApplied={() => {
-                  void connectionsStore.refreshMcpServers();
-                  void reloadWorkspaceEngineFromUi();
-                }}
-                busy={busy}
-                workspaceKey={selectedWorkspace?.id}
-                selectedWorkspaceRoot={selectedWorkspaceRoot}
-                isRemoteWorkspace={isRemoteWorkspace}
-                mcpServers={connectionsSnapshot.mcpServers}
-                mcpStatus={connectionsSnapshot.mcpStatus}
-                mcpStatuses={connectionsSnapshot.mcpStatuses}
-                mcpConnectingName={connectionsSnapshot.mcpConnectingName}
-                selectedMcp={connectionsSnapshot.selectedMcp}
-                setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
-                quickConnect={extensionItems.quickConnectEntries}
-                enablementContext={enablementContext}
-                builtInExtensionDisabled={builtInExtensionDisabled}
-                connectMcp={connectionsStore.connectMcp}
-                probeMcp={connectionsStore.probeMcp}
-                registerMcpClient={connectionsStore.registerMcpClient}
-                cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
-                configSlotForEntry={extensionController.configSlotForEntry}
-                isExtensionConnected={extensionController.isConnected}
-                authorizeMcp={connectionsStore.authorizeMcp}
-                logoutMcpAuth={(name) => connectionsStore.logoutMcpAuth(name)}
-                removeMcp={(name) => {
-                  void connectionsStore.removeMcp(name);
-                }}
-                setMcpEnabled={
-                  routeLegalworkStatus === "connected" && routeLegalworkCapabilities?.mcp?.write
-                    ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
-                    : undefined
-                }
-                installedSkills={[]}
-                installedPlugins={[]}
-                uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
-                readSkill={(name) => extensionsStore.readSkill(name)}
-                canShareWithFirm={canShareWithFirm}
-                onShareWithFirm={shareIntegrationWithFirm}
-                onOpenTeamShare={canShareWithFirm ? () => {
-                  setTeamShareInitial(null);
-                  setTeamShareOpen(true);
-                } : undefined}
-              />
-            }
+            mcpView={mcpView}
+            skillDetails={extensionsStore}
+            renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
             skillsView={
               <SkillsView
                 workspaceName={selectedWorkspaceName}
@@ -2441,6 +2444,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }
           />
         );
+      }
       case "advanced":
         return (
           <AdvancedView

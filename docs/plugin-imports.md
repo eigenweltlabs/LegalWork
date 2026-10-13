@@ -31,6 +31,24 @@ For manifest-free ZIP bundles containing skills and MCP configuration, the impor
 
 This organization follows the installed-item management and separate discovery flows documented in [ChatGPT account management](https://help.openai.com/en/articles/20001494-connecting-and-managing-app-accounts-in-chatgpt), [Claude connectors](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities), and [Claude's directory](https://support.claude.com/en/articles/14328846-browse-skills-connectors-and-plugins-in-one-directory), reviewed October 11, 2026. LegalWork keeps its existing design-system tokens and the four-category library navigation.
 
+## Plugin details
+
+Plugin details now have a fixed header, a bounded scroll area and readable component names instead of execution identifiers. Larger bundles have an in-plugin search that matches component names and skill descriptions; small bundles keep the compact layout without a search field. Skills, connectors, commands and agents appear in consistent clickable rows, grouped only by the types actually present.
+
+Opening a skill shows its rendered instructions and attached-file controls, with Edit/Save when permitted. The library and plugin share the same skill dialog, including loading/errors and protection against leaving unsaved changes. Connectors open the existing activation, account/sign-in and technical-detail controls. Agents and commands open a read-only instruction view with loading, retry and missing-item states. Each component has **Back to {plugin}**; returning preserves the plugin search and scroll position. The top-right cross closes dialogs, without redundant footer Close buttons.
+
+Display names are separated from installed identities. Component opening uses recorded installation destinations and full connector keys, so readable labels cannot accidentally select a similarly named skill or connector from another plugin. The document API reads only registered agent/command files, requires host access for global packages, rejects linked/unowned paths and bounds displayed files to 1 MB. Read-only servers retain reading access.
+
+Verification: **972 app tests across 147 files**, **35 server tests across 3 files**, app/server TypeScript checks, the production build, runtime bundles and **5,785 English/German translation keys** passed. Native Electron verified the actual Clerk bundle's readable 21-skill list, opening Clerk Android and returning to Clerk. An isolated browser fixture with production components verified search, skill view/edit/save, unsaved-change cancellation, returning to the same filtered list, bundled connector activation/sign-in controls, agents, commands and failed-document retry. Editing in that fixture used an in-memory store; the actual installed Clerk files and provider accounts were not modified. The temporary fixture was removed.
+
+![Actual Clerk plugin in Electron](images/integrations-plugin-clerk-details.png)
+
+![Skill details within the plugin in Electron](images/integrations-plugin-skill-details.png)
+
+![Mixed plugin contents, isolated sample verification](images/integrations-plugin-mixed-details.png)
+
+![Bundled connector controls, isolated sample verification](images/integrations-plugin-connector-details.png)
+
 ## Creating a plugin
 
 Choose **Add → Plugin** on any Integrations category. The standard creation dialog asks for a name, an optional description, and skills/connectors from the personal library. Search filters the choices while preserving selections. Creation requires at least one item; empty/loading/error and saving states remain in the same dialog. Successful creation opens Plugins with the new bundle. Cancel discards the form and returns focus to Add.

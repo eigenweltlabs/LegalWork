@@ -1,7 +1,7 @@
 import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState, IntegrationSearch, useIntegrationLibraryLayout } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { Blocks, Bot, Loader2, Package, Plug, Terminal } from "lucide-react";
+import { Blocks, Loader2, Package } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,10 @@ import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
-import { pluginImportConnectorName, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
+import { pluginImportName } from "./plugin-import-presentation";
+import { PluginDetailsDialog, type PluginDetailsAccess } from "./plugin-details-dialog";
+import { packageParts } from "./plugin-package-contents";
+export { ImportedPackageContents, packageParts } from "./plugin-package-contents";
 
 /**
  * Installed bundles in the Plugins tab and all import records in its manager (a
@@ -24,40 +27,6 @@ export type SkillPackagesStore = {
   removeImportedPackage: (pluginId: string) => Promise<void>;
 };
 
-const PART_COPY = {
-  skill: "skills.package_skills",
-  mcp: "skills.package_connectors",
-  command: "skills.package_commands",
-  agent: "skills.package_agents",
-} as const;
-
-/** What a package brings, from the type of each of its parts, in words: "2 skills · 1 connector". */
-export function packageParts(types: readonly string[]): string {
-  return (["skill", "mcp", "command", "agent"] as const)
-    .map((type) => ({ type, count: types.filter((each) => each === type).length }))
-    .filter(({ count }) => count > 0)
-    .map(({ type, count }) => t(PART_COPY[type], { count }))
-    .join(" · ");
-}
-
-export function ImportedPackageContents({ plugin }: { plugin: ImportedPlugin }) {
-  const sections = [
-    { type: "skill", label: "skills.package_skills", Icon: Blocks },
-    { type: "mcp", label: "skills.package_connectors", Icon: Plug },
-    { type: "command", label: "skills.package_commands", Icon: Terminal },
-    { type: "agent", label: "skills.package_agents", Icon: Bot },
-  ];
-  if (!sections.some(section => plugin.files.some(file => file.objectType === section.type))) return <p className="text-sm text-muted-foreground">{t("extensions.import_no_components")}</p>;
-  return <div className="space-y-5">{sections.map(({ type, label, Icon }) => {
-    const files = plugin.files.filter(file => file.objectType === type);
-    if (!files.length) return null;
-    return <section key={type} className="space-y-2">
-      <h3 className="text-sm font-medium">{t(label, { count: files.length })}</h3>
-      <ul className="space-y-2">{files.map(file => <li key={file.path} className="flex items-center gap-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 break-words">{type === "skill" ? pluginImportSkillName({ name: file.title, path: file.path }) : type === "mcp" && file.path.startsWith("opencode.jsonc#mcp.") ? pluginImportConnectorName(file.path.slice("opencode.jsonc#mcp.".length)) : file.title}</span></li>)}</ul>
-    </section>;
-  })}</div>;
-}
-
 export function ImportedPackages(props: {
   extensions: SkillPackagesStore;
   busy: boolean;
@@ -69,6 +38,7 @@ export function ImportedPackages(props: {
   /** The public Plugins library excludes standalone skill/connector imports. */
   library?: boolean;
   canRemove?: boolean;
+  detailsAccess?: PluginDetailsAccess;
 }) {
   const { extensions } = props;
   const layout = useIntegrationLibraryLayout();
@@ -126,12 +96,7 @@ export function ImportedPackages(props: {
         ))}
       </div>
       </>}
-      <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
-        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
-          <DialogHeader><DialogTitle>{selected ? pluginImportName(selected) : ""}</DialogTitle><DialogDescription>{selected?.description || (selected ? packageParts(selected.files.map(file => file.objectType)) : "") || t("extensions.import_no_components")}</DialogDescription></DialogHeader>
-          {selected ? <ImportedPackageContents plugin={selected} /> : null}
-        </DialogContent>
-      </Dialog>
+      {selected ? <PluginDetailsDialog key={selected.pluginId} plugin={selected} busy={props.busy} access={props.detailsAccess} onClose={() => setSelected(null)} /> : null}
       <ConfirmModal
         open={removing !== null}
         title={t("skills.package_remove_title", { name: removing ? pluginImportName(removing) : "" })}

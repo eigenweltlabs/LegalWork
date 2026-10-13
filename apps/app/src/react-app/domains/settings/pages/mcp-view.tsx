@@ -2,6 +2,7 @@
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState, type SetStateAction } from "react";
 import {
+  ArrowLeft,
   BookOpen,
   CheckCircle2,
   ChevronDown,
@@ -81,6 +82,9 @@ export type SkillItem = {
 const getSkillHiddenId = (skill: SkillItem) => `skill:${skill.name}`;
 
 export type McpViewProps = {
+  /** Reuse connector setup within a plugin without mounting another library. */
+  detailsOnly?: boolean;
+  pluginName?: string;
   busy: boolean;
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
@@ -447,6 +451,32 @@ export function McpView(props: McpViewProps) {
     }
   };
 
+  const logoutConfirmation = (
+    <ConfirmModal
+      open={logoutOpen}
+      title={t("mcp.logout_modal_title")}
+      message={t("mcp.logout_modal_message").replace("{server}", displayName(logoutTarget ?? ""))}
+      confirmLabel={logoutBusy ? t("mcp.logout_working") : t("mcp.logout_action")}
+      cancelLabel={t("common.cancel")}
+      variant="danger"
+      onCancel={() => {
+        if (logoutBusy) return;
+        setLogoutOpen(false);
+        setLogoutTarget(null);
+      }}
+      onConfirm={() => {
+        void confirmLogout();
+      }}
+    />
+  );
+  if (props.detailsOnly) {
+    const entry = props.mcpServers.find(item => item.name === props.selectedMcp);
+    return <>
+      {entry ? <McpConfiguredServerDetails entry={entry} directoryEntry={resolveQuickConnectMatch(entry.name)} status={resolveStatus(entry)} errorInfo={readMcpErrorInfo(props.mcpStatuses[entry.name])} selected busy={props.busy} logoutBusy={logoutBusy} logoutTarget={logoutTarget} togglingMcp={togglingMcp} displayName={displayName} supportsOauth={supportsOauth} onSelect={props.setSelectedMcp} onAuthorize={props.authorizeMcp} onRequestLogout={requestLogout} onRemove={props.removeMcp} onToggleEnabled={props.setMcpEnabled} onToggleBusy={setTogglingMcp} pluginName={props.pluginName} /> : <Dialog open onOpenChange={open => { if (!open) props.setSelectedMcp(null); }}><DialogContent><DialogHeader><DialogTitle>{t("extensions.connectors_label")}</DialogTitle><DialogDescription>{t("plugin_details.unavailable")}</DialogDescription></DialogHeader><Button variant="outline" onClick={() => props.setSelectedMcp(null)}><ArrowLeft />{t("plugin_details.back", { name: props.pluginName ?? "" })}</Button></DialogContent></Dialog>}
+      {logoutConfirmation}
+    </>;
+  }
+
   return (
     <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
       <div className="space-y-5 empty:hidden">
@@ -626,22 +656,7 @@ export function McpView(props: McpViewProps) {
       </>
       ) : null}
 
-      <ConfirmModal
-        open={logoutOpen}
-        title={t("mcp.logout_modal_title")}
-        message={t("mcp.logout_modal_message").replace("{server}", displayName(logoutTarget ?? ""))}
-        confirmLabel={logoutBusy ? t("mcp.logout_working") : t("mcp.logout_action")}
-        cancelLabel={t("common.cancel")}
-        variant="danger"
-        onCancel={() => {
-          if (logoutBusy) return;
-          setLogoutOpen(false);
-          setLogoutTarget(null);
-        }}
-        onConfirm={() => {
-          void confirmLogout();
-        }}
-      />
+      {logoutConfirmation}
 
       <ConfirmModal
         open={removeOpen}
@@ -1148,6 +1163,7 @@ function McpConfiguredServerRow(props: {
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
   onShareWithFirm?: (mcpName: string, displayName?: string) => void | Promise<void>;
+  pluginName?: string;
 }) {
   const owner = importedConnectorPlugin(props.entry.name, useIntegrationLibraryLayout()?.importedPackages);
   return (
@@ -1196,6 +1212,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
   return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
     <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
       <DialogHeader className="pe-6">
+        {props.pluginName ? <Button variant="ghost" size="sm" className="-ml-2 mb-2 w-fit max-w-full" onClick={() => props.onSelect(null)}><ArrowLeft className="size-4 shrink-0" /><span className="truncate">{t("plugin_details.back", { name: props.pluginName })}</span></Button> : null}
         <div className="mb-1 flex items-center gap-3"><McpConfiguredServerIcon {...props} /><DialogTitle>{props.displayName(props.entry.name)}</DialogTitle></div>
         <DialogDescription>{props.directoryEntry?.description ?? t("integrations.connector_details")}</DialogDescription>
       </DialogHeader>
@@ -1214,7 +1231,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
         </details>
       </div>
       {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
-      {props.entry.source !== "config.global" ? <DialogFooter className="justify-start sm:justify-start">
+      {props.entry.source !== "config.global" && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
         <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
       </DialogFooter> : null}
     </DialogContent>

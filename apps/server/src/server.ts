@@ -71,7 +71,7 @@ import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
 import { installPluginImport } from "./plugin-import-install.js";
-import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
 import {
   applyMaterializedBlueprintSessions,
@@ -1986,6 +1986,23 @@ function createRoutes(
     const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
     const globalImports = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
     return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: { ...globalImports.plugins, ...cloudImports.plugins } });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/cloud-plugins/:pluginId/file", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const local = await readInstalledCloudPlugins(config, workspace.id);
+    const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
+    const plugin = local.plugins[ctx.params.pluginId] ?? global.plugins[ctx.params.pluginId];
+    if (!plugin) throw new ApiError(404, "plugin_not_found", "This plugin is no longer installed.");
+    const file = plugin.files.find(file => file.path === ctx.url.searchParams.get("path") && (file.objectType === "agent" || file.objectType === "command"));
+    if (!file) throw new ApiError(404, "plugin_file_not_found", "This item is not part of the plugin.");
+    const isGlobal = plugin.scope === "global";
+    if (isGlobal) ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    await assertPluginDestination(workspace.path, file.path, isGlobal);
+    const path = resolveWorkspaceInstallPath(workspace.path, file.path, isGlobal);
+    const info = await lstat(path).catch(() => null);
+    if (!info?.isFile() || info.size > 1024 * 1024) throw new ApiError(400, "plugin_file_unavailable", "This item cannot be displayed.");
+    return jsonResponse({ content: await readFile(path, "utf8") });
   });
 
   addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
