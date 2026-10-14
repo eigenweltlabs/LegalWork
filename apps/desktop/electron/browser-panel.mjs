@@ -4,7 +4,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, WebContentsView, clipboard, session } from "electron";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 import { installBrowserDownloads } from "./browser-downloads.mjs";
 
@@ -19,65 +18,94 @@ const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
-export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory }) {
+// Cookies and proxy settings belong to the app; tabs, bounds and selection
+// belong to one app window. A detached window must never adopt another's tabs.
+let browserTabCounter = 0;
+export function createBrowserPanel(options) {
+  const { app, getWindow, getWindowForEvent } = options;
+  const automationBroker = createBrowserAutomationBroker({ authorize: options.authorizeBrowserAutomation });
+  const proxyState = { current: null };
+  const panels = new Map();
+  app.once("will-quit", () => { destroy(); void automationBroker.close(); });
+  app.on("login", (event, _webContents, _details, authInfo, callback) => {
+    if (!authInfo?.isProxy || !proxyState.current?.username) return;
+    event.preventDefault();
+    callback(proxyState.current.username, proxyState.current.password);
+  });
+
+  function panelFor(owner) {
+    if (!owner || owner.isDestroyed()) throw new Error("Browser window is unavailable.");
+    let entry = panels.get(owner);
+    if (entry) return entry;
+    const handlers = new Map(), listeners = new Map();
+    const panel = createWindowBrowserPanel({ ...options, getWindow: () => owner, automationBroker, proxyState });
+    panel.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: (name, listener) => listeners.set(name, listener) });
+    const closed = () => destroy(owner);
+    entry = { panel, handlers, listeners, closed };
+    panels.set(owner, entry);
+    owner.once("closed", closed);
+    return entry;
+  }
+
+  function destroy(owner) {
+    for (const [host, entry] of panels) {
+      if (owner && host !== owner) continue;
+      host.removeListener("closed", entry.closed);
+      entry.panel.destroy();
+      panels.delete(host);
+    }
+  }
+
+  function registerIpc(ipcMain) {
+    // Register the existing IPC contract once, resolving the owning window at
+    // invocation time. The definition has no views or window lifecycle hooks.
+    const definition = createWindowBrowserPanel({ ...options, automationBroker, proxyState });
+    definition.registerIpc({
+      handle: (channel) => ipcMain.handle(channel, (event, ...args) => {
+        const entry = panelFor(getWindowForEvent ? getWindowForEvent(event) : getWindow?.());
+        return entry.handlers.get(channel)(event, ...args);
+      }),
+      on: (channel) => ipcMain.on(channel, (event, ...args) => {
+        // Menu overlays have their own webContents. Each owner validates the
+        // sender against its overlay before accepting an action.
+        for (const entry of panels.values()) entry.listeners.get(channel)?.(event, ...args);
+      }),
+    });
+  }
+
+  return {
+    destroy,
+    registerIpc,
+    isMainWindowAllowedNavigation: url => !url || url === "about:blank" || options.isAllowedAppNavigation(url),
+    routeBlockedMainWindowNavigation: (url, owner = getWindow?.()) => panelFor(owner).panel.routeBlockedMainWindowNavigation(url),
+  };
+}
+
+function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState }) {
   const browserTabs = new Map();
-  const automationBroker = createBrowserAutomationBroker();
-  app.once("will-quit", () => { void automationBroker.close(); });
   let browserTabOrder = [];
   let activeBrowserTabId = null;
   let browserViewVisible = false;
   // Last browser panel bounds reported by the renderer, in renderer CSS pixels.
   // Converted to window device-independent pixels at every setBounds call.
   let lastBrowserBounds = null;
-  let browserTabCounter = 0;
-  // Active proxy for the built-in browser session: { rules, username, password }.
-  let browserProxy = null;
+  const paneBounds = new Map();
   let menuOverlayView = null;
   let menuOverlayRequest = null;
   let menuOverlayReady = false;
   let menuOverlayReadyResolvers = [];
   let menuOverlayShowSerial = 0;
-  let hostWindow = null;
   let removeDownloadHandler = null;
 
   function ensureDownloadHandler() {
     removeDownloadHandler ??= installBrowserDownloads(session.fromPartition(BROWSER_SESSION_PARTITION),
       (contents) => [...browserTabs.values()].find((tab) => tab.view.webContents === contents));
   }
-  app.once("will-quit", () => removeDownloadHandler?.());
 
-  function window() {
-    if (hostWindow && !hostWindow.isDestroyed()) return hostWindow;
-    hostWindow = null;
-    return getWindow?.() ?? null;
-  }
+  function window() { return getWindow?.() ?? null; }
 
-  function selectHostWindow(event) {
-    const nextWindow = getWindowForEvent?.(event) ?? null;
-    if (!nextWindow || nextWindow.isDestroyed() || nextWindow === window()) return;
-    const previousWindow = window();
-    if (previousWindow && !previousWindow.isDestroyed()) {
-      for (const tab of browserTabs.values()) {
-        try {
-          if (previousWindow.contentView.children.includes(tab.view)) {
-            previousWindow.contentView.removeChildView(tab.view);
-          }
-        } catch {
-          // The previous host may be closing while a new window takes over.
-        }
-      }
-      if (menuOverlayView) {
-        try {
-          if (previousWindow.contentView.children.includes(menuOverlayView)) {
-            previousWindow.contentView.removeChildView(menuOverlayView);
-          }
-        } catch {
-          // Best effort while switching native hosts.
-        }
-      }
-    }
-    hostWindow = nextWindow;
-    attachActiveBrowserView();
+  function resolveTabDownloadDirectory(context = {}) {
+    return resolveDownloadDirectory(context, window()?.webContents.getURL?.() ?? "");
   }
 
   function resetMenuOverlayReady({ resolvePending = false } = {}) {
@@ -136,23 +164,54 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
 
   function routeBlockedMainWindowNavigation(url) {
     if (!/^https?:\/\//i.test(String(url ?? ""))) return;
-    void openBrowserUrlForAutomation(url).catch((error) => {
+    // A link clicked by the user does not grant an agent an automation handle.
+    void resolveTabDownloadDirectory().then(downloadDirectory => createBrowserTab(normalizeBrowserUrl(url), { downloadDirectory })).catch((error) => {
       console.warn("[browser] failed to route blocked main-window navigation", error);
     });
   }
 
   async function openBrowserUrlForAutomation(rawUrl, provider = "auto", context = {}) {
+    await authorizeBrowserAutomation(context);
     const requestedProvider = String(provider || "auto").trim().toLowerCase();
     if (requestedProvider && requestedProvider !== "auto" && requestedProvider !== "builtin") {
       throw new Error(`Browser provider is not available yet: ${requestedProvider}`);
     }
     const url = normalizeBrowserUrl(rawUrl);
-    const downloadDirectory = await resolveDownloadDirectory(context);
+    const downloadDirectory = await resolveTabDownloadDirectory(context);
     const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
-    const connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads);
-    try { await tab.view.webContents.loadURL(url); } catch (error) {
-      // A direct file URL can abort navigation while the download continues.
-      if (error.code !== "ERR_ABORTED" || tab.downloads.length === 0) throw error;
+    let connection;
+    try {
+      connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads, context);
+    } catch (error) {
+      closeBrowserTab(tab.tabId);
+      throw error;
+    }
+    // Electron's loadURL promise can settle on an earlier navigation's load.
+    // Finish the initial blank page before awaiting the requested destination.
+    await tab.initialLoad;
+    const browserSession = session.fromPartition(BROWSER_SESSION_PARTITION);
+    let downloadStarted;
+    const download = new Promise((resolve) => { downloadStarted = resolve; });
+    const onDownload = (_event, _item, contents) => {
+      if (contents === tab.view.webContents) downloadStarted();
+    };
+    browserSession.on("will-download", onDownload);
+    let downloadTimer;
+    try {
+      await authorizeBrowserAutomation(context);
+      await tab.view.webContents.loadURL(url);
+    } catch (error) {
+      // Chromium can reject navigation before announcing a direct file download.
+      if (!["ERR_ABORTED", "ERR_FAILED"].includes(error.code)) throw error;
+      if (tab.downloads.length === 0) {
+        await Promise.race([download, new Promise((resolve) => {
+          downloadTimer = setTimeout(resolve, 5000);
+        })]);
+      }
+      if (tab.downloads.length === 0) throw error;
+    } finally {
+      clearTimeout(downloadTimer);
+      browserSession.removeListener("will-download", onDownload);
     }
     const snapshot = await automationBroker.snapshot(tab.view.webContents).catch((error) => ({ error: error.message }));
     return {
@@ -443,8 +502,8 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
 
   function browserProxyState() {
     return {
-      proxy: browserProxy
-        ? { rules: browserProxy.rules, authenticated: Boolean(browserProxy.username) }
+      proxy: proxyState.current
+        ? { rules: proxyState.current.rules, authenticated: Boolean(proxyState.current.username) }
         : null,
     };
   }
@@ -457,17 +516,11 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     } else {
       await browserSession.setProxy({ mode: "system" });
     }
-    browserProxy = parsed;
+    proxyState.current = parsed;
     // Drop keep-alive connections so existing tabs cannot bypass the new proxy.
     await browserSession.closeAllConnections();
     return browserProxyState();
   }
-
-  app.on("login", (event, _webContents, _details, authInfo, callback) => {
-    if (!authInfo?.isProxy || !browserProxy?.username) return;
-    event.preventDefault();
-    callback(browserProxy.username, browserProxy.password);
-  });
 
   function createBrowserTab(url = "about:blank", { select = true, downloadDirectory = null } = {}) {
     ensureDownloadHandler();
@@ -482,12 +535,12 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
         partition: BROWSER_SESSION_PARTITION,
       },
     });
-    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [] };
-    browserTabs.set(tabId, tab);
-    browserTabOrder.push(tabId);
     // Load about:blank immediately to preempt persistent-session restore.
     // Cookies live on the session object, not the document — they survive this.
-    view.webContents.loadURL("about:blank");
+    const initialLoad = view.webContents.loadURL("about:blank");
+    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [], initialLoad };
+    browserTabs.set(tabId, tab);
+    browserTabOrder.push(tabId);
     // A web page asking for a new window. It cannot open one here, and the
     // safe opener decides whether the OS ever sees the link.
     view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -511,6 +564,10 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
       }
       sendToRenderer("legalwork:browser:panel-opened");
     });
+    view.webContents.on("focus", () => {
+      activeBrowserTabId = tabId;
+      sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tabId });
+    });
     view.webContents.on("did-navigate", () => sendBrowserState());
     view.webContents.on("did-navigate-in-page", () => sendBrowserState());
     view.webContents.on("page-title-updated", () => sendBrowserState());
@@ -522,6 +579,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     view.webContents.on("did-stop-loading", () => sendBrowserState());
     view.webContents.once("destroyed", () => {
       browserTabs.delete(tabId);
+      paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
       if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder[0] ?? null;
       sendBrowserState();
@@ -584,16 +642,11 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
   function attachActiveBrowserView() {
     const mainWindow = window();
     if (!mainWindow || !browserViewVisible) return;
-    const view = getActiveBrowserView();
-    if (!view) return;
-    for (const tab of browserTabs.values()) {
-      if (tab.view !== view) detachBrowserView(tab.view);
-    }
-    if (!mainWindow.contentView.children.includes(view)) {
-      mainWindow.contentView.addChildView(view);
-    }
-    if (lastBrowserBounds && lastBrowserBounds.width > 0 && lastBrowserBounds.height > 0) {
-      view.setBounds(scaleRendererBounds(lastBrowserBounds));
+    for (const [id, tab] of browserTabs) {
+      const bounds = paneBounds.size ? paneBounds.get(id) : id === activeBrowserTabId ? lastBrowserBounds : null;
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) { detachBrowserView(tab.view); continue; }
+      if (!mainWindow.contentView.children.includes(tab.view)) mainWindow.contentView.addChildView(tab.view);
+      tab.view.setBounds(scaleRendererBounds(bounds));
     }
   }
 
@@ -602,7 +655,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     hideMenuOverlay();
     const previousView = getActiveBrowserView();
     activeBrowserTabId = tabId;
-    if (previousView && previousView !== getActiveBrowserView()) {
+    if (previousView && previousView !== getActiveBrowserView() && ![...paneBounds.keys()].some(id => browserTabs.get(id)?.view === previousView)) {
       detachBrowserView(previousView);
     }
     attachActiveBrowserView();
@@ -618,6 +671,7 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     const wasActive = activeBrowserTabId === tabId;
     detachBrowserView(tab.view);
     browserTabs.delete(tabId);
+    paneBounds.delete(tabId);
     browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
     if (wasActive) {
       const nextTabId =
@@ -658,9 +712,6 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
 
   function reorderBrowserTabs(tabIds) {
     const nextOrder = Array.isArray(tabIds) ? tabIds.map(String) : [];
-    if (nextOrder.length !== browserTabOrder.length) {
-      throw new Error("Tab order must include every open tab.");
-    }
     if (new Set(nextOrder).size !== nextOrder.length) {
       throw new Error("Tab order must not contain duplicate tabs.");
     }
@@ -668,7 +719,10 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     if (nextOrder.some((tabId) => !current.has(tabId))) {
       throw new Error("Tab order contains an unknown tab.");
     }
-    browserTabOrder = nextOrder;
+    // A renderer reorders one strip, not every pane and project in the app.
+    const moved = new Set(nextOrder);
+    let index = 0;
+    browserTabOrder = browserTabOrder.map(id => moved.has(id) ? nextOrder[index++] : id);
     sendBrowserState();
     return listBrowserTabs();
   }
@@ -701,7 +755,15 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     sendBrowserState();
   }
 
-  function hideBrowserView() {
+  function hideBrowserView(tabId) {
+    if (tabId) {
+      paneBounds.delete(tabId);
+      const tab = getBrowserTab(tabId);
+      if (tab) detachBrowserView(tab.view);
+      if (!paneBounds.size) browserViewVisible = false;
+      return;
+    }
+    paneBounds.clear();
     hideMenuOverlay();
     browserViewVisible = false;
     if (!window()) return;
@@ -711,6 +773,8 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
   }
 
   function destroyBrowserView() {
+    removeDownloadHandler?.();
+    removeDownloadHandler = null;
     hideBrowserView();
     const overlayView = menuOverlayView;
     menuOverlayView = null;
@@ -726,42 +790,54 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
     sendBrowserState();
   }
 
+  function validBounds(bounds) {
+    return bounds && [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) && bounds.width > 0 && bounds.height > 0;
+  }
+
   function registerIpc(ipcMain) {
-    ipcMain.handle("legalwork:browser:show", (event, bounds) => {
-      selectHostWindow(event);
+    ipcMain.handle("legalwork:browser:show", (event, bounds, tabId) => {
+      if (!validBounds(bounds)) return;
+      if (tabId) {
+        if (!browserTabs.has(tabId)) return;
+        paneBounds.set(tabId, bounds);
+        browserViewVisible = true;
+        attachActiveBrowserView();
+        return;
+      }
       return attachBrowserView(bounds);
     });
-    ipcMain.handle("legalwork:browser:hide", (event) => {
+    ipcMain.handle("legalwork:browser:hide", (event, tabId) => {
       if (event.sender !== window()?.webContents) return;
-      return hideBrowserView();
+      return hideBrowserView(tabId);
     });
     ipcMain.handle("legalwork:browser:openUrl", (event, url, provider, context) => {
-      selectHostWindow(event);
       return openBrowserUrlForAutomation(url, provider, context);
     });
-    ipcMain.handle("legalwork:browser:navigate", async (event, url) => {
-      selectHostWindow(event);
-      const view = getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true, downloadDirectory: await resolveDownloadDirectory({}) }).view;
-      view.webContents.loadURL(normalizeBrowserUrl(url));
+    ipcMain.handle("legalwork:browser:navigate", async (event, url, tabId) => {
+      const view = tabId ? getBrowserTab(tabId)?.view : getActiveBrowserView() ?? createBrowserTab("about:blank", { select: true, downloadDirectory: await resolveTabDownloadDirectory() }).view;
+      view?.webContents.loadURL(normalizeBrowserUrl(url));
     });
-    ipcMain.handle("legalwork:browser:back", (event) => {
-      selectHostWindow(event);
-      const webContents = getActiveWebContents();
+    ipcMain.handle("legalwork:browser:back", (event, tabId) => {
+      const webContents = tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents();
       if (webContents?.canGoBack()) webContents.goBack();
     });
-    ipcMain.handle("legalwork:browser:forward", (event) => {
-      selectHostWindow(event);
-      const webContents = getActiveWebContents();
+    ipcMain.handle("legalwork:browser:forward", (event, tabId) => {
+      const webContents = tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents();
       if (webContents?.canGoForward()) webContents.goForward();
     });
-    ipcMain.handle("legalwork:browser:reload", (event) => {
-      selectHostWindow(event);
-      return getActiveWebContents()?.reload();
+    ipcMain.handle("legalwork:browser:reload", (event, tabId) => {
+      return (tabId ? getBrowserTab(tabId)?.view.webContents : getActiveWebContents())?.reload();
     });
-    ipcMain.handle("legalwork:browser:bounds", (event, bounds) => {
-      // Both chat windows rerender while messages stream. A background
-      // window's layout update must not take the native view from its host.
+    ipcMain.handle("legalwork:browser:bounds", (event, bounds, tabId) => {
+      if (!validBounds(bounds)) return;
       if (event.sender !== window()?.webContents) return;
+      if (tabId) {
+        if (!paneBounds.has(tabId)) return;
+        paneBounds.set(tabId, bounds);
+        const view = getBrowserTab(tabId)?.view;
+        if (view && bounds.width > 0 && bounds.height > 0) view.setBounds(scaleRendererBounds(bounds));
+        return;
+      }
       lastBrowserBounds = bounds;
       const view = getActiveBrowserView();
       if (view && browserViewVisible && bounds.width > 0 && bounds.height > 0) {
@@ -772,38 +848,34 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, isAllowedAppN
       return browserStatePayload();
     });
     ipcMain.handle("legalwork:browser:createTab", async (event, url) => {
-      selectHostWindow(event);
       const target = typeof url === "string" && url.trim() ? url : BROWSER_NEW_TAB_URL;
-      const tab = createBrowserTab(target, { select: true, downloadDirectory: await resolveDownloadDirectory({}) });
+      const tab = createBrowserTab(target, { select: true, downloadDirectory: await resolveTabDownloadDirectory() });
       return { tabId: tab.tabId };
     });
     ipcMain.handle("legalwork:browser:closeTab", (event, tabId) => {
-      selectHostWindow(event);
       return closeBrowserTab(tabId == null ? undefined : String(tabId));
     });
     ipcMain.handle("legalwork:browser:closeAllTabs", (event) => {
-      selectHostWindow(event);
       return closeAllBrowserTabs();
     });
     ipcMain.handle("legalwork:browser:selectTab", (event, tabId) => {
-      selectHostWindow(event);
       return selectBrowserTab(String(tabId ?? "")).tabId;
     });
     ipcMain.handle("legalwork:browser:reorderTabs", (event, tabIds) => {
-      selectHostWindow(event);
       return reorderBrowserTabs(tabIds);
     });
     ipcMain.handle("legalwork:browser:listTabs", () => {
       return listBrowserTabs();
     });
-    ipcMain.handle("legalwork:browser:setProxy", (_event, proxy) => setBrowserProxy(proxy));
+    ipcMain.handle("legalwork:browser:setProxy", async (_event, proxy, context) => {
+      await authorizeBrowserAutomation(context);
+      return setBrowserProxy(proxy);
+    });
     ipcMain.handle("legalwork:browser:getProxy", () => browserProxyState());
     ipcMain.handle("legalwork:browser:tabContextMenu", (event, tabId, point) => {
-      selectHostWindow(event);
       return showBrowserTabContextMenu(tabId, point);
     });
     ipcMain.handle("legalwork:browser:destroy", (event) => {
-      selectHostWindow(event);
       return destroyBrowserView();
     });
     ipcMain.on("legalwork:menu-overlay:ready", (event) => {

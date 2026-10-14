@@ -1,8 +1,12 @@
+import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
+import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
 import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
+import { SubagentToolRows } from "./subagent-tool-row";
 "use memo";
 
 import { ProjectContentsTool } from "./project/project-contents-card";
@@ -109,11 +113,11 @@ import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
-import { TASK_REFERENCE_SOURCE, parseTaskReference, requestOpenTask } from "@/react-app/domains/tasks/task-reference"
+import { TASK_REFERENCE_SOURCE, parseTaskReference } from "@/react-app/domains/tasks/task-reference"
 import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { groupMessages, isMessageGroup, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -329,7 +333,17 @@ interface CopyMessageButtonProps {
   messages: UIMessage[]
 }
 
+function useCopyMessage() {
+  const { workspaceId, legalworkClient } = useMessageList();
+  const files = useProjectFiles();
+  return React.useCallback((text: string) => copyMessageWithAttachments(text, file => {
+    const source = legalworkClient && files?.identify(legalworkClient, workspaceId, file);
+    return source && files ? { source, projectName: files.sourceProject(source).name } : null;
+  }), [workspaceId, legalworkClient, files]);
+}
+
 function CopyMessageButton({ messages }: CopyMessageButtonProps) {
+  const copyMessage = useCopyMessage();
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => getMessagesText(messages), [messages])
 
@@ -339,13 +353,13 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
     }
 
     try {
-      await navigator.clipboard.writeText(text)
+      await copyMessage(text)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
       // ignore clipboard failures
     }
-  }, [text])
+  }, [text, copyMessage])
 
   if (!text) {
     return null
@@ -392,7 +406,7 @@ const AssistantMessage = React.memo(
               return (
                 <MessageContent
                   key={`text-${index}`}
-                  className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
+                  className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
                   markdown
                 >
                   {group.text}
@@ -406,7 +420,7 @@ const AssistantMessage = React.memo(
                   key={`reasoning-${index}`}
                   // chat-reasoning is an unstyled hook so embedders can
                   // target reasoning output (the Office pane hides it).
-                  className="chat-reasoning text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
+                  className="chat-reasoning text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
                   markdown
                 >
                   {group.text}
@@ -417,6 +431,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "jev-search") return <JevSearchCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
+            if (group.kind === "subagents") return <SubagentToolRows key={group.parts[0].toolCallId} parts={group.parts} />;
 
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
@@ -469,6 +484,7 @@ function UserSkillChip(props: { name: string }) {
  *  run record, not from the message: the message carries only the id. A click
  *  opens the task in the side panel. */
 function UserTaskChip(props: { taskId: string }) {
+  const requestOpenTask = useRequestOpenTask();
   const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
   return (
     <button
@@ -579,6 +595,7 @@ function renderUserTextWithReferenceChips(rawText: string) {
 
 const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
+    const copyMessage = useCopyMessage();
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
 
@@ -590,6 +607,7 @@ const UserMessage = React.memo(
       >
         <ContextMenu>
           <ContextMenuTrigger
+            className="select-text"
             render={
               <div className="group flex w-full flex-col items-end gap-1">
                 {message.parts.filter(isFileUIPart).map((part, index) => (
@@ -603,48 +621,50 @@ const UserMessage = React.memo(
                     {renderUserTextWithReferenceChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""))}
                   </MessageContent>
                 ) : null}
-                {!isStreaming && (
-                  <MessageActions
-                    className={cn(
-                      "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    )}
-                  >
-                    <MessageTimestamp message={message} className="mr-1.5" />
-                    <CopyMessageButton messages={[message]} />
-                    {messageText ? (
-                      <MessageAction tooltip={t("message_list.edit_message")}>
+                <MessageActions
+                  className={cn(
+                    "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
+                  )}
+                >
+                  <MessageTimestamp message={message} className="mr-1.5" />
+                  <CopyMessageButton messages={[message]} />
+                  {!isStreaming && (
+                    <>
+                      {messageText ? (
+                        <MessageAction tooltip={t("message_list.edit_message")}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("message_list.edit_message")}
+                            onClick={() => onEditUserMessage(message.id, messageText)}
+                          >
+                            <Pencil />
+                          </Button>
+                        </MessageAction>
+                      ) : null}
+                      <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={t("message_list.edit_message")}
-                          onClick={() => onEditUserMessage(message.id, messageText)}
+                          aria-label={t("message_list.branch_in_new_chat")}
+                          onClick={() => onForkAtMessage(message.id)}
                         >
-                          <Pencil />
+                          <Split className="rotate-90" />
                         </Button>
                       </MessageAction>
-                    ) : null}
-                    <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("message_list.branch_in_new_chat")}
-                        onClick={() => onForkAtMessage(message.id)}
-                      >
-                        <Split className="rotate-90" />
-                      </Button>
-                    </MessageAction>
-                    <MessageAction tooltip={t("message_list.revert")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("message_list.revert")}
-                        onClick={() => onRevertToUserMessage(message.id)}
-                      >
-                        <Undo2 />
-                      </Button>
-                    </MessageAction>
-                  </MessageActions>
-                )}
+                      <MessageAction tooltip={t("message_list.revert")}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("message_list.revert")}
+                          onClick={() => onRevertToUserMessage(message.id)}
+                        >
+                          <Undo2 />
+                        </Button>
+                      </MessageAction>
+                    </>
+                  )}
+                </MessageActions>
               </div>
             }
           />
@@ -656,7 +676,7 @@ const UserMessage = React.memo(
               </ContextMenuItem>
             ) : null}
             {messageText ? (
-              <ContextMenuItem onClick={() => void navigator.clipboard.writeText(messageText)}>
+              <ContextMenuItem onClick={() => void copyMessage(messageText)}>
                 <Copy className="size-4" />
                 {t("common.copy")}
               </ContextMenuItem>
@@ -688,6 +708,12 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
+      const metadata = message.metadata;
+      if (metadata && typeof metadata === "object" && "opencode" in metadata &&
+          metadata.opencode && typeof metadata.opencode === "object" &&
+          "stopped" in metadata.opencode && metadata.opencode.stopped === true) {
+        return <Message className="text-sm text-muted-foreground">{t("chat.stopped")}</Message>;
+      }
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }
 
@@ -861,10 +887,6 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
-function MessageArtifacts(props: { message: UIMessage }) {
-  return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
-}
-
 /** A stable empty list, so a tasks-only strip does not re-derive artifacts on every render. */
 const EMPTY_MESSAGES: UIMessage[] = []
 
@@ -919,7 +941,7 @@ function MessageGroup({
   if (!lastItem || isMessageEmptyGroup(items)) return null
 
   const renderableItems = getRenderableMessages(items)
-  const lastTextMessage = getLastTextPart(lastItem.message)
+  const hasText = renderableItems.some((item) => item.message.parts.some((part) => part.type === "text" && part.text.trim()))
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
     const isLastMessage = item.index === messages.length - 1
@@ -932,7 +954,6 @@ function MessageGroup({
           isStreaming={isLiveGroup && item === displayItems.at(-1)}
           isLastStep={groupIndex === items.length - 1}
         />
-        <MessageArtifacts message={item.message} />
       </div>
     )
   }
@@ -944,7 +965,7 @@ function MessageGroup({
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}
-      <div className="w-full min-w-0">
+      {legalMemoryDocuments.length > 0 ? <div className="w-full min-w-0">
         <LegalMemoryMatterGraph
           rootDocumentId={legalMemoryDocuments[0]?.documentId ?? null}
           streaming={isStreaming}
@@ -956,12 +977,12 @@ function MessageGroup({
           matters={legalMemoryMatters}
           streaming={isStreaming}
         />
-      </div>
-      {lastTextMessage && !isStreaming && (
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100">
+      </div> : null}
+      {hasText && !isLiveGroup && (
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
-            {lastRealItem ? (
+            {lastRealItem && !isStreaming ? (
               <>
                 <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                   <Button
@@ -1009,12 +1030,6 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
-  const hasActivityTail = React.useMemo(() => {
-    const last = items.at(-1)
-    if (!last || !isMessageGroup(last)) return false
-    const tail = groupAssistantToolRuns(last.messages, false).at(-1)
-    return tail?.message.parts.some(isToolUIPart) ?? false
-  }, [items])
 
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
@@ -1047,12 +1062,11 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
             />
-            <MessageArtifacts message={item.message} />
           </div>
         )
       })}
 
-      {status === "streaming" && !hasLiveTool && !hasActivityTail && <LoadingMessage />}
+      {status === "streaming" && !hasLiveTool && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

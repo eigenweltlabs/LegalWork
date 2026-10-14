@@ -1,3 +1,4 @@
+import { isReviewWorkerSession } from "@legalwork/types/reviews";
 // Shared pure helpers for the workspace-scoped routes (session-route,
 // settings-route). These were duplicated in both route files and had drifted:
 // settings-route was missing the remote-workspace clobber fix in
@@ -31,7 +32,14 @@ export type RouteSession = Session & {
   slug?: string | null;
 };
 
+/** Runtime data can improve a listed session, but cannot resurrect a deleted one. */
+export function preferLoadedSession(fetched: RouteSession[], loaded: RouteSession | null): RouteSession[] {
+  if (!loaded) return fetched;
+  return fetched.map(session => session.id === loaded.id && loaded.time.updated >= session.time.updated ? loaded : session);
+}
+
 export function upsertRuntimeSession(sessions: RouteSession[], update: { sessionId: string; info: Record<string, unknown> }): RouteSession[] {
+  if (isReviewWorkerSession(update.info)) return sessions;
   const index = sessions.findIndex((session) => session.id === update.sessionId);
   if (index >= 0) {
     const next = { ...sessions[index]!, ...update.info, id: update.sessionId };

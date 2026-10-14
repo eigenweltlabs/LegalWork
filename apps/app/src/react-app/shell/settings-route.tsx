@@ -30,7 +30,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
   type RouteWorkspace,
@@ -145,7 +145,7 @@ import {
 } from "@/app/utils";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
-import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -324,6 +324,7 @@ function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
 }
 
 export type SettingsSurfaceProps = {
+  active?: boolean;
   embedded?: boolean;
   initialPath?: string;
   workspaceId?: string;
@@ -543,8 +544,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
 
   const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
+    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, localClient: legalworkClient }),
+    [baseUrl, selectedWorkspace, token, legalworkClient],
   );
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
 
@@ -1930,21 +1931,29 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
       if (!window.confirm(message)) return;
     }
-    if (legalworkClient) {
-      await legalworkClient.deleteWorkspace(workspaceId).catch(() => undefined);
-    }
-    if (isDesktopRuntime()) {
-      await workspaceForget(workspaceId).catch(() => undefined);
-    }
-    if (selectedWorkspaceId === workspaceId) {
-      const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
-      const nextId = nextWorkspace?.id ?? "";
-      setLegacySelectedWorkspaceId(nextId);
-      if (nextId) {
-        await workspaceSetSelected(nextId).catch(() => undefined);
+    try {
+      const workspace = workspaces.find(item => item.id === workspaceId);
+      if (workspace?.workspaceType !== "remote") {
+        if (!legalworkClient) throw new Error(t("session_route.create_server_unavailable"));
+        await legalworkClient.deleteWorkspace(workspaceId).catch(error => {
+          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+        });
       }
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId);
+      }
+      if (selectedWorkspaceId === workspaceId) {
+        const nextWorkspace = workspaces.find((workspace) => workspace.id !== workspaceId);
+        const nextId = nextWorkspace?.id ?? "";
+        setLegacySelectedWorkspaceId(nextId);
+        if (nextId) {
+          await workspaceSetSelected(nextId).catch(() => undefined);
+        }
+      }
+      await refreshRouteState();
+    } catch (error) {
+      toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
     }
-    await refreshRouteState();
   }, [legalworkClient, refreshRouteState, selectedWorkspaceId, workspaces]);
 
   const handleCreateWorkspace = async (preset: WorkspacePreset, folder: string | null) => {
@@ -1956,7 +1965,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       let list: WorkspaceList | null = null;
       if (legalworkClient) {
         list = await legalworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, templateLanguage: currentLocale() })
           .catch(() => null);
       }
       if (!list) {
@@ -2246,12 +2255,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       case "shell":
-        return <ShellCustomizationView />;
+        return <ShellCustomizationView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "skills":
       case "workflows": {
         const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
         return (
           <View
+            active={props.active}
             workspaceId={selectedWorkspaceId}
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
@@ -2271,7 +2281,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
-            inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
             busy={busy}
@@ -2563,7 +2572,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         // Standalone pages use the same pane-relative gutters and content width.
         // Workflows owns its frame so its list and editor can scroll independently.
         <div className={route.tab === "workflows"
-          ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+          ? "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
           {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>

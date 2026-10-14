@@ -1,4 +1,6 @@
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -7,7 +9,7 @@ import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics
 import { allowlistedErrorName, sessionErrorFingerprint } from "@/app/lib/app-error";
 import { createClient, resolveLegalworkWorkspaceMount, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
-import { isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
 import { useComposerStateStore } from "../surface/composer-state-store";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type Client, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -357,6 +359,30 @@ function releaseRetainedSessionSoon(input: SyncOptions, entry: SyncEntry, sessio
   retainSession(input, entry, sessionId, idleRetainedSessionTtlMs);
 }
 
+/** Host approvals share the chat's permission queue and waiting indicator. */
+export function seedHostApprovalState(workspaceId: string, requests: HostApprovalRequest[], runtime?: { workspaceId: string; baseUrl: string }) {
+  const queryClient = getReactQueryClient();
+  const sessions = new Set(requests.flatMap((request) => request.sessionID ? [request.sessionID] : []));
+  for (const [key] of queryClient.getQueriesData({ queryKey: ["react-session-permissions", workspaceId] })) {
+    if (typeof key[2] === "string") sessions.add(key[2]);
+  }
+  for (const sessionID of sessions) {
+    const key = permissionKey(workspaceId, sessionID);
+    const current = queryClient.getQueryData<PendingPermission[]>(key) ?? [];
+    const next: PendingPermission[] = requests.flatMap((request) => request.sessionID === sessionID ? [{
+      id: `host:${request.id}`, sessionID, permission: request.action.replace(/^sandbox\./, ""),
+      patterns: request.paths, metadata: { description: request.description, summary: request.summary }, always: [],
+      receivedAt: request.createdAt, protocol: "host", host: request,
+    }] : []);
+    const activity = useSessionActivityStore.getState();
+    for (const item of current.filter((item) => item.protocol === "host")) activity.setWaitingRequest(runtime?.workspaceId ?? workspaceId, sessionID, "permission", item.id, false);
+    for (const item of next) activity.setWaitingRequest(runtime?.workspaceId ?? workspaceId, sessionID, "permission", item.id, true);
+    queryClient.setQueryData(key, [...current.filter((item) => item.protocol !== "host"), ...next].sort(sortInteractionRequests));
+    if (next.length) for (const entry of syncs.values()) {
+      if (entry.input.workspaceId === (runtime?.workspaceId ?? workspaceId) && (!runtime || entry.input.baseUrl === runtime.baseUrl) && !entry.deletedSessionIds.has(sessionID)) resolveRequestLineage(entry, sessionID);
+    }
+  }
+}
 function fileProviderMetadata(part: FilePart) {
   if (part.source) {
     return { opencode: { partId: part.id, source: part.source } };
@@ -627,7 +653,8 @@ async function stopUsageLimitRetry(entry: SyncEntry, workspaceId: string, sessio
     usageLimitStops.add(key);
     ownsStop = true;
     useComposerStateStore.getState().setQueuePaused(sessionId, true);
-    const pendingText = providerUsageLimitErrorText("");
+    const limit = currentProvider === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null;
+    const pendingText = providerUsageLimitErrorText(currentProvider ?? "", limit);
     injectSessionErrorMessage(workspaceId, sessionId, pendingText);
     markEigenweltBudgetStop(sessionId, Date.now(), pendingText);
     const stopped = await abortSessionSafe(client, sessionId, session.directory);
@@ -636,13 +663,13 @@ async function stopUsageLimitRetry(entry: SyncEntry, workspaceId: string, sessio
     const messages = unwrap(await client.session.messages({ sessionID: sessionId, directory: session.directory }));
     const info = messages.at(-1)?.info;
     const providerId = info?.role === "assistant" ? info.providerID : info?.model.providerID ?? "";
-    const errorText = providerUsageLimitErrorText(providerId);
+    const errorText = providerUsageLimitErrorText(providerId, limit);
     updateProviderUsageLimitStop(sessionId, errorText);
     injectSessionErrorMessage(workspaceId, sessionId, errorText);
     const mount = resolveLegalworkWorkspaceMount(entry.input.baseUrl);
     if (stopped && mount && info?.role === "assistant") {
       const server = createLegalworkServerClient({ baseUrl: mount.baseUrl, token: entry.input.legalworkToken });
-      await server.recordSessionUsageLimit(mount.workspaceId, sessionId, info.id);
+      await server.recordSessionUsageLimit(mount.workspaceId, sessionId, info.id, limit);
     }
   } catch { if (ownsStop) usageLimitStops.delete(key); }
 }
@@ -715,6 +742,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (sessionId) {
       const sessions = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId)) ?? {};
       for (const id of interactionSessionIds(sessionId, sessions)) {
+        usePanelTabStore.getState().clearSession(id);
         entry.deletedSessionIds.add(id);
         entry.interactionSnapshot?.deletedSessions.add(id);
       }
@@ -738,7 +766,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       const usageLimitStop = consumeProviderUsageLimitStop(sessionId);
       const aborted = isSessionAbortError(sessionError) && !usageLimitStop;
       const errorText = usageLimitStop ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
-      if (isAnthropicUsageLimitError(sessionError)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
+      if (isProviderUsageLimitError(sessionError, provider)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
       const runStartedAt = aborted ? null : takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
@@ -775,8 +803,11 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           // assistant message id) so a reload reconciles instead of
           // duplicating; the sessionId fallback only applies when the run
           // errored before any assistant message existed.
-          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText));
+          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText, { stopped: aborted }));
         });
+        // Server-initiated stops persist their reason before aborting. Refresh
+        // so an automatic retry stop does not remain labelled as a user stop.
+        if (aborted) void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
       }
     }
     return;
@@ -796,7 +827,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "session.next.retried") {
     const retry = usageLimitRetryEvent(event.properties);
-    if (retry && isAnthropicUsageLimitError(retry.error)) {
+    if (retry && (isAnthropicUsageLimitError(retry.error) || eigenweltUsageLimitFromError(retry.error))) {
       void stopUsageLimitRetry(entry, workspaceId, retry.sessionId, retry.error);
     }
     return;

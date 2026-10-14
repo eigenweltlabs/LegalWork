@@ -11,11 +11,21 @@ Imports are automatically available in all projects, matching the desktop Skills
 
 Open the chat tools menu and choose **Plugins**. Click a plugin row to add one plugin chip to your message. The arrow beside the row opens its individual contents; that view also offers **Use whole plugin**.
 
-The agent chooses the relevant bundled capabilities for your request. Selecting a plugin keeps the existing setup requirements for its connectors. The selection survives draft restoration and queue editing, and the current package is resolved when the message is sent.
+The agent chooses the relevant bundled capabilities for your request. Selecting a plugin keeps the existing setup requirements for its connectors. The current package is resolved when you submit the message. The shared message queue preserves that submitted capability context and the plugin chip through restart and editing.
 
 ![Select a whole plugin or browse its contents](images/chat-whole-plugin-menu.png)
 
 ![One plugin chip in the composer](images/chat-whole-plugin-selection.png)
+
+### Verification after merging dev
+
+The feature branch includes `dev` at `75acf2c3`. Conflict resolution retains the shared popover's positioning and keyboard focus, project-file attachment preparation and the new durable message queue, alongside the four current chat categories and whole-plugin selection. Queue validation now accepts plugin parts and editor mentions, with a regression covering persistence, restart and editing.
+
+The merged branch passed **1,308 app tests**, **1,851 server tests** (42 optional checks skipped), **57 focused app tests**, both TypeScript checks, both production/runtime builds and **6,191 translation keys × English/German**. Native Electron verified the plugin menu, direct whole-plugin chip selection/removal and Configure opening Plugins. The restarted engine still reports Context7 connected without error. The preview is running with the merged runtime; no model request was submitted during these UI checks.
+
+![Plugin menu after merging dev](images/chat-plugin-menu-after-dev-merge.png)
+
+![Whole-plugin chip after merging dev](images/chat-plugin-chip-after-dev-merge.png)
 
 
 ## Integration libraries

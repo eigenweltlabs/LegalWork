@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import WebSocket from "ws";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 import { resolveBrowserProject } from "../electron/browser-project.mjs";
@@ -26,6 +26,10 @@ const state = {
 };
 const file = Buffer.from("LegalWork browser download fixture\n");
 const fixture = createServer((request, response) => {
+  if (request.url === "/unavailable") {
+    request.socket.destroy();
+    return;
+  }
   if (request.url === "/download") {
     response.writeHead(200, {
       "Content-Type": "application/octet-stream",
@@ -36,7 +40,8 @@ const fixture = createServer((request, response) => {
     return;
   }
   response.setHeader("Content-Type", "text/html");
-  response.end(`<!doctype html><title>Browser workflow fixture</title>
+  // A slow destination must not return the tab's initial about:blank snapshot.
+  setTimeout(() => response.end(`<!doctype html><title>Browser workflow fixture</title>
     <style>body{font:18px sans-serif;padding:32px}label{display:block;margin:16px 0}input,textarea,select,button{font:inherit}</style>
     <h1>Browser workflow fixture</h1><div><div>
     <label for="applicant">Applicant</label><input id="applicant">
@@ -45,7 +50,7 @@ const fixture = createServer((request, response) => {
     <label for="locked">Locked field</label><input id="locked" readonly value="unchanged">
     <button id="save" onclick="setTimeout(() => document.querySelector('#result').textContent = 'Saved ' + document.querySelector('#applicant').value + ' in ' + document.querySelector('#region').value, 50)">Save</button>
     <p id="result">Not saved</p><a id="download" href="/download">Download record</a>
-    </div></div>`);
+    </div></div>`), 100);
 });
 
 async function batch(tab, steps, timeout_ms = 5000) {
@@ -93,6 +98,8 @@ app.whenReady().then(async () => {
   const origin = `http://127.0.0.1:${fixture.address().port}`;
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
+    authorizeBrowserAutomation: async () => {},
+    app, WebContentsView, clipboard, session,
     getWindow: () => main, getWindowForEvent: () => main,
     isAllowedAppNavigation: () => false,
     safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
@@ -115,7 +122,7 @@ app.whenReady().then(async () => {
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
     for (const name of ["Applicant", "Notes", "Region", "Save", "Download record"]) {
-      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}`);
+      assert.ok(first.snapshot.controls.some((control) => control.name === name), `Missing control: ${name}; snapshot: ${JSON.stringify(first.snapshot)}`);
     }
     const selector = (name) => first.snapshot.controls.find((control) => control.name === name).selector;
     console.log("PASS: opening a project tab returns labeled controls and observed selectors");
@@ -191,6 +198,9 @@ app.whenReady().then(async () => {
     assert.deepEqual(readFileSync(saved.path), file);
     console.log("PASS: a direct file URL downloads into its own project despite aborted page navigation");
 
+    await assert.rejects(invoke("openUrl", `${origin}/unavailable`, "builtin", { directory: projectA }), /ERR_/);
+    console.log("PASS: navigation failures without a download are still rejected");
+
     state.selectedId = "remote";
     const unbound = await invoke("openUrl", origin, "builtin");
     assert.equal(unbound.download_directory, null);
@@ -211,7 +221,8 @@ app.whenReady().then(async () => {
     main.destroy();
     fixture.closeAllConnections();
     await new Promise((resolve) => fixture.close(resolve));
-    rmSync(root, { recursive: true, force: true });
+    // Chromium may still be flushing the isolated profile after view teardown.
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     app.exit(exitCode);
   }
 }).catch((error) => { console.error(error); app.exit(1); });

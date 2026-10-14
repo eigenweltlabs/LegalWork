@@ -22,6 +22,10 @@ on:
   # opt-in alpha channel).
   workflow_dispatch:
     inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
       signing_test:
         description: "Validate SignPath test signing without publishing a release or updating the alpha feed"
         type: boolean
@@ -36,7 +40,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: win32-x64,win32-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-windows:
+    needs: sandbox-runtime
     name: Build + Publish alpha (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -168,6 +178,17 @@ jobs:
         run: |
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-win32-${{ matrix.arch }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron alpha app
         shell: bash

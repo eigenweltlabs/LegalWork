@@ -1,6 +1,13 @@
+import { retryStopReason } from "../session-retry-policy.js";
+import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
+import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
+import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
+import { canonicalFilePath } from "../file-write-lock.js";
+import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
+import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
   createSessionGroupId,
@@ -33,6 +40,7 @@ interface RegisterSessionRoutesOptions {
   parseOptionalPositiveInteger: ParseOptionalPositiveInteger;
   parseOptionalNonNegativeInteger: ParseOptionalNonNegativeInteger;
   readJsonBody: ReadJsonBody;
+  readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
@@ -53,6 +61,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     parseOptionalPositiveInteger,
     parseOptionalNonNegativeInteger,
     readJsonBody,
+    readJsonBodyLimited,
     ensureWritable,
     requireClientScope,
     resolveWorkspace,
@@ -60,6 +69,85 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     unwrapOpencodeResult,
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
+  async function validateQueuedExecution(client: WorkspaceOpencodeClient, execution: QueueEntry["execution"]) {
+    if (!config.agentSandboxEnabled) return;
+    if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
+    if (execution.kind === "command") {
+      assertNoHostShellInterpolation(execution.arguments);
+      const commands = unwrapOpencodeResult(await client.command.list(), "/command");
+      const definition = commands.find(item => item.name === execution.command);
+      if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
+      assertNoHostShellInterpolation(definition.template);
+    }
+  }
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
+    const client = createWorkspaceOpencodeClient(config, workspace);
+    const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
+    const directory = workspace.directory?.trim() || (workspace.workspaceType === "local" ? workspace.path : unwrapOpencodeResult(await client.path.get(), "path").directory);
+    const normalize = async (path: string) => {
+      const clean = path.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
+      if (workspace.workspaceType === "local") return canonicalFilePath(clean);
+      return /^[a-z]:[\\/]|^\\\\/i.test(clean) ? win32.normalize(clean).replace(/[\\/]+$/, "").toLowerCase() : posix.normalize(clean).replace(/\/$/, "");
+    };
+    if (!directory || !session.directory || await normalize(directory) !== await normalize(session.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+    return client;
+  }
+  const messageQueue = registerMessageQueue(config, {
+    confirmed: async (workspaceId, sessionID, entry) => {
+      if (entry.execution.kind !== "prompt") return false;
+      const workspace = await resolveWorkspace(config, workspaceId);
+      const client = await queueClient(workspace, sessionID);
+      const messageID = `msg_${entry.id.replaceAll("-", "")}`;
+      const result = await client.session.message({ sessionID, messageID }, { signal: AbortSignal.timeout(5000) });
+      return result.data?.info.id === messageID && result.data.info.role === "user" && result.data.info.sessionID === sessionID;
+    },
+    idle: async (workspaceId, sessionId) => {
+      if (config.readOnly) return false;
+      const workspace = await resolveWorkspace(config, workspaceId);
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
+      return !statuses[sessionId] || statuses[sessionId].type === "idle";
+    },
+    send: async (workspaceId, sessionID, entry) => {
+      ensureWritable(config);
+      const client = await (async () => {
+        try {
+          const workspace = await resolveWorkspace(config, workspaceId);
+          const client = await queueClient(workspace, sessionID);
+          // Revalidate restored queues and shortcut definitions changed since enqueue.
+          await validateQueuedExecution(client, entry.execution);
+          unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
+          return client;
+        } catch (error) {
+          throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare message delivery.");
+        }
+      })();
+      const execution = entry.execution;
+      if (execution.kind === "prompt") {
+        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
+        // A terminal assistant result confirms delivery, including Stop/model errors.
+        // Pause follow-ups, but never offer to resend the already accepted prompt.
+        return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
+      } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
+      else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
+    },
+  });
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    await queueClient(workspace, ctx.params.sessionId);
+    return jsonResponse(await messageQueue.readIfChanged(workspace.id, ctx.params.sessionId, new URL(ctx.request.url).searchParams.get("revision")));
+  });
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
+    ensureWritable(config); requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
+    // Reject stale/deleted or cross-workspace sessions before storing executable work.
+    const client = await queueClient(workspace, ctx.params.sessionId);
+    if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
+    return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
+  });
+
 
   function remapSessionReadError(error: unknown): never {
     if (error instanceof ApiError && error.code === "opencode_request_failed") {
@@ -341,6 +429,28 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ item });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/retry-stop", "client", async ctx => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = ctx.params.sessionId;
+    const client = await queueClient(workspace, sessionId);
+    const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
+    const status = statuses[sessionId];
+    const reason = status && retryStopReason(status);
+    if (!reason) return jsonResponse({ stopped: false });
+    const messages = unwrapOpencodeResult(await client.session.messages({ sessionID: sessionId }), "session/messages");
+    const last = messages.at(-1)?.info;
+    if (last?.role !== "assistant") return jsonResponse({ stopped: false });
+    // Recheck after reads: a completed retry or new user turn takes precedence.
+    const current = unwrapOpencodeResult(await client.session.status(), "session/status")[sessionId];
+    if (current?.type !== "retry" || status.type !== "retry" || current.attempt !== status.attempt || current.next !== status.next) return jsonResponse({ stopped: false });
+    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
+    await recordSessionUsageLimit(config, workspace.id, sessionId, last.id, last.providerID, null, reason);
+    unwrapOpencodeResult(await client.session.abort({ sessionID: sessionId }), "session/abort");
+    return jsonResponse({ stopped: true });
+  });
+
   addRoute(
     routes,
     "POST",
@@ -352,6 +462,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const workspace = await resolveWorkspace(config, ctx.params.id);
       const body = await readJsonBody(ctx.request);
       const messageId = requireStringField(body, "messageId");
+      const limit = body.limit === undefined ? null : usageLimitDetailsSchema.safeParse(body.limit);
+      if (limit && !limit.success) throw new ApiError(400, "invalid_usage_limit", "Valid admission details are required");
       const sessionId = ctx.params.sessionId;
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       const message = unwrapOpencodeResult(
@@ -376,6 +488,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         sessionId,
         messageId,
         message.info.providerID,
+        limit?.success ? limit.data : null,
       );
       return jsonResponse({ ok: true });
     },
@@ -392,10 +505,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
 
     const opencode = createWorkspaceOpencodeClient(config, workspace);
+    // Stop pending sends before deleting the underlying chat.
+    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
     unwrapOpencodeResult(
       await opencode.session.delete({ sessionID: sessionId }),
       `/session/${encodeURIComponent(sessionId)}`,
     );
+    await messageQueue.removeSession(workspace.id, sessionId);
     await deleteSessionUsageLimits(config, workspace.id, sessionId);
 
     return jsonResponse({ ok: true });

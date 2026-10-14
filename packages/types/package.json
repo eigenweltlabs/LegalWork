@@ -14,6 +14,7 @@
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
     },
+    "./project-files": "./src/project-files.ts",
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",
@@ -33,6 +34,7 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./usage-control": "./src/usage-control.ts",
+    "./provider-usage-limit": "./src/provider-usage-limit.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",
@@ -43,6 +45,7 @@
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calculation": "./src/calculation.ts",
+    "./session-queue": "./src/session-queue.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",

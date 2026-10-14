@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -57,8 +57,10 @@ import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome
 import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
+import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
+import { getApplicationsForFile } from "./file-applications.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -688,8 +690,10 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const browserPanel = createBrowserPanel({
-  resolveDownloadDirectory: async (context) => resolveBrowserProject(
-    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(),
+  app, WebContentsView, clipboard, session,
+  authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
+  resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
   ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
@@ -1583,11 +1587,12 @@ async function openDetachedSessionWindow(event, input = {}) {
 async function openDetachedProjectWindow(event, input) {
   const workspaceId = String(input?.workspaceId ?? "").trim();
   const page = input?.page;
-  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files"].includes(page)) {
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files", "workspace"].includes(page)) {
     throw new Error("A workspace and valid project page are required to open a new window.");
   }
-  const path = page === "home" || page === "files" ? "project" : page;
-  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  const path = page === "workspace" ? "session" : page === "home" || page === "files" ? "project" : page;
+  const seed = typeof input.seed === "string" && /^[\w-]{1,80}$/.test(input.seed) ? `&seed=${encodeURIComponent(input.seed)}` : "";
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "workspace" ? "&view=workspace" : ""}${page === "files" ? "&panel=files" : ""}${seed}`;
   return openAppWindow(event, route, input.title);
 }
 
@@ -1634,16 +1639,21 @@ async function openAppWindow(event, route, title = "") {
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
     navigationEvent.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
   sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      sessionWindow.webContents.stop();
-    } catch {
-      // Best effort — routing below still preserves the detached chat.
-    }
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    const contents = sessionWindow.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still preserves the detached chat.
+      }
+    });
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
 
   const sourceUrl = event.sender.getURL();
@@ -2558,64 +2568,15 @@ const desktopCommandHandlers = {
   "__getApplicationsForFile": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return [];
-      const platform = process.platform;
-      const results = [];
-
-      try {
-        if (platform === "darwin") {
-          // Scan /Applications and /System/Applications for .app bundles
-          const appDirs = ["/Applications", "/System/Applications", "/Applications/Utilities", `${os.homedir()}/Applications`];
-          const seen = new Set();
-          for (const dir of appDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".app")) continue;
-              const appPath = path.join(dir, entry);
-              if (seen.has(appPath)) continue;
-              seen.add(appPath);
-              const name = entry.replace(/\.app$/i, "");
-              let icon = null;
-              try {
-                const img = await app.getFileIcon(appPath, { size: "small" });
-                icon = img.isEmpty() ? null : img.toDataURL();
-              } catch {}
-              results.push({ name, appPath, icon });
-            }
-          }
-        } else if (platform === "linux") {
-          // Parse .desktop files in standard directories
-          const desktopDirs = ["/usr/share/applications", "/usr/local/share/applications", `${os.homedir()}/.local/share/applications`];
-          const seen = new Set();
-          for (const dir of desktopDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".desktop")) continue;
-              const filePath = path.join(dir, entry);
-              if (seen.has(filePath)) continue;
-              seen.add(filePath);
-              try {
-                const content = await readFile(filePath, "utf-8");
-                const nameMatch = content.match(/^Name=(.+)$/m);
-                const execMatch = content.match(/^Exec=(.+)$/m);
-                if (!nameMatch || !execMatch) continue;
-                const name = nameMatch[1].trim();
-                const appPath = execMatch[1].trim().replace(/%[fFuU]/g, "").trim();
-                if (!appPath) continue;
-                let icon = null;
-                try {
-                  const img = await app.getFileIcon(filePath, { size: "small" });
-                  icon = img.isEmpty() ? null : img.toDataURL();
-                } catch {}
-                results.push({ name, appPath, icon });
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-
-      return results;
+      const applications = await getApplicationsForFile(target);
+      return Promise.all(applications.map(async ({ name, appPath }) => {
+        let icon = null;
+        try {
+          const image = await app.getFileIcon(appPath, { size: "small" });
+          icon = image.isEmpty() ? null : image.toDataURL();
+        } catch {}
+        return { name, appPath, icon };
+      }));
   },
   "__openWithApp": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
@@ -2626,8 +2587,14 @@ const desktopCommandHandlers = {
         if (platform === "darwin") {
           execFileSync("open", ["-a", appPath, target]);
         } else if (platform === "linux") {
-          const child = spawn(appPath, [target], { detached: true, stdio: "ignore" });
-          child.unref();
+          await new Promise((resolve, reject) => {
+            const child = spawn("gio", ["launch", appPath, target], { stdio: "ignore" });
+            child.once("error", reject);
+            child.once("exit", (code) => {
+              if (code === 0) resolve(undefined);
+              else reject(new Error("Could not open file with this application."));
+            });
+          });
         } else {
           return `Open with app is not supported on ${platform}`;
         }
@@ -2775,7 +2742,7 @@ async function createMainWindow() {
   });
 
   mainWindow.on("closed", () => {
-    browserPanel.destroy();
+    browserPanel.destroy(mainWindow);
     mainWindow = null;
   });
 
@@ -2815,11 +2782,16 @@ async function createMainWindow() {
   mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      mainWindow?.webContents.stop();
-    } catch {
-      // best effort — routing below still gives the user a way back
-    }
+    const contents = mainWindow?.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (!contents || contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still gives the user a way back.
+      }
+    });
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,6 +59,35 @@ async function readConfigFile(config: ServerConfig): Promise<Record<string, unkn
   const raw = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
   return JSON.parse(raw) as Record<string, unknown>;
 }
+
+test("protected engine configuration retains installed skill discovery", async () => {
+  const { root, config } = await setup();
+  config.agentSandboxEnabled = true;
+  const folder = join(root, ".opencode", "skills", "protected-helper");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder]) }, lsp: false, formatter: false });
+});
+
+test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
+  const { config } = await setup();
+  config.agentSandboxEnabled = sandboxed;
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
+    agent: { "document-extractor": { disable: true, model: "other/model", prompt: "Stored override", permission: { "*": "allow" } } },
+  }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const parsed = await readConfigFile(config);
+  expect(parsed).toMatchObject({ agent: { "document-extractor": {
+    description: "Internal grounded text inference worker for saved project reviews.",
+    mode: "subagent", hidden: true, temperature: 0.1,
+    prompt: expect.stringContaining("Use only the evidence and column definition provided in this request."),
+    tools: { "*": false }, permission: { "*": "deny" },
+  } } });
+  expect(parsed).not.toHaveProperty("agent.document-extractor.disable");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.model");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
+});
 
 describe("legalwork runtime config file", () => {
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {

@@ -1,3 +1,4 @@
+import { readAttachmentClipboard } from "./attachment-clipboard";
 import { parseWorkspaceAttachmentMention } from "./workspace-attachment";
 /** @jsxImportSource react */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ForwardedRef } from "react";
@@ -56,6 +57,7 @@ type EditorProps = {
   mentions: Record<string, ComposerMentionKind>;
   pastedText?: Array<{ label: string; lines: number }>;
   disabled: boolean;
+  submitDisabled?: boolean;
   placeholder: string;
   ariaLabel?: string;
   onChange: (value: string) => void;
@@ -63,6 +65,7 @@ type EditorProps = {
   onExpandPastedText?: (label: string) => void;
   onPreviewPastedText?: (label: string) => void;
   onPaste?: React.ClipboardEventHandler<HTMLDivElement>;
+  onPasteMentions?: (mentions: string[]) => void;
   onPasteText?: (text: string) => { label: string; lines: number };
   onDrop?: React.DragEventHandler<HTMLDivElement>;
   onDragOver?: React.DragEventHandler<HTMLDivElement>;
@@ -695,7 +698,7 @@ function SubmitPlugin(props: { onSubmit: (options: { queue: boolean }) => void |
 const PASTE_CHIP_LINE_THRESHOLD = 10;
 const PASTE_CHIP_CHAR_THRESHOLD = 1000;
 
-function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPastedText">) {
+function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPastedText" | "onPasteMentions">) {
   const [editor] = useLexicalComposerContext();
   const propsRef = useRef(props);
   const lastPasteRef = useRef<{ text: string; label: string } | null>(null);
@@ -711,7 +714,7 @@ function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPaste
         const previousPaste = lastPasteRef.current;
         lastPasteRef.current = null;
         const { onPasteText, onExpandPastedText } = propsRef.current;
-        if (!onPasteText || !editor.isEditable() || event.defaultPrevented) return false;
+        if (!editor.isEditable() || event.defaultPrevented) return false;
         // Only handle plain-text pastes; files are handled in the React onPaste.
         const files = event.clipboardData?.files;
         if (files && files.length > 0) return false;
@@ -720,6 +723,17 @@ function PasteChipPlugin(props: Pick<EditorProps, "onPasteText" | "onExpandPaste
         if (!text.trim()) return false;
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return false;
+        const attachments = readAttachmentClipboard(text, event.clipboardData?.getData("text/html") ?? "");
+        if (propsRef.current.onPasteMentions && attachments?.some(part => part.mention)) {
+          event.preventDefault();
+          propsRef.current.onPasteMentions?.(attachments.flatMap(part => part.mention ? [part.mention] : []));
+          for (const part of attachments) {
+            if (part.mention) selection.insertNodes([$createComposerMentionNode(part.mention, "upload")]);
+            else if (part.text) selection.insertRawText(part.text);
+          }
+          return true;
+        }
+        if (!onPasteText) return false;
         const anchor = selection.anchor.getNode();
         const previousNode = $isElementNode(anchor)
           ? anchor.getChildAtIndex(selection.anchor.offset - 1)
@@ -991,8 +1005,8 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         <OnChangePlugin onChange={syncPromptFromEditorState} />
         <HistoryPlugin />
         <SyncPlugin value={props.value} mentions={props.mentions} pastedText={props.pastedText} disabled={props.disabled} />
-        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled} />
-        <PasteChipPlugin onPasteText={props.onPasteText} onExpandPastedText={props.onExpandPastedText} />
+        <SubmitPlugin onSubmit={props.onSubmit} disabled={props.disabled || Boolean(props.submitDisabled)} />
+        <PasteChipPlugin onPasteMentions={props.onPasteMentions} onPasteText={props.onPasteText} onExpandPastedText={props.onExpandPastedText} />
         <MentionChipNavigationPlugin />
         <ImperativeHandlePlugin editorRef={ref} />
       </div>

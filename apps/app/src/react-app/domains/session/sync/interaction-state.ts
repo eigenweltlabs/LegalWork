@@ -1,5 +1,7 @@
 import type { PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
 import type { Client, PendingPermission, PendingQuestion } from "@/app/types";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { t } from "@/i18n";
 import { unwrap } from "@/app/lib/opencode";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -15,10 +17,14 @@ export const interactionSessionsKey = (workspaceId: string) => ["react-interacti
 export const emptyInteractionSessions: InteractionSessions = {};
 
 export function seedInteractionSession(workspaceId: string, info: InteractionSession) {
+  seedInteractionSessions(workspaceId, [info]);
+}
+
+export function seedInteractionSessions(workspaceId: string, sessions: InteractionSession[]) {
   getReactQueryClient().setQueryData<InteractionSessions>(interactionSessionsKey(workspaceId), (current = {}) => {
-    const previous = current[info.id];
-    if (previous?.title === info.title && previous.parentID === info.parentID) return current;
-    return { ...current, [info.id]: info };
+    const changed = sessions.filter(info => current[info.id]?.title !== info.title || current[info.id]?.parentID !== info.parentID);
+    if (!changed.length) return current;
+    return { ...current, ...Object.fromEntries(changed.map(info => [info.id, info])) };
   });
 }
 
@@ -142,6 +148,7 @@ export function seedPermissionState(
     const seededIds = new Set(seeded.map((permission) => permission.id));
     const snapshotStartedAt = options.snapshot?.startedAt ?? options.snapshotStartedAt;
     const retained = current.filter((permission) => {
+      if (permission.protocol === "host") return true;
       if (options.protocol && permission.protocol !== options.protocol) return true;
       const changed = options.snapshot?.permissions.get(interactionRequestKey(sessionId, permission.id));
       if (changed === false) return false;
@@ -245,8 +252,11 @@ export async function refreshWorkspaceInteractions(input: RecoveryInput) {
   ]);
 }
 
-export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string) {
-  if (permission.protocol === "v2") {
+export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string, serverClient?: LegalworkServerClient | null) {
+  if (permission.protocol === "host") {
+    if (!serverClient?.canApprove || !permission.host || (reply === "always" && !permission.host.canRemember)) throw new Error(t("app.error_request_failed"));
+    await serverClient.replyHostApproval(permission.host, reply === "once" ? "allow" : reply === "always" ? "always" : "deny");
+  } else if (permission.protocol === "v2") {
     const result = await client.v2.session.permission.reply({ sessionID: permission.sessionID, requestID: permission.id, reply });
     if (result.error !== undefined) unwrap(result);
   } else {

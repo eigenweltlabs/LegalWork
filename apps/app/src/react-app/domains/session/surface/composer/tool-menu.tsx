@@ -76,16 +76,16 @@ export function ComposerToolMenu(props: {
   };
   const empty = (loading: boolean, message: string) => <div role="status" className="px-3 py-2 text-xs text-gray-10">{t(loading ? "composer.loading_tools" : message)}</div>;
 
-  return <div role="dialog" aria-label={t("composer.tools_label")} className="absolute bottom-full left-0 z-40 mb-3 w-[min(calc(100vw-2.5rem),34rem)] overflow-hidden rounded-[22px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-    <div className="grid grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
-      <div className="border-r border-dls-border bg-gray-2/30 p-2">
+  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="grid min-h-0 flex-1 grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
+      <div className="min-h-0 overflow-y-auto border-r border-dls-border bg-gray-2/30 p-2">
         {categories.map(({ section, label }) => <button key={section} type="button" aria-pressed={props.section === section}
           className={`mb-1 flex w-full items-center justify-between rounded-[16px] px-3 py-2.5 text-left text-sm transition-colors ${props.section === section ? "bg-gray-3 text-gray-12" : "text-gray-11 hover:bg-gray-2"}`}
           onClick={() => { setPluginId(null); props.onSectionChange(section); }}>
           <span className="truncate">{t(label)}</span><ChevronRight size={14} className="shrink-0 text-gray-9" />
         </button>)}
       </div>
-      <div className="flex max-h-72 min-w-0 flex-col overflow-hidden p-2">
+      <div className="flex max-h-72 min-h-0 min-w-0 flex-col overflow-hidden p-2">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-dls-border px-1 pb-2">
           {activePlugin ? <Button variant="ghost" size="sm" className="min-w-0 shrink overflow-hidden" onClick={() => setPluginId(null)}><ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{pluginImportName(activePlugin)}</span></Button> : <span />}
           <Button variant="outline" size="sm" className="shrink-0" onClick={() => props.onConfigure(props.section)}><Settings className="size-3.5" />{t("composer.configure")}</Button>

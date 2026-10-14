@@ -1,4 +1,6 @@
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
+import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -17,6 +19,7 @@ import type {
   ProjectContentKind,
   ProjectDetails,
   ProjectField,
+  ProjectTemplateCatalog,
   ProjectSyncOverview,
   ProjectSyncSettings,
   ProjectSyncStatus,
@@ -225,6 +228,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /** Feature flags the platform may grant (subset the app gates surfaces on). */
@@ -925,6 +929,8 @@ export type LegalworkWorkspaceFileStat = {
   ok: boolean;
   path: string;
   exists: boolean;
+  /** Stable across workspace aliases and atomic file replacements. */
+  fileId?: string;
   kind?: "file" | "dir" | "other";
   size?: number;
   updatedAt?: number;
@@ -1764,6 +1770,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    canApprove: Boolean(hostToken),
+    pendingHostApprovals: () => requestJson<{ items: import("@legalwork/types/desktop-ipc").HostApprovalRequest[] }>(baseUrl, "/approvals", { token, hostToken, timeoutMs: timeouts.status }),
+    replyHostApproval: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest, reply: "allow" | "deny" | "always") =>
+      requestJson<{ ok: true; allowed: boolean }>(baseUrl, `/approvals/${encodeURIComponent(request.id)}`, {
+        token, hostToken, method: "POST", body: { reply, workspaceId: request.workspaceId, sessionID: request.sessionID }, timeoutMs: timeouts.config,
+      }),
+    sandboxStatus: () => requestJson<{ enabled: boolean; supported: boolean; backend: string; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; available: boolean | null; reason?: string; networkMode: "allow" | "block" | "approve"; sync: "local" | "syncing" | "synced" | "pending" | "conflict" }>(baseUrl, "/sandbox/status", { token, hostToken, timeoutMs: 15_000 }),
+    setSandboxSettings: (settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" }) => requestJson<unknown>(baseUrl, "/sandbox/settings", { token, hostToken, method: "PATCH", body: settings, timeoutMs: timeouts.config }),
+    setSandboxNetworkMode: (mode: "allow" | "block" | "approve") => requestJson<{ networkMode: "allow" | "block" | "approve" }>(baseUrl, "/sandbox/network", { token, hostToken, method: "PATCH", body: { mode }, timeoutMs: timeouts.config }),
+    sessionSandbox: (workspace: string, session: string) => requestJson<{ enabled: boolean; supported: boolean; networkMode: "allow" | "block" | "approve"; source: "application" | "session" | "parent" | "organization"; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; application: { enabled: boolean; networkMode: "allow" | "block" | "approve" } }>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, timeoutMs: timeouts.status }),
+    setSessionSandbox: (workspace: string, session: string, settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => requestJson<unknown>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, method: "PATCH", body: { settings }, timeoutMs: timeouts.config }),
+    prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
@@ -1779,6 +1797,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.binary,
       }),
+    sessionMessageQueue: async (workspaceId: string, sessionId: string, previous?: SessionQueue): Promise<SessionQueue> => {
+      const queue = await requestJson<SessionQueue | null>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/queue${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken, timeoutMs: timeouts.sessionRead });
+      if (queue) return queue;
+      if (previous) return previous;
+      throw new Error("Missing message queue response.");
+    },
+    updateSessionMessageQueue: (workspaceId: string, sessionId: string, action: QueueAction) => requestJson<SessionQueue>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/queue`, { token, hostToken, method: "POST", body: action, timeoutMs: timeouts.binary }),
     listWorkspaces: () => requestJson<LegalworkWorkspaceList>(baseUrl, "/workspaces", { token, hostToken, timeoutMs: timeouts.listWorkspaces }),
     getRecorderLiveTranscript: (workspaceId: string) =>
       requestJson<LegalworkRecorderLiveTranscriptStatus>(
@@ -1823,10 +1848,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference, page?: number) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}${page === undefined ? "" : `&page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewRecognitionPage: (workspaceId: string, reviewId: string, documentId: string, page?: number) => requestJson<ReviewRecognitionPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/recognition/${encodeURIComponent(documentId)}${page === undefined ? "" : `?page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
+    getProjectTemplates: () => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken }),
+    saveProjectTemplates: (catalog: ProjectTemplateCatalog) => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken, method: "PUT", body: catalog }),
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -2117,9 +2144,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
-    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string) =>
+    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string, limit?: import("@legalwork/types/provider-usage-limit").UsageLimitDetails | null) =>
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
-        token, hostToken, method: "POST", body: { messageId },
+        token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
     getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();
@@ -3216,6 +3243,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           body: payload,
         },
       ),
+
+    projectFileLinks: (workspaceId: string) => requestJson<{ links: ProjectFileLink[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/links`, { token, hostToken }),
+    updateProjectFileLink: (workspaceId: string, link: Omit<ProjectFileLink, "id" | "createdAt"> & { id?: string } | { id: string; remove: true }) => requestJson<{ links: ProjectFileLink[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/links`, { token, hostToken, method: "POST", body: link }),
+    importProjectFile: (workspaceId: string, path: string, source: ProjectFileSource, data: ArrayBuffer) => requestJson<LegalworkWorkspaceFileWriteResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/import`, { token, hostToken, method: "POST", body: { path, source, dataBase64: arrayBufferToBase64(data) }, timeoutMs: timeouts.binary }),
 
     copyWorkspaceFile: (workspaceId: string, path: string, targetPath: string) =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/copy`, { token, hostToken, method: "POST", body: { path, targetPath }, timeoutMs: 900_000 }),
