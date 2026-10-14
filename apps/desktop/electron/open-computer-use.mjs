@@ -4,7 +4,6 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { unzipSync } from "fflate";
 
 const run = promisify(execFile);
 export const OPEN_COMPUTER_USE_VERSION = "1.1.0";
@@ -22,10 +21,10 @@ export function openComputerUseRelease(platform, arch) {
   }
   if (platform === "win32") {
     return {
-      name: `open-computer-use-cli-1.1.0-windows-${arch === "arm64" ? "arm64" : "amd64"}.zip`,
+      name: `open-computer-use-windows-${arch === "arm64" ? "arm64" : "amd64"}.exe`,
       sha256: arch === "arm64"
-        ? "723f37b8805ba03ab87b5d7305e06998f82a24cf64b44414a7578f9ddab0cea1"
-        : "0ca3c940dc7d1467b70a0a6f95d04974120b5225d2f8174fdbc8df5099270acb",
+        ? "6f28edd710cfb0bd77fcfbc4cf00e35ede73f146caa075a40e541af268921de9"
+        : "302ec6f4b8cc2cf768641f8d0326d14740ed366e304c4d1efe4401da4d4ffe46",
       executable: "open-computer-use.exe",
     };
   }
@@ -39,17 +38,13 @@ async function fetchRelease(url) {
 }
 
 export async function extractOpenComputerUseRelease(archivePath, destination, platform) {
-  if (platform === "darwin") {
-    // ditto preserves the signed app bundle's executable modes and metadata.
-    await run("/usr/bin/ditto", ["-x", "-k", archivePath, destination], { timeout: 30_000 });
-    return;
-  }
-  // The Windows release contains one self-contained executable. Extract only
-  // that exact member, never archive-controlled paths or a shell command.
-  const files = unzipSync(await readFile(archivePath));
-  const executable = files["open-computer-use.exe"];
-  if (!executable) throw new Error("The Open Computer Use archive is missing its Windows runtime.");
-  await writeFile(path.join(destination, "open-computer-use.exe"), executable);
+  if (platform !== "darwin") throw new Error("Only the Mac Open Computer Use release is an archive.");
+  // ditto preserves the signed app bundle's executable modes and metadata.
+  await run("/usr/bin/ditto", ["-x", "-k", archivePath, destination], { timeout: 30_000 });
+}
+
+async function readBundledWindowsRuntime(name) {
+  return readFile(new URL(`./vendor/open-computer-use/${name}`, import.meta.url));
 }
 
 async function readDoctor(binary, environment) {
@@ -83,6 +78,7 @@ export function parseOpenComputerUseRunningApps(output) {
  *   platform?: string,
  *   arch?: string,
  *   download?: (url: string) => Promise<Uint8Array>,
+ *   bundledWindows?: (name: string) => Promise<Uint8Array>,
  *   extract?: (archive: string, destination: string, platform: string) => Promise<void>,
  *   doctor?: (binary: string, environment: Record<string, string>) => Promise<unknown>,
  *   runningApps?: (binary: string, environment: Record<string, string>) => Promise<string[]>
@@ -93,6 +89,7 @@ export function createOpenComputerUseIntegration({
   platform = process.platform,
   arch = process.arch,
   download = fetchRelease,
+  bundledWindows = readBundledWindowsRuntime,
   extract = extractOpenComputerUseRelease,
   doctor = readDoctor,
   runningApps = readRunningApps,
@@ -103,7 +100,9 @@ export function createOpenComputerUseIntegration({
   function runtimePaths() {
     const release = openComputerUseRelease(platform, arch);
     const root = path.join(getDataDir(), "integrations", "open-computer-use");
-    const directory = path.join(root, `${OPEN_COMPUTER_USE_VERSION}-${platform}-${arch}`);
+    // A new directory ensures existing v1.1.0 Windows installs use the patched runtime.
+    const build = platform === "win32" ? `${OPEN_COMPUTER_USE_VERSION}-capture1` : OPEN_COMPUTER_USE_VERSION;
+    const directory = path.join(root, `${build}-${platform}-${arch}`);
     return { release, root, directory, binary: path.join(directory, release.executable) };
   }
 
@@ -119,15 +118,21 @@ export function createOpenComputerUseIntegration({
     await mkdir(root, { recursive: true });
     const staging = await mkdtemp(path.join(root, ".install-"));
     try {
-      const archive = await download(`${RELEASE_URL}/${release.name}`);
-      if (createHash("sha256").update(archive).digest("hex") !== release.sha256) {
-        throw new Error("Open Computer Use download failed its integrity check. Please try again.");
+      const artifact = platform === "win32"
+        ? await bundledWindows(release.name)
+        : await download(`${RELEASE_URL}/${release.name}`);
+      if (createHash("sha256").update(artifact).digest("hex") !== release.sha256) {
+        throw new Error("Open Computer Use runtime failed its integrity check. Please try again.");
       }
-      const archivePath = path.join(staging, "release.zip");
       const extracted = path.join(staging, "runtime");
-      await writeFile(archivePath, archive);
       await mkdir(extracted);
-      await extract(archivePath, extracted, platform);
+      if (platform === "win32") {
+        await writeFile(path.join(extracted, release.executable), artifact);
+      } else {
+        const archivePath = path.join(staging, "release.zip");
+        await writeFile(archivePath, artifact);
+        await extract(archivePath, extracted, platform);
+      }
       if (!existsSync(path.join(extracted, release.executable))) {
         throw new Error("The Open Computer Use archive is missing its runtime.");
       }

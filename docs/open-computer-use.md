@@ -27,13 +27,17 @@ Mac windows by bringing them forward.
 
 ## Installation and updates
 
-LegalWork downloads the native **v1.1.0** GitHub release: the universal signed Mac
-app or the matching Windows x64/ARM64 executable. Each archive must match its
-pinned SHA-256 digest before extraction. Installation uses a temporary directory
+LegalWork downloads the native **v1.1.0** GitHub release for Mac. Windows x64 and
+ARM64 use the bundled [covered-window capture build](../apps/desktop/electron/vendor/open-computer-use/README.md)
+from the same upstream tag. The Mac archive and Windows executable must each match
+their pinned SHA-256 digest before installation. Installation uses a temporary directory
 and publishes the complete runtime by renaming it into LegalWork's user-data
 `integrations/open-computer-use` directory. Connect stores an absolute executable
 path and a private agent socket namespace in the LegalWork server's MCP config
 and hot-adds the same configuration to OpenCode.
+
+If Open Computer Use was already connected on Windows, disconnect and reconnect
+it after updating LegalWork so the saved MCP command uses the patched runtime.
 
 No global Node, pnpm, npm or Python installation is required. Installation and
 desktop control are unavailable for remote projects. Disconnecting removes the
@@ -41,9 +45,11 @@ MCP configuration through the existing connector flow; it leaves the downloaded
 runtime available for reconnection.
 
 To update the runtime, update the pinned version, asset names and digests in
-`apps/desktop/electron/open-computer-use.mjs`, update the manifest's package
-version, and verify the release on both platforms. The new version uses its own
-installation directory and agent namespace.
+`apps/desktop/electron/open-computer-use.mjs`. Rebuild or remove the bundled
+Windows patch when upstream includes covered-window capture, and change its
+installation-directory suffix so existing Windows installations are replaced.
+Update the manifest's package version and verify both platforms. A new upstream
+version uses its own installation directory and agent namespace.
 
 ## Verification
 
@@ -56,7 +62,7 @@ pnpm --filter @legalwork/desktop typecheck:electron
 node apps/desktop/scripts/open-computer-use-smoke.mjs --opencode /absolute/path/to/opencode
 ```
 
-The smoke test downloads and verifies both Windows archives, verifies the signed
+The smoke test verifies and installs both bundled Windows executables, verifies the signed
 Mac app on Mac, enumerates the native MCP tools and connects the host runtime to
 an isolated OpenCode instance. It does not run a model or perform desktop actions.
 Actual Mac actions require granting this helper its own permissions. Windows

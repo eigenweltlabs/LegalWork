@@ -1,9 +1,9 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { zipSync } from "fflate";
 
 import {
   createOpenComputerUseIntegration,
@@ -24,49 +24,49 @@ afterEach(async () => {
 });
 
 describe("Open Computer Use desktop runtime", () => {
-  it("selects universal Mac and architecture-specific Windows artifacts", () => {
+  it("selects the upstream Mac archive and bundled Windows executables", () => {
     assert.equal(openComputerUseRelease("darwin", "x64").name, openComputerUseRelease("darwin", "arm64").name);
-    assert.match(openComputerUseRelease("win32", "x64").name, /windows-amd64\.zip$/);
-    assert.match(openComputerUseRelease("win32", "arm64").name, /windows-arm64\.zip$/);
+    assert.match(openComputerUseRelease("win32", "x64").name, /windows-amd64\.exe$/);
+    assert.match(openComputerUseRelease("win32", "arm64").name, /windows-arm64\.exe$/);
     assert.throws(() => openComputerUseRelease("linux", "x64"), /Mac and Windows/);
     assert.throws(() => openComputerUseRelease("win32", "ia32"), /Intel or ARM64/);
   });
 
   it("rejects tampered downloads before extraction, shares concurrent installs, and allows retry", async () => {
     const directory = await temporaryDirectory();
-    let downloads = 0;
+    let bundledLoads = 0;
     let extractions = 0;
     const runtime = createOpenComputerUseIntegration({
       getDataDir: () => directory,
       platform: "win32",
       arch: "x64",
-      download: async () => { downloads += 1; return new Uint8Array([1, 2, 3]); },
+      download: async () => { throw new Error("Windows must not download a release"); },
+      bundledWindows: async () => { bundledLoads += 1; return new Uint8Array([1, 2, 3]); },
       extract: async () => { extractions += 1; },
     });
     const outcomes = await Promise.allSettled([runtime.mcpConfig(), runtime.mcpConfig()]);
     assert.ok(outcomes.every((outcome) => outcome.status === "rejected" && /integrity/.test(outcome.reason.message)));
-    assert.equal(downloads, 1);
+    assert.equal(bundledLoads, 1);
     assert.equal(extractions, 0);
     assert.deepEqual(await readdir(path.join(directory, "integrations", "open-computer-use")), []);
     await assert.rejects(runtime.mcpConfig(), /integrity/);
-    assert.equal(downloads, 2);
+    assert.equal(bundledLoads, 2);
     assert.equal((await runtime.status()).installed, false);
   });
 
-  it("extracts only the Windows executable, ignoring archive-controlled paths", async () => {
+  it("verifies and installs both bundled Windows binaries", async () => {
     const directory = await temporaryDirectory();
-    const archive = path.join(directory, "release.zip");
-    const destination = path.join(directory, "runtime");
-    await mkdir(destination);
-    await writeFile(archive, zipSync({
-      "open-computer-use.exe": new Uint8Array([77, 90]),
-      "../unwanted": new Uint8Array([1]),
-    }));
-    await extractOpenComputerUseRelease(archive, destination, "win32");
-    assert.deepEqual(await readdir(destination), ["open-computer-use.exe"]);
-    assert.deepEqual(await readFile(path.join(destination, "open-computer-use.exe")), Buffer.from([77, 90]));
-    await writeFile(archive, zipSync({ "other.exe": new Uint8Array([77, 90]) }));
-    await assert.rejects(extractOpenComputerUseRelease(archive, destination, "win32"), /missing/);
+    for (const arch of ["x64", "arm64"]) {
+      const release = openComputerUseRelease("win32", arch);
+      const bundled = await readFile(new URL(`./vendor/open-computer-use/${release.name}`, import.meta.url));
+      assert.equal(createHash("sha256").update(bundled).digest("hex"), release.sha256);
+      assert.equal(bundled.subarray(0, 2).toString(), "MZ");
+      const runtime = createOpenComputerUseIntegration({ getDataDir: () => directory, platform: "win32", arch });
+      const config = await runtime.mcpConfig();
+      assert.deepEqual(await readFile(config.command[0]), bundled);
+      assert.match(config.command[0], /1\.1\.0-capture1-win32-/);
+    }
+    await assert.rejects(extractOpenComputerUseRelease("unused.zip", directory, "win32"), /Only the Mac/);
   });
 
   it("reuses an installed binary by absolute path without invoking a package manager", async () => {
@@ -146,7 +146,8 @@ describe("Open Computer Use desktop runtime", () => {
 });
 
 async function installedBinary(directory, platform) {
-  const binary = path.join(directory, "integrations", "open-computer-use", `${OPEN_COMPUTER_USE_VERSION}-${platform}-x64`, openComputerUseRelease(platform, "x64").executable);
+  const build = platform === "win32" ? `${OPEN_COMPUTER_USE_VERSION}-capture1` : OPEN_COMPUTER_USE_VERSION;
+  const binary = path.join(directory, "integrations", "open-computer-use", `${build}-${platform}-x64`, openComputerUseRelease(platform, "x64").executable);
   await mkdir(path.dirname(binary), { recursive: true });
   await writeFile(binary, "runtime fixture");
   return binary;

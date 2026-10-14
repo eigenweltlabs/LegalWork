@@ -1,4 +1,4 @@
-// Downloads upstream releases and checks a real native MCP / OpenCode handshake.
+// Verifies the bundled Windows builds, downloads the Mac release, and checks MCP / OpenCode.
 // Does not invoke desktop actions or a model. Run with an OpenCode executable:
 // node scripts/open-computer-use-smoke.mjs --opencode /absolute/path/to/opencode
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ try {
     const windows = createOpenComputerUseIntegration({ getDataDir: () => root, platform: "win32", arch });
     const config = await windows.mcpConfig();
     assert.equal((await readFile(config.command[0])).subarray(0, 2).toString(), "MZ");
-    console.log(`Windows ${arch}: release digest verified and executable extracted`);
+    console.log(`Windows ${arch}: bundled build digest verified and executable installed`);
   }
   if (process.platform !== "darwin" && process.platform !== "win32") {
     throw new Error("The native MCP smoke test requires Mac or Windows.");
