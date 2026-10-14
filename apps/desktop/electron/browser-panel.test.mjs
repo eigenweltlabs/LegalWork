@@ -27,14 +27,14 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
     setBounds(bounds) { this.bounds = bounds; }
   }
   const window = focused => Object.assign(new EventEmitter(), {
-    focused, isDestroyed: () => false, isFocused() { return this.focused; },
+    focused, destroy() {}, isDestroyed: () => false, isFocused() { return this.focused; },
     webContents: { messages: [], url: "file:///app/index.html", getURL() { return this.url; }, isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
     contentView: { children: [], addChildView(view) { this.children.push(view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
   });
   const first = window(true), second = window(false), third = window(false);
   const handlers = new Map();
   const browserSession = new EventEmitter();
-  const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
+  const controller = createBrowserPanel({ app: new EventEmitter(), BaseWindow: class { constructor() { return window(false); } }, WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
     getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
     resolveDownloadDirectory, authorizeBrowserAutomation,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
@@ -251,4 +251,39 @@ test("agent browsers load and navigate without adopting the foreground pane", as
   assert.equal(f.call("state", f.first).activeTabId, first.tab_id);
   f.call("show", f.first, f.left, first.tab_id);
   assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+});
+
+test("agent mini tabs are session-owned, survive promotion and close, and clean up independently", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const a = await f.call("openUrl", f.first, "https://example.com", "builtin", { workspaceId: "project", sessionId: "a" });
+  const b = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "b" });
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => [tab.taskSessionId, tab.background]), [["a", true], ["b", true]]);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("show", f.first, f.right, a.tab_id);
+  f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs[0].background, true);
+  assert.equal(f.call("state", f.first).activeTabId, null);
+  assert.equal(f.first.contentView.children.length, 0);
+  f.call("dismissTab", f.first, a.tab_id);
+  await f.call("previewTab", f.first, a.tab_id);
+  assert.equal(f.call("state", f.first).tabs[0].dismissed, true);
+  const response = await fetch(`${a.browser_url}/batch`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ steps: [] }) });
+  assert.equal(response.ok, true);
+  assert.equal(f.call("state", f.first).tabs[0].dismissed, false);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("closeAllTabs", f.first);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.views[1].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs.every(tab => tab.background), true);
+  f.call("releaseSession", f.first, "b");
+  assert.equal(f.views[1].webContents.isDestroyed(), true);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id]);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("show", f.first, f.right, a.tab_id);
+  f.call("releaseSession", f.first, "a");
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, undefined);
+  f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), true);
 });

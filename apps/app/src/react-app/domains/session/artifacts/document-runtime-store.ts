@@ -15,6 +15,9 @@ export type Entry = {
   props: ArtifactPanelProps;
   host: HTMLDivElement;
   sessions: Set<string>;
+  tasks: Set<string>;
+  dismissed: Set<string>;
+  previews: Set<HTMLElement>;
   destinations: Map<HTMLElement, boolean>;
   registration: Registration | null;
 };
@@ -45,7 +48,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     if (existing) return existing;
     const host = createHost();
     host.className = "flex h-full min-h-0 min-w-0 flex-col";
-    const entry: Entry = { key, props, host, sessions: new Set(), destinations: new Map(), registration: null };
+    const entry: Entry = { key, props, host, sessions: new Set(), tasks: new Set(), dismissed: new Set(), previews: new Set(), destinations: new Map(), registration: null };
     entries.set(key, entry);
     changed();
     return entry;
@@ -58,7 +61,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   };
   const prune = () => {
     for (const entry of entries.values()) {
-      if (entry.destinations.size || [...selected.values()].includes(entry.key) || !entry.registration || entry.registration.dirty()) continue;
+      if (entry.destinations.size || entry.tasks.size || [...selected.values()].includes(entry.key) || entry.registration?.dirty()) continue;
       if (usePanelTabStore.getState().sessions[entry.props.sessionId]?.tabs.some(tab => tab.id === entry.props.tab.id)) continue;
       close(entry);
     }
@@ -77,6 +80,8 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   const belongs = (entry: Entry, project: DocumentProject) => entry.props.workspaceId === project.workspaceId && entry.props.client?.baseUrl === project.client.baseUrl;
   const select = (entry: Entry, sessionId: string) => {
     entry.sessions.add(sessionId);
+    entry.tasks.add(sessionId);
+    entry.dismissed.delete(sessionId);
     selected.set(sessionId, entry.key);
     changed();
   };
@@ -98,7 +103,12 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   };
   return {
     entries, changed, ensure, close, getProject, taskSessions, prune,
-    releaseTask: (sessionId: string) => { selected.delete(sessionId); taskSessions.delete(sessionId); prune(); },
+    dismiss: (entry: Entry, sessionId: string) => { entry.dismissed.add(sessionId); changed(); },
+    releaseTask: (sessionId: string) => {
+      selected.delete(sessionId); taskSessions.delete(sessionId);
+      for (const entry of entries.values()) { entry.tasks.delete(sessionId); entry.dismissed.delete(sessionId); }
+      changed(); prune();
+    },
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     version: () => version,
     setResolver: (resolver: (sessionId: string) => DocumentProject) => { resolveProject = resolver; },
@@ -108,11 +118,17 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const project = await getProject(sessionId);
       const append = Boolean(args && typeof args === "object" && Reflect.get(args, "append") === true);
       const complete = Boolean(args && typeof args === "object" && Reflect.get(args, "complete") === true);
-      return queue(JSON.stringify([project.client.baseUrl, project.workspaceId, path]), () => writeMarkdownChunk({
-        workspaceId: project.workspaceId, sessionId, path, content, append, complete,
-        exists: async () => (await project.client.statWorkspaceFile(project.workspaceId, path)).exists,
-        save: value => project.client.writeWorkspaceFile(project.workspaceId, { path, content: value, createOnly: true }),
-      }));
+      return queue(JSON.stringify([project.client.baseUrl, project.workspaceId, path]), async () => {
+        const result = await writeMarkdownChunk({
+          workspaceId: project.workspaceId, sessionId, path, content, append, complete,
+          exists: async () => (await project.client.statWorkspaceFile(project.workspaceId, path)).exists,
+          save: value => project.client.writeWorkspaceFile(project.workspaceId, { path, content: value, createOnly: true }),
+        });
+        const entry = ensure({ ...project, sessionId: workspacePanelKey(project.projectId),
+          tab: { id: `file:${path}`, type: "artifact", value: path, label: path.split("/").at(-1)!, preview: "markdown" }, onClose: () => {} });
+        select(entry, sessionId);
+        return result;
+      });
     },
     async open(args: unknown) {
       const sessionId = stringArg(args, "sessionId");
@@ -164,8 +180,11 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const sessionId = stringArg(args, "sessionId");
       // Capture the target before queueing: another task's selection cannot redirect it.
       const entry = current(sessionId, await getProject(sessionId), stringArg(args, "path") || undefined);
-      if (!selected.has(sessionId)) select(entry, sessionId);
-      else if (!entry.sessions.has(sessionId)) { entry.sessions.add(sessionId); changed(); }
+      entry.sessions.add(sessionId);
+      entry.tasks.add(sessionId);
+      entry.dismissed.delete(sessionId);
+      if (!selected.has(sessionId)) selected.set(sessionId, entry.key);
+      changed();
       return queue(entry.key, async () => {
         const registration = await waitUntilReady(entry);
         if (registration.action.id !== actionId || (stringArg(args, "format") && stringArg(args, "format") !== registration.surface.format)) throw new Error("This document requires a different format's tools.");

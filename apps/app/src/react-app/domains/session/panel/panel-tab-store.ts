@@ -511,7 +511,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         // not import another project's or an Evals session's existing browser tabs.
         const ownedElsewhere = new Set(Object.entries(state.sessions).flatMap(([key, value]) =>
           key !== sessionId ? value.tabs.filter(tab => tab.type === "browser").map(tab => tab.id) : []));
-        browserTabs = browserTabs.filter(tab => !ownedElsewhere.has(tab.id) || session.tabs.some(item => item.id === tab.id));
+        browserTabs = browserTabs.filter(tab => !tab.background && (!ownedElsewhere.has(tab.id) || session.tabs.some(item => item.id === tab.id)));
         const browserTabsById = new Map(browserTabs.map((tab) => [tab.id, tab]));
 
         const mergedTabs: PanelTab[] = [];
@@ -537,12 +537,6 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         const added = browserTabs.filter(tab => !assigned.has(tab.id));
         let nextSession = normalizeSession({ ...session, tabs: mergedTabs.filter(tab => !added.some(item => item.id === tab.id)) });
         for (const tab of added) {
-          if (tab.background) {
-            // Agent tabs join the strip without selecting content or splitting a pane.
-            nextSession = normalizeSession({ ...nextSession, tabs: [...nextSession.tabs, tab],
-              panes: nextSession.panes.map(pane => pane.id === nextSession.focusedPaneId ? { ...pane, tabIds: [...pane.tabIds, tab.id] } : pane) });
-            continue;
-          }
           nextSession = openInSession(sessionId, nextSession, tab, state.opening[sessionId] ?? DEFAULT_WORKSPACE_OPENING, workspaceWidths.get(sessionId) ?? 0, undefined, undefined, false, () => {
             const latest = latestBrowserStates.get(sessionId);
             if (latest) get().syncBrowserTabs(sessionId, latest.tabs, latest.activeId);

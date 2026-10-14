@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import WebSocket from "ws";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 import { resolveBrowserProject } from "../electron/browser-project.mjs";
@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
     authorizeBrowserAutomation: async () => {},
-    app, WebContentsView, clipboard, session,
+    app, BaseWindow, WebContentsView, clipboard, session,
     getWindow: () => main, getWindowForEvent: () => main,
     isAllowedAppNavigation: () => false,
     safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
@@ -117,7 +117,7 @@ app.whenReady().then(async () => {
     main.setContentSize(900, 700);
     invoke("show", { x: 0, y: 0, width: 900, height: 700 });
     main.show();
-    const first = await invoke("openUrl", origin, "builtin", { directory: projectA });
+    const first = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-a" });
     assert.equal(main.contentView.children.length, 0);
     assert.equal(invoke("state").activeTabId, null);
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
@@ -135,10 +135,21 @@ app.whenReady().then(async () => {
     assert.equal(invoke("state").activeTabId, foreground.tabId);
     assert.deepEqual(main.contentView.children, [foregroundView]);
     invoke("closeTab", second.tab_id);
+    assert.match(await invoke("previewTab", first.tab_id), /^data:image\/png;base64,/);
+    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.equal(invoke("state").activeTabId, foreground.tabId);
+    console.log("PASS: hidden task previews render without showing or selecting their native view");
 
     const [target] = await (await fetch(`${first.browser_url}/json/list`)).json();
     client = new WebSocket(target.webSocketDebuggerUrl);
     await once(client, "open");
+    assert.match(await invoke("previewTab", first.tab_id), /^data:image\/png;base64,/);
+    assert.equal(client.readyState, WebSocket.OPEN, "A preview must share the agent's debugger connection");
+    const previewOnly = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-b" });
+    for (const preview of await Promise.all([invoke("previewTab", first.tab_id), invoke("previewTab", previewOnly.tab_id)])) assert.match(preview, /^data:image\/png;base64,/);
+    assert.equal(BaseWindow.getAllWindows().filter(win => win.isVisible()).length, 1, "Preview hosts must never become visible");
+    invoke("releaseSession", "task-b");
+    assert.deepEqual(main.contentView.children, [foregroundView]);
     const tree = await command(client, "Accessibility.getFullAXTree");
     const reachable = new Set();
     const visit = (id) => {
@@ -187,6 +198,15 @@ app.whenReady().then(async () => {
     ]);
     invoke("selectTab", first.tab_id);
     console.log("PASS: selecting an agent tab works, and later navigation or field focus cannot reselect it");
+    invoke("closeTab", first.tab_id);
+    assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).background, true);
+    assert.equal((await batch(first, [{ action: "fill", selector: "#notes", value: "Still working after close" }])).ok, true);
+    invoke("dismissTab", first.tab_id);
+    assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).dismissed, true);
+    assert.equal((await batch(first, [])).ok, true);
+    assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).dismissed, false);
+    invoke("selectTab", first.tab_id);
+    console.log("PASS: closing and dismissing a task tab preserves its live automation connection");
 
     if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
       const contents = main.contentView.children[0].webContents;
@@ -244,6 +264,10 @@ app.whenReady().then(async () => {
     await assert.rejects(invoke("openUrl", origin, "builtin", { directory: root }), /not registered locally/);
     assert.equal((await fetch(`${first.browser_url}/downloads`, { headers: { Origin: origin } })).status, 403);
     console.log("PASS: remote and unknown projects cannot redirect local downloads; web origins are rejected");
+    invoke("closeTab", first.tab_id);
+    invoke("releaseSession", "task-a");
+    assert.equal(invoke("state").tabs.some(tab => tab.id === first.tab_id), false);
+    console.log("PASS: completing the owning task closes its temporary native browser");
   } catch (error) {
     console.error(error);
     exitCode = 1;

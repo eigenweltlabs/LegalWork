@@ -1,4 +1,4 @@
-import { PersistentArtifactPanel, useDocumentAgentControl } from "./document-runtime";
+import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentTaskActive } from "./document-runtime";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -197,6 +197,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
 }
 
 export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const taskActive = useDocumentTaskActive();
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -238,8 +239,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   useEffect(() => {
     if (!isEditableDocument && !(hasSaveActions && isTextSheet)) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => { void docxApi.current?.discardRecovery().catch(() => toast.error(t("docx.recovery_not_cleared"))); });
-  }, [isEditableDocument, hasSaveActions, isTextSheet, sessionId, target.id, target.name, workspaceId]);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => { void docxApi.current?.discardRecovery().catch(() => toast.error(t("docx.recovery_not_cleared"))); }, taskActive);
+  }, [isEditableDocument, hasSaveActions, isTextSheet, sessionId, target.id, target.name, workspaceId, taskActive]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -659,8 +660,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   useEffect(() => { if (textDirtyRef.current) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [draft, data, sessionId, target.id]);
   useEffect(() => {
     if (!writableFile || isBinaryEditor || isTextSheet) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current);
-  }, [writableFile, isBinaryEditor, isTextSheet, workspaceId, sessionId, target.id, target.name]);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current, undefined, taskActive);
+  }, [writableFile, isBinaryEditor, isTextSheet, workspaceId, sessionId, target.id, target.name, taskActive]);
 
   const runFileAction = async (action: () => Promise<void>) => {
     try {

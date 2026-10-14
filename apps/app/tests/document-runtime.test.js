@@ -120,3 +120,44 @@ test("uncached tasks resolve their project without mounting a route", async () =
   expect(await runtime.list({ sessionId: "background" })).toEqual({ openFiles: [], surfaces: [], activeSurface: null });
   expect(lookups).toBe(1);
 });
+
+test("each chat retains all its working documents until completion and dismissing a mini tab never cancels an edit", async () => {
+  const { runtime, document } = fixture();
+  const one = document("a", "one.docx"), two = document("a", "two.docx");
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  await runtime.select({ sessionId: "left", path: "two.docx" });
+  await runtime.select({ sessionId: "right", path: "one.docx" });
+  runtime.prune();
+  expect(runtime.entries.size).toBe(2);
+  expect([...one.tasks]).toEqual(["left", "right"]);
+  expect([...two.tasks]).toEqual(["left"]);
+  runtime.dismiss(one, "left");
+  expect(one.dismissed.has("left")).toBe(true);
+  expect(one.dismissed.has("right")).toBe(false);
+  expect(await runtime.execute("document.agent_tool", { sessionId: "left", path: "one.docx" })).toEqual({ ok: true, path: "one.docx" });
+  expect(one.dismissed.has("left")).toBe(false);
+  runtime.releaseTask("left");
+  expect(runtime.entries.has(two.key)).toBe(false);
+  expect([...one.tasks]).toEqual(["right"]);
+  expect(await runtime.execute("document.agent_tool", { sessionId: "right" })).toEqual({ ok: true, path: "one.docx" });
+  runtime.releaseTask("right");
+  expect(runtime.entries.size).toBe(0);
+});
+
+test("promotion and closing the full document view retain the agent's exact editor", async () => {
+  const { runtime, document } = fixture();
+  const entry = document("a", "one.docx");
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  const destination = {};
+  entry.destinations.set(destination, true);
+  runtime.prune();
+  expect(runtime.entries.get(entry.key)).toBe(entry);
+  entry.destinations.delete(destination);
+  runtime.prune();
+  expect(runtime.entries.get(entry.key)).toBe(entry);
+  expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toEqual({ ok: true, path: "one.docx" });
+  entry.destinations.set(destination, true);
+  runtime.releaseTask("left");
+  expect(runtime.entries.get(entry.key)).toBe(entry);
+  expect(entry.tasks.size).toBe(0);
+});

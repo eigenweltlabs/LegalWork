@@ -871,54 +871,47 @@ describe("workspace opening profiles and previews", () => {
 
 
 describe("project browser tabs", () => {
-  test("agent tabs appear beside the current chat without selecting them or opening a split", () => {
+  test("agent browsers stay out of normal panes through navigation and renderer restore", async () => {
     const scope = "workspace:agent-browser";
-    store().setWorkspaceWidth(scope, 1600);
-    store().setOpening(scope, { mode: "free", newContent: "beside" });
     store().adoptChat(scope, "current", "Current chat");
     const before = store().sessions[scope];
-    const agentTab = { ...browser, background: true };
+    const agentTab = { ...browser, background: true, taskSessionId: "current" };
     store().syncBrowserTabs(scope, [agentTab], null);
-    const after = store().sessions[scope];
-    expect(after.tabs).toContainEqual(agentTab);
-    expect(after.panes[0].tabIds).toEqual(["chat:current", browser.id]);
-    expect(after.activeTabId).toBe("chat:current");
-    expect(after.tree).toEqual(before.tree);
-    expect(after.focusedPaneId).toBe(before.focusedPaneId);
-    store().syncBrowserTabs(scope, [{ ...agentTab, label: "Research result", url: "https://example.com/result" }], null);
+    store().syncBrowserTabs(scope, [{ ...agentTab, url: "https://example.com/result" }], null);
+    expect(store().sessions[scope]).toEqual(before);
+    const saved = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of saved) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(store().sessions[scope].tabs.map(tab => tab.id)).toEqual(["chat:current"]);
     expect(store().sessions[scope].activeTabId).toBe("chat:current");
-    expect(store().sessions[scope].tabs[1].label).toBe("Research result");
-    store().selectTab(scope, browser.id);
-    expect(store().sessions[scope].activeTabId).toBe(browser.id);
-    store().syncBrowserTabs(scope, [{ ...agentTab, background: false }], browser.id);
-    expect(store().sessions[scope].tabs[1]).toMatchObject({ background: false });
   });
 
-  test("agent tabs preserve the focused document, unsaved draft, and other panes", () => {
+  test("background browsers do not disturb a dirty document or create an empty-panel tab", () => {
+    store().syncBrowserTabs("session", [{ ...browser, background: true }], null);
+    expect(session()).toBeUndefined();
     add("A"); add("B", "A", "right");
     const before = session();
     const dirty = refuseDirty("B");
     try {
       store().syncBrowserTabs("session", [{ ...browser, background: true }], null);
       expect(getDocumentDiscardPrompt()).toBeNull();
-      expect(session().panes.map(pane => pane.activeTabId)).toEqual(before.panes.map(pane => pane.activeTabId));
-      expect(session().panes.find(pane => pane.id === before.focusedPaneId)?.tabIds).toContain(browser.id);
-      expect(session().focusedPaneId).toBe(before.focusedPaneId);
-      expect(session().tree).toEqual(before.tree);
+      expect(session()).toEqual(before);
     } finally { dirty.restore(); }
   });
 
-  test("an agent's first browser tab stays unselected even on repeated empty-panel synchronization", () => {
-    const agentTab = { ...browser, background: true };
-    for (let i = 0; i < 2; i++) {
-      store().syncBrowserTabs("session", [agentTab], null);
-      expect(session().tabs).toEqual([agentTab]);
-      expect(session().panes[0].tabIds).toEqual([browser.id]);
-      expect(session().activeTabId).toBeNull();
-    }
-    store().selectTab("session", browser.id);
-    store().syncBrowserTabs("session", [agentTab], browser.id);
-    expect(session().activeTabId).toBe(browser.id);
+  test("a promoted agent browser returns to the background without closing another pane", () => {
+    const scope = "workspace:agent-browser";
+    store().adoptChat(scope, "current", "Current chat");
+    const chat = store().sessions[scope].panes[0];
+    const promoted = { ...browser, background: false, taskSessionId: "current" };
+    store().openTab(scope, promoted, chat.id, "right");
+    store().syncBrowserTabs(scope, [promoted], promoted.id);
+    expect(store().sessions[scope].panes.map(pane => pane.activeTabId)).toEqual(["chat:current", browser.id]);
+    store().syncBrowserTabs(scope, [{ ...promoted, background: true }], null);
+    expect(store().sessions[scope].tabs.map(tab => tab.id)).toEqual(["chat:current"]);
+    expect(store().sessions[scope].panes).toHaveLength(1);
+    expect(store().sessions[scope].activeTabId).toBe("chat:current");
   });
 
   test("agent navigation does not replace the user's selected browser tab", () => {
@@ -926,19 +919,8 @@ describe("project browser tabs", () => {
     const agentTab = { ...browser, id: "agent-browser", background: true };
     store().syncBrowserTabs("session", [browser, agentTab], browser.id);
     store().syncBrowserTabs("session", [browser, { ...agentTab, url: "https://example.com/next" }], browser.id);
-    expect(session().panes[0].tabIds).toEqual([browser.id, agentTab.id]);
-    expect(session().activeTabId).toBe(browser.id);
-  });
-
-  test("restoring the renderer keeps an unselected agent tab in the strip without opening it", async () => {
-    store().syncBrowserTabs("session", [{ ...browser, background: true }], null);
-    const saved = new Map(storage);
-    usePanelTabStore.setState({ sessions: {} });
-    for (const [key, value] of saved) storage.set(key, value);
-    await usePanelTabStore.persist.rehydrate();
-    expect(session().tabs[0]).toMatchObject({ id: browser.id, background: true });
     expect(session().panes[0].tabIds).toEqual([browser.id]);
-    expect(session().activeTabId).toBeNull();
+    expect(session().activeTabId).toBe(browser.id);
   });
 
   test("Files and Sessions are singletons and survive layout restoration", () => {

@@ -1,3 +1,4 @@
+import { BackgroundTabStack } from "../background/background-tab-stack";
 import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
@@ -2102,6 +2103,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         )}
       </div>
 
+      <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} />
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>

@@ -5,6 +5,11 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "background_tabs.label": "Background tabs",
+  "background_tabs.count": "Working tabs ({count})",
+  "background_tabs.toggle": "Expand or collapse background tabs",
+  "background_tabs.close": "Close background tab: {name}",
+  "background_tabs.open": "Open in right panel: {name}",
   "code_editor.label": "Edit {name}",
   "code_editor.plain_text": "Plain text",
   "code_editor.syntax_error": "Syntax error",

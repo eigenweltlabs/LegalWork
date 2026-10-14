@@ -1,3 +1,4 @@
+import { useTaskBrowserTabs } from "../background/task-browser-tabs";
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import { resolveDocumentProject } from "./document-project";
@@ -12,7 +13,15 @@ import { PanelTabDestinationProvider } from "../panel/panel-tab-destination";
 
 type Runtime = ReturnType<typeof createDocumentRuntime>;
 const RuntimeContext = createContext<Runtime | null>(null);
+export function useDocumentRuntime() { return use(RuntimeContext); }
 const EntryContext = createContext<Entry | null>(null);
+const subscribeEmpty = () => () => {};
+const zero = () => 0;
+export function useDocumentTaskActive() {
+  const runtime = useDocumentRuntime();
+  useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
+  return Boolean(use(EntryContext)?.tasks.size);
+}
 const DocumentVisibilityContext = createContext(true);
 export function useDocumentVisibility() { return use(DocumentVisibilityContext); }
 
@@ -45,12 +54,22 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
     const activity = useSessionActivityStore.subscribe((state, previous) => {
       for (const [workspace, records] of Object.entries(previous.recordsByWorkspaceId)) {
         for (const [sessionId, record] of Object.entries(records)) {
-          if (record.runActive && state.recordsByWorkspaceId[workspace]?.[sessionId]?.runActive === false) runtime.releaseTask(sessionId);
+          if (record.runActive && !state.recordsByWorkspaceId[workspace]?.[sessionId]?.runActive) {
+            runtime.releaseTask(sessionId);
+            void window.__LEGALWORK_ELECTRON__?.browser?.releaseSession?.(sessionId);
+          }
         }
       }
     });
     return () => { tabs(); activity(); };
   }, [runtime]);
+  useEffect(() => {
+    const browser = window.__LEGALWORK_ELECTRON__?.browser;
+    const update = (state: import("@/app/lib/desktop").BrowserStatePayload) => useTaskBrowserTabs.getState().update(state.tabs ?? []);
+    const unsubscribe = browser?.onStateChange?.(update);
+    void browser?.getState?.().then(state => { if (state) update(state); });
+    return unsubscribe;
+  }, []);
   useControlAction({ id: "browser.open_url", label: "Open a task browser", background: true, execute: async args => {
     const directory = stringArg(args, "directory"), url = stringArg(args, "url");
     if (!directory || !url) throw new Error("A URL and originating project directory are required.");
@@ -83,16 +102,19 @@ function RuntimeDocument({ entry, runtime, parking }: { entry: Entry; runtime: R
   const destination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
   const active = destination ? entry.destinations.get(destination) === true : false;
   useLayoutEffect(() => {
-    const parent = destination ?? parking;
+    const parent = destination ?? [...entry.previews].find(node => node.isConnected) ?? parking;
     if (!parent || entry.host.parentElement === parent) return;
     if (entry.host.isConnected && parent.isConnected && "moveBefore" in parent && typeof parent.moveBefore === "function") parent.moveBefore(entry.host, null);
     else parent.appendChild(entry.host);
-  }, [entry, destination, parking]);
+  });
   useLayoutEffect(() => () => entry.host.remove(), [entry]);
   return createPortal(<DocumentVisibilityContext value={Boolean(destination)}><EntryContext value={entry}><DocumentControlSessions sessionIds={sessionIds}>
     <ControlActionScope active={active}>
       <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: entry.props.sessionId.replace(/^workspace:/, "") }}>
-        <ArtifactPanelContent {...entry.props} onClose={() => runtime.close(entry)} />
+        <ArtifactPanelContent {...entry.props} onClose={() => {
+          usePanelTabStore.getState().closeTab(entry.props.sessionId, entry.props.tab.id);
+          runtime.prune();
+        }} />
       </PanelTabDestinationProvider>
     </ControlActionScope>
   </DocumentControlSessions></EntryContext></DocumentVisibilityContext>, entry.host);
@@ -135,4 +157,16 @@ export function useDocumentAgentControl(surface: LegalworkControlSurface | null,
     return () => { if (entry.registration === registration) entry.registration = null; };
   }, [entry, surface, action, runtime]);
   useControlAction(entry ? null : action);
+}
+
+/** A read-only miniature of the same editor. Promotion moves its host, never reloads it. */
+export function DocumentMiniPreview({ entry }: { entry: Entry }) {
+  const runtime = useDocumentRuntime();
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!node || !runtime) return;
+    entry.previews.add(node); runtime.changed();
+    return () => { entry.previews.delete(node); runtime.changed(); };
+  }, [entry, node, runtime]);
+  return <div inert aria-hidden="true" className="pointer-events-none h-[650px] w-[1000px] origin-top-left scale-[0.22]" ref={setNode} />;
 }

@@ -15,6 +15,11 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "background_tabs.label": "Hintergrund-Tabs",
+  "background_tabs.count": "Aktive Tabs ({count})",
+  "background_tabs.toggle": "Hintergrund-Tabs auf- oder zuklappen",
+  "background_tabs.close": "Hintergrund-Tab schließen: {name}",
+  "background_tabs.open": "Im rechten Bereich öffnen: {name}",
   "code_editor.label": "{name} bearbeiten",
   "code_editor.plain_text": "Klartext",
   "code_editor.syntax_error": "Syntaxfehler",
