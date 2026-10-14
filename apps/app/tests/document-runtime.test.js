@@ -117,7 +117,7 @@ test("uncached tasks resolve their project without mounting a route", async () =
   const project = { projectId: "p", workspaceId: "p", workspaceRoot: "/p", client: { baseUrl: "http://p" } };
   const runtime = createDocumentRuntime(() => ({ className: "" }), async () => { lookups++; return project; });
   expect(await runtime.getProject("background")).toBe(project);
-  expect(await runtime.list({ sessionId: "background" })).toEqual({ openFiles: [], surfaces: [], activeSurface: null });
+  expect(await runtime.list({ sessionId: "background" })).toEqual({ openFiles: [], surfaces: [], activeSurface: null, protectedSurfaces: [] });
   expect(lookups).toBe(1);
 });
 
@@ -160,4 +160,88 @@ test("promotion and closing the full document view retain the agent's exact edit
   runtime.releaseTask("left");
   expect(runtime.entries.get(entry.key)).toBe(entry);
   expect(entry.tasks.size).toBe(0);
+});
+
+test("chat inventory excludes another chat's parked drafts but file writes still protect them", async () => {
+  const { runtime, document } = fixture();
+  document("a", "one.docx"); document("a", "two.docx"); document("b", "private.docx");
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  await runtime.select({ sessionId: "right", path: "two.docx" });
+  const list = await runtime.list({ sessionId: "left" });
+  expect(list.openFiles.map(file => file.path)).toEqual(["one.docx"]);
+  expect(list.surfaces.map(surface => surface.path)).toEqual(["one.docx"]);
+  expect(list.protectedSurfaces.map(surface => surface.path)).toEqual(["one.docx", "two.docx"]);
+});
+
+test("file handoff saves, releases the editor and reopens fresh bytes in the same destination", async () => {
+  const { runtime, document, clients } = fixture();
+  const entry = document("a", "one.docx", async () => ({ ok: true, saved: true }));
+  const host = entry.host, destination = {};
+  entry.destinations.set(destination, true);
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  const oldGeneration = entry.generation;
+  const registration = entry.registration;
+  expect(await runtime.execute("document.agent_tool", { sessionId: "left", toolName: "prepare_file_edit" })).toEqual({ ok: true, saved: true });
+  expect(entry.fileEditing).toBe(true);
+  expect(entry.registration).toBeNull();
+  expect((await runtime.list({ sessionId: "left" })).protectedSurfaces).toEqual([]);
+  await expect(runtime.execute("document.agent_tool", { sessionId: "left" })).rejects.toThrow("Reopen it");
+  clients.a.statWorkspaceFile = async () => ({ exists: true, kind: "file", updatedAt: 2 });
+  const stop = runtime.subscribe(() => {
+    if (!entry.fileEditing && entry.generation !== oldGeneration) entry.registration = { ...registration, action: { id: "document.agent_tool", execute: async () => "new saved content" } };
+  });
+  try {
+    await runtime.open({ sessionId: "left", path: "one.docx" });
+    expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toBe("new saved content");
+    expect(entry.host).toBe(host);
+    expect(entry.destinations.get(destination)).toBe(true);
+  } finally { stop(); }
+});
+
+test("failed saves and concurrent tasks cannot release a live draft", async () => {
+  const { runtime, document } = fixture();
+  let calls = 0;
+  const entry = document("a", "one.docx", async () => { calls++; return { ok: false, saved: false }; });
+  const registration = entry.registration;
+  registration.dirty = () => true;
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  expect(await runtime.execute("document.agent_tool", { sessionId: "left", toolName: "prepare_file_edit" })).toEqual({ ok: false, saved: false });
+  expect(entry.registration).toBe(registration);
+  expect(entry.fileEditing).toBe(false);
+  await runtime.select({ sessionId: "right", path: "one.docx" });
+  await expect(runtime.execute("document.agent_tool", { sessionId: "left", toolName: "prepare_file_edit" })).rejects.toThrow("Another task");
+  expect(calls).toBe(1);
+  expect(entry.registration).toBe(registration);
+});
+
+test("a draft changed during saving cannot report a successful file handoff", async () => {
+  const { runtime, document } = fixture();
+  const entry = document("a", "one.docx", async () => ({ ok: true, saved: true }));
+  entry.registration.dirty = () => true;
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  const result = await runtime.execute("document.agent_tool", { sessionId: "left", toolName: "prepare_file_edit" });
+  expect(result).toMatchObject({ ok: false, saved: false });
+  expect(entry.fileEditing).toBe(false);
+  expect(entry.registration).not.toBeNull();
+});
+
+test("reopening a changed file refreshes a clean editor but preserves an unsaved draft", async () => {
+  const { runtime, document, clients } = fixture();
+  const entry = document("a", "one.docx");
+  const registration = entry.registration, oldGeneration = entry.generation;
+  registration.updatedAt = () => 1;
+  registration.dirty = () => true;
+  clients.a.statWorkspaceFile = async () => ({ exists: true, kind: "file", updatedAt: 2 });
+  await runtime.open({ sessionId: "left", path: "one.docx" });
+  expect(entry.generation).toBe(oldGeneration);
+  expect(entry.registration).toBe(registration);
+  registration.dirty = () => false;
+  const stop = runtime.subscribe(() => {
+    if (entry.generation !== oldGeneration) entry.registration = { ...registration, updatedAt: () => 2 };
+  });
+  try {
+    await runtime.open({ sessionId: "left", path: "one.docx" });
+    expect(entry.generation).not.toBe(oldGeneration);
+    expect(entry.registration.updatedAt()).toBe(2);
+  } finally { stop(); }
 });

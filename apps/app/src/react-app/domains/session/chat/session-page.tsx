@@ -82,7 +82,7 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
 import { attachmentFilename } from "@/app/lib/attachment-filename";
-import { confirmDiscardDocuments, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
+import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
@@ -456,12 +456,14 @@ export function SessionPage(props: SessionPageProps) {
       setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments(undefined, undefined, false, () => setPanel(panel))) return;
+    // Only the evaluations pane unmounts here. Workspace editors remain alive,
+    // including drafts parked by other chats, so hiding chrome cannot discard them.
+    if (sidePanelOpen && panel !== "panel" && !confirmDiscardSessionDocuments(panelStateSessionId, usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs.map(tab => tab.id) ?? [], undefined, false, () => setPanel(panel))) return;
     setSidePanelState(panelStateSessionId, panel);
     if (panel === "panel" && hasMainView && panelStateSessionId !== EVALS_PANEL_SESSION_ID) {
       navigate(workspaceSessionRoute(props.selectedWorkspaceId, props.selectedSessionId) + (props.selectedSessionId ? "" : "?view=workspace"));
     }
-  }, [activeSidePanel, panelStateSessionId, setSidePanelState, setFileSidebarState, hasMainView, navigate, props.selectedWorkspaceId, props.selectedSessionId]);
+  }, [sidePanelOpen, panelStateSessionId, setSidePanelState, setFileSidebarState, hasMainView, navigate, props.selectedWorkspaceId, props.selectedSessionId]);
 
   // A mainView (the Tasks pane) hands the page a file to show in the panel.
   useEffect(() => {
@@ -503,14 +505,12 @@ export function SessionPage(props: SessionPageProps) {
       toggleSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, "voice");
       return;
     }
-    if (activeSidePanel === "panel" && !confirmDiscardDocuments(undefined, undefined, false, () => togglePanel(panel))) return;
+    if (sidePanelOpen && !confirmDiscardSessionDocuments(panelStateSessionId, usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs.map(tab => tab.id) ?? [], undefined, false, () => togglePanel(panel))) return;
     toggleSidePanelState(panelStateSessionId, panel);
-  }, [activeSidePanel, panelStateSessionId, toggleSidePanelState, fileSidebar, setFileSidebarState]);
+  }, [sidePanelOpen, panelStateSessionId, toggleSidePanelState, fileSidebar, setFileSidebarState]);
 
-  // When the agent calls a built-in browser tool, the main process opens
-  // the WebContentsView and sends panel-opened; when hide_browser is called
-  // it sends panel-closed. Without this listener the React UI never knows
-  // the panel opened and doesn't render the unified panel chrome.
+  // A user-opened browser needs panel chrome. Closing its last tab only removes
+  // that browser view; it must not close the shared workspace or other drafts.
   useEffect(() => {
     if (!isElectronRuntime()) return;
     const browser = (window as Window).__LEGALWORK_ELECTRON__?.browser;
@@ -522,8 +522,7 @@ export function SessionPage(props: SessionPageProps) {
       }
       setCurrentSidePanel("panel");
     });
-    const unsubClose = browser.onPanelClosed?.(() => setCurrentSidePanel(null));
-    return () => { unsubOpen?.(); unsubClose?.(); };
+    return unsubOpen;
   }, [setCurrentSidePanel]);
   const {
     leftSidebarResizing,

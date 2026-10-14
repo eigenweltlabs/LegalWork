@@ -116,6 +116,19 @@ export function inAppDocumentSurface(payload: unknown, sessionId?: string, path?
   };
 }
 
+/** All live drafts protected from file writes, including another chat's drafts. */
+export function protectedDocumentSurfaces(payload: unknown, sessionId: string): InAppDocumentSurface[] {
+  if (!payload || typeof payload !== "object") return [];
+  const protectedSurfaces: unknown = Reflect.get(payload, "protectedSurfaces");
+  const surfaces: unknown = Reflect.get(payload, "surfaces");
+  const candidates = Array.isArray(protectedSurfaces) ? protectedSurfaces
+    : [Reflect.get(payload, "activeSurface"), ...(Array.isArray(surfaces) ? surfaces : [])];
+  return candidates.flatMap(activeSurface => {
+    const surface = inAppDocumentSurface({ activeSurface }, sessionId);
+    return surface ? [surface] : [];
+  });
+}
+
 
 /** Task-scoped document inventory, independent of the visible workspace. */
 export async function taskDocumentSnapshot(sessionId: string | undefined): Promise<unknown> {

@@ -1,6 +1,6 @@
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
-import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
+import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, protectedDocumentSurfaces, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
@@ -125,7 +125,7 @@ For a new Markdown deliverable, use inapp_markdown_create incrementally: start w
 
 Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For any attached input under .legalwork/attachments, preserve the snapshot and supply copy_to with a visible output filename before editing. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
 Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit the task draft. For several source documents, read their saved files in the background and keep the working output selected for this task. Read the live draft when inspecting a file with unsaved changes. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
-Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. If a structural change needs a file tool, save the live draft first, explain the limitation briefly, and reopen/reload the result before continuing. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
+Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. For unsupported Word structure/layout such as inserting tables or changing page breaks, call inapp_docx_prepare_file_edit with the exact path first. For PowerPoint use inapp_pptx_prepare_file_edit. These tools save and release the live editor; proceed only when the returned result has ok=true and saved=true. Then edit the saved file, preserve unrelated content and revisions, and reopen with inapp_documents_open to load and verify the new version. Selecting another document is not a file-edit handoff. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
 When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and negotiated text edits are tracked changes. To populate placeholders in a new template copy, use inapp_docx_fill_template for clean output; it preserves pre-existing revisions. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Presentation visual review
@@ -220,6 +220,7 @@ The selected document for this task is ${JSON.stringify(surface.name)} at ${JSON
 - Make minimal exact-span text edits with inapp_docx_suggest_change. Add comments only when requested, using inapp_docx_add_comment; reply to existing comments with inapp_docx_reply_comment. Suggestions appear immediately as tracked changes and save automatically.
 - To adopt or revert tracked edits, call inapp_docx_read_changes, select the relevant change IDs, then call inapp_docx_accept_changes or inapp_docx_reject_changes. Do not tell the user to resolve changes manually when these tools are available.
 - Do not call word_* tools, inspect the DOCX with bash, create a redlined copy, or run the FILE backend against this open document.
+- For unsupported structure/layout operations, first call inapp_docx_prepare_file_edit with this document's path. It saves and releases the live editor safely. Only after ok=true and saved=true, edit the saved file and reopen it with inapp_documents_open to verify the result.
 - A concrete edit whose replacement is fully specified should be carried out directly. Do not search LegalMemory merely to validate a user-supplied replacement; use firm knowledge only when the task asks for precedent/research or information is genuinely missing.
 - Keep the reply short because the user can see the edited document beside the chat.`;
 }
@@ -234,7 +235,7 @@ async function callInAppDocxTool(
     timeoutMs: 120_000,
     body: {
       actionId: "document.agent_tool",
-      args: { sessionId: context.sessionID ?? "", toolName, args },
+      args: { sessionId: context.sessionID ?? "", toolName, ...(typeof args.path === "string" ? { path: args.path } : {}), args },
     },
   });
   if (getBooleanProperty(payload, "ok") === false) {
@@ -360,10 +361,10 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     // The managed shell still enforces its independent execution permissions.
     if (input.tool === "legalwork_shell" && output.args.write === false) return;
     const snapshot = await taskDocumentSnapshot(input.sessionID);
-    const surface = inAppDocumentSurface(snapshot, input.sessionID);
-    if (!surface?.editable || !inAppDocxCallTargetsSurface(input.tool, output.args, surface)) return;
+    const surface = protectedDocumentSurfaces(snapshot, input.sessionID).find(surface => surface.editable && inAppDocxCallTargetsSurface(input.tool, output.args, surface));
+    if (!surface) return;
     throw new Error(
-      `The target document ${surface.name} is open in LegalWork's in-app editor. Use inapp_${surface.format}_* tools so edits appear live and save safely.${surface.format === "pptx" ? " Adding slides is supported with inapp_pptx_add_slide. For an unsupported operation or an explicit code-edit request, call inapp_pptx_prepare_file_edit to save and close the draft, then use the file pipeline and reopen the result." : " The file/Bash Office path is disabled while this document is open."}`,
+      `The target document ${surface.name} is open in LegalWork's in-app editor. Use inapp_${surface.format}_* tools so edits appear live and save safely.${surface.format === "docx" || surface.format === "pptx" ? ` For an unsupported operation or an explicit code-edit request, call inapp_${surface.format}_prepare_file_edit with its path to save and release the draft, then use the file pipeline and reopen the result.` : " The file/Bash Office path is disabled while this document is open."}`,
     );
   },
   tool: {
@@ -481,6 +482,11 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       description: "Replace one exact unique text match in a text or shape element in the live LegalWork presentation, preserving text-run styling and saving automatically. Read first to get the slide index and element ID. Returns text and layout warnings without an image. Finish all edits to the slide, then call inapp_pptx_preview once to check it. If needed, finish the corrections before requesting another preview. Complex paragraph structures and non-text elements are unsupported. Direct edits, not tracked changes.",
       args: pptxReplaceSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppPptxTool(context, "replace_text", pptxReplaceSchema.parse(rawArgs)); },
+    },
+    inapp_docx_prepare_file_edit: {
+      description: "Prepare an unsupported Word structure/layout operation (such as inserting a table or changing page breaks) or an explicitly requested code edit. Saves and releases the exact live document, preserving its tab location. Proceed with file edits only when result.ok and result.saved are true. Preserve unrelated content and tracked revisions; afterwards reopen with inapp_documents_open to load and verify the saved result. Use native tools for supported text edits.",
+      args: officeFileSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) { return callInAppDocxTool(context, "prepare_file_edit", officeFileSchema.parse(rawArgs)); },
     },
     inapp_docx_read_document: {
       description:

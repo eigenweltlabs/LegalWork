@@ -201,6 +201,37 @@ describe("in-app Word document routing", () => {
     )).rejects.toThrow(/use inapp_docx_\* tools/i);
   });
 
+  test("guards inactive drafts even when another document is selected", async () => {
+    await withBridge({
+      ...activeDocumentSnapshot,
+      activeSurface: { ...activeDocumentSnapshot.activeSurface, format: "xlsx", name: "Data.xlsx", path: "Data.xlsx" },
+      protectedSurfaces: [activeDocumentSnapshot.activeSurface],
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    await expect(plugin["tool.execute.before"](
+      { tool: "legalwork_shell", sessionID: "ses_open", callID: "write" },
+      { args: { command: 'python format.py "compensation-memo.docx"', write: true } },
+    )).rejects.toThrow("inapp_docx_prepare_file_edit");
+    await plugin["tool.execute.before"](
+      { tool: "legalwork_shell", sessionID: "ses_open", callID: "read" },
+      { args: { command: 'python inspect.py "compensation-memo.docx"', write: false } },
+    );
+  });
+
+  test("Word file handoff addresses the exact path and reports save failure", async () => {
+    let request: unknown;
+    await withBridge(activeDocumentSnapshot, body => {
+      request = body;
+      return { ok: true, result: { ok: false, saved: false, error: "Save failed" } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const path = "compensation-memo.docx";
+    const result = JSON.parse(await plugin.tool.inapp_docx_prepare_file_edit.execute({ path }, { sessionID: "ses_open" }));
+    expect(request).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_open", path, toolName: "prepare_file_edit", args: { path } } });
+    expect(result.result).toEqual({ ok: false, saved: false, error: "Save failed" });
+    expect((await modelContext(plugin, "ses_open")).reminder).toContain("inapp_docx_prepare_file_edit");
+  });
+
   test("routes in-app document tools to the matching session-scoped editor action", async () => {
     let request: unknown;
     await withBridge(activeDocumentSnapshot, (body) => {

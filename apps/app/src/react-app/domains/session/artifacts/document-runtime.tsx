@@ -15,6 +15,7 @@ type Runtime = ReturnType<typeof createDocumentRuntime>;
 const RuntimeContext = createContext<Runtime | null>(null);
 export function useDocumentRuntime() { return use(RuntimeContext); }
 const EntryContext = createContext<Entry | null>(null);
+export function useDocumentRuntimeEntry() { return use(EntryContext); }
 const subscribeEmpty = () => () => {};
 const zero = () => 0;
 export function useDocumentTaskActive() {
@@ -111,10 +112,10 @@ function RuntimeDocument({ entry, runtime, parking }: { entry: Entry; runtime: R
   return createPortal(<DocumentVisibilityContext value={Boolean(destination)}><EntryContext value={entry}><DocumentControlSessions sessionIds={sessionIds}>
     <ControlActionScope active={active}>
       <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: entry.props.sessionId.replace(/^workspace:/, "") }}>
-        <ArtifactPanelContent {...entry.props} onClose={() => {
+        {entry.fileEditing ? <div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">{entry.props.tab.label}</div> : <ArtifactPanelContent key={entry.generation} {...entry.props} onClose={() => {
           usePanelTabStore.getState().closeTab(entry.props.sessionId, entry.props.tab.id);
           runtime.prune();
-        }} />
+        }} />}
       </PanelTabDestinationProvider>
     </ControlActionScope>
   </DocumentControlSessions></EntryContext></DocumentVisibilityContext>, entry.host);
@@ -146,13 +147,13 @@ export function useDocumentProjectResolver(resolve: (sessionId: string) => Docum
   useLayoutEffect(() => { runtime?.setResolver(resolve); }, [runtime, resolve]);
 }
 
-export function useDocumentAgentControl(surface: LegalworkControlSurface | null, action: LegalworkControlAction | null, ready: () => boolean, dirty: () => boolean) {
+export function useDocumentAgentControl(surface: LegalworkControlSurface | null, action: LegalworkControlAction | null, ready: () => boolean, dirty: () => boolean, updatedAt?: () => number | null) {
   const entry = use(EntryContext);
   const runtime = use(RuntimeContext);
-  const latest = useRef({ surface, action, ready, dirty }); latest.current = { surface, action, ready, dirty };
+  const latest = useRef({ surface, action, ready, dirty, updatedAt }); latest.current = { surface, action, ready, dirty, updatedAt };
   useLayoutEffect(() => {
     if (!entry || !surface || !action) return;
-    const registration = { surface, action, ready: () => latest.current.ready(), dirty: () => latest.current.dirty() };
+    const registration = { surface, action, ready: () => latest.current.ready(), dirty: () => latest.current.dirty(), updatedAt: () => latest.current.updatedAt?.() ?? null };
     entry.registration = registration;
     return () => { if (entry.registration === registration) entry.registration = null; };
   }, [entry, surface, action, runtime]);

@@ -9,7 +9,7 @@ import { storageFileTab } from "../panel/storage-file-tab";
 import { createDocumentTaskQueue } from "./document-task-queue";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
-export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean };
+export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
 export type Entry = {
   key: string;
   props: ArtifactPanelProps;
@@ -20,6 +20,8 @@ export type Entry = {
   previews: Set<HTMLElement>;
   destinations: Map<HTMLElement, boolean>;
   registration: Registration | null;
+  generation: number;
+  fileEditing: boolean;
 };
 
 export function documentKey(props: ArtifactPanelProps) {
@@ -40,6 +42,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   const listeners = new Set<() => void>();
   const queue = createDocumentTaskQueue();
   let version = 0;
+  let generation = 0;
   let resolveProject: ((sessionId: string) => DocumentProject) | null = null;
   const changed = () => { version++; listeners.forEach(listener => listener()); };
   const ensure = (props: ArtifactPanelProps) => {
@@ -48,7 +51,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     if (existing) return existing;
     const host = createHost();
     host.className = "flex h-full min-h-0 min-w-0 flex-col";
-    const entry: Entry = { key, props, host, sessions: new Set(), tasks: new Set(), dismissed: new Set(), previews: new Set(), destinations: new Map(), registration: null };
+    const entry: Entry = { key, props, host, sessions: new Set(), tasks: new Set(), dismissed: new Set(), previews: new Set(), destinations: new Map(), registration: null, generation: ++generation, fileEditing: false };
     entries.set(key, entry);
     changed();
     return entry;
@@ -96,6 +99,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   const waitUntilReady = async (entry: Entry) => {
     const deadline = Date.now() + 60_000;
     while (entries.get(entry.key) === entry && Date.now() < deadline) {
+      if (entry.fileEditing) throw new Error("This document is being edited as a file. Reopen it with inapp_documents_open after the file edit finishes.");
       if (entry.registration?.ready()) return entry.registration;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -154,20 +158,35 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const tab = root ? storageFileTab(project.workspaceId, root, { path, name, kind: "file", size: null, modifiedAt: null })
         : { id: `file:${path}`, type: "artifact", label: name, value: path, preview, size: file?.size, updatedAt: file?.updatedAt } satisfies ArtifactPanelProps["tab"];
       const entry = ensure({ ...project, sessionId: workspacePanelKey(project.projectId), tab, onClose: () => {} });
-      select(entry, sessionId);
-      const liveEditing = ["word", "markdown"].includes(preview) || /\.(xlsx|pptx)$/i.test(path);
-      if (liveEditing) await waitUntilReady(entry);
-      return { ok: true, name, path: entry.registration?.surface.path ?? path, liveEditing, ...(copyTo ? { copied: true } : {}), message: "The document is ready for this task. Use the matching inapp_* tools. The user's view has not changed." };
+      return queue(entry.key, async () => {
+        const diskChanged = file && entry.registration?.updatedAt && file.updatedAt !== entry.registration.updatedAt();
+        // Never replace an unsaved draft. A clean editor can reload an external
+        // revision, and a completed file handoff always starts a fresh editor.
+        if (entry.fileEditing || (diskChanged && !entry.registration?.dirty())) {
+          entry.fileEditing = false;
+          entry.registration = null;
+          entry.generation = ++generation;
+        }
+        select(entry, sessionId);
+        const liveEditing = ["word", "markdown"].includes(preview) || /\.(xlsx|pptx)$/i.test(path);
+        if (liveEditing) await waitUntilReady(entry);
+        return { ok: true, name, path: entry.registration?.surface.path ?? path, liveEditing, ...(copyTo ? { copied: true } : {}), message: "The document is ready for this task. Use the matching inapp_* tools. The user's view has not changed." };
+      });
     },
     async list(args: unknown) {
       const sessionId = stringArg(args, "sessionId"), project = await getProject(sessionId);
       let active: Entry | undefined;
       try { active = current(sessionId, project); } catch { /* No selected document yet. */ }
-      const files = [...entries.values()].filter(entry => belongs(entry, project)).map(entry => ({
+      const available = [...entries.values()].filter(entry => belongs(entry, project) && !entry.fileEditing);
+      const owned = available.filter(entry => entry.sessions.has(sessionId) || entry === active);
+      const surface = (entry: Entry) => ({ ...entry.registration!.surface, sessionId, sessionIds: [sessionId] });
+      const files = owned.map(entry => ({
         name: entry.props.tab.label, path: entry.registration?.surface.path ?? entry.props.tab.value,
         sessionId, active: entry === active,
       }));
-      return { openFiles: files, surfaces: [...entries.values()].filter(entry => belongs(entry, project) && entry.registration).map(entry => ({ ...entry.registration!.surface, sessionId, sessionIds: [sessionId] })), activeSurface: active?.registration ? { ...active.registration.surface, sessionId, sessionIds: [sessionId] } : null };
+      return { openFiles: files, surfaces: owned.filter(entry => entry.registration).map(surface), activeSurface: active?.registration ? surface(active) : null,
+        // Used only by the file-write guard, never as this chat's document context.
+        protectedSurfaces: available.filter(entry => entry.registration).map(surface) };
     },
     async select(args: unknown) {
       const sessionId = stringArg(args, "sessionId");
@@ -187,12 +206,23 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       changed();
       return queue(entry.key, async () => {
         const registration = await waitUntilReady(entry);
+        const handoff = stringArg(args, "toolName") === "prepare_file_edit";
+        if (handoff && [...entry.tasks].some(task => task !== sessionId)) throw new Error("Another task is using this live document. Finish that task before switching to file editing.");
         if (registration.action.id !== actionId || (stringArg(args, "format") && stringArg(args, "format") !== registration.surface.format)) throw new Error("This document requires a different format's tools.");
         // The dispatcher has checked project ownership. Address the persistent
         // editor by its pane identity, without waiting for React to propagate a
         // newly attached chat's membership before this call can proceed.
         const editorArgs = args && typeof args === "object" ? { ...args, sessionId: entry.props.sessionId } : args;
-        return registration.action.execute(editorArgs, { setNarration: () => {} });
+        const result = await registration.action.execute(editorArgs, { setNarration: () => {} });
+        if (handoff && result && typeof result === "object" && Reflect.get(result, "ok") === true && Reflect.get(result, "saved") === true) {
+          if (registration.dirty()) return { ok: false, saved: false, error: "The draft changed while saving. File editing is not ready; the editor remains open." };
+          // Keep the destination and task membership, but retire the actual
+          // editor so it cannot overwrite a file pipeline's newer bytes.
+          entry.fileEditing = true;
+          entry.registration = null;
+          changed();
+        }
+        return result;
       });
     },
   };
