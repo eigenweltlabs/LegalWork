@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { openuiLicenseNotices } from "./scripts/openui-license-notices";
 
 /**
  * Build config for the Word add-in task pane bundle.
@@ -37,6 +38,7 @@ export default defineConfig({
     "import.meta.env.VITE_LEGALWORK_DEPLOYMENT": JSON.stringify("web"),
   },
   plugins: [
+    openuiLicenseNotices(),
     tailwindcss(),
     react({
       babel: {

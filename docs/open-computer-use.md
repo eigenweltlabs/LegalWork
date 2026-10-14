@@ -67,13 +67,3 @@ Mac app on Mac, enumerates the native MCP tools and connects the host runtime to
 an isolated OpenCode instance. It does not run a model or perform desktop actions.
 Actual Mac actions require granting this helper its own permissions. Windows
 actions must be verified on a Windows desktop.
-
-Setup screenshots use the production components with simulated IPC status, not
-real Windows desktop automation:
-
-- [Mac setup preview](verification/open-computer-use/mac-setup.jpg)
-- [Windows connected preview](verification/open-computer-use/windows-connected.jpg)
-
-The live Mac Electron catalog after replacement contains only Open Computer Use:
-
-- [Live Mac catalog](verification/open-computer-use/mac-catalog.jpg)

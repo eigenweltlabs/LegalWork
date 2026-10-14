@@ -66,9 +66,9 @@ The API user determines accessible records. The adapter exposes fixed specificat
 
 ## Specification and maintenance
 
-`openapi.json` (SHA-256: `2d485ea84af6cbe526fa3b98f3cd097db63566a6c5ce4be0e2baa367e59e59aa`) was retrieved on 2026-10-13 from [Actaport's official OpenAPI document](https://api.actaport.de/api-docs/public-api.json). Its source documentation is [the API reference](https://api.actaport.de/api-docs/rest-api/reference/public) and [authentication guide](https://api.actaport.de/api-docs/rest-api/introduction/authentication).
+The upstream OpenAPI document (SHA-256: `2d485ea84af6cbe526fa3b98f3cd097db63566a6c5ce4be0e2baa367e59e59aa`) was retrieved on 2026-10-13 from [Actaport's official OpenAPI document](https://api.actaport.de/api-docs/public-api.json). Its source documentation is [the API reference](https://api.actaport.de/api-docs/rest-api/reference/public) and [authentication guide](https://api.actaport.de/api-docs/rest-api/introduction/authentication).
 
-Tools are built from the snapshot, never from a network fetch at startup. Updating the snapshot requires reviewing and retesting changes. The adapter handles these quirks of the published document:
+`contract.json` retains the 92 operation definitions and their 81 reachable input schemas. Unused response schemas and documentation are omitted. The source URL and upstream digest are recorded in the file; runtime startup never fetches a specification. Regenerate from the pinned original with `node packages/actaport-mcp/scripts/update-contract.mjs /path/to/public-api.json`. The generator verifies the source digest before writing. Updating the pin requires reviewing the upstream changes and rerunning the MCP tests. The adapter handles these quirks of the published document:
 
 - Some JAX-RS path templates have regexes and missing parameter declarations. Their required path IDs are recovered from the template, with numeric/UUID validation where specified.
 - Polymorphic request schemas inherit a base containing a union back to its subtypes. The adapter inherits base fields without that recursive union and applies the declared discriminator mappings as subtype tags.
@@ -89,14 +89,3 @@ pnpm --filter @legalwork/app test:i18n
 ```
 
 The tests use fixtures and include an actual Node subprocess MCP handshake. They do not access a live Actaport account. For live acceptance, connect an API-enabled test account, find a matter, download/open a document, repeat after token expiry, and test approved writes in a disposable matter. The desktop build scripts compile and include both MCP and authentication bundles on all desktop platforms. At startup, they are copied into the desktop profile at stable paths so AppImage mounts and Windows updates do not invalidate saved MCP commands. The worker's Node search path includes LegalWork's bundled runtime, so a separate Node installation is not required.
-
-### Validation in this worktree
-
-- MCP contract/client, tool-group coverage/context-budget and bundled Node stdio tests passed (19 tests), including minimal/full discovery and live group/write revocation.
-- Desktop credential, group persistence/migration, private-discovery and runtime-update tests passed (7 tests).
-- The desktop regression suite passed; the relevant MCP/app regression tests also passed.
-- MCP, app and Electron typechecks, the IPC bridge check, translations and the production app build passed.
-- The connection UI was exercised with simulated credentials, including save, test, tool-group selection/counts, reconnect, write access and disconnect.
-- No live Actaport account or signed installer was tested.
-
-The MCP package installs with a filtered frozen-lockfile pnpm install. Application checks in this worktree use the existing dependency cache; a full fresh workspace install was not part of acceptance.
