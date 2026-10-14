@@ -63,6 +63,15 @@ function PropertyList({ name, values, onCommit }: { name: string; values: WikiPr
 }
 
 export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
+  const propertyLabels: Record<WikiPropertyType, string> = {
+    text: t("wiki.property_text"),
+    number: t("wiki.property_number"),
+    boolean: t("wiki.property_boolean"),
+    date: t("wiki.property_date"),
+    list: t("wiki.property_list"),
+    page: t("wiki.property_page"),
+    pages: t("wiki.property_pages"),
+  };
   const heading = useId();
   const nameId = useId();
   const typeId = useId();
@@ -133,10 +142,10 @@ export function WikiPropertiesEditor(props: WikiPropertiesEditorProps) {
             </div>
             <div className="grid gap-1.5">
               <label htmlFor={typeId} className="text-xs text-muted-foreground">{t("wiki.property_type")}</label>
-              <Select value={kind} items={propertyKinds.map(value => ({ value, label: t(`wiki.property_${value}`) }))} onValueChange={value => { if (value) { setKind(value); setNewRelation(value === "pages" ? [] : null); } }}>
+              <Select value={kind} items={propertyKinds.map(value => ({ value, label: propertyLabels[value] }))} onValueChange={value => { if (value) { setKind(value); setNewRelation(value === "pages" ? [] : null); } }}>
                 <SelectTrigger id={typeId} className="w-full gap-2 rounded-lg bg-background"><PropertyIcon kind={kind} name={name} /><SelectValue /></SelectTrigger>
                 <SelectContent align="start" className="rounded-xl p-1">
-                  {propertyKinds.map(value => <SelectItem key={value} value={value} className="rounded-lg py-2 text-sm font-normal"><PropertyIcon kind={value} name={name} />{t(`wiki.property_${value}`)}</SelectItem>)}
+                  {propertyKinds.map(value => <SelectItem key={value} value={value} className="rounded-lg py-2 text-sm font-normal"><PropertyIcon kind={value} name={name} />{propertyLabels[value]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

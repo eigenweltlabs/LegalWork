@@ -31,6 +31,8 @@ preferWorkspacePackages: true
 # Installs are always explicit here, so skip the pre-run check.
 verifyDepsBeforeRun: false
 allowBuilds:
+  # The published runtime is prebuilt; its postinstall only sends telemetry.
+  "@openuidev/lang-core": false
   cpu-features: false
   ssh2: false
   "@whiskeysockets/baileys": true

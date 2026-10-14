@@ -45,7 +45,7 @@ export function MarkdownImageDialog() {
       <DialogHeader><DialogTitle>{t(state.type === "editing" ? "markdown.image.edit" : "markdown.image.insert")}</DialogTitle><DialogDescription>{t("markdown.image.description")}</DialogDescription></DialogHeader>
       <form onSubmit={event => { event.preventDefault(); void submit(); }} className="grid gap-5">
         {upload && <div className="flex gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t("markdown.image.source")}>
-          {(["upload", "link"] satisfies ("upload" | "link")[]).map(value => <Button key={value} type="button" role="tab" aria-selected={tab === value} variant={tab === value ? "secondary" : "ghost"} size="sm" className="flex-1" onClick={() => setTab(value)}>{t(`markdown.image.${value}`)}</Button>)}
+          {(["upload", "link"] satisfies ("upload" | "link")[]).map(value => <Button key={value} type="button" role="tab" aria-selected={tab === value} variant={tab === value ? "secondary" : "ghost"} size="sm" className="flex-1" onClick={() => setTab(value)}>{value === "upload" ? t("markdown.image.upload") : t("markdown.image.link")}</Button>)}
         </div>}
         {tab === "upload" ? <>
           <input ref={input} type="file" accept="image/*" className="sr-only" tabIndex={-1} aria-label={t("markdown.image.choose")} onChange={event => selectFile(event.target.files?.[0])} />
