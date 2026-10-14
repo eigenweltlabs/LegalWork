@@ -25,6 +25,12 @@ registerExtensionConfig("actaport", (context) => <ActaportConfig context={contex
 export function ActaportToolsets({ status, busy, onChange }: {
   status: ActaportConnectionStatus; busy: boolean; onChange: (selected: ActaportToolset[]) => void;
 }) {
+  const copy: Record<ActaportToolset, { label: string; hint: string }> = {
+    records: { label: t("actaport.toolset_records"), hint: t("actaport.toolset_records_hint") },
+    finance: { label: t("actaport.toolset_finance"), hint: t("actaport.toolset_finance_hint") },
+    administration: { label: t("actaport.toolset_administration"), hint: t("actaport.toolset_administration_hint") },
+    uploads: { label: t("actaport.toolset_uploads"), hint: t("actaport.toolset_uploads_hint") },
+  };
   const total = status.coreToolCount + status.toolsets.filter((group) => status.enabledToolsets.includes(group.id))
     .reduce((count, group) => count + group.readTools + (status.allowWrites ? group.writeTools : 0), 0);
   return <div className="space-y-3">
@@ -37,9 +43,9 @@ export function ActaportToolsets({ status, busy, onChange }: {
       <Label htmlFor={`actaport-toolset-${group.id}`} className="leading-normal">
         <Checkbox id={`actaport-toolset-${group.id}`} disabled={busy} checked={status.enabledToolsets.includes(group.id)}
           onCheckedChange={(checked) => onChange(checked ? [...status.enabledToolsets, group.id] : status.enabledToolsets.filter((id) => id !== group.id))} />
-        {t(`actaport.toolset_${group.id}`)}
+        {copy[group.id].label}
       </Label>
-      <p className="pl-6 text-xs text-muted-foreground">{t(`actaport.toolset_${group.id}_hint`)}</p>
+      <p className="pl-6 text-xs text-muted-foreground">{copy[group.id].hint}</p>
       <p className="pl-6 text-xs text-muted-foreground">{t("actaport.toolset_count", { count: group.readTools + (status.allowWrites ? group.writeTools : 0) })}</p>
     </div>)}
     <p className="text-xs text-muted-foreground">{t("actaport.toolsets_hint")}</p>
