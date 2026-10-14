@@ -6,27 +6,17 @@ The import popup's **Connectors** filter includes standalone configurations and 
 
 Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
 
-
 ## Use a whole plugin in chat
 
 Open the chat tools menu and choose **Plugins**. Click a plugin row to add one plugin chip to your message. The arrow beside the row opens its individual contents; that view also offers **Use whole plugin**.
 
 The agent chooses the relevant bundled capabilities for your request. Selecting a plugin keeps the existing setup requirements for its connectors. The current package is resolved when you submit the message. The shared message queue preserves that submitted capability context and the plugin chip through restart and editing.
 
-![Select a whole plugin or browse its contents](images/chat-whole-plugin-menu.png)
-
-![One plugin chip in the composer](images/chat-whole-plugin-selection.png)
-
 ### Verification after merging dev
 
 The feature branch includes `dev` at `75acf2c3`. Conflict resolution retains the shared popover's positioning and keyboard focus, project-file attachment preparation and the new durable message queue, alongside the four current chat categories and whole-plugin selection. Queue validation now accepts plugin parts and editor mentions, with a regression covering persistence, restart and editing.
 
 The merged branch passed **1,308 app tests**, **1,851 server tests** (42 optional checks skipped), **57 focused app tests**, both TypeScript checks, both production/runtime builds and **6,191 translation keys × English/German**. Native Electron verified the plugin menu, direct whole-plugin chip selection/removal and Configure opening Plugins. The restarted engine still reports Context7 connected without error. The preview is running with the merged runtime; no model request was submitted during these UI checks.
-
-![Plugin menu after merging dev](images/chat-plugin-menu-after-dev-merge.png)
-
-![Whole-plugin chip after merging dev](images/chat-plugin-chip-after-dev-merge.png)
-
 
 ## Integration libraries
 
@@ -46,17 +36,9 @@ The import modal stays in a loading state through installation, connector/skill 
 
 October 14 follow-up verification: the startup-connection regression failed before the fix; delayed connector reads, overlapping skill scans and completion failure/retry are covered by store tests. Native Electron re-imported the Claude GitHub bundle and opened its connector controls immediately without refreshing. A browser preview with a deliberately delayed library response verified the loading state and disabled dismissal/actions, then a failed update and retry with one import write. The full app suite passed **988 tests across 148 files**; after adding the missing-skill failure case, the focused completion/connection suite passed **30 tests across 2 files**. App TypeScript checks and the production build passed.
 
-![Loading while the library updates (deliberately delayed test response)](images/plugin-import-loading.png)
-
-![Native GitHub connector controls opened immediately after import, without refresh](images/plugin-import-ready-without-refresh.png)
-
 Previously, an older refresh could replace a newly imported connector with an empty list, producing a false "This item is no longer available" in plugin details. A whole plugin containing just one connector was also mistaken for a standalone connector import. The import review and post-import navigation now share a format-based decision: a whole Claude/Codex/portable plugin remains a plugin, with its component count; a standalone connector retains direct setup.
 
 Verification: two store regressions failed before the fix. The final suite passed **984 app tests across 147 files**, **40 server tests across 4 files**, app TypeScript checks and the production build. Store regressions cover visibility during delayed engine status, configuration-only refresh, stale refresh completion and workspace switching; import presentation checks cover whole one-connector plugins and standalone connector/skill imports. Native Electron re-imported the actual Claude GitHub bundle in the dev profile, verified that the review says Plugin · 1 connector and returns to Plugins, opened its connector immediately, and verified the owned connector row and setup controls in Connectors. The imported connector remains disabled; no provider sign-in was started.
-
-![GitHub connector opens inside the re-imported plugin in Electron](images/import-github-plugin-connector-opens.png)
-
-![Imported GitHub connector in the main Connectors library](images/import-github-plugin-connector-listed.png)
 
 Import reviews adapt to their contents. A single connector, skill, agent or command has one icon, name and type, without a repeated count or contents card. A single component from a plugin retains the package name when it differs; a standalone skill uses its skill name rather than treating its folder as a plugin. Source-only imports have a compact summary without an empty contents list. Larger packages retain grouped component names and counts, without a duplicate total. A lone compatibility note is visible directly; several notes keep their expandable list. Source information stays under Import details, and the package selector appears only for folders with several packages. Reading uses a compact progress view. Discovery uses the top-right cross to close, and review has Back / Import actions.
 
@@ -77,25 +59,17 @@ This organization follows the installed-item management and separate discovery f
 
 Global-directory verification: app TypeScript checks and **35 focused tests across 3 files** passed. Native Electron verified opening/closing from all four categories, returning to each selected category and preserving a Plugins search. No account, connector or plugin was changed.
 
-![Global Browse directory action on Plugins in Electron](images/integrations-global-browse-directory.png)
-
 ## Connector status consistency
 
 The Plugins library also exposes unfinished connector setup. Each plugin row counts only its owned connectors that need setup or attention, leaving usable skills available and omitting a status when all connectors are ready. Plugin contents show each connector's exact state with the same labels and colors as Connectors, and the complete row opens the existing setup controls. These states come from the live connections-store snapshot and the recorded installed connector identities, without another cache or status fetch. Before the first connector list loads, unknown entries do not manufacture an offline warning. Standalone connectors and skills retain their own tabs and import-record types.
 
 Plugin setup verification: three new rendered-library cases failed before the change. Coverage includes all connector states, counts with mixed ready/setup/error components, unknown states, skills-only packages and canonical owned identities. Native Electron verified GitHub's plugin-level “1 connector needs setup”, “Enable to use” inside its contents and the existing connector controls; no connector was enabled or signed in.
 
-![Plugin row flags the connector needing setup](images/plugin-connector-needs-setup.png)
-
-![Plugin contents show the exact connector state](images/plugin-connector-component-status.png)
-
 Personal, plugin and team connectors now use one state resolver and presenter for labels and indicators. Sign-in uses **Sign in to use it** with an amber dot; disabled entries use **Enable to use** without a dot; missing personal keys use **Add your key to use it** with an amber dot; incomplete sign-in setup uses **Sign-in setup is incomplete** with an amber dot; failed connections use **Issue** with a red dot; disconnected entries use **Offline** with a gray dot. Connected entries have no redundant Ready label. Directory sign-in prompts, connector details and team error titles use the same wording. Optional membership and missing keys take precedence, while actual failures and setup errors are preserved instead of becoming generic sign-in prompts.
 
 The mismatch came from separate presentation logic in `mcp-view.tsx` and `firm-connectors.tsx`, including different translation keys and missing team indicators. Both receive the same runtime status map. Team metadata supplies firm ownership, membership and personal-account requirements; keeping those permissions separate is necessary. The screen's remaining structural debt is the large connector component mixing directory browsing, library orchestration and detail controls. Further cleanup should split those responsibilities and adapt source metadata to shared presentation, while retaining the existing server, account and ownership APIs.
 
 Verification: four new rendered-library regressions failed before the fix. The final suite passed **978 app tests across 147 files**, app TypeScript checks and **5,785 translation keys × English/German**. The state matrix covers personal/plugin/team sign-in, setup, failure, disabled, connected and disconnected rows, including matching indicator colors. Existing tests cover optional membership, key requirements, account actions and read-only controls. Native Electron verified the actual GitLab plugin and Linear team rows with identical sign-in text and indicators. No connector or provider account was changed.
-
-![Matching plugin and team connector statuses in Electron](images/integrations-connector-statuses-aligned.png)
 
 ## Plugin details
 
@@ -107,19 +81,9 @@ Personal and imported skills opened from the Skills tab start in the same render
 
 Skills-tab verification: app TypeScript checks and **40 focused tests across 5 files** passed. Native Electron verified opening Clerk Android from Skills, rendered instructions, Edit opening the editor, and closing/reopening without changing the installed file.
 
-![Shared skill details opened from the Skills tab in Electron](images/integrations-skills-shared-details.png)
-
 Display names are separated from installed identities. Component opening uses recorded installation destinations and full connector keys, so readable labels cannot accidentally select a similarly named skill or connector from another plugin. The document API reads only registered agent/command files, requires host access for global packages, rejects linked/unowned paths and bounds displayed files to 1 MB. Read-only servers retain reading access.
 
 Verification: **972 app tests across 147 files**, **35 server tests across 3 files**, app/server TypeScript checks, the production build, runtime bundles and **5,785 English/German translation keys** passed. Native Electron verified the actual Clerk bundle's readable 21-skill list, opening Clerk Android and returning to Clerk. An isolated browser fixture with production components verified search, skill view/edit/save, unsaved-change cancellation, returning to the same filtered list, bundled connector activation/sign-in controls, agents, commands and failed-document retry. Editing in that fixture used an in-memory store; the actual installed Clerk files and provider accounts were not modified. The temporary fixture was removed.
-
-![Actual Clerk plugin in Electron](images/integrations-plugin-clerk-details.png)
-
-![Skill details within the plugin in Electron](images/integrations-plugin-skill-details.png)
-
-![Mixed plugin contents, isolated sample verification](images/integrations-plugin-mixed-details.png)
-
-![Bundled connector controls, isolated sample verification](images/integrations-plugin-connector-details.png)
 
 ## Creating a plugin
 
@@ -128,10 +92,6 @@ Choose **Add → Plugin** on any Integrations category. The standard creation di
 The host-only workflow-plugin API creates a global, independently owned bundle with a native LegalWork identity, rather than labelling it as a ChatGPT/Claude import. It copies complete skill folders and executable resources. When an item belongs to an imported package, its supporting source bundle is copied and resource paths are rebased so removing the original package does not break the new copy. Selected connector configurations are copied disabled; saved OAuth sign-ins are never read or moved. Removal uses the existing package lifecycle and preserves the original skills/connectors. Empty/duplicate selections, missing items, linked resources, excessive package size and duplicate plugin names are rejected. Host authorization, read-only mode, firm policies, approval, audit, rollback and workspace reloads use the existing server surfaces. Firm-managed items and built-in app tools are not creation options.
 
 Creation verification: server tests passed **34 tests across 3 files** (`pnpm --filter legalwork-server exec bun test src/plugin-imports.test.ts src/connector-imports.test.ts src/cloud-plugins.test.ts`), including real API creation, owner enforcement, concurrent duplicate-name rejection, cross-project visibility, read-only rejection, full resource copies and removal preserving originals. App tests passed **971 tests across 147 files**, including the focused **33-test** library/import suite. App/server TypeScript compilation, the production app build, server runtime bundles and English/German translations (**5,777 keys**) passed. Native Electron verified Add → Plugin, readable component names, search, mixed skill/connector selection, disabled submission without contents, and cancellation/focus return. No real account was connected or user plugin created during desktop verification.
-
-![Add menu with Plugin in Electron](images/integrations-plugin-add-menu.png)
-
-![Plugin creator in Electron](images/integrations-plugin-creator.png)
 
 ## Supported formats
 
@@ -170,8 +130,6 @@ Context7 imports without a supplied OAuth client or callback use `http://localho
 
 Context7 verification on 14 October 2026: **46 focused import/runtime tests** and **5 real-engine OAuth flow tests** passed, together with server TypeScript checks and the incremental importer runtime build. The new engine test reproduces a callback rejection after provider normalization, then verifies registration, consent, the desktop callback broker, PKCE and token exchange with the imported callback. Native Electron's existing Context7 connector completed real account authorization using a freshly registered public client with the localhost callback; the details show an enabled connector and Log out. The engine reports connected without error before and after restarting the dev preview. This live check used an explicit client registration; automatic registration is covered by the isolated engine test.
 
-![Context7 enabled and signed in after authorization](images/context7-signed-in.png)
-
 The connector popup shows **Set up to use** when required values remain, with one **Set up** action. Its existing modal collects the missing values using masked credential inputs. Connection settings allows editing the endpoint, headers, local program/arguments/working directory, environment and OAuth client details. Saving retains the connector's registered identity and existing global/project ownership, forwards the complete configuration into the running engine, and verifies the connection outcome. A failed update cannot reuse an old connected status to claim success. Required placeholders cannot be activated through the server API. Older entries already saved as enabled are also kept inactive in engine configuration until setup is complete. Region and tenant headers still allow OAuth when the server requires it. The popup keeps the normal LegalWork controls, one Back action and the top-right cross.
 
 Plugin commands reference the folder-qualified agent identity that the engine actually registers. The server's command listing also scans owned namespace folders. Re-import stores the source defaults separately, so configured credentials and activation choices survive while unchanged defaults receive source updates. Credentials are cleared and the connector remains disabled when its source endpoint or connection type changes. Existing packages without a defaults snapshot conservatively retain their configured values on the first re-import.
@@ -179,8 +137,6 @@ Plugin commands reference the folder-qualified agent identity that the engine ac
 Verification on 14 October 2026: **998 app tests across 149 files**, **96 focused server tests**, **54 focused app tests**, TypeScript checks, the production app build, packaging validation and **5,811 English/German translation keys** passed. The full server suite passed 1,613 tests, skipped 17 optional checks, and retained the four local-skill failures described below; the real OAuth control/rebuild tests also passed independently. The running OpenCode 1.18.29 engine found the imported agent through its command's recorded identity and retained the OAuth redirect settings. A local connector configured through the production setup helper read its bundled support file from the correct working directory and received the resolved synthetic environment value. Native Electron verified the existing GitHub package's setup status, required masked token input, and disabled Save and connect before a value was entered. No real token or third-party account was submitted.
 
 The full server suite has four existing failures caused by the invalid local Claude `_gstack-command` skill; the same four failures were reproduced with pre-change source. The unrelated calendar source edit was retained. The desktop dev preview remains running.
-
-![GitHub token setup in the existing connector modal](images/plugin-connector-token-setup.png)
 
 ## Updates and limits
 
@@ -200,14 +156,6 @@ Installation requires the digest from the reviewed preview. Source, scope or tar
 - [Claude MCP reference](https://code.claude.com/docs/en/mcp): configuration formats, environment expansion, OAuth and helper differences.
 
 ## Validation
-
-![Desktop discovery with readable names and native folder/ZIP choices](images/plugin-import-desktop-dialog.png)
-
-![Separate review of the detected package components](images/plugin-import-review.png)
-
-![Standalone connector discovery in Electron](images/connector-import-discovery.png)
-
-![Standalone connector review in Electron](images/connector-import-review.png)
 
 Native Electron verification found existing installations for both providers, filtered discovery by name and type, checked combined search/filter empty results and Back behavior, imported a Claude folder and a ChatGPT ZIP through the native pickers, and verified the resulting package cards and readable skill names. The ZIP fixture contained skills, a connector, an agent, a command and supporting files; its missing-credentials connector remained disabled. Routine credential setup is no longer a compatibility note. Standalone Claude and Codex MCP connectors were also discovered from project configuration, reviewed and imported into the paused connector library. A Node runtime smoke check verifies TOML discovery and header translation independently of the Bun test runner. No real MCP service was connected.
 
@@ -229,37 +177,15 @@ Latest checks:
 
 - Public Plugins tab: the full app suite passed **971 tests across 147 files**, and the focused import/library suite passed **33 tests across 4 files**. App type checking, translations (**5,760 keys × English/German**) and the production build passed with the existing chunk-size warning. Native Electron opened the actual Plugins route and its empty state. A temporary browser fixture using the production Integrations, package and import views verified populated bundles, standalone-record exclusion, provider labels, contents, global import-manager access, source filtering, complete-bundle import returning to Plugins from Team Skills, search, confirmed removal without restoring stale cached rows, read-only controls and developer-only engine management. All mutations used sample stores; no real bundle, connector or account was changed. The fixtures and browser tabs were removed.
 
-![Plugins library with a sample bundle, production UI verification](images/integrations-plugins-library.png)
-
-![Actual Electron Plugins tab after restarting the dev app](images/integrations-plugins-desktop.png)
-
 - Compact import reviews: the focused app import/library suite passed **31 tests across 4 files**, and app type checking, translations (**5,755 keys × English/German**) and the production build passed with the existing chunk-size warning. A temporary browser fixture rendered the actual production popup with sample stores and verified both provider layouts, single connectors and skills, a one-skill plugin with a distinct package name, mixed component packages, source-only imports, multiple-package selection, source details, one/multiple compatibility notes, reading dismissal, import failure, retry and disabled progress controls. The fixture and browser tab were removed. No real connector, package or account was changed. The running Electron dev app receives the updated UI.
-
-![Compact review for one connector, production popup with sample data](images/import-single-connector-compact.png)
-
-![Grouped review for a larger package, production popup with sample data](images/import-package-review-clean.png)
-
-![Source-only review without an empty contents card, production popup with sample data](images/import-source-only-compact.png)
 
 - Compatibility-note audit: the focused server import/install suite passed **38 tests across 5 files**, with regressions for ordinary GitHub/environment/OAuth setup producing no note, retained unsupported execution/permission/authentication behavior, and source-only packages. App/server type checking and the runtime build passed. Native Electron previewed the actual bundled GitHub connector and verified that the generic credential/environment note is absent. No connector was imported or account connected during this check.
 
-![Actual desktop GitHub review without the routine setup compatibility note](images/import-github-no-setup-note.png)
-
 - Single connector setup: the full app suite passed **969 tests across 147 files**, the focused import/account/library suite passed **49 tests**, and the server import/install suite passed **34 tests**. App/server type checking, translations (**5,755 keys × English/German**) and the production app/runtime builds passed with the existing app chunk-size warning. A temporary browser fixture using the production Integrations/import/connector components verified a clean review, import-result identity, delayed list refresh, search clearing, automatic details opening and the Sign in control. Store regressions cover enabling before sign-in, rejected activation and switching workspaces during activation. The fixture was removed; no real provider account was connected. The Electron dev app was restarted with the updated importer.
-
-![Clean review for one connector, sample-data verification](images/import-connector-clean-review.png)
-
-![Details open automatically after importing one connector, sample-data verification](images/import-connector-direct-details.png)
 
 - Legacy connector UI cleanup: `pnpm --filter @legalwork/app test` passed **966 tests across 147 files**. The focused connector/store/account suite passed **57 tests**, including healthy empty server/file configurations, team-only rows and retained registration errors. App type checking, translations (**5,754 keys × English/German**) and the production build passed with the existing chunk-size warning. Native Electron verified the actual Linear team row without the legacy banner, the directory's connector wording and returning to the list. No connector, account or membership was changed.
 
-![Actual desktop connector library without the obsolete configuration banner](images/integrations-no-legacy-mcp-banner.png)
-
 - Bundled connector selection: the focused server import/install suite passed **34 tests across 5 files**, including both provider formats, MCP precedence, configuration isolation, executable support files, independent update/removal and selector/link validation. The focused app library/presentation suite passed **30 tests**. App/server type checking, the production app build (existing chunk-size warning), translations (**5,772 keys × English/German**), and the full app suite (**962 tests across 147 files**) passed. A browser fixture using the production import popup and metadata/previews generated by the real server importer verified standalone plus bundled connector rows for both providers, parent-plugin search, connector-only review, retained Back filtering, alternate-version selection, and a digest-checked import callback. The temporary fixture was removed; no real account or connector was changed.
-
-![Individual bundled connectors alongside standalone configurations, sample-source verification](images/import-bundled-connectors.png)
-
-![One bundled connector selected for import, sample-source verification](images/import-connector-clean-review.png)
 
 - Plugin-component visibility: `pnpm --filter @legalwork/app test` passed **961 tests across 147 files**. App/server type checking, app build and translation checks passed (**5,770 keys × English/German**), with the existing app chunk-size warning. `pnpm --filter legalwork-server exec bun test src/connector-imports.test.ts src/plugin-imports.test.ts src/cloud-plugins.test.ts src/claude-plugin-bundle.e2e.test.ts` passed **29 tests**. A browser fixture using the production Integrations/import/package components and in-memory stores verified a ChatGPT plugin import, immediate skill/connector visibility, plugin-name search, named package contents, and removal preserving personal/built-in items. The fixture was removed; no real connector or account was changed.
 
@@ -273,46 +199,16 @@ Native Electron verified All sources, Personal and Team selection, active source
 
 Earlier native checks covered both providers' discovery, folder/ZIP pickers, component review, Back/close/focus, complete Claude-folder/ChatGPT-ZIP imports, paused standalone MCP imports, directory search/filter/detail return, connector setup/account details, package components, selected-item sharing and storage configuration. Windows pickers and real third-party OAuth require separate platform/credential checks. The desktop dev server remains running for review.
 
-![Connector library with one category row](images/integrations-connectors-library.png)
-
-![Compact source-filter menu](images/integrations-source-filter.png)
-
-![Combined skills library](images/integrations-skills-library.png)
-
-![Active Personal source filter](images/integrations-skills-filter.png)
-
-![Shared storage in the combined library](images/integrations-storage-library.png)
-
-![Shared Add dropdown](images/integrations-add-menu.png)
-
-![Common tools menu on File storage](images/integrations-global-tools.png)
-
-![Import source chooser](images/integrations-import-chooser.png)
-
-![Dedicated folder and ZIP import](images/integrations-skill-file-import.png)
-
-![Dedicated GitHub import](images/integrations-github-import.png)
-
 The common-tools menu passed app type checking, the focused 20-test suite and the production build. Native Electron verified the same menu entries on Connectors, Skills and File storage, opening Imported packages from Connectors and File storage without changing categories, and returning focus to More on close. Open skills folder from File storage revealed the existing skills directory in Finder. No package, account or membership was changed.
 
 Connector setup reuses the same **HubTabs** segmented switcher as Integrations and Recorder for **URL / Local server**, above the shared name field. Its shape, spacing, selected surface and focus treatment come from that shared component. URL shows the server address and request-header controls with Continue; Local server shows the command field with Add. Remote workers retain URL-only setup. Native Electron verified switching in both directions with mouse and keyboard, without submitting the form or running a command. App type checking and the production build passed; `pnpm --filter @legalwork/app exec bun test tests/add-mcp-modal.test.tsx tests/mcp-custom-connector.test.ts tests/integration-libraries.test.tsx` passed all 29 tests, and `pnpm --filter @legalwork/app test:i18n` passed with 5,757 keys in English/German.
 
-![Connector setup with URL and Local server tabs](images/integrations-connector-command-tabs.png)
-
 Personal connector details retain only Remove in the footer; the top-right cross closes the dialog. Read-only connectors have no footer. Share with firm is available through the library row menu. Native Electron verified the simplified footer without changing connector access or signing in. `pnpm --filter @legalwork/app typecheck` passed, and `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed all 8 tests.
 
-![Connector details footer](images/integrations-connector-details.png)
-
 Installed team connectors that require their own account now show **Sign in to use it** before the engine reports a status. **Sign in** is also available in the existing row menu and details dialog, using the same account flow. Connected accounts show no sign-in prompt; connection failures and member-key requirements retain their own messages, and optional connectors must still be added before sign-in. The regression reproduced the missing label with no engine status and with a disconnected status before the fix. Native Electron verified the actual automatically installed Linear row, menu and details without starting sign-in or changing account access. `pnpm --filter @legalwork/app exec bun test tests/mcp-library.test.tsx` passed 10 tests; `pnpm --filter @legalwork/app test` passed 951 tests across 146 files. App type checking and the production build passed, with the existing build chunk-size warning.
-
-![Team connector sign-in requirement and action](images/integrations-team-signin.png)
 
 Team connector details now use the existing icon/header, access rows, buttons and alert components. Automatic connectors show **Managed by your firm** in the header and no enablement row. Optional connectors show an **Enable connector** switch with the explanation that it allows agents to use the connector. Account access has one applicable sign-in or personal-key action, while connected accounts, firm-provided access and open access explain their state without prompting for credentials. Missing sign-in addresses and registration/connection failures have clear explanations; pending actions are disabled with progress indicators. The top-right cross closes the popup; team connectors have no footer. Existing optional-membership review and key/sign-in flows remain intact.
 
 Native Electron verified the actual Linear popup, with no misleading Use in chats row. A local browser fixture using the production row and dialog checked 12 states: sign-in required, signed in, optional unadded/added, personal key missing/saved, firm/open access, missing sign-in address, connection failure, registration required and pending changes. No account or membership action was submitted. `pnpm --filter @legalwork/app exec bun test tests/firm-connector-details.test.tsx tests/mcp-library.test.tsx` passed 17 tests. App type checking, production build and translations passed, with 5,768 keys in English/German and the existing build chunk-size warning.
-
-![Actual firm-managed connector popup in Electron](images/integrations-team-popup.png)
-
-
 
 Footer Close buttons are removed from personal and team connector details. Native Electron verified both dialogs and closing them with the top-right cross. `pnpm --filter @legalwork/app typecheck` and `pnpm --filter @legalwork/app exec bun test tests/firm-connector-details.test.tsx tests/mcp-library.test.tsx` passed again (17 tests).
