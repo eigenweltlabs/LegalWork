@@ -140,6 +140,20 @@ export async function savedConnectorConnections(config: ServerConfig, id: string
   return [...managed.map((connection) => connectorConnectionSchema.parse(connection)), ...local];
 }
 
+/** Settings and Memory Drive use local metadata; only explicit refresh/access contacts the broker. */
+export async function savedConnectorStatus(config: ServerConfig, connectorId?: string) {
+  const definitions = connectorId ? [connectorDefinition(connectorId)] : connectorDefinitions;
+  const platform = await readEigenweltConnection(config);
+  const signedIn = Boolean(platform.account && (platform.platformToken || platform.refreshToken));
+  return { configured: signedIn, requiresSignIn: !signedIn,
+    connectors: await Promise.all(definitions.map(async ({ id, name }) => {
+      const connections = await savedConnectorConnections(config, id);
+      return { id, name, configured: signedIn, customConfigured: (await localOAuthClient(config, id)).configured,
+        connections, active: await connectorActiveStatus(config, id, connections) };
+    })),
+  };
+}
+
 export async function connectorStatus(config: ServerConfig, connectorId?: string, forceRefresh = false) {
   const definitions = connectorId ? [connectorDefinition(connectorId)] : connectorDefinitions;
   const connection = await readEigenweltConnection(config);

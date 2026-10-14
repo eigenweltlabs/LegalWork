@@ -6,14 +6,19 @@ import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./setti
 import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess } from "./local-oauth.js";
 import { requireSingleConnectorAccount } from "./single-connection.js";
 
-export type ConnectorRequest = ((path: string, options?: {
-  method?: "GET" | "POST" | "PUT" | "PATCH"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
+export type ConnectorRequestOptions = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
   headers?: Record<string, string>; onResponseHeaders?: (headers: Headers) => void;
-  send?: boolean; empty?: boolean;
-}) => Promise<unknown>) & { apiOrigin?: string };
+  send?: boolean; empty?: boolean; incomplete?: boolean;
+};
+export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
+export type StreamingConnectorRequest = ConnectorRequest & {
+  response: (path: string, options?: ConnectorRequestOptions) => Promise<Response>;
+  assertWrite: () => Promise<void>;
+};
 
 /** Only provider adapters call this. Agents cannot supply arbitrary URLs or headers. */
-export async function createConnectorRequest(config: ServerConfig, id: string, requestedConnectionId?: string): Promise<ConnectorRequest> {
+export async function createConnectorRequest(config: ServerConfig, id: string, requestedConnectionId?: string): Promise<StreamingConnectorRequest> {
   const definition = connectorDefinition(id);
   const saved = await savedConnectorConnections(config, id);
   requireSingleConnectorAccount(saved);
@@ -30,7 +35,17 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
   let accessToken = await connectorAccessToken(config, id, connection.id);
   let refresh: Promise<string> | undefined;
-  const connectorRequest: ConnectorRequest = async (path, options = {}) => {
+  const assertCurrent = async (writing: boolean) => {
+    const current = await savedConnectorConnections(config, id);
+    requireSingleConnectorAccount(current);
+    if (!current.some((item) => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");
+    await requireConnectorActivated(config, id, connection.id);
+    if (writing) {
+      if (connection.source === "custom") await requireLocalOAuthWriteAccess(config, id, connection.id);
+      await ensureConnectorWritesAllowed(config, id);
+    }
+  };
+  const responseRequest = async (path: string, options: ConnectorRequestOptions = {}) => {
     // Reject relative-path escapes and cross-origin URLs even if a future adapter passes one.
     if (!path.startsWith("/") || path.startsWith("//")) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const origin = options.content ? definition.contentOrigin : apiOrigin;
@@ -38,14 +53,14 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || url.hash) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const request = async () => {
+      await assertCurrent(Boolean(options.method && options.method !== "GET"));
       if (options.method && options.method !== "GET") {
-        if (connection.source === "custom") await requireLocalOAuthWriteAccess(config, id, connection.id);
         if (options.send) await requireLocalOAuthSendAccess(config, id, connection.id);
         await ensureConnectorWritesAllowed(config, id);
       }
       await requireConnectorActivated(config, id, connection.id);
       try {
-        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: AbortSignal.timeout(30_000),
+        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000),
           headers: { ...options.headers, Authorization: `Bearer ${accessToken}`, Accept: options.bytes ? "*/*" : "application/json", ...(options.rawBody || options.body === undefined ? {} : { "Content-Type": "application/json" }) },
           ...(options.rawBody ? { body: options.rawBody } : options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         });
@@ -58,7 +73,8 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
       accessToken = await refresh;
       response = await request();
     }
-    if (!response.ok) {
+    if (!response.ok && !(options.incomplete && response.status === 308)) {
+      await response.body?.cancel();
       if (response.status === 401) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);
       if (response.status === 404) throw new ApiError(404, "connector_item_not_found", "The requested item was not found.");
@@ -68,11 +84,15 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
       throw new ApiError(502, "connector_api_failed", `${definition.name} could not complete this request.`);
     }
     options.onResponseHeaders?.(response.headers);
-    if (options.empty) return null;
+    return response;
+  };
+  const connectorRequest: StreamingConnectorRequest = Object.assign(async (path: string, options: ConnectorRequestOptions = {}) => {
+    const response = await responseRequest(path, options);
+    if (options.empty) { await response.body?.cancel(); return null; }
     if (options.bytes) return boundedDownload(response);
     try { return await response.json(); }
     catch { throw new ApiError(502, "connector_api_invalid", `${definition.name} returned an invalid response.`); }
-  };
+  }, { response: responseRequest, assertWrite: () => assertCurrent(true) });
   connectorRequest.apiOrigin = apiOrigin;
   return connectorRequest;
 }

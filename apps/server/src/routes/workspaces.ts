@@ -386,7 +386,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
-    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
+    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders, ctx);
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";

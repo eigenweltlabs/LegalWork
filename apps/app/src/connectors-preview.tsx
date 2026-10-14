@@ -10,6 +10,9 @@ import { EmailDraftToolCard } from "@/components/chat/email-draft-card";
 import { CalendarEventDraftToolCard } from "@/components/chat/calendar-event-draft-card";
 import { MessageListProvider } from "@/components/chat/message-list-provider";
 import { createRoot } from "react-dom/client";
+import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
+import { StorageDriveTree } from "@/react-app/domains/session/panel/storage-drive-tree";
+import { useQuery } from "@tanstack/react-query";
 import { ConnectorConfig } from "@/react-app/domains/settings/connector-config";
 import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
 import { connectorDefinitions } from "@legalwork/types/connectors";
@@ -27,6 +30,17 @@ const client = createLegalworkServerClient({ baseUrl: base, token: "fixture-clie
 const queryClient = new QueryClient();
 const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraftSchema, outlook: EmailDraftSchema, "google-calendar": CalendarEventDraftSchema, "outlook-calendar": CalendarEventDraftSchema, "google-calendar-update": CalendarEventDraftSchema });
 const noop = () => {};
+
+function StoragePreview() {
+  const roots = useQuery({ queryKey: ["fixture-storage-roots"], queryFn: () => client.storageRoots("fixture-project"), refetchInterval: 1000 });
+  return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
+    <h1 className="text-xl font-semibold">File Storage · Synthetic accounts</h1>
+    <div className="grid gap-8 md:grid-cols-[15rem_1fr]">
+      <aside className="rounded-2xl border p-2"><h2 className="p-2 text-sm font-medium">Memory Drive</h2>{roots.data && <StorageDriveTree client={client} workspaceId="fixture-project" roots={roots.data.roots} onOpenFile={() => {}} />}</aside>
+      <FileStorageView client={client} workspaceId="fixture-project" />
+    </div>
+  </main></TooltipProvider></PlatformProvider>;
+}
 
 function DraftPreview() {
   const [data, setData] = useState<z.infer<typeof fixtureDraftsSchema> | null>(null);
@@ -71,5 +85,5 @@ function Preview() {
 const root = document.getElementById("root");
 if (!root) throw new Error("Preview root element not found.");
 const previewRoot = createRoot(root);
-previewRoot.render(new URLSearchParams(window.location.search).has("drafts") ? <DraftPreview /> : <Preview />);
+previewRoot.render(new URLSearchParams(window.location.search).has("storage") ? <QueryClientProvider client={queryClient}><StoragePreview /></QueryClientProvider> : new URLSearchParams(window.location.search).has("drafts") ? <DraftPreview /> : <Preview />);
 if (import.meta.hot) import.meta.hot.dispose(() => previewRoot.unmount());

@@ -99,7 +99,7 @@ const implementations = [
     nativeAction("sharepoint-files", "list_drives", "List document libraries", "List a site's document libraries. Provide siteId, then use the returned driveId for file actions.", driveListInput, sharePoint.drives)] },
 ];
 
-export const CONNECTOR_EXTENSION_ACTIONS = implementations.flatMap(({ id, actions }) => actions.map(({ run: _run, ...action }) => ({
+export const CONNECTOR_EXTENSION_ACTIONS = implementations.flatMap(({ id, actions }) => actions.filter(({ action }) => connectorDefinition(id).kind !== "files" || !["list_files", "upload_file", "update_file", "create_folder"].includes(action)).map(({ run: _run, ...action }) => ({
   ...action, extensionId: id, title: `${connectorDefinition(id).name}: ${action.title}`,
 })));
 

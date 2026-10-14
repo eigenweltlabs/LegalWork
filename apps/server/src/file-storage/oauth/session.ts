@@ -18,7 +18,7 @@ export class StorageOAuth {
     return JSON.stringify([workspaceId, id, input.config, input.readOnly]);
   }
   bind(workspaceId: string, id: string, input: StorageInput) {
-    if (input.config.kind !== "oauth") return;
+    if (input.config.kind !== "oauth" || input.config.accountId) return;
     const key = this.key(workspaceId, id, input);
     const provider = oauthProvider(input.config.provider);
     tokenBindings.set(input, () => this.access(key, provider));

@@ -351,7 +351,7 @@ export function McpView(props: McpViewProps) {
   const setTogglingMcp = (value: SetStateAction<string | null>) => setLocal("togglingMcp", value);
   const configRequestId = useRef(0);
 
-  const quickConnectList = props.quickConnect;
+  const quickConnectList = props.quickConnect.filter((entry) => !connectorDefinitions.some((provider) => provider.kind === "files" && provider.id === entry.id));
 
   useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);

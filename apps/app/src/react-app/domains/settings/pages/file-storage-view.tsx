@@ -1,4 +1,9 @@
 /** @jsxImportSource react */
+import { connectorDefinitions } from "@legalwork/types/connectors";
+import { ConnectorConfig } from "../connector-config";
+import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
+import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
+import { StorageCloudLocations } from "./storage-cloud-locations";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -62,7 +67,9 @@ export function FileStorageView({
 }) {
   const queryClient = useQueryClient();
   const scope = useHubScope() ?? "local";
-  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
+  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider; account?: StorageConnection } | null>(null);
+  const [nativeProvider, setNativeProvider] = useState<string | null>(null);
+  const native = connectorDefinitions.find((item) => item.id === nativeProvider);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -79,7 +86,7 @@ export function FileStorageView({
     queryFn: () => client!.storageOAuthProviders(workspaceId!),
     enabled: Boolean(client && workspaceId),
   });
-  const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
+  const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope).filter((item) => !item.id.startsWith("connector:"));
   // The firm may allow no connections of the member's own.
   const personalForbidden = useOrgPolicyForbids("storage.allowPersonal");
   // The firm's connections are set up on the platform, and who gets them decided there.
@@ -96,6 +103,7 @@ export function FileStorageView({
   };
   useEffect(() => {
     setEditor(null);
+    setNativeProvider(null);
     setRemoving(null);
     setError("");
   }, [client, workspaceId, scope]);
@@ -174,11 +182,11 @@ export function FileStorageView({
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {connection.config.kind === "oauth" ? providers.data?.providers.find((p) => connection.config.kind === "oauth" && p.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
+                      {connection.config.kind === "oauth" ? providers.data?.providers.find((p) => connection.config.kind === "oauth" && p.id === connection.config.provider)?.name ?? connectorDefinitions.find((p) => connection.config.kind === "oauth" && p.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
                       {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
                     </p>
                   </div>
-                  {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
+                  {connection.config.kind === "oauth" && !connection.config.accountId && connection.enabled && connection.team?.installed !== false && (
                     <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
                   )}
                   {connection.team && connection.teamInstallation === "optional" && (
@@ -242,7 +250,7 @@ export function FileStorageView({
             })}
           </div>
         </section>
-      ) : !connections.isLoading && !connections.error ? (
+      ) : !connections.isLoading && !connections.error && !connections.data?.connections.some((item) => item.id.startsWith("connector:")) ? (
         <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
           {t(scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "storage.local_empty")}
         </div>
@@ -254,6 +262,18 @@ export function FileStorageView({
             <h4 className="text-sm font-medium">{t("storage.add")}</h4>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {connectorDefinitions.filter((item) => item.kind === "files").map((provider) => {
+              const account = connections.data?.connections.find((item) => item.id.startsWith(`connector:${provider.id}:`));
+              const icon = resolveBrandIconSrc(undefined, provider.icon);
+              return <div key={provider.id} className="rounded-2xl border border-border bg-background p-5">
+                <button type="button" onClick={() => setNativeProvider(provider.id)} className="group flex w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <div className="mb-4 flex w-full items-center justify-between">{icon && <img src={icon} alt="" className="size-5 object-contain" />}<ArrowUpRight className="size-4 text-muted-foreground/40" /></div>
+                  <span className="text-sm font-medium">{provider.name}</span>
+                  <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{t(account ? "connectors.connected" : "storage.oauth_description")}</span>
+                </button>
+                {account && <Button variant="ghost" size="sm" className="mt-3 px-0" onClick={() => void openNewEditor({ kind: "oauth", account, provider: { id: provider.id, name: provider.name, rootHint: t(provider.id === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") } })}><Plus className="size-3.5" />{t("storage.add_folder_view")}</Button>}
+              </div>;
+            })}
             {providers.data?.providers.map((provider) => (
               <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })}
                 className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -288,12 +308,16 @@ export function FileStorageView({
           client={client}
           workspaceId={workspaceId}
           kind={editor.kind}
-          provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id)}
+          provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id) ?? (() => { const definition = connectorDefinitions.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id); return definition ? { id: definition.id, name: definition.name, rootHint: t(definition.id === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") } : undefined; })()}
           connection={editor.connection}
+          account={editor.account}
           onClose={() => setEditor(null)}
           onSaved={refresh}
         />
       )}
+      {native && <ExtensionDetailModal open onClose={() => setNativeProvider(null)} name={native.name} description={t(native.descriptionKey)} iconSlug={native.icon} kind="extension" presentation="connector"
+        connected={Boolean(connections.data?.connections.some((item) => item.id.startsWith(`connector:${native.id}:`)))}
+        configSlot={<ConnectorConfig id={native.id} legalworkServerClient={client} presentation="dialog" onExtensionConnectionChange={() => refresh()} />} />}
       <Dialog
         open={Boolean(removing)}
         onOpenChange={(open) => {
@@ -344,6 +368,7 @@ function StorageConnectionDialog({
   kind,
   provider,
   connection,
+  account,
   onClose,
   onSaved,
 }: {
@@ -352,17 +377,20 @@ function StorageConnectionDialog({
   kind: StorageKind;
   provider?: StorageOAuthProvider;
   connection?: StorageConnection;
+  account?: StorageConnection;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const initial = connection ?? account;
+  const cloud = initial?.config.kind === "oauth" && Boolean(initial.config.accountId);
   const [name, setName] = useState(connection?.name ?? provider?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
-    connection
-      ? Object.fromEntries(Object.entries(connection.config).map(([key, value]) => [key, String(value)]))
+    initial
+      ? Object.fromEntries(Object.entries(initial.config).map(([key, value]) => [key, String(value)]))
       : kind === "oauth" ? { provider: provider?.id ?? "", root: "" } : storageDefaults(kind),
   );
   const [secrets, setSecrets] = useState<Partial<Record<StorageSecretKey, string>>>({});
-  const [readOnly, setReadOnly] = useState(connection?.readOnly ?? false);
+  const [readOnly, setReadOnly] = useState(initial?.readOnly ?? false);
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState("");
@@ -430,7 +458,7 @@ function StorageConnectionDialog({
           </div>
           <DialogTitle className="flex items-center gap-3 text-xl">
             <Icon className="size-5 text-muted-foreground" />
-            {connection ? t("storage.edit_title") : t("storage.connect_provider", { provider: providerName })}
+            {connection ? t("storage.edit_title") : cloud ? t("storage.add_folder_view") : t("storage.connect_provider", { provider: providerName })}
           </DialogTitle>
           <DialogDescription>{storageDescription(kind)}</DialogDescription>
         </DialogHeader>
@@ -453,12 +481,17 @@ function StorageConnectionDialog({
               maxLength={100}
               disabled={Boolean(busy)}
             />
-            <FieldDescription>{t("storage.name_help")}</FieldDescription>
+            <FieldDescription>{t(cloud ? "storage.personal_view_hint" : "storage.name_help")}</FieldDescription>
           </Field>
           {kind === "oauth" && <Field>
             <FieldLabel htmlFor="storage-oauth-root">{t("storage.oauth_root")}</FieldLabel>
             <Input id="storage-oauth-root" value={values.root ?? ""} onChange={(event) => change("root", event.target.value)} placeholder={provider?.rootHint} />
-            <FieldDescription>{provider?.rootHint ?? t("storage.oauth_root_hint")} {t("storage.oauth_edit_root")}</FieldDescription>
+            <FieldDescription>{cloud ? t(values.provider === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") : provider?.rootHint ?? t("storage.oauth_root_hint")} {cloud ? t("storage.account_reused") : t("storage.oauth_edit_root")}</FieldDescription>
+          </Field>}
+          {cloud && values.provider !== "google-drive" && <Field>
+            <FieldLabel htmlFor="storage-drive-id">{t("storage.drive_id")}</FieldLabel>
+            <Input id="storage-drive-id" value={values.driveId ?? ""} onChange={(event) => change("driveId", event.target.value)} required={values.provider === "sharepoint-files"} />
+            {values.provider !== "onedrive-personal" && <StorageCloudLocations client={client} provider={values.provider!} accountId={values.accountId!} onSelect={(id) => change("driveId", id)} />}
           </Field>}
           <div className="grid gap-4 sm:grid-cols-2">
             {storageFields(kind).map((field) => (

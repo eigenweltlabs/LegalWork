@@ -12,6 +12,7 @@ import { recordConnectorActivation, saveConnectorWriteSetting } from "../src/con
 import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate } from "../src/connectors/drafts.js";
 
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
+const showStorage = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE === "1";
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
 const editedDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_EDITED_DRAFTS === "1";
 const draftMime = new Map<string, string>();
@@ -20,11 +21,12 @@ const mailboxMime = (provider: string) => (draftMime.get(provider) ?? "").replac
 process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
 process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
 process.env.LEGALWORK_ENV_STORE = join(root, "env.json");
+process.env.LEGALWORK_STORAGE_STORE = join(root, "file-storage.json");
 process.env.EIGENWELT_PLATFORM_URL = "https://connector-fixture.test";
 const config: ServerConfig = { host: "127.0.0.1", port: 44641, token: "fixture-client", hostToken: "fixture-host",
   configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [],
   readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
-if (showDrafts) { config.workspaces = [{ id: "fixture-project", name: "Synthetic drafts", path: root, preset: "starter", workspaceType: "local" }]; config.authorizedRoots = [root]; }
+if (showDrafts || showStorage) { config.workspaces = [{ id: "fixture-project", name: "Synthetic drafts", path: root, preset: "starter", workspaceType: "local" }]; config.authorizedRoots = [root]; }
 if (process.env.LEGALWORK_CONNECTOR_PREVIEW_SIGNED_OUT !== "1") {
   await writeEigenweltConnection(config, { platformToken: "fixture-platform-token", platformURL: "https://connector-fixture.test",
     account: { userId: "fixture-user", userName: "Local fixture", userEmail: null, orgId: "fixture-firm", orgName: "Local fixture" } });
@@ -49,6 +51,23 @@ class FixtureSocket extends EventTarget {
 Object.defineProperty(globalThis, "WebSocket", { value: FixtureSocket });
 globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
   const url = new URL(input instanceof Request ? input.url : input.toString());
+  if (showStorage && url.hostname === "www.googleapis.com") {
+    const folder = { id: "google-root", name: "My Drive", mimeType: "application/vnd.google-apps.folder", parents: [], version: "1" };
+    const files = [
+      { id: "doc-1", name: "Review notes", mimeType: "application/vnd.google-apps.document", parents: [folder.id], version: "1", webViewLink: "https://docs.google.com/document/d/fixture" },
+      { id: "pdf-1", name: "Agreement.pdf", mimeType: "application/pdf", size: "12", parents: [folder.id], version: "1" },
+      { id: "pdf-2", name: "Agreement.pdf", mimeType: "application/pdf", size: "14", parents: [folder.id], version: "1" },
+    ];
+    if (url.pathname.endsWith("/files")) return Response.json({ files });
+    return Response.json(files.find(file => url.pathname.endsWith(`/${file.id}`)) ?? folder, { headers: { etag: '"fixture-file-version"' } });
+  }
+  if (showStorage && (url.hostname === "graph.microsoft.com" || url.hostname === "api.onedrive.com")) {
+    if (url.pathname.endsWith("/sites")) return Response.json({ value: [{ id: "site-1", displayName: "Example firm", webUrl: "https://fixture.sharepoint.com/sites/example" }] });
+    if (url.pathname.endsWith("/drives")) return Response.json({ value: [{ id: "drive-1", name: "Documents", webUrl: "https://fixture.sharepoint.com/Documents" }] });
+    if (url.pathname.endsWith("/children")) return Response.json({ value: [{ id: "graph-file", name: "Matter.xlsx", size: 100, file: { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, parentReference: { id: "graph-root", driveId: "drive-1" }, eTag: '"fixture-version"' }] });
+    if (url.pathname.endsWith("/root") || url.pathname.endsWith("/graph-root")) return Response.json({ id: "graph-root", name: "Documents", folder: {}, eTag: '"fixture-version"' });
+    return Response.json({ id: "drive-1" });
+  }
   if (showDrafts && url.hostname === "gmail.googleapis.com") {
     if (url.pathname.endsWith("/profile")) return Response.json({ emailAddress: "fixture@example.com" });
     if (url.pathname.endsWith("/send")) return Response.json({ id: "fixture-sent-message", threadId: "fixture-sent-thread" });
@@ -94,7 +113,7 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   if (url.hostname !== "connector-fixture.test") return nativeFetch(input, init);
   const segments = url.pathname.split("/").filter(Boolean);
   const id = segments[2] === "outlook-calendar" ? "outlook" : segments[2];
-  if (segments.length === 2) return Response.json({ configured: true, providers: showDrafts ? connectorDefinitions.map(({ id }) => ({ id })) : [{ id: "gmail" }, { id: "outlook" }] });
+  if (segments.length === 2) return Response.json({ configured: true, providers: showDrafts || showStorage ? connectorDefinitions.map(({ id }) => ({ id })) : [{ id: "gmail" }, { id: "outlook" }] });
   if (segments.at(-1) === "connect" || segments.at(-1) === "reconnect") {
     const body = z.object({ flowId: z.string() }).parse(typeof init?.body === "string" ? JSON.parse(init.body) : {});
     startingProvider = id;
@@ -105,6 +124,13 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   return connected.has(id) ? Response.json({ connection: { id: `${id}-fixture-account`, createdAt: new Date().toISOString(), needsReconnect: false } }) : Response.json({}, { status: 404 });
 }, { preconnect: nativeFetch.preconnect });
 const server = await startServer(config);
+if (showStorage) {
+  const owner = JSON.stringify(["https://connector-fixture.test", "fixture-firm", "fixture-user"]);
+  for (const provider of connectorDefinitions.filter(item => item.kind === "files")) {
+    connected.add(provider.id);
+    await writeConnectorConnections(config, owner, provider.id, [{ id: `${provider.id}-fixture-local`, nangoConnectionId: `${provider.id}-fixture-account`, createdAt: null, needsReconnect: false }]);
+  }
+}
 const fixtureDrafts = showDrafts ? await (async () => {
   const owner = JSON.stringify(["https://connector-fixture.test", "fixture-firm", "fixture-user"]);
   for (const id of ["gmail", "outlook", "google-calendar"]) {

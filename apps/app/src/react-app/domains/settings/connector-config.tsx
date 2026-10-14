@@ -41,10 +41,10 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
 
   const refresh = useCallback(async (forceRefresh = false) => {
     if (!client) return;
-    const [value, details] = await Promise.all([client.connectorStatus(id, forceRefresh), client.connectorOAuthClient(id)]);
+    const [value, details] = await Promise.all([definition?.kind === "files" && !forceRefresh ? client.connectorSavedStatus(id) : client.connectorStatus(id, forceRefresh), client.connectorOAuthClient(id)]);
     if (!mounted.current) return;
     update(value); setOAuthClient(details); setClientId(details.clientId); setTenantId(details.tenantId); setClientSecret("");
-  }, [client, id, update]);
+  }, [client, id, update, definition?.kind]);
 
   useEffect(() => {
     mounted.current = true;

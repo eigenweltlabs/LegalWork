@@ -56,7 +56,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
   useEffect(() => {
     let active = true;
     setConnectorConnections({});
-    void input.legalworkServerClient?.connectorStatus().then((status) => {
+    void input.legalworkServerClient?.connectorSavedStatus().then((status) => {
       if (active) setConnectorConnections(Object.fromEntries(status.connectors.map((connector) => [connector.id, connectorIsConnected(connector)])));
     }).catch(() => undefined);
     return () => { active = false; };

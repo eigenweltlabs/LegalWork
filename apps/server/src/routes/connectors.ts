@@ -1,7 +1,10 @@
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../errors.js";
-import { connectorStatus, createConnectorFlows, disconnectConnector, setConnectorActivation } from "../connectors/broker.js";
+import { connectorStatus, savedConnectorStatus, createConnectorFlows, disconnectConnector, setConnectorActivation } from "../connectors/broker.js";
+import { microsoftFilesAdapter, driveListInput, siteListInput } from "../connectors/files.js";
+import { createConnectorRequest } from "../connectors/request.js";
+import { connectorDefinition } from "../connectors/definition.js";
 import { callConnectorExtensionAction } from "../connectors/index.js";
 import { addRoute, type Route } from "./registry.js";
 import { z } from "zod";
@@ -29,6 +32,8 @@ export function registerConnectorRoutes(options: {
     return handler(ctx);
   });
   add("GET", "/connectors/settings", async () => jsonResponse(await connectorSettings(config)));
+  add("GET", "/connectors/saved", async () => jsonResponse(await savedConnectorStatus(config)));
+  add("GET", "/connectors/:connectorId/saved", async (ctx) => jsonResponse(await savedConnectorStatus(config, ctx.params.connectorId)));
   add("POST", "/workspace/:workspaceId/connector-drafts/calendar/:draftId/refresh", async (ctx) => {
     const input = z.object({ revision: z.uuid() }).strict().safeParse(await readOptionalJsonBody(ctx.request));
     if (!input.success) throw new ApiError(400, "invalid_payload", "Choose a valid draft revision to refresh.");
@@ -60,6 +65,15 @@ export function registerConnectorRoutes(options: {
     const input = z.object({ connectionId: z.string().min(1).max(500), active: z.boolean() }).strict().safeParse(await readOptionalJsonBody(ctx.request));
     if (!input.success) throw new ApiError(400, "invalid_payload", "Choose the connected account and whether this connector should be active.");
     return jsonResponse(await setConnectorActivation(config, ctx.params.connectorId, input.data.connectionId, input.data.active));
+  });
+  add("GET", "/connectors/:connectorId/storage-locations", async (ctx) => {
+    const id = ctx.params.connectorId;
+    if (connectorDefinition(id).kind !== "files" || id === "google-drive") throw new ApiError(400, "invalid_payload", "Choose a Microsoft storage account.");
+    const query = Object.fromEntries(ctx.url.searchParams);
+    const { kind, ...args } = query;
+    const request = await createConnectorRequest(config, id, query.connectionId);
+    const adapter = microsoftFilesAdapter({ personal: id === "onedrive-personal", sharepoint: id === "sharepoint-files" });
+    return jsonResponse(kind === "sites" ? await adapter.sites(request, siteListInput.parse(args)) : await adapter.drives(request, driveListInput.parse(args)));
   });
   add("GET", "/connectors/:connectorId/oauth-client", async (ctx) => jsonResponse(await localOAuthClient(config, ctx.params.connectorId)));
   add("PUT", "/connectors/:connectorId/oauth-client", async (ctx) => {
