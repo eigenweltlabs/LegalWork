@@ -149,6 +149,7 @@ export type PanelTabStore = {
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
   resolveViewTab: (draftId: string, saved: ViewPanelTab) => void;
+  replaceTab: (tabId: string, replacement: PanelTab) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
@@ -536,6 +537,24 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         }));
         return [scope, normalizeSession({ ...session, tabs: replaceGenerationTab(session.tabs, draftId, saved), panes })];
       })) })),
+      replaceTab: (tabId, replacement) => set(state => {
+        const sessions = { ...state.sessions };
+        let changed = false;
+        for (const [scope, session] of Object.entries(sessions)) {
+          if (!session.tabs.some(tab => tab.id === tabId)) continue;
+          changed = true;
+          const panes = session.panes.map(pane => ({ ...pane,
+            tabIds: pane.tabIds.flatMap(id => id === tabId ? [replacement.id] : id === replacement.id ? [] : [id]),
+            activeTabId: pane.activeTabId === tabId ? replacement.id : pane.activeTabId === replacement.id ? null : pane.activeTabId,
+            previewTabId: pane.previewTabId === tabId || pane.previewTabId === replacement.id ? undefined : pane.previewTabId,
+          }));
+          sessions[scope] = normalizeSession({ ...session, panes,
+            tabs: session.tabs.flatMap(tab => tab.id === tabId ? [replacement] : tab.id === replacement.id ? [] : [tab]),
+            activeTabId: session.activeTabId === tabId ? replacement.id : session.activeTabId,
+          });
+        }
+        return changed ? { sessions } : state;
+      }),
       finishFileImport: (id, file) => set(state => {
         const sessions = { ...state.sessions };
         let changed = false;

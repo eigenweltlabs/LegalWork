@@ -88,6 +88,7 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   if (method === "POST" && /^\/workspace\/[^/]+\/view-generations\/[^/]+$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/wikis/file-policy") return true;
   if (method === "GET" && (pathname === "/workspaces" || pathname === "/wikis")) return true;
+  if (method === "GET" && /^\/wikis\/(?!deleted$|team$)[^/]+$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/search$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/fields$/.test(pathname)) return true;
   if (method === "POST" && /^\/wikis\/[^/]+\/query$/.test(pathname)) return true;

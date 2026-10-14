@@ -36,6 +36,10 @@ export function registerWikiSuggestionRoutes(options: {
     const project = config.workspaces.find(item => item.id === ctx.params.workspaceId);
     if (!project || !await wikiAgentCanAccess(config, await store.list(), wiki, await realpath(project.directory || project.path))) throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project.");
     await options.ensureWikiReadable?.(ctx, wiki);
+    const folder = target.path.includes("/") ? target.path.slice(0, target.path.lastIndexOf("/")) : "";
+    if (folder && !((await store.snapshot(wiki.id)).folders ?? []).includes(folder)) {
+      throw new ApiError(400, "wiki_folder_missing", "This folder is not in the selected wiki. Choose an existing folder.");
+    }
     if (writing) await options.ensureWikiWritable?.(ctx, wiki);
     return wiki;
   };

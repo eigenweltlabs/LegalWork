@@ -74,7 +74,7 @@ test("Unicode directories use encoded headers and unavailable remote directories
 test("runtime auth permits only the page tool endpoints and refuses broader management/proxy access", async () => {
   const { config, root, request } = await fixture();
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
-  for (const [path, method] of [["/wikis", "GET"], ["/workspaces", "GET"], ["/wikis/wiki-id/search?q=note", "GET"],
+  for (const [path, method] of [["/wikis", "GET"], ["/wikis/wiki-id", "GET"], ["/workspaces", "GET"], ["/wikis/wiki-id/search?q=note", "GET"],
     ["/wikis/wiki-id/page?path=Note.md", "GET"], ["/wikis/wiki-id/page", "PUT"], ["/wikis/wiki-id/page", "DELETE"]])
     expect((await authenticateWikiAgentRequest(config, request(path, { method })))?.actor.scope).toBe("owner");
   for (const [path, method] of [["/wikis/deleted", "GET"], ["/wikis/wiki-id/archive", "POST"], ["/wikis/wiki-id/restore-wiki", "POST"], ["/wikis", "POST"], ["/wikis/wiki-id", "PATCH"], ["/workspaces", "POST"],

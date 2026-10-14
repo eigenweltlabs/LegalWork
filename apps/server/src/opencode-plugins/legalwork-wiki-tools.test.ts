@@ -67,6 +67,7 @@ beforeEach(async () => {
       const input = z.object({ title: z.string(), content: z.string(), destination: z.object({ wikiId: z.string(), path: z.string(), baseRevision: z.string().nullable() }) }).parse(body);
       return response({ ...input, id: "7f042ba9-a47f-4edf-9b75-dcb4c573ee7b", workspaceId: "project-1", sessionId: null, status: "pending", createdAt: 1, updatedAt: 1, revision: "draft-1", filePath: ".legalwork/tmp/wiki-suggestions/7f042ba9-a47f-4edf-9b75-dcb4c573ee7b/draft.md" }, 201);
     }
+    if (/^\/wikis\/[^/]+$/.test(url.pathname)) return response({ folders: ["Topics", "Topics/Privacy", "Playbooks"], pages: [...documents.values()].map(file => ({ path: file.path, title: file.path, type: "page", properties: {}, links: [], excerpt: file.content.slice(0, 80), revision: file.revision, updatedAt: file.updatedAt })) });
     if (url.pathname.endsWith("/search")) return response({ items: [{ path: "Notes.md", title: "Useful note", type: "research",
       properties: { status: "draft", sources: ["original"] }, links: [], excerpt: "Useful note", revision: "revision-1", updatedAt: 1 }] });
     if (url.pathname.endsWith("/page")) {
@@ -152,7 +153,9 @@ describe("wiki agent access", () => {
     const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
     const result = JSON.parse(await tool.wiki_list.execute({}));
     expect(result.wikis.map((wiki: { id: string }) => wiki.id)).toEqual(["wiki-1"]);
-    expect(result.wikis[0].sync.kind).toBe("team");
+    expect(result.wikis[0].shared).toBe(true);
+    expect(result.wikis[0]).not.toHaveProperty("root");
+    expect(result.wikis[0]).not.toHaveProperty("pageCount");
   });
   test("managed engine tools require a session origin and transmit narrow runtime auth", async () => {
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-secret";
@@ -234,6 +237,23 @@ describe("wiki agent content and revisions", () => {
     const procedure = JSON.parse(await tool.wiki_read.execute({ wiki_id: "wiki-1", path: "Playbooks/Contribute.md" }));
     expect(procedure.content).toContain("Update the existing topic");
     expect(procedure.guidance[0].path).toBe("AGENTS.md");
+    expect(requests.every(request => request.method === "GET")).toBe(true);
+  });
+
+  test("folder inspection returns actual structure, page examples and inherited regional instructions", async () => {
+    documents.set("AGENTS.md", document("AGENTS.md", "Root conventions"));
+    documents.set("Topics/AGENTS.md", document("Topics/AGENTS.md", "Topic conventions"));
+    documents.set("Topics/Privacy/AGENTS.md", document("Topics/Privacy/AGENTS.md", "Privacy conventions"));
+    documents.set("Topics/Privacy/Caching.md", document("Topics/Privacy/Caching.md", "# Caching\nUse existing evidence."));
+    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const root = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" }));
+    expect(root.structure.folders).toEqual(["Playbooks", "Topics"]);
+    expect(root.structure.pages.some((page: { path: string }) => page.path.includes("/"))).toBe(false);
+    const region = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1", folder: "Topics/Privacy" }));
+    expect(region.guidance.map((file: { path: string }) => file.path)).toEqual(["AGENTS.md", "Topics/AGENTS.md", "Topics/Privacy/AGENTS.md"]);
+    expect(region.structure.pages.some((page: { path: string }) => page.path === "Topics/Privacy/Caching.md")).toBe(true);
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1", folder: "Knowledge" })).code).toBe("wiki_folder_missing");
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1", folder: "../Topics" })).code).toBe("wiki_folder_missing");
     expect(requests.every(request => request.method === "GET")).toBe(true);
   });
 

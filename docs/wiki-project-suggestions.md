@@ -5,10 +5,10 @@ Project agents can search and read every wiki currently accessible to their proj
 ## Contribution flow
 
 1. Ask a project agent to turn a finding into a wiki suggestion.
-2. The agent searches for existing knowledge and reads the destination wiki guidance.
+2. The agent discovers accessible wikis, searches for existing knowledge, and inspects plausible destinations. `wiki_guidance` returns actual folders, example pages, root instructions and inherited regional `AGENTS.md` files. After reading the relevant procedures and representative pages, it explains the specific knowledge, destination and whether to add or update.
 3. `wiki_suggest` creates a normal Markdown draft under the originating project's `.legalwork/tmp/wiki-suggestions/<id>/draft.md`. The adjacent metadata records its proposed wiki, path, revision and review status.
-4. A review tab opens beside the chat. Both user edits and requested agent edits update only the project draft. The user can change its destination wiki and file path.
-5. **Save to wiki** publishes the exact reviewed draft. **Dismiss** leaves the wiki unchanged and retains the decision so future reviews can avoid repeating it.
+4. A review tab opens beside the chat. Both user edits and requested agent edits update only the project draft. Properties render beneath the title. The user can edit content and metadata, choose an existing folder in a wiki, and rename the file through a location picker. Switching wiki resets folder browsing to that wiki's root. The server validates the selected folder when staging, editing and saving; existing page collisions require a reviewed revision.
+5. **Save to wiki** publishes the exact reviewed draft and replaces it in the same tab and pane with the saved read-only wiki page. Back/Forward treats this as the same navigation stop. **Dismiss** leaves the wiki unchanged and retains the decision so future reviews can avoid repeating it.
 
 Project agent credentials cannot call either review action or write pages, properties or views directly into another wiki. Dedicated wiki sessions keep direct access to their own wiki. Fresh access and page revisions are checked at publication; concurrent wiki changes never silently overwrite a colleague's work. Concurrent draft edits open a comparison while retaining the user's buffer.
 
@@ -33,3 +33,14 @@ No user wiki content was changed and no real scheduled task was created. This ch
 The screenshot shows the isolated review fixture, including a simulated project chat on the left and the production review component on the right:
 
 ![Project draft review](wiki-evidence/wiki-suggestion-review.png)
+
+## Destination and saved-tab follow-up
+
+Reviewed the actual Eigenweltlabs Office session: wiki names were available through search, but the agent did not inspect candidate structures before asking for a destination. It read Northstar's legacy Instructions.md and Structure.md (that wiki has no AGENTS.md), plus Templates.md. It did not inspect regional folders or representative destination pages. The contribution instructions now explicitly require that preparation. Simple factual lookup still uses search directly.
+
+The focused app checks passed (27 tests), the broader wiki/server checks passed (145 tests, with one optional real-VM test skipped), and app/server builds and app typechecking passed.
+
+Verification used an isolated project and two fixture wikis. In the production review component, a property was changed from draft to reviewed, the destination was switched to another wiki and a nested existing folder, and Save replaced the draft with the saved read-only page in its original tab. The file retained the edited frontmatter; the original wiki received no page. API tests also reject a path copied from a different wiki, recheck folders at Save, and preserve draft/wiki revision conflicts. No real user wiki or pending draft was modified. The updated agent decision-making instructions have not yet been tested in a fresh model-driven contribution run.
+
+![Review with properties and folder selection](wiki-evidence/wiki-suggestion-review-new.png)
+![Saved page replacing the draft in the same tab](wiki-evidence/wiki-suggestion-saved-in-place.png)

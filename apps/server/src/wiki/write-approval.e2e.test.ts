@@ -44,6 +44,7 @@ async function fixture(timeoutMs = 3_000) {
   const created = await host("/wikis", "POST", { name: "Knowledge", root: join(root, "Knowledge"), template: "blank" });
   expect(created.status).toBe(201);
   const { wiki } = z.object({ wiki: z.object({ id: z.string(), root: z.string(), workspaceId: z.string() }) }).parse(await created.json());
+  await mkdir(join(wiki.root, "Knowledge"));
   const base = `/wikis/${wiki.id}`;
   const content = "---\ntype: client\nstatus: draft\n---\n# Client\n\nOriginal text.\n";
   const page = documentSchema.parse(await (await host(`${base}/page`, "PUT", { path: "Client.md", content, baseRevision: null })).json());
@@ -253,5 +254,24 @@ test("child agents can stage in their originating project but cannot publish or 
   expect((await f.child("/workspace/another-project/wiki-suggestions")).status).toBe(403);
   await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: f.project, scope: "collaborator" });
   expect((await f.child(suggestionsPath, "POST", proposal)).status).toBe(404);
+  await f.unchanged();
+});
+
+
+test("destinations use real folders in the selected wiki and revalidate on Save", async () => {
+  const f = await fixture();
+  const second = z.object({ wiki: z.object({ id: z.string() }) }).parse(await (await f.host("/wikis", "POST", { name: "Other wiki", root: join(f.root, "Other"), template: "blank" })).json()).wiki;
+  const draft = await stage(f);
+  const path = `${suggestionsPath}/${draft.id}`;
+  // A path valid in the first wiki does not silently create folders in the second.
+  const changed = await f.host(path, "PUT", { ...draft, destination: { ...draft.destination, wikiId: second.id } });
+  expect(changed.status).toBe(400);
+  expect(await changed.json()).toMatchObject({ code: "wiki_folder_missing" });
+  expect(WikiSuggestionSchema.parse(await (await f.host(path)).json()).destination.wikiId).toBe(f.wiki.id);
+  await rm(join(f.wiki.root, "Knowledge"), { recursive: true });
+  const save = await f.host(`${path}/save`, "POST", { revision: draft.revision });
+  expect(save.status).toBe(400);
+  expect(await save.json()).toMatchObject({ code: "wiki_folder_missing" });
+  expect(WikiSuggestionSchema.parse(await (await f.host(path)).json()).status).toBe("pending");
   await f.unchanged();
 });

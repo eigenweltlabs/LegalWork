@@ -119,6 +119,16 @@ describe("shared route and tab navigation history", () => {
     store().updateTabLabel(scope, "A", "Updated"); h.flush();
     expect(h.entries).toHaveLength(1);
   });
+  test("saving a wiki suggestion replaces the current history stop with its saved page", () => {
+    store().openTab(scope, file("Source"));
+    const h = history();
+    store().openTab(scope, file("Suggestion")); h.flush();
+    const saved = wikiPanelTab("http://local", "wiki", { kind: "page", path: "Knowledge.md" }, "Knowledge");
+    store().replaceTab("Suggestion", saved); h.flush();
+    expect(h.entries).toHaveLength(2);
+    h.go(-1); expect(active()).toBe("Source");
+    h.go(1); expect(active()).toBe(saved.id);
+  });
   test("live generated views and browser tabs retain their current state when revisited", () => {
     const browser = { id: "browser", type: "browser", label: "Browser", url: "https://example.com", favicon: null, status: "ready", canGoBack: false, canGoForward: false } satisfies Parameters<ReturnType<typeof store>["openTab"]>[1];
     store().openTab(scope, browser);
