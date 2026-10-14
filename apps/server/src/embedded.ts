@@ -152,7 +152,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             LEGALWORK_SERVER_URL: serverUrl,
             LEGALWORK_SERVER_TOKEN: config.token,
             LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
-          LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
+            LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
             OPENCODE_CONFIG: runtimeConfigPath,
             // The firm's enforced settings: read after every project's own config.
             OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),

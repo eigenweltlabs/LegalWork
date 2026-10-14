@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
-import { WikiSuggestionInputSchema } from "@legalwork/types/wiki-suggestions";
+import { WikiSuggestionInputSchema } from "../wiki/suggestion-schema.js";
 import type { WikiRegistration } from "@legalwork/types/wiki";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope } from "../types.js";

@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { WikiSuggestionSchema, wikiSuggestionFile, type WikiSuggestion, type WikiSuggestionInput } from "@legalwork/types/wiki-suggestions";
+import type { WikiSuggestion, WikiSuggestionInput } from "@legalwork/types/wiki-suggestions";
+import { WikiSuggestionSchema, wikiSuggestionFile } from "./suggestion-schema.js";
 import { ApiError } from "../errors.js";
 
 const Metadata = WikiSuggestionSchema.omit({ content: true, revision: true, filePath: true });

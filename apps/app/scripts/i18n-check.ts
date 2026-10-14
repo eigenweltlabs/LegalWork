@@ -154,6 +154,7 @@ const AGENT_FACING = new Set<string>([
   // Starter prompts the user sends to the agent.
   "task_suggestions.grid_prompt", "task_suggestions.redline_prompt",
   "task_suggestions.summary_prompt", "projects.setup.initial_prompt",
+  "scheduled.template_review_prompt",
   // Sample chat content and quoted example prompts.
   "mcp.quick_connect_legalwork_ui_desc",
   "mcp.quick_connect_legalwork_cloud_desc", "mcp.quick_connect_legalwork_admin_desc",
