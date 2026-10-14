@@ -24,7 +24,7 @@ const categories: { section: ComposerToolSection; label: string }[] = [
   { section: "connectors", label: "extensions.connectors_label" },
   { section: "skills", label: "dashboard.skills" },
 ];
-const itemClass = "flex w-full items-start gap-3 rounded-[16px] px-3 py-2.5 text-left text-gray-11 transition-colors hover:bg-gray-2/70";
+const itemClass = "flex min-w-0 w-full items-start gap-3 rounded-[16px] px-3 py-2.5 text-left text-gray-11 transition-colors hover:bg-gray-2/70";
 
 export function ComposerToolMenu(props: {
   section: ComposerToolSection;
@@ -84,30 +84,32 @@ export function ComposerToolMenu(props: {
           <span className="truncate">{t(label)}</span><ChevronRight size={14} className="shrink-0 text-gray-9" />
         </button>)}
       </div>
-      <div className="max-h-72 overflow-y-auto p-2">
-        <div className="mb-2 flex items-center justify-between gap-2 border-b border-dls-border px-1 pb-2">
-          {activePlugin ? <Button variant="ghost" size="sm" className="min-w-0" onClick={() => setPluginId(null)}><ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{pluginImportName(activePlugin)}</span></Button> : <span />}
+      <div className="flex max-h-72 min-w-0 flex-col overflow-hidden p-2">
+        <div className="mb-2 flex shrink-0 items-center justify-between gap-2 border-b border-dls-border px-1 pb-2">
+          {activePlugin ? <Button variant="ghost" size="sm" className="min-w-0 shrink overflow-hidden" onClick={() => setPluginId(null)}><ArrowLeft className="size-3.5 shrink-0" /><span className="truncate">{pluginImportName(activePlugin)}</span></Button> : <span />}
           <Button variant="outline" size="sm" className="shrink-0" onClick={() => props.onConfigure(props.section)}><Settings className="size-3.5" />{t("composer.configure")}</Button>
         </div>
-        {props.section === "workflows" || props.section === "skills" ? skills.length ? <div className="grid gap-1">{skills.map(renderSkill)}</div> : empty(props.skillsLoading, props.section === "workflows" ? "composer.no_workflows" : "context_panel.no_skills") : null}
-        {props.section === "connectors" ? props.connectors.length ? <div className="grid gap-1">{props.connectors.map(renderConnector)}</div> : empty(props.connectorsLoading, "composer.no_connectors") : null}
-        {props.section === "plugins" && !activePlugin ? plugins.length ? <div className="grid gap-1">{plugins.map(plugin => <button key={plugin.pluginId} type="button" className={itemClass} onClick={() => setPluginId(plugin.pluginId)}>
-          <Package size={16} className="mt-0.5 shrink-0 text-gray-9" />
-          <div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{pluginImportName(plugin)}</div>{plugin.description ? <div className="truncate text-xs text-gray-10">{plugin.description}</div> : null}<div className="mt-1"><PluginConnectorStatus states={pluginStates(plugin)} /></div></div>
-          <ChevronRight size={14} className="mt-0.5 shrink-0 text-gray-9" />
-        </button>)}</div> : empty(props.pluginsLoading, "composer.no_plugins") : null}
-        {activePlugin ? <div className="grid gap-1">
-          {activePlugin.files.filter(file => file.objectType === "skill" || file.objectType === "mcp").map(file => {
-            const name = pluginFileInstalledName(file);
-            if (file.objectType === "mcp") {
-              const entry = props.connectors.find(connector => connector.name === name);
-              return <Fragment key={file.configObjectId}>{entry ? renderConnector(entry) : empty(props.connectorsLoading, "plugin_details.unavailable")}</Fragment>;
-            }
-            const skill = props.skills.find(skill => skill.name === name);
-            return <Fragment key={file.configObjectId}>{skill ? renderSkill(skill) : empty(props.skillsLoading, "plugin_details.unavailable")}</Fragment>;
-          })}
-          {!activePlugin.files.some(file => file.objectType === "skill" || file.objectType === "mcp") ? <p className="px-3 py-2 text-xs text-gray-10">{t("composer.plugin_configure_hint")}</p> : null}
-        </div> : null}
+        <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain">
+          {props.section === "workflows" || props.section === "skills" ? skills.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{skills.map(renderSkill)}</div> : empty(props.skillsLoading, props.section === "workflows" ? "composer.no_workflows" : "context_panel.no_skills") : null}
+          {props.section === "connectors" ? props.connectors.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{props.connectors.map(renderConnector)}</div> : empty(props.connectorsLoading, "composer.no_connectors") : null}
+          {props.section === "plugins" && !activePlugin ? plugins.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{plugins.map(plugin => <button key={plugin.pluginId} type="button" className={itemClass} onClick={() => setPluginId(plugin.pluginId)}>
+            <Package size={16} className="mt-0.5 shrink-0 text-gray-9" />
+            <div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{pluginImportName(plugin)}</div>{plugin.description ? <div className="truncate text-xs text-gray-10">{plugin.description}</div> : null}<div className="mt-1"><PluginConnectorStatus states={pluginStates(plugin)} /></div></div>
+            <ChevronRight size={14} className="mt-0.5 shrink-0 text-gray-9" />
+          </button>)}</div> : empty(props.pluginsLoading, "composer.no_plugins") : null}
+          {activePlugin ? <div className="grid min-w-0 grid-cols-1 gap-1">
+            {activePlugin.files.filter(file => file.objectType === "skill" || file.objectType === "mcp").map(file => {
+              const name = pluginFileInstalledName(file);
+              if (file.objectType === "mcp") {
+                const entry = props.connectors.find(connector => connector.name === name);
+                return <Fragment key={file.configObjectId}>{entry ? renderConnector(entry) : empty(props.connectorsLoading, "plugin_details.unavailable")}</Fragment>;
+              }
+              const skill = props.skills.find(skill => skill.name === name);
+              return <Fragment key={file.configObjectId}>{skill ? renderSkill(skill) : empty(props.skillsLoading, "plugin_details.unavailable")}</Fragment>;
+            })}
+            {!activePlugin.files.some(file => file.objectType === "skill" || file.objectType === "mcp") ? <p className="px-3 py-2 text-xs text-gray-10">{t("composer.plugin_configure_hint")}</p> : null}
+          </div> : null}
+        </div>
       </div>
     </div>
   </div>;
