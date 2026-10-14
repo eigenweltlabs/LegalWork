@@ -3,7 +3,7 @@ import { ViewList, useSavedViews } from "../views/view-list";
 import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, BookOpen, Check, ChevronDown, History, Loader2, LockKeyhole, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, History, Loader2, LockKeyhole, MessageSquarePlus, Plus, RefreshCw, Settings2, Users, X } from "lucide-react";
 import type { WikiAsset, WikiEntryOperation, WikiPage, WikiSnapshot, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isLoopbackLegalworkServerUrl, LegalworkServerError } from "@/app/lib/legalwork-server";
@@ -362,6 +362,7 @@ function WikiContentPane(props: WikiPaneProps) {
           <div className="wiki-sidebar-header">
             {props.onManageWikis ? <button className="wiki-nav-row" onClick={props.onManageWikis}><BookOpen size={15} /><span>{t("wiki.manage_all")}</span></button> : null}
             <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
+            <Button size="sm" className="my-2 w-full justify-start" disabled={!wiki || busy} onClick={() => { if (wiki) void run(() => props.onOpenWikiSession(wiki)); }}><MessageSquarePlus size={15} />{t("session.new_task")}</Button>
             <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
           <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={writable} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={openGraph} onAction={entryAction} onImport={importFiles}>
