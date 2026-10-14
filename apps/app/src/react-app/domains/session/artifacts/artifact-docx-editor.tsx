@@ -770,7 +770,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         toast.error(error instanceof Error ? error.message : t("docx.save_failed_draft_open"));
       });
     }}>
-      {metadataReady && visible && <DocxWordTools name={name} editorRef={editorRef} metadata={wordMetadata} readOnly={readOnly || interactionLocked} getBuffer={getBuffer} onProtection={changeProtection} onChanged={markDirty} />}
+      {metadataReady && visible && <DocxWordTools editorRef={editorRef} metadata={wordMetadata} readOnly={readOnly || interactionLocked} onChanged={markDirty} />}
       {changeCount > 0 && <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1" aria-label={t("docx.review_changes")}>
         <Button size="sm" variant="ghost" aria-pressed={commentsOpen} onClick={() => setCommentsOpen(!commentsOpen)}>{t("docx.review_changes")} ({changeCount})</Button>
         {!readOnly && (["accept", "reject"] satisfies Array<"accept" | "reject">).map(decision => <Button key={decision} size="sm" variant="ghost" disabled={interactionLocked || wordMetadata.protection.mode === "trackedChanges"} onClick={() => {
