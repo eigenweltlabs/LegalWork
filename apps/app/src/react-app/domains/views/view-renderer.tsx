@@ -79,7 +79,7 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   }, [client, openSource, projectFiles, requestTab, results.data, view.owner]);
   const datasets: WikiDataResult[] = Object.values(results.data ?? {});
   return <>
-    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />Loading data…</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>Retry</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} dark={dark} onError={setError} /></ViewBoundary>}
+    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} dark={dark} onError={setError} /></ViewBoundary>}
     {error && <details className="lw-saved-view-error"><summary>This view has an error</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
     {datasets.some(data => data.truncated) && <p className="lw-view-data-note">Showing a limited set of records. Charts and local filters use the displayed data.</p>}
     {datasets.length > 0 && <details className="lw-view-provenance"><summary>{view.mode === "report" ? "Snapshot" : "Data"} · {new Date(Math.max(...datasets.map(data => data.asOf))).toLocaleString()}</summary>{datasets.flatMap(data => (data.sources ?? []).map(source => ({ ...source, owner: data.sourceOwner ?? view.owner }))).slice(0, 50).map((source, i) => <button key={`${source.path}:${i}`} onClick={() => navigate(source.path, source.owner)}>{source.path}</button>)}</details>}
@@ -92,10 +92,15 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
   if (!client) return <p className="lw-saved-view-error">Connect to view this report.</p>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>
-    {view.data && <div className="lw-saved-view-toolbar">{!inline && <span>{view.data.mode === "report" ? "Report snapshot" : Object.keys(view.data.queries).length ? "Live dashboard" : "Dashboard"}</span>}<Button size="icon-xs" variant="ghost" aria-label="Refresh view" onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button></div>}
-    {view.data && !readOnly && <div className="flex justify-end px-4"><Button size="sm" variant="ghost" onClick={() => setSaving(true)}>{t("views.save_copy")}</Button></div>}
+    {view.data && <div className="lw-saved-view-toolbar">
+      {!inline && <span>{t(view.data.mode === "report" ? "views.report_snapshot" : Object.keys(view.data.queries).length ? "views.live_dashboard" : "views.dashboard")}</span>}
+      <div className="ml-auto flex items-center gap-1">
+        {!readOnly && <Button size="sm" variant="ghost" onClick={() => setSaving(true)}>{t("views.save_copy")}</Button>}
+        <Button size="icon-xs" variant="ghost" aria-label={t("views.refresh")} title={t("views.refresh")} onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button>
+      </div>
+    </div>}
     {saving && view.data && <SavedViewCopy client={client} view={view.data} onClose={() => setSaving(false)} />}
-    {view.error ? <div role="alert" className="lw-saved-view-error">{view.error.message}<Button size="sm" variant="ghost" onClick={() => void view.refetch()}>Retry</Button></div> : !view.data ? <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />Loading view…</div> : <ResolvedView client={client} view={view.data} refreshKey={refreshKey} openSource={openSource} readOnly={readOnly} />}
+    {view.error ? <div role="alert" className="lw-saved-view-error">{view.error.message}<Button size="sm" variant="ghost" onClick={() => void view.refetch()}>{t("wiki.retry")}</Button></div> : !view.data ? <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />{t("views.loading")}</div> : <ResolvedView client={client} view={view.data} refreshKey={refreshKey} openSource={openSource} readOnly={readOnly} />}
   </div>;
 }
 function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClient; view: ViewRecord; onClose: () => void }) {

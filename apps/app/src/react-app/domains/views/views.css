@@ -10,4 +10,4 @@
 .lw-inline-view { position: relative; border: 1px solid var(--border); border-radius: 12px; margin: 20px 0; overflow: hidden; }
 .lw-inline-view-open { position: absolute; right: 12px; top: 18px; z-index: 2; padding: 2px; color: var(--muted-foreground); cursor: pointer; }
 
-.lw-saved-view-inline .lw-saved-view-toolbar { justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }
+.lw-saved-view-inline .lw-saved-view-toolbar { padding-right: 20px; justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }

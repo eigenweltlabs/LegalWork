@@ -44,3 +44,30 @@ git diff --check
 ```
 
 This follow-up changes client presentation and recovery feedback. It does not rerun the full repository suite or the sandbox VM flow; the wider validation results and known baseline failures remain recorded in PR #280. Native Electron drag gestures are still a manual check.
+
+
+## Dashboard save follow-up
+
+Save actions now say **Save** / **Save a copy**, without an ellipsis. The copy dialog also names itself and its final action as a copy, while a first save keeps the ordinary Save wording.
+
+Destinations are separated into **Projects** and **Wikis**, with folder/book icons and the shared checkbox component. Redundant per-row type labels are removed. The same grouping appears in the destination selector before chat deletion; both dialogs use the same destination query and grouping helper.
+
+Saved dashboard toolbars keep Copy and Refresh together. Preview progress/failure messages describe a preview rather than incorrectly expecting an automatically saved file; these labels and the toolbar actions are localized.
+
+Browser verification used a temporary neutral fixture with real components and mocked clients. Checked the grouped copy dialog, whole-row checkbox activation, first-save wording, saving to both a project and wiki, and the grouped selector before deletion. Also inspected the compact toolbar in inline mode. No real files or chats were modified. The fixture and browser tab were removed.
+
+![Projects and Wikis as separate save destinations](wiki-ux-polish/grouped-save.png)
+
+```sh
+pnpm --filter @legalwork/app exec bun test tests/view-save.test.ts tests/view-generation-sync.test.ts tests/views.test.ts tests/project-view-navigation.test.ts
+# 36 passed, 0 failed, 143 assertions
+
+pnpm --filter @legalwork/app typecheck
+# Passed
+
+pnpm --filter @legalwork/app test:i18n
+# Passed: 6,701 keys in both en/de
+
+git diff --check
+# Passed
+```

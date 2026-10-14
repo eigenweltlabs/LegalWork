@@ -26,7 +26,7 @@ export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client:
   useEffect(() => {
     if (generation?.status !== "streaming" || (activity !== "idle" && activity !== "error")) return;
     // Completion parts can follow session-idle in the same event batch.
-    const timer = window.setTimeout(() => useViewGenerationStore.getState().fail(tab.generationId, activity === "error" ? "Generation stopped with an error. No saved view was returned." : "Generation stopped before a saved view was returned."), 1500);
+    const timer = window.setTimeout(() => useViewGenerationStore.getState().fail(tab.generationId, activity === "error" ? t("views.generation_failed") : t("views.generation_stopped")), 1500);
     return () => window.clearTimeout(timer);
   }, [activity, generation?.status, tab.generationId]);
   if (generation?.preview && client?.baseUrl === tab.serverUrl) return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
@@ -40,8 +40,8 @@ export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client:
   </div></div>;
   const failed = !generation || generation.status === "failed";
   return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
-    <div className="lw-saved-view-toolbar" role={failed ? "alert" : "status"}>{failed ? generation?.error ?? "This generation is no longer available. Ask the agent to create the view again." : <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Creating {generation.title === "Creating view…" ? "view" : generation.title}…</span>}</div>
-    {generation?.program ? <div inert><OpenUIView program={generation.program} streaming /></div> : !failed ? <p className="lw-view-data-note">The page will appear as the agent writes it.</p> : null}
-    {failed && generation?.program && <p className="lw-view-data-note">Unfinished preview. This was not saved as a report or dashboard.</p>}
+    <div className="lw-saved-view-toolbar" role={failed ? "alert" : "status"}>{failed ? generation?.error ?? t("views.generation_unavailable") : <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t("views.creating_preview")}</span>}</div>
+    {generation?.program ? <div inert><OpenUIView program={generation.program} streaming /></div> : !failed ? <p className="lw-view-data-note">{t("views.preview_building_hint")}</p> : null}
+    {failed && generation?.program && <p className="lw-view-data-note">{t("views.preview_unfinished")}</p>}
   </div></div>;
 }

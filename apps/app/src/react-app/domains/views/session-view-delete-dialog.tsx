@@ -1,5 +1,6 @@
+import { useViewSaveDestinations, viewSaveDestinationGroups } from "./view-save-destinations";
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Check } from "lucide-react";
 import type { SessionViewPreview, SessionViewReview, ViewOwner, ViewRecord } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -19,13 +20,8 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
   const [saved, setSaved] = useState<Record<string, ViewRecord>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const destinations = useQuery({ queryKey: ["view-save-destinations", client.baseUrl], queryFn: async () => {
-    const [projects, wikis] = await Promise.all([client.listWorkspaces(), client.listWikis()]);
-    return [
-      ...projects.items.filter(project => project.workspaceType !== "remote" && !wikis.items.some(wiki => wiki.workspaceId === project.id)).map(project => ({ owner: { kind: "workspace", id: project.id } satisfies ViewOwner, name: project.displayName || project.name })),
-      ...wikis.items.filter(wiki => wiki.writable).map(wiki => ({ owner: { kind: "wiki", id: wiki.id } satisfies ViewOwner, name: wiki.name })),
-    ];
-  } });
+  const destinations = useViewSaveDestinations(client);
+  const groups = viewSaveDestinationGroups(destinations.data);
   const itemKey = (item: SessionViewPreview) => JSON.stringify([item.sessionId ?? sessionId, item.callId]);
   const destination = (item: SessionViewPreview, owner: ViewOwner) => destinations.data?.find(target => viewOwnerKey(target.owner) === (targets[itemKey(item)] ?? viewOwnerKey(owner)));
   const selectedTargets = review.items.flatMap(item => {
@@ -71,7 +67,7 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
         <div className="flex items-center gap-2"><DashboardIcon className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title}</span>{saved[itemKey(item)] && <Check className="size-4 text-success" aria-label={t("views.delete_saved")} />}</div>
         {item.preview ? <label className="flex items-center gap-2 text-xs text-muted-foreground">{t("views.delete_save_in")}<select className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm text-foreground" disabled={busy || destinations.isPending || Boolean(destinations.error) || Boolean(saved[itemKey(item)])} value={targets[itemKey(item)] ?? viewOwnerKey(item.preview.owner)} onChange={event => setTargets(values => ({ ...values, [itemKey(item)]: event.target.value }))}>
           {!destination(item, item.preview.owner) && <option value={targets[itemKey(item)] ?? viewOwnerKey(item.preview.owner)}>{t("views.delete_choose_destination")}</option>}
-          {destinations.data?.map(target => <option key={viewOwnerKey(target.owner)} value={viewOwnerKey(target.owner)}>{target.name} · {t(target.owner.kind === "wiki" ? "wiki.title" : "views.project_dashboards")}</option>)}
+          {groups.map(group => <optgroup key={group.kind} label={group.label}>{group.items.map(target => <option key={viewOwnerKey(target.owner)} value={viewOwnerKey(target.owner)}>{target.name}</option>)}</optgroup>)}
         </select></label> : <p className="text-xs text-muted-foreground">{t("views.delete_preview_unavailable")}</p>}
       </div>)}
     </div>
