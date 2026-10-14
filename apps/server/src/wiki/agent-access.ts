@@ -102,9 +102,10 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const match = pathname.match(/^\/workspace\/([^/]+)\/(.+)$/);
   if (!match) return null;
   const route = match[2]!;
-  const allowed = method === "GET"
+  const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
+  const allowed = suggestion || (method === "GET"
     ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+)$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web))$/.test(route);
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web))$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 

@@ -8,7 +8,7 @@ import { TokenService } from "../tokens.js";
 import { serve } from "../serve-node.js";
 import { WikiStore } from "../wiki/store.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "../wiki/agent-access.js";
-import { listApprovals, respondApproval, waitForApprovals } from "../wiki/approval.test-helpers.js";
+import { listApprovals } from "../wiki/approval.test-helpers.js";
 import type { ServerConfig } from "../types.js";
 import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
 
@@ -49,17 +49,16 @@ test("an agent captures an authorized source into real Markdown through the serv
   const server = await startServer(config);
   stops.push(async () => { await server.stop(); });
   const url = `http://127.0.0.1:${server.port}`;
-  const approvedIds = new Set<string>();
-  const approved = async (result: Promise<string>, action: string) => {
-    const [approval] = await waitForApprovals(url, config.hostToken);
-    expect(approval).toMatchObject({ action, workspaceId: "matter", sessionID: "session-capture" });
-    expect(approval.description).toBeTruthy();
-    expect(approvedIds.has(approval.id)).toBe(false);
-    approvedIds.add(approval.id);
-    expect((await respondApproval(url, config.hostToken, approval, "allow")).status).toBe(200);
-    const response = await result;
-    expect(await listApprovals(url, config.hostToken)).toEqual([]);
-    return response;
+  const approved = async (result: Promise<string>, _action: string) => {
+    const raw = await result;
+    const response = JSON.parse(raw);
+    if (!response.suggestion) return raw;
+    const draft = response.suggestion;
+    const reviewed = await fetch(`${url}/workspace/matter/wiki-suggestions/${draft.id}/save`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ revision: draft.revision }) });
+    const saved = await reviewed.json();
+    if (!reviewed.ok) return JSON.stringify(saved);
+    const page = await fetch(`${url}/wikis/${draft.destination.wikiId}/page?path=${encodeURIComponent(draft.destination.path)}`, { headers: { "x-legalwork-host-token": config.hostToken } });
+    return JSON.stringify({ ok: true, ...await page.json() });
   };
   process.env.LEGALWORK_SERVER_URL = url;
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
@@ -91,19 +90,18 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(skills.content).toContain("Capture useful knowledge");
   expect(skills.guidance.some((entry: { path: string }) => entry.path === "AGENTS.md")).toBe(true);
   const guidance = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: wiki.id }));
-  expect(guidance.access_mode).toBe("approval");
+  expect(guidance.access_mode).toBe("suggestion");
   expect(guidance.guidance[0].content).toContain("Skills/wiki-capture/SKILL.md");
   expect(await listApprovals(url, config.hostToken)).toEqual([]);
 
   const proposal = "# General research finding\n\nA reusable finding with its scope, exceptions and public sources.\n";
-  const proposed = tool.wiki_write.execute({ wiki_id: wiki.id, path: "Knowledge/Proposed finding.md", content: proposal, base_revision: null });
-  const [review] = await waitForApprovals(url, config.hostToken);
-  expect(review).toMatchObject({ action: "wiki.write", workspaceId: "matter", sessionID: "session-capture" });
-  expect(JSON.parse(review.description!)).toMatchObject({ path: "Knowledge/Proposed finding.md", content: proposal });
+  const proposed = JSON.parse(await tool.wiki_write.execute({ wiki_id: wiki.id, path: "Knowledge/Proposed finding.md", content: proposal, base_revision: null }));
+  expect(proposed.staged).toBe(true);
   expect(await Bun.file(join(wiki.root, "Knowledge/Proposed finding.md")).exists()).toBe(false);
-  await respondApproval(url, config.hostToken, review, "deny");
-  expect(JSON.parse(await proposed).code).toBe("write_denied");
+  expect((await fetch(`${url}/workspace/matter/wiki-suggestions/${proposed.suggestion.id}/dismiss`, { method: "POST", headers, body: JSON.stringify({ revision: proposed.suggestion.revision }) })).status).toBe(200);
   expect(await Bun.file(join(wiki.root, "Knowledge/Proposed finding.md")).exists()).toBe(false);
+  await grantWikiAgentSession(config, { sessionId: "session-own-wiki", directory: wiki.root, scope: "owner" });
+  const inside = (await LegalWorkWikiTools({ directory: wiki.root, sessionID: "session-own-wiki" })).tool;
 
   // A source read is required before capture. No model or remote document system
   // is simulated here: this fixture tests the actual tool -> HTTP -> file/index path.
@@ -124,7 +122,7 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(stale.code).toBe("wiki_revision_conflict");
   expect(await readFile(join(wiki.root, saved.path), "utf8")).toContain("Review each signature block");
 
-  const patched = JSON.parse(await approved(tool.wiki_properties_update.execute({ wiki_id: wiki.id, path: saved.path,
+  const patched = JSON.parse(await approved(inside.wiki_properties_update.execute({ wiki_id: wiki.id, path: saved.path,
     base_revision: replacement.revision, patch: { set: { status: "reviewed", score: 0 } } }), "wiki.properties.update"));
   expect(patched.content).toContain('status: "reviewed"');
   expect(patched.content).toContain("Review each signature block.");
@@ -145,25 +143,21 @@ test("an agent captures an authorized source into real Markdown through the serv
   expect(projectReport.datasets.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
   expect(JSON.parse(await tool.view_list.execute({})).items.map((view: { id: string }) => view.id)).toContain(projectReport.id);
   const wikiOwner = { kind: "wiki", id: wiki.id };
-  const report = JSON.parse(await approved(tool.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }), "wiki.view.create"));
+  const report = JSON.parse(await approved(inside.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }), "wiki.view.create"));
   expect(report.datasets.reviewed.rows[0]["properties.score"]).toBe(0);
   expect(report.reference).toBe(`wiki:${wiki.id}/${report.id}`);
   const reread = JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id }));
   expect(reread.revision).toBe(report.revision);
-  const updated = JSON.parse(await approved(tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+  const updated = JSON.parse(await approved(inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
     base_revision: report.revision, input: { ...input, title: "Reviewed closing", queries: report.queries, datasets: report.datasets } }), "wiki.view.update"));
   expect(updated.title).toBe("Reviewed closing");
-  expect(JSON.parse(await approved(tool.view_update.execute({ owner: wikiOwner, view_id: report.id,
+  expect(JSON.parse(await approved(inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
     base_revision: report.revision, input }), "wiki.view.update")).code).toBe("view_revision_conflict");
 
   const controller = new AbortController();
-  const cancelledWrite = tool.wiki_write.execute({ wiki_id: wiki.id, path: "Cancelled.md", content: "# Cancelled proposal\n", base_revision: null }, { abort: controller.signal });
-  const [cancelledApproval] = await waitForApprovals(url, config.hostToken);
-  expect(cancelledApproval).toMatchObject({ action: "wiki.write", workspaceId: "matter", sessionID: "session-capture" });
   controller.abort();
-  expect(JSON.parse(await cancelledWrite).ok).toBe(false);
-  expect(await waitForApprovals(url, config.hostToken, 0, 500)).toEqual([]);
-  expect((await respondApproval(url, config.hostToken, cancelledApproval, "allow")).status).toBe(404);
+  const cancelledWrite = await tool.wiki_write.execute({ wiki_id: wiki.id, path: "Cancelled.md", content: "# Cancelled proposal\n", base_revision: null }, { abort: controller.signal });
+  expect(JSON.parse(cancelledWrite).ok).toBe(false);
   expect(await Bun.file(join(wiki.root, "Cancelled.md")).exists()).toBe(false);
 
   const revoked = await fetch(`${url}/wikis/${wiki.id}`, { method: "PATCH", headers, body: JSON.stringify({ allowInProjects: false }) });

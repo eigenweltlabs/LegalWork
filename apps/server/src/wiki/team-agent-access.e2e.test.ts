@@ -66,12 +66,13 @@ async function teamFlow(sandbox?: VmSandbox) {
     expect(JSON.parse(await tools.tool.wiki_query.execute({ wiki_id: wiki.id, query: { fields: ["title"] } })).rows.some((row: { title: string }) => row.title === "Shared source")).toBe(true);
   }
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
-  const pending = outside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-project.md", content: "# Approved project knowledge\n", base_revision: null });
-  const [approval] = await waitForApprovals(b.url, member.config.hostToken);
-  expect(approval).toMatchObject({ workspaceId: project.id, sessionID: "matter-agent", action: "wiki.write" });
+  const staged = JSON.parse(await outside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-project.md", content: "# Approved project knowledge\n", base_revision: null }));
+  expect(staged.staged).toBe(true);
+  expect(staged.published).toBe(false);
   expect((await b.request(`/wikis/${wiki.id}/page?path=From-project.md`)).status).toBe(404);
-  await respondApproval(b.url, member.config.hostToken, approval, "allow");
-  expect(JSON.parse(await pending).ok).toBe(true);
+  expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
+  expect(await readFile(join(project.path, staged.suggestion.filePath), "utf8")).toBe("# Approved project knowledge\n");
+  expect((await b.request(`/workspace/${project.id}/wiki-suggestions/${staged.suggestion.id}/save`, "POST", { revision: staged.suggestion.revision })).status).toBe(200);
   expect(JSON.parse(await inside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-wiki.md", content: "# Wiki knowledge\n", base_revision: null })).ok).toBe(true);
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
   const view = JSON.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
@@ -115,7 +116,7 @@ async function teamFlow(sandbox?: VmSandbox) {
   for (const tools of [inside, outside]) expect(JSON.parse(await tools.tool.wiki_read.execute({ wiki_id: wiki.id, path: "Shared.md" })).ok).toBe(false);
 }
 
-test("team wiki tools separate wiki and project chats, require project write approval and retain project datasets", () => teamFlow(), 30_000);
+test("team wiki tools separate wiki and project chats, stage project drafts for human Save and retain project datasets", () => teamFlow(), 30_000);
 
 test("private wiki setup can discover its own connected storage and execution settings through agent tools", async () => {
   const cloud = await wikiTeamFixture(); cleanup.push(() => cloud.close());

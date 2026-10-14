@@ -63,6 +63,10 @@ beforeEach(async () => {
     if (url.pathname === "/wikis") return response(malformed ? { items: [{ id: "wrong" }] } : { items: wikis });
     if (url.pathname === "/workspaces") return response({ items: [{ id: "project-1", path: projectRoot }] });
     if (url.pathname === `/wikis/${unavailableWiki}/search`) return response({ code: "offline", message: "Offline" }, 503);
+    if (url.pathname === "/workspace/project-1/wiki-suggestions" && method === "POST") {
+      const input = z.object({ title: z.string(), content: z.string(), destination: z.object({ wikiId: z.string(), path: z.string(), baseRevision: z.string().nullable() }) }).parse(body);
+      return response({ ...input, id: "7f042ba9-a47f-4edf-9b75-dcb4c573ee7b", workspaceId: "project-1", sessionId: null, status: "pending", createdAt: 1, updatedAt: 1, revision: "draft-1", filePath: ".legalwork/tmp/wiki-suggestions/7f042ba9-a47f-4edf-9b75-dcb4c573ee7b/draft.md" }, 201);
+    }
     if (url.pathname.endsWith("/search")) return response({ items: [{ path: "Notes.md", title: "Useful note", type: "research",
       properties: { status: "draft", sources: ["original"] }, links: [], excerpt: "Useful note", revision: "revision-1", updatedAt: 1 }] });
     if (url.pathname.endsWith("/page")) {
@@ -223,7 +227,7 @@ describe("wiki agent content and revisions", () => {
     documents.set("Playbooks/Contribute.md", document("Playbooks/Contribute.md", "# Our contribution procedure\nUpdate the existing topic before adding another."));
     const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
     const result = JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" }));
-    expect(result.access_mode).toBe("approval");
+    expect(result.access_mode).toBe("suggestion");
     expect(result.guidance.map((file: { path: string }) => file.path)).toEqual(["AGENTS.md"]);
     expect(result.guidance[0].content).toContain("Playbooks/Contribute.md");
     expect(requests.some(request => request.path.includes("Instructions.md") || request.path.includes("Structure.md"))).toBe(false);
@@ -237,7 +241,7 @@ describe("wiki agent content and revisions", () => {
     const { tool } = await LegalWorkWikiTools({ directory: wikiRoot });
     expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" })).access_mode).toBe("direct");
     wikis[1]!.allowInProjects = true;
-    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-2" })).access_mode).toBe("approval");
+    expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-2" })).access_mode).toBe("suggestion");
     wikis[0]!.writable = false;
     expect(JSON.parse(await tool.wiki_guidance.execute({ wiki_id: "wiki-1" })).access_mode).toBe("read_only");
     documents.set("AGENTS.md", document("AGENTS.md", "New wiki conventions"));
@@ -271,7 +275,7 @@ describe("wiki agent content and revisions", () => {
   });
 
   test("create, replace and delete carry revision preconditions to the server", async () => {
-    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const { tool } = await LegalWorkWikiTools({ directory: wikiRoot });
     const created = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Processes/New note.md", content: "# New", base_revision: null }));
     expect(created.ok).toBe(true);
     expect(created.revision).toBe("revision-2");
@@ -285,7 +289,7 @@ describe("wiki agent content and revisions", () => {
   });
 
   test("a provider's string null creates a page but cannot replace an existing page", async () => {
-    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const { tool } = await LegalWorkWikiTools({ directory: wikiRoot });
     const created = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Firm/About.md", content: "# Firm", base_revision: "null" }));
     expect(created.ok).toBe(true);
     const duplicate = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Firm/About.md", content: "# Overwrite", base_revision: "null" }));
@@ -295,7 +299,7 @@ describe("wiki agent content and revisions", () => {
 
   test("a conflict is surfaced and never retried automatically", async () => {
     conflict = true;
-    const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+    const { tool } = await LegalWorkWikiTools({ directory: wikiRoot });
     const result = JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Notes.md", content: "draft", base_revision: "revision-1" }));
     expect(result.code).toBe("wiki_revision_conflict");
     expect(requests.filter((request) => request.method === "PUT")).toHaveLength(1);
@@ -318,4 +322,17 @@ describe("wiki agent content and revisions", () => {
     expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: "wiki-1", path: "Notes.md" })).guidance).toEqual([]);
     expect(JSON.parse(await tool.wiki_read.execute({ wiki_id: "wiki-1", path: "Missing.md" })).code).toBe("wiki_page_missing");
   });
+});
+
+test("requested project contributions stage files and never call the direct wiki write route", async () => {
+  const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
+  for (const result of [
+    JSON.parse(await tool.wiki_suggest.execute({ title: "Reusable finding", content: "# Useful knowledge", destination: { wikiId: "wiki-1", path: "Knowledge/New.md", baseRevision: null } })),
+    JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "Knowledge/New.md", content: "# Useful knowledge", base_revision: null })),
+  ]) {
+    expect(result.staged).toBe(true);
+    expect(result.published).toBe(false);
+    expect(result.suggestion.filePath).toStartWith(".legalwork/tmp/");
+  }
+  expect(requests.filter(item => item.method !== "GET").every(item => item.path === "/workspace/project-1/wiki-suggestions")).toBe(true);
 });

@@ -1,0 +1,35 @@
+# Project wiki suggestions
+
+Project agents can search and read every wiki currently accessible to their project. Search uses the full indexed page text and metadata, returns relevance-ranked passages, supports quoted phrases and prefix matching, and offers all-word or any-word matching with pagination across wikis.
+
+## Contribution flow
+
+1. Ask a project agent to turn a finding into a wiki suggestion.
+2. The agent searches for existing knowledge and reads the destination wiki guidance.
+3. `wiki_suggest` creates a normal Markdown draft under the originating project's `.legalwork/tmp/wiki-suggestions/<id>/draft.md`. The adjacent metadata records its proposed wiki, path, revision and review status.
+4. A review tab opens beside the chat. Both user edits and requested agent edits update only the project draft. The user can change its destination wiki and file path.
+5. **Save to wiki** publishes the exact reviewed draft. **Dismiss** leaves the wiki unchanged and retains the decision so future reviews can avoid repeating it.
+
+Project agent credentials cannot call either review action or write pages, properties or views directly into another wiki. Dedicated wiki sessions keep direct access to their own wiki. Fresh access and page revisions are checked at publication; concurrent wiki changes never silently overwrite a colleague's work. Concurrent draft edits open a comparison while retaining the user's buffer.
+
+Suggestions require an explicit user request. An explicitly added weekly review schedule authorizes suggestions for that review; ordinary project activity does not.
+
+## Weekly review
+
+Scheduled tasks offers **Weekly wiki knowledge review** as one of its four starter cards. It preselects all-project access and a weekly Friday schedule. The user chooses the project that will hold the drafts, adjusts the instructions or schedule, and saves the task. Merely displaying the card creates nothing.
+
+The review reads the past seven days of project chats, compares findings against accessible wikis and existing proposals, anonymizes reusable knowledge, and prepares drafts for later review. It does not copy client documents or publish changes. Existing project/wiki access restrictions still apply. The server records the schedule editor's wiki authority; collaborator edits cannot retain a prior owner's private-wiki grant.
+
+## Validation (14 October 2026)
+
+- `pnpm --dir apps/server exec bun test src/wiki src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts src/opencode-plugins/legalwork-scheduled-task-tools.test.ts src/scheduled-tasks`: 179 passed, 2 optional tests skipped, 0 failed. The skipped tests require an external model engine or real sandbox VM. HTTP tests cover child credentials, direct-write rejection, staging, exact revisions, revocation, human Save/Dismiss and shared-wiki synchronization.
+- `pnpm --dir apps/app exec bun test tests/wiki-suggestions.test.ts tests/wiki-drafts.test.tsx tests/wiki-editor-outline.test.ts tests/wiki-tabs.test.ts tests/scheduled-task-templates.test.ts tests/scheduled-task-card.test.tsx tests/markdown-block-editor.test.ts`: 40 passed, 0 failed.
+- App and server typechecks and builds passed. App build reports its existing large-chunk warning.
+- Browser UI QA used the real editor, review components and server in an isolated fixture. A simulated tool completion opened the draft beside chat. Manual text edits and destination changes stayed outside both fixture wikis until Save; agent file edits refreshed in the editor; Dismiss wrote nothing; concurrent edits blocked publication and offered explicit conflict resolution.
+- Native Electron was restarted and verified. The weekly review card opens a dialog with All projects, Weekly and the local Friday afternoon schedule. Cancel left the schedule list empty.
+
+No user wiki content was changed and no real scheduled task was created. This change has not had a full model-driven weekly review run.
+
+The screenshot shows the isolated review fixture, including a simulated project chat on the left and the production review component on the right:
+
+![Project draft review](wiki-evidence/wiki-suggestion-review.png)

@@ -11,8 +11,9 @@ const wikiLinksPlugin = realmPlugin({ init(realm) {
   realm.pubIn({ [addSyntaxExtension$]: wikiLinkSyntax, [addMdastExtension$]: wikiLinkFromMarkdown, [addToMarkdownExtension$]: wikiLinkToMarkdown });
 } });
 const extensions = [wikiLinksPlugin(), wikiTitlePlugin(), wikiOutlinePlugin()];
+const inlineTitleExtensions = [wikiLinksPlugin(), wikiOutlinePlugin()];
 
-export function WikiMarkdownEditor({ linkTargets = [], ...props }: ComponentProps<typeof ArtifactMarkdownEditor> & { linkTargets?: WikiLinkTarget[] }) {
+export function WikiMarkdownEditor({ linkTargets = [], titleInEditor = false, ...props }: ComponentProps<typeof ArtifactMarkdownEditor> & { linkTargets?: WikiLinkTarget[]; titleInEditor?: boolean }) {
   const pageLink = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.altKey || !props.onOpenLink || !(event.target instanceof Element)) return null;
     return event.target.closest<HTMLAnchorElement>(".lw-markdown-page a[href]");
@@ -28,5 +29,5 @@ export function WikiMarkdownEditor({ linkTargets = [], ...props }: ComponentProp
     event.preventDefault();
     event.stopPropagation();
     props.onOpenLink?.(wikiEditorLinkTarget(href));
-  }}><ArtifactMarkdownEditor {...props} LinkDialog={WikiLinkDialog} serializeRichText={preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={extensions} suppressHtmlProcessing /></div></WikiLinkTargetsContext.Provider>;
+  }}><ArtifactMarkdownEditor {...props} LinkDialog={WikiLinkDialog} serializeRichText={titleInEditor ? undefined : preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={titleInEditor ? inlineTitleExtensions : extensions} suppressHtmlProcessing /></div></WikiLinkTargetsContext.Provider>;
 }

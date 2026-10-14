@@ -889,9 +889,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         throw new ApiError(409, "schedule_scope_unavailable", "The local engine needs to reload scheduled task permissions. Restart LegalWork before resuming this task.");
       if (task.projectAccess === "project" && !hasProjectTaskBoundary({ name: agent, permission: [...selectedAgent.permission, ...(session.permission ?? [])] }))
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
-      // Schedules can be edited by collaborators. Never retain a prior owner's
-      // private wiki grant when a scheduled run takes over this chat.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: "collaborator" });
+      // The server records the schedule editor's authority. A collaborator edit
+      // downgrades it; old schedules default to shared-wiki access.
+      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope });
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");

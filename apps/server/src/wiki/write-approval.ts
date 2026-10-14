@@ -11,22 +11,12 @@ const within = (root: string, path: string) => {
   return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 };
 
-/** Cross-workspace writes always pause in the originating chat, even in auto mode. */
+/** Project agents can stage drafts, but only a human review action publishes them. */
 export async function approveWikiWrite(ctx: RequestContext, config: ServerConfig, wiki: WikiRegistration,
   input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">,
   standard: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>,
 ) {
   const agent = await authenticateWikiAgentRequest(config, ctx.request);
   if (!agent || within(await realpath(wiki.root), agent.directory)) return standard(ctx, input);
-  const candidates = await Promise.all(config.workspaces.map(async workspace => {
-    const root = await realpath(workspace.directory || workspace.path).catch(() => null);
-    return root && within(root, agent.directory) ? { workspace, root } : null;
-  }));
-  const source = candidates.filter(value => value !== null).sort((a, b) => b.root.length - a.root.length)[0];
-  if (!source) throw new ApiError(403, "wiki_workspace_unknown", "The requesting chat has no registered workspace.");
-  const result = await ctx.approvals.requestApproval({ ...input, actor: agent.actor,
-    workspaceId: source.workspace.id, sessionID: agent.sessionId,
-    summary: `${input.summary} (from ${source.workspace.name})`,
-  }, ctx.request.signal, true);
-  if (!result.allowed) throw new ApiError(403, "write_denied", "Wiki change was not approved.", { requestId: result.id, reason: result.reason });
+  throw new ApiError(403, "wiki_suggestion_required", "Project agents cannot write directly to a wiki. When the user requests a contribution, use wiki_suggest to stage an editable project draft. Only the user can click Save to wiki. Edit or delete other wiki resources in that wiki workspace.");
 }

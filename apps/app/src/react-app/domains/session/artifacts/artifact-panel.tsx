@@ -1,3 +1,4 @@
+import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -51,6 +52,7 @@ const ArtifactPptxEditor = lazy(() => import("./artifact-pptx-editor").then((mod
 const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((module) => ({ default: module.ArtifactXlsxEditor })));
 
 const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").then((module) => ({ default: module.ArtifactMarkdownPanel })));
+const WikiSuggestionPanel = lazy(() => import("../../wiki/wiki-suggestion-panel").then(module => ({ default: module.WikiSuggestionPanel })));
 const ViewFilePanel = lazy(() => import("../../views/view-file-panel").then(module => ({ default: module.ViewFilePanel })));
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
@@ -159,6 +161,9 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   if (tab.reviewRecognition) return <OfficeEditorBoundary key={tab.id}><Suspense fallback={<PreviewLoading />}>
     <ReviewRecognitionPanel client={client} workspaceId={workspaceId} reference={tab.reviewRecognition} name={tab.label} onClose={onClose} />
   </Suspense></OfficeEditorBoundary>;
+
+  const suggestionId = tab.wikiSuggestion?.id ?? suggestionIdFromFile(target.value);
+  if (suggestionId) return <Suspense fallback={<PreviewLoading />}><WikiSuggestionPanel key={suggestionId} client={client} workspaceId={tab.wikiSuggestion?.workspaceId ?? workspaceId} id={suggestionId} tabId={tab.id} /></Suspense>;
 
   if (target.preview === "view") return <Suspense fallback={<PreviewLoading />}><ViewFilePanel client={client} workspaceId={workspaceId} path={target.value} tabId={tab.id} /></Suspense>;
 

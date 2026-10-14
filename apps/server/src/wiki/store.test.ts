@@ -358,3 +358,18 @@ test("deleted wikis restore their files, history, identity and settings after re
   expect((await reopened.history(wiki.id, "Note.md")).length).toBeGreaterThan(0);
   expect(await reopened.deleted()).toEqual([]);
 });
+
+test("full text search ranks titles, finds deep body passages, phrases, prefixes and Unicode without raw FTS injection", async () => {
+  const { store } = await fixture(), wiki = await store.create({ name: "Search", template: "blank" });
+  await store.write(wiki.id, "A.md", "# Notes\n\n" + "Background information. ".repeat(200) + "\nA fiduciary duty arises in this relationship. Übertragung prüfen.\n", "");
+  await store.write(wiki.id, "B.md", "# Fiduciary duties\n\nPractical guidance for trustees.\n", "");
+  await store.write(wiki.id, "C.md", "# Another note\n\nA duty about fiduciary responsibilities.\n", "");
+  const ranked = await store.search(wiki.id, "fiduciar");
+  expect(ranked[0].path).toBe("B.md");
+  expect(ranked.find(page => page.path === "A.md")?.excerpt).toContain("fiduciary duty");
+  expect(ranked.find(page => page.path === "A.md")?.excerpt.length).toBeLessThan(600);
+  expect((await store.search(wiki.id, '"fiduciary duty"')).map(page => page.path)).toEqual(["A.md"]);
+  expect((await store.search(wiki.id, "Übertragung")).map(page => page.path)).toEqual(["A.md"]);
+  expect(await store.search(wiki.id, '" OR * NEAR( --')).toEqual([]);
+  expect(await store.search(wiki.id, "!!!")).toEqual([]);
+});

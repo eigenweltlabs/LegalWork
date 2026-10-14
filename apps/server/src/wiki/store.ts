@@ -469,14 +469,21 @@ export class WikiStore {
     await this.graph(id, undefined, true);
     return [...(await this.index(id)).values()].map(row => row.page);
   }
-  async search(id: string, query: string, type?: string) {
+  async search(id: string, query: string, type?: string, match: "all" | "any" = "all") {
     const snapshot = await this.snapshot(id);
     if (!query.trim()) return snapshot.pages.filter((page) => !type || page.type === type);
-    // Quote individual words so user input cannot become an FTS query program.
-    const terms = query.trim().split(/\s+/).slice(0, 20).map((term) => `"${term.replace(/"/g, '""')}"*`).join(" AND ");
+    // Quoted phrases stay together; other words match prefixes. Never execute raw FTS syntax.
+    const tokens = query.match(/"[^"]+"|[\p{L}\p{N}_]+/gu)?.slice(0, 30) ?? [];
+    const terms = tokens.map(term => term.startsWith('"') ? `"${term.slice(1, -1).replace(/"/g, '""')}"` : `"${term}"*`).join(match === "any" ? " OR " : " AND ");
+    if (!terms) return [];
     const db = await this.db();
-    const matches = new Set(db.all("SELECT path FROM wiki_search WHERE wiki=? AND wiki_search MATCH ? ORDER BY rank LIMIT 500", [id, terms]).map((row) => z.object({ path: z.string() }).parse(row).path));
-    return snapshot.pages.filter((page) => matches.has(page.path) && (!type || page.type === type));
+    const pages = new Map(snapshot.pages.filter(page => !type || page.type === type).map(page => [page.path, page]));
+    return db.all("SELECT path, bm25(wiki_search, 0, 0, 8, 1) AS score, snippet(wiki_search, 3, '', '', ' … ', 48) AS excerpt FROM wiki_search WHERE wiki=? AND wiki_search MATCH ? ORDER BY score", [id, terms])
+      .flatMap(row => {
+        const hit = z.object({ path: z.string(), score: z.number(), excerpt: z.string() }).parse(row);
+        const page = pages.get(hit.path);
+        return page ? [{ ...page, score: hit.score, excerpt: hit.excerpt }] : [];
+      }).slice(0, 500);
   }
   async read(id: string, path: string): Promise<WikiDocument> {
     wikiPath(path);

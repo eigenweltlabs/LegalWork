@@ -1,3 +1,4 @@
+import { suggestionOutcome, suggestionTools } from "@/react-app/domains/wiki/wiki-suggestion-model";
 import { isScheduledTaskTool } from "./scheduled-task-card";
 import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
@@ -134,6 +135,7 @@ type AssistantRenderGroup =
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "wiki-suggestion"; part: DynamicToolUIPart }
   | { kind: "view"; part: DynamicToolUIPart }
   | { kind: "subagents"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
@@ -272,6 +274,7 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (part.type === "dynamic-tool" && suggestionTools.includes(part.toolName) && suggestionOutcome(part.output)) { groups.push({ kind: "wiki-suggestion", part }); continue; }
       if (part.type === "dynamic-tool" && ["view_create", "view_update", "view_read"].includes(part.toolName)) { groups.push({ kind: "view", part }); continue; }
       if (isSubagentTool(part)) {
         const previous = groups.at(-1);

@@ -1,3 +1,4 @@
+import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
 import { ViewInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
@@ -59,6 +60,7 @@ const editor = (ctx: RequestContext) => owner(ctx) || ctx.actor?.scope === "coll
 export function registerWikiRoutes(options: Options): WikiStore {
   const { routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval } = options;
   const store = options.store ?? new WikiStore(config);
+  registerWikiSuggestionRoutes({ ...options, store });
   const visible = (ctx: RequestContext, wiki: WikiRegistration) => owner(ctx) || wiki.sync !== null;
   const selected = async (ctx: RequestContext, writing = false): Promise<WikiRegistration> => {
     const wiki = await store.get(ctx.params.wikiId);
@@ -393,7 +395,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
   });
   addRoute(routes, "GET", "/wikis/:wikiId/search", "client", async (ctx) => {
     await selected(ctx);
-    return jsonResponse({ items: await store.search(ctx.params.wikiId, (ctx.url.searchParams.get("q") ?? "").slice(0, 2000), ctx.url.searchParams.get("type") ?? undefined) });
+    return jsonResponse({ items: await store.search(ctx.params.wikiId, (ctx.url.searchParams.get("q") ?? "").slice(0, 2000), ctx.url.searchParams.get("type") ?? undefined, ctx.url.searchParams.get("match") === "any" ? "any" : "all") });
   });
   addRoute(routes, "POST", "/wikis/:wikiId/sync", "client", async (ctx) => {
     const wiki = await selected(ctx);

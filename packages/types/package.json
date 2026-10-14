@@ -51,6 +51,7 @@
     "./org-policy-view": "./src/org-policy-view.ts",
     "./firm-hub": "./src/firm-hub.ts",
     "./wiki": "./src/wiki.ts",
+    "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts"
   },
   "files": [

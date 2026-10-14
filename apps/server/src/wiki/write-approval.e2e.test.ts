@@ -1,8 +1,8 @@
+import { WikiSuggestionSchema } from "@legalwork/types/wiki-suggestions";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { request as httpRequest } from "node:http";
 import { z } from "zod";
 import { ViewRecordSchema, type ViewInput } from "@legalwork/types/views";
 import { startServer } from "../server.js";
@@ -110,45 +110,6 @@ async function descendantFixture() {
   return { ...f, sessions, engineRequests, child, pendingChild };
 }
 
-test("engine-created child agents read wikis, with writes approved in the actual child chat", async () => {
-  const f = await descendantFixture();
-  for (const path of ["/wikis", `${f.base}/page?path=Client.md`, `${f.base}/fields`])
-    expect((await f.child(path)).status).toBe(200);
-  expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
-  expect(f.engineRequests).toContain("child-chat");
-  expect(f.engineRequests).toContain("matter-chat");
-  const proposal = { path: f.page.path, content: "# Child proposal\n", baseRevision: f.page.revision };
-  const result = f.child(`${f.base}/page`, "PUT", proposal);
-  const approval = await f.pendingChild();
-  expect(JSON.parse(approval.description ?? "null")).toEqual(proposal);
-  const wrongChat = await f.host(`/approvals/${approval.id}`, "POST", { reply: "allow", workspaceId: "matter", sessionID: "matter-chat" });
-  expect(wrongChat.status).toBe(409);
-  await f.unchanged();
-  expect((await f.reply(approval, "allow")).status).toBe(200);
-  expect((await result).status).toBe(200);
-  expect(await readFile(join(f.wiki.root, f.page.path), "utf8")).toBe(proposal.content);
-});
-
-test("ancestor scope and project access are checked again after a child approval", async () => {
-  const f = await descendantFixture();
-  const proposal = { path: f.page.path, content: "# Revoked child proposal\n", baseRevision: f.page.revision };
-  const result = f.child(`${f.base}/page`, "PUT", proposal);
-  const approval = await f.pendingChild();
-  await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: f.project, scope: "collaborator" });
-  expect((await f.reply(approval, "allow")).status).toBe(200);
-  const downgraded = await result;
-  expect(downgraded.status).toBe(404);
-  expect(await downgraded.json()).toMatchObject({ code: "wiki_not_found" });
-  await f.unchanged();
-  await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: f.project, scope: "owner" });
-  const second = f.child(`${f.base}/page`, "PUT", proposal);
-  const secondApproval = await f.pendingChild();
-  expect((await f.host(f.base, "PATCH", { allowInProjects: false })).status).toBe(200);
-  expect((await f.reply(secondApproval, "allow")).status).toBe(200);
-  expect((await second).status).toBe(403);
-  await f.unchanged();
-});
-
 test("a revoked ancestor and changed engine lineage cannot retain child wiki access", async () => {
   const f = await descendantFixture();
   expect((await f.child(`${f.base}/page?path=Client.md`)).status).toBe(200);
@@ -176,116 +137,6 @@ test("project wiki reads, discovery and report reads do not require approval", a
   expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
 });
 
-test("write, property update, view create, view update and delete each need a fresh project-chat approval in auto mode", async () => {
-  const f = await fixture();
-  const ids = new Set<string>();
-  const allow = async (result: Promise<Response>, action: string, proposal: unknown) => {
-    const approval = await f.pending(action);
-    expect(ids.has(approval.id)).toBe(false);
-    ids.add(approval.id);
-    expect(JSON.parse(approval.description ?? "null")).toEqual(proposal);
-    expect((await f.reply(approval, "allow")).status).toBe(200);
-    const response = await result;
-    expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
-    expect((await f.reply(approval, "allow")).status).toBe(404);
-    return response;
-  };
-  const write = { path: f.page.path, content: f.page.content + "\nApproved text.\n", baseRevision: f.page.revision };
-  const writing = f.agent("/page", "PUT", write);
-  const written = documentSchema.parse(await (await allow(writing, "wiki.write", write)).json());
-  expect(await readFile(join(f.wiki.root, f.page.path), "utf8")).toBe(write.content);
-  const patch = { path: written.path, baseRevision: written.revision, patch: { set: { status: "reviewed" } } };
-  const patched = documentSchema.parse(await (await allow(f.agent("/properties", "PATCH", patch), "wiki.properties.update", patch)).json());
-  expect(patched.content).toContain('status: "reviewed"');
-  const reportInput = { ...input, title: "Approved report", datasets: {} };
-  const created = await allow(f.agent("/ui-views", "POST", reportInput), "wiki.view.create", reportInput);
-  expect(created.status).toBe(201);
-  const report = ViewRecordSchema.parse(await created.json());
-  const update = { baseRevision: report.revision, input: { ...reportInput, title: "Approved update" } };
-  const updated = ViewRecordSchema.parse(await (await allow(f.agent(`/ui-views/${report.id}`, "PUT", update), "wiki.view.update", update)).json());
-  expect(updated.title).toBe("Approved update");
-  const remove = { path: patched.path, baseRevision: patched.revision };
-  expect((await allow(f.agent("/page", "DELETE", remove), "wiki.delete", remove)).status).toBe(200);
-  expect(await Bun.file(join(f.wiki.root, f.page.path)).exists()).toBe(false);
-  expect(ids.size).toBe(5);
-});
-
-test("denying any wiki mutation leaves pages and saved views unchanged", async () => {
-  const f = await fixture();
-  const operations = [
-    { path: "/page", method: "PUT", action: "wiki.write", body: { path: f.page.path, content: "# Rejected\n", baseRevision: f.page.revision } },
-    { path: "/page", method: "DELETE", action: "wiki.delete", body: { path: f.page.path, baseRevision: f.page.revision } },
-    { path: "/properties", method: "PATCH", action: "wiki.properties.update", body: { path: f.page.path, baseRevision: f.page.revision, patch: { set: { status: "rejected" } } } },
-    { path: "/ui-views", method: "POST", action: "wiki.view.create", body: { ...input, title: "Rejected view" } },
-    { path: `/ui-views/${f.view.id}`, method: "PUT", action: "wiki.view.update", body: { baseRevision: f.view.revision, input: { ...input, title: "Rejected update" } } },
-  ];
-  for (const operation of operations) {
-    const result = f.agent(operation.path, operation.method, operation.body);
-    const approval = await f.pending(operation.action);
-    await f.unchanged();
-    expect((await f.reply(approval, "deny")).status).toBe(200);
-    const denied = await result;
-    expect(denied.status).toBe(403);
-    expect(await denied.json()).toMatchObject({ code: "write_denied", details: { reason: "denied" } });
-    await f.unchanged();
-    expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
-  }
-});
-
-test("another chat, another workspace and the agent itself cannot approve the pending change", async () => {
-  const f = await fixture();
-  const result = f.agent("/page", "DELETE", { path: f.page.path, baseRevision: f.page.revision });
-  const approval = await f.pending("wiki.delete");
-  for (const identity of [{ sessionID: "other-chat", workspaceId: "matter" }, { sessionID: "matter-chat", workspaceId: "other-workspace" }, {}]) {
-    const rejected = await f.host(`/approvals/${approval.id}`, "POST", { reply: "allow", ...identity });
-    expect(rejected.status).toBe(409);
-    expect(await rejected.json()).toMatchObject({ code: "approval_session_mismatch" });
-  }
-  const self = await fetch(`${f.url}/approvals/${approval.id}`, { method: "POST", headers: f.headers(),
-    body: JSON.stringify({ reply: "allow", workspaceId: "matter", sessionID: "matter-chat" }) });
-  expect(self.status).toBe(403);
-  expect((await listApprovals(f.url, f.config.hostToken)).map(item => item.id)).toEqual([approval.id]);
-  await f.unchanged();
-  await f.reply(approval, "deny");
-  expect((await result).status).toBe(403);
-});
-
-test("timed-out project wiki approval cannot later apply its change", async () => {
-  const f = await fixture(200);
-  const result = f.agent("/page", "DELETE", { path: f.page.path, baseRevision: f.page.revision });
-  const approval = await f.pending("wiki.delete");
-  const timedOut = await result;
-  expect(timedOut.status).toBe(403);
-  expect(await timedOut.json()).toMatchObject({ code: "write_denied", details: { reason: "timeout" } });
-  expect((await f.reply(approval, "allow")).status).toBe(404);
-  await f.unchanged();
-});
-
-test("cancelling the agent HTTP request clears approval and preserves the file", async () => {
-  const f = await fixture(10_000);
-  const controller = new AbortController();
-  const result = f.agent("/page", "DELETE", { path: f.page.path, baseRevision: f.page.revision }, controller.signal);
-  const approval = await f.pending("wiki.delete");
-  controller.abort();
-  await expect(result).rejects.toMatchObject({ name: "AbortError" });
-  expect(await waitForApprovals(f.url, f.config.hostToken, 0, 500)).toEqual([]);
-  expect((await f.reply(approval, "allow")).status).toBe(404);
-  await f.unchanged();
-});
-
-test("disconnecting the agent socket clears its pending wiki approval", async () => {
-  const f = await fixture(10_000);
-  const request = httpRequest(`${f.url}${f.base}/page`, { method: "DELETE", headers: f.headers() });
-  const result = new Promise<void>((resolve, reject) => { request.once("error", reject); request.once("close", resolve); });
-  request.end(JSON.stringify({ path: f.page.path, baseRevision: f.page.revision }));
-  const approval = await f.pending("wiki.delete");
-  request.destroy();
-  await result.catch(() => undefined);
-  expect(await waitForApprovals(f.url, f.config.hostToken, 0, 500)).toEqual([]);
-  expect((await f.reply(approval, "allow")).status).toBe(404);
-  await f.unchanged();
-});
-
 test("a wiki's own session follows ordinary approval mode even when project access is disabled", async () => {
   const f = await fixture();
   expect((await f.host(f.base, "PATCH", { allowInProjects: false })).status).toBe(200);
@@ -305,26 +156,102 @@ test("a wiki's own session follows ordinary approval mode even when project acce
   expect(await readFile(join(f.wiki.root, f.page.path), "utf8")).toBe(page.content);
 });
 
-test("project access revoked during review prevents an approved change", async () => {
+
+const suggestionsPath = "/workspace/matter/wiki-suggestions";
+async function stage(f: Awaited<ReturnType<typeof fixture>>, content = "# Useful knowledge\n") {
+  const response = await fetch(`${f.url}${suggestionsPath}`, { method: "POST", headers: f.headers(), body: JSON.stringify({
+    title: "Useful knowledge", content, destination: { wikiId: f.wiki.id, path: "Knowledge/New.md", baseRevision: null },
+  }) });
+  expect(response.status).toBe(201);
+  return WikiSuggestionSchema.parse(await response.json());
+}
+
+test("project writes, fields, wiki views and deletes cannot bypass the suggestion viewer", async () => {
   const f = await fixture();
-  const result = f.agent("/page", "DELETE", { path: f.page.path, baseRevision: f.page.revision });
-  const approval = await f.pending("wiki.delete");
-  expect((await f.host(f.base, "PATCH", { allowInProjects: false })).status).toBe(200);
-  expect((await f.reply(approval, "allow")).status).toBe(200);
-  const denied = await result;
-  expect(denied.status).toBe(403);
-  expect(await denied.json()).toMatchObject({ code: "wiki_access_denied" });
+  const calls = [
+    { path: "/page", method: "PUT", body: { path: f.page.path, content: "# Changed", baseRevision: f.page.revision } },
+    { path: "/page", method: "DELETE", body: { path: f.page.path, baseRevision: f.page.revision } },
+    { path: "/properties", method: "PATCH", body: { path: f.page.path, baseRevision: f.page.revision, patch: { set: { status: "changed" }, unset: [] } } },
+    { path: "/ui-views", method: "POST", body: input },
+    { path: `/ui-views/${f.view.id}`, method: "PUT", body: { input, baseRevision: f.view.revision } },
+  ];
+  for (const call of calls) {
+    const response = await f.agent(call.path, call.method, call.body);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "wiki_suggestion_required" });
+  }
+  expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
   await f.unchanged();
 });
 
-test("agent scope revoked during review is reauthenticated before applying an approved change", async () => {
+test("stage, edit, restart recovery and human save preserve exact content outside the wiki until Save", async () => {
+  const f = await fixture(), draft = await stage(f);
+  expect(draft.filePath).toMatch(/^\.legalwork\/tmp\/wiki-suggestions\/[^/]+\/draft\.md$/);
+  expect(await readFile(join(f.project, draft.filePath), "utf8")).toBe(draft.content);
+  expect((await f.host(`${f.base}/page?path=Knowledge/New.md`)).status).toBe(404);
+  expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
+  const path = `${suggestionsPath}/${draft.id}`;
+  // Agent cannot call either human review action, even with a valid draft revision.
+  for (const action of ["save", "dismiss"]) expect((await fetch(`${f.url}${path}/${action}`, { method: "POST", headers: f.headers(), body: JSON.stringify({ revision: draft.revision }) })).status).toBe(403);
+  const update = await fetch(`${f.url}${path}`, { method: "PUT", headers: f.headers(), body: JSON.stringify({ ...draft, content: "# Edited by agent\n", revision: draft.revision }) });
+  expect(update.status).toBe(200);
+  const edited = WikiSuggestionSchema.parse(await update.json());
+  // A stale editor cannot overwrite an agent edit.
+  expect((await f.host(path, "PUT", { ...draft, content: "stale" })).status).toBe(409);
+  const reviewed = WikiSuggestionSchema.parse(await (await f.host(path, "PUT", { ...edited, content: "# Edited by user\n\nReusable finding.", destination: { ...edited.destination, path: "Knowledge/Reviewed.md" } })).json());
+  const saved = await f.host(`${path}/save`, "POST", { revision: reviewed.revision });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({ status: "saved" });
+  expect(await readFile(join(f.wiki.root, "Knowledge/Reviewed.md"), "utf8")).toBe(reviewed.content);
+  expect((await f.host(`${path}/save`, "POST", { revision: reviewed.revision })).status).toBe(409);
+  expect((await f.host(`${f.base}/page?path=Knowledge/New.md`)).status).toBe(404);
+});
+
+test("dismissal leaves wiki unchanged and remains discoverable to avoid repeat proposals", async () => {
+  const f = await fixture(), draft = await stage(f);
+  const path = `${suggestionsPath}/${draft.id}`;
+  expect((await f.host(`${path}/dismiss`, "POST", { revision: draft.revision })).status).toBe(200);
+  const list = await fetch(`${f.url}${suggestionsPath}`, { headers: f.headers() });
+  expect(await list.json()).toMatchObject({ items: [{ id: draft.id, status: "dismissed" }] });
+  expect((await f.host(`${path}/save`, "POST", { revision: draft.revision })).status).toBe(409);
+  expect((await f.host(`${f.base}/page?path=Knowledge/New.md`)).status).toBe(404);
+});
+
+test("malformed suggestions return a useful validation error without creating a draft", async () => {
   const f = await fixture();
-  const result = f.agent("/page", "DELETE", { path: f.page.path, baseRevision: f.page.revision });
-  const approval = await f.pending("wiki.delete");
+  const response = await fetch(`${f.url}${suggestionsPath}`, { method: "POST", headers: f.headers(), body: JSON.stringify({ title: "", content: "# Draft" }) });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ code: "invalid_wiki_suggestion" });
+  expect(await (await f.host(suggestionsPath)).json()).toEqual({ items: [] });
+});
+
+test("Save rechecks wiki access and revisions, including a newly selected destination", async () => {
+  const f = await fixture(), draft = await stage(f);
+  const path = `${suggestionsPath}/${draft.id}`;
+  const changed = WikiSuggestionSchema.parse(await (await f.host(path, "PUT", { ...draft, destination: { wikiId: f.wiki.id, path: f.page.path, baseRevision: null } })).json());
+  expect((await f.host(`${path}/save`, "POST", { revision: changed.revision })).status).toBe(409);
+  await f.unchanged();
+  const replacement = WikiSuggestionSchema.parse(await (await f.host(path, "PUT", { ...changed, destination: { ...changed.destination, baseRevision: f.page.revision } })).json());
+  await f.host(f.base, "PATCH", { allowInProjects: false });
+  expect((await f.host(`${path}/save`, "POST", { revision: replacement.revision })).status).toBe(403);
+  await f.unchanged();
+  await f.host(f.base, "PATCH", { allowInProjects: true });
+  await f.host(`${f.base}/page`, "PUT", { path: f.page.path, content: "# Colleague's change", baseRevision: f.page.revision });
+  expect((await f.host(`${path}/save`, "POST", { revision: replacement.revision })).status).toBe(409);
+  expect(await readFile(join(f.wiki.root, f.page.path), "utf8")).toBe("# Colleague's change");
+  expect(WikiSuggestionSchema.parse(await (await f.host(path)).json()).status).toBe("pending");
+});
+
+test("child agents can stage in their originating project but cannot publish or reach other projects", async () => {
+  const f = await descendantFixture();
+  const proposal = { title: "Child proposal", content: "# Useful knowledge", destination: { wikiId: f.wiki.id, path: "Child.md", baseRevision: null } };
+  const response = await f.child(suggestionsPath, "POST", proposal);
+  expect(response.status).toBe(201);
+  const draft = WikiSuggestionSchema.parse(await response.json());
+  expect(draft.sessionId).toBe("child-chat");
+  expect((await f.child(`${suggestionsPath}/${draft.id}/save`, "POST", { revision: draft.revision })).status).toBe(403);
+  expect((await f.child("/workspace/another-project/wiki-suggestions")).status).toBe(403);
   await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: f.project, scope: "collaborator" });
-  expect((await f.reply(approval, "allow")).status).toBe(200);
-  const denied = await result;
-  expect(denied.status).toBe(404);
-  expect(await denied.json()).toMatchObject({ code: "wiki_not_found" });
+  expect((await f.child(suggestionsPath, "POST", proposal)).status).toBe(404);
   await f.unchanged();
 });

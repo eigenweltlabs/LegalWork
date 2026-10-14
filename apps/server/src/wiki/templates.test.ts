@@ -41,7 +41,7 @@ describe("portable wiki starters", () => {
     expect(files["Firm/About.md"]).toBeUndefined();
     expect(files["Sources/Import.md"]).toBeUndefined();
     for (const retired of ["Instructions.md", "Templates.md", "Views.md", "Skills/Bootstrap.md"]) expect(files[retired]).toBeUndefined();
-    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("human approval");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("only a user Save publishes");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("server groupBy/metrics");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("view_create");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("legalwork-view");
