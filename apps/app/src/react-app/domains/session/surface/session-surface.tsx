@@ -50,7 +50,6 @@ import type {
 import type {
   ComposerAttachment,
   ComposerDraft,
-  ComposerPart,
   McpServerEntry,
   McpStatusMap,
   ModelRef,
@@ -65,6 +64,7 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
+import { buildComposerDraft } from "./composer/composer-draft";
 import { hasUnfinishedTodos, TodoPanel } from "./todo-panel";
 import {
   VoicePanel,
@@ -74,23 +74,11 @@ import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-ac
 import {
   createLegalMemoryComposerMention,
   createLegalMemoryFolderComposerMention,
-  decodeComposerMentionValue,
   encodeComposerMentionValue,
-  legalMemoryComposerInstruction,
-  legalMemoryComposerDisplayText,
   createStorageComposerMention,
-  storageComposerInstruction,
-  storageComposerDisplayText,
-  reviewComposerDisplayText,
-  reviewComposerInstruction,
-  calendarComposerDisplayText,
-  calendarComposerInstruction,
-  taskComposerDisplayText,
-  taskComposerInstruction,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
-import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog";
@@ -98,7 +86,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
+import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PendingStatus } from "@/components/chat/pending-status";
@@ -1010,90 +998,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     isError: snapshotQuery.isError || Boolean(error),
   });
 
-  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
-    const modelContexts: string[] = [];
-    const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
-      if (!segment) return [] as ComposerDraft["parts"];
-      const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
-      if (pasteMatch) {
-        const target = pasteParts.find((item) => item.label === pasteMatch[1]);
-        if (target) {
-          return [{ type: "paste", id: target.id, label: target.label, text: target.text, lines: target.lines }];
-        }
-      }
-      const skillMatch = segment.match(/^\[skill (.+)\]$/);
-      if (skillMatch?.[1]) {
-        return [{ type: "skill", name: skillMatch[1] } satisfies ComposerDraft["parts"][number]];
-      }
-      if (segment.startsWith("@")) {
-        const value = decodeComposerMentionValue(segment.slice(1));
-        const kind = mentions[value];
-        if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "upload") {
-          modelContexts.push(workspaceAttachmentInstruction(value));
-          return [{ type: "text", text: workspaceAttachmentDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "memory") {
-          modelContexts.push(legalMemoryComposerInstruction(value));
-          return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "storage") {
-          modelContexts.push(storageComposerInstruction(value));
-          return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "review") {
-          modelContexts.push(reviewComposerInstruction(value));
-          return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "calendar") {
-          modelContexts.push(calendarComposerInstruction(value));
-          return [{ type: "text", text: calendarComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "task") {
-          modelContexts.push(taskComposerInstruction(value));
-          return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
-      }
-      return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
-    });
-    // Expand paste placeholders in resolvedText so the model receives
-    // the actual pasted content instead of "[pasted text <label>]".
-    let resolved = text;
-    for (const part of pasteParts) {
-      resolved = resolved.replace(`[pasted text ${part.label}]`, () => part.text);
-    }
-    resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
-    for (const [value, kind] of Object.entries(mentions)) {
-      resolved = resolved.replaceAll(
-        `@${encodeComposerMentionValue(value)}`,
-        kind === "memory"
-          ? legalMemoryComposerDisplayText(value)
-          : kind === "storage"
-            ? storageComposerDisplayText(value)
-            : kind === "review"
-              ? reviewComposerDisplayText(value)
-            : kind === "calendar"
-              ? calendarComposerDisplayText(value)
-            : kind === "task"
-              ? taskComposerDisplayText(value)
-              : kind === "upload"
-                ? workspaceAttachmentDisplayText(value)
-                : `@${value}`,
-      );
-    }
-    const slashCommand = parseSlashCommandInvocation(resolved);
-    return {
-      mode: "prompt",
-      parts,
-      attachments: nextAttachments,
-      text,
-      resolvedText: resolved,
-      modelContext: [...new Set(modelContexts)].join("\n") || undefined,
-      command: slashCommand ?? undefined,
-    };
-  }, [mentions, pasteParts]);
+  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft =>
+    buildComposerDraft(text, nextAttachments, mentions, pasteParts), [mentions, pasteParts]);
 
   const handleComposerDraftChange = useCallback((value: string) => {
     setComposerDraft(props.sessionId, value);
@@ -1493,6 +1399,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         }
       })();
     }
+  };
+
+  const handleRegisterMention = (kind: ComposerMentionKind, value: string) => {
+    setComposerMentions(props.sessionId, { ...getComposerMentions(useComposerStateStore.getState(), props.sessionId), [value]: kind });
   };
 
   /** Insert a memory pill without disturbing the draft the user is typing. */
@@ -2181,6 +2091,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         recentFiles={props.recentFiles}
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
+        onRegisterMention={handleRegisterMention}
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         onDropStorageFile={handleDropStorageFile}

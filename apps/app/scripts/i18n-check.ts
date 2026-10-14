@@ -38,6 +38,7 @@ const placeholders = (value: string): string[] =>
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "plugin_create.kind", "plugin_create.name",
+  "composer.plugin_pill", // Plugin is the same product term in both languages.
   "scheduled.name", // Identical German and English noun.
   "review.status", // Identical German and English noun.
   "sidebar.project_name", "project_filters.title", "integrations.filter", // "Name" and "Filter" are identical German nouns.

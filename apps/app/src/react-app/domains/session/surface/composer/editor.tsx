@@ -36,6 +36,7 @@ import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
 import {
   decodeComposerMentionValue,
   encodeComposerMentionValue,
+  parsePluginComposerMention,
   parseLegalMemoryComposerMention,
   parseLegalMemoryFolderComposerMention,
   parseStorageComposerMention,
@@ -70,6 +71,7 @@ type EditorProps = {
 
 export type LexicalPromptEditorHandle = {
   insertSkillAtSelection: (skillName: string) => void;
+  insertMentionAtSelection: (value: string, kind: ComposerMentionKind) => void;
   expandPastedText: (label: string, text: string) => void;
 };
 
@@ -111,9 +113,11 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
   review: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   task: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
   calendar: "inline-flex items-center rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11",
+  plugin: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "plugin") return t("composer.plugin_pill", { name: parsePluginComposerMention(value)?.label ?? value });
   if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
     const folder = parseLegalMemoryFolderComposerMention(value);
@@ -180,7 +184,7 @@ class ComposerMentionNode extends TextNode {
     dom.textContent = mentionPillText(this.__value, this.__kind);
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
-    dom.title = `@${this.__value}`;
+    dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     return dom;
   }
 
@@ -188,7 +192,7 @@ class ComposerMentionNode extends TextNode {
     if (prevNode.__value !== this.__value || prevNode.__kind !== this.__kind) {
       dom.className = MENTION_PILL_CLASS[this.__kind];
       dom.textContent = mentionPillText(this.__value, this.__kind);
-      dom.title = `@${this.__value}`;
+      dom.title = this.__kind === "plugin" ? mentionPillText(this.__value, this.__kind) : `@${this.__value}`;
     }
     return false;
   }
@@ -541,7 +545,7 @@ function setPrompt(value: string, mentions: Record<string, ComposerMentionKind>,
     }
     if (segment.startsWith("@")) {
       const token = decodeComposerMentionValue(segment.slice(1));
-      const kind = mentions[token];
+      const kind = mentions[token] ?? (parsePluginComposerMention(token) ? "plugin" : undefined);
       if (kind) {
         paragraph.append($createComposerMentionNode(token, kind));
         continue;
@@ -572,6 +576,20 @@ function insertSkillAtSelection(skillName: string) {
   const spaceNode = $createTextNode(" ");
   selection.insertNodes([skillNode, spaceNode]);
   setSelectionAfterNode(spaceNode);
+}
+
+function insertMentionAtSelection(value: string, kind: ComposerMentionKind) {
+  const selection = $getSelection();
+  const nodes = [$createComposerMentionNode(value, kind), $createTextNode(" ")];
+  if ($isRangeSelection(selection)) selection.insertNodes(nodes);
+  else {
+    const root = $getRoot();
+    const last = root.getLastChild();
+    const paragraph = $isElementNode(last) ? last : $createParagraphNode();
+    if (!$isElementNode(last)) root.append(paragraph);
+    paragraph.append(...nodes);
+  }
+  setSelectionAfterNode(nodes[1]);
 }
 
 // Serialize the current editor state to the external draft string. Lexical's
@@ -860,6 +878,10 @@ function ImperativeHandlePlugin(props: { editorRef: ForwardedRef<LexicalPromptEd
   useImperativeHandle(props.editorRef, () => ({
     insertSkillAtSelection(skillName: string) {
       editor.update(() => insertSkillAtSelection(skillName));
+      editor.focus();
+    },
+    insertMentionAtSelection(value: string, kind: ComposerMentionKind) {
+      editor.update(() => insertMentionAtSelection(value, kind));
       editor.focus();
     },
     expandPastedText(label: string, text: string) {

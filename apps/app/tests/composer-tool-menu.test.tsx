@@ -11,7 +11,7 @@ const plugin: ImportedPlugin = {
 };
 const noop = () => {};
 function render(section: ComposerToolSection, overrides: Partial<Parameters<typeof ComposerToolMenu>[0]> = {}) {
-  return renderToStaticMarkup(<ComposerToolMenu section={section} onSectionChange={noop} onConfigure={noop} onSelectSkill={noop}
+  return renderToStaticMarkup(<ComposerToolMenu section={section} onSectionChange={noop} onConfigure={noop} onSelectSkill={noop} onSelectPlugin={noop}
     skillsLoading={false} connectorsLoading={false} pluginsLoading={false} skills={[]} connectors={[]} connectorStatuses={{}} plugins={[]} {...overrides} />);
 }
 
@@ -83,5 +83,11 @@ describe("chat library menu", () => {
     expect(render("connectors")).toContain("No connectors added yet.");
     expect(render("workflows")).toContain("No workflows available.");
     expect(render("plugins")).toContain("No plugins added yet.");
+  });
+
+  test("plugin rows offer direct selection and a separate contents action", () => {
+    const html = render("plugins", { plugins: [plugin] });
+    expect(html).toContain('aria-label="Use Github plugin"');
+    expect(html).toContain('aria-label="View Github contents"');
   });
 });

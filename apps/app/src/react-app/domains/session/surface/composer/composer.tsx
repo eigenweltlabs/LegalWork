@@ -32,7 +32,8 @@ import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
 import { LexicalPromptEditor, type LexicalPromptEditorHandle } from "./editor";
 import { listRunningAppsForMention } from "./app-mentions";
-import type { ComposerMentionKind } from "./mention-encoding";
+import { createPluginComposerMention, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
+import { pluginImportName } from "@/react-app/domains/settings/pages/plugin-import-presentation";
 import { getSlashCommandQuery } from "./slash-command";
 import { ComposerToolMenu, type ComposerConnector } from "./tool-menu";
 import type { ComposerToolSection } from "@/react-app/shell/workspace-routes";
@@ -96,6 +97,7 @@ type ComposerProps = {
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
+  onRegisterMention: (kind: ComposerMentionKind, value: string) => void;
   /** Sent-prompt history (oldest first) recalled with ArrowUp/ArrowDown (#2012). */
   inputHistory?: string[];
   onPasteText: (text: string) => PastedTextChip;
@@ -515,6 +517,18 @@ export function ReactSessionComposer(props: ComposerProps) {
         const separator = props.draft.length > 0 && !/\s$/.test(props.draft) ? " " : "";
         props.onDraftChange(`${props.draft}${separator}[skill ${name}] `);
       }
+    }
+    setSlashOpen(false);
+    setToolMenuOpen(false);
+  };
+
+  const applyPluginSelection = (plugin: ImportedPlugin) => {
+    const value = createPluginComposerMention(plugin.pluginId, pluginImportName(plugin));
+    props.onRegisterMention("plugin", value);
+    if (editorRef.current) editorRef.current.insertMentionAtSelection(value, "plugin");
+    else {
+      const separator = props.draft.length && !/\s$/.test(props.draft) ? " " : "";
+      props.onDraftChange(`${props.draft}${separator}@${encodeComposerMentionValue(value)} `);
     }
     setSlashOpen(false);
     setToolMenuOpen(false);
@@ -1072,6 +1086,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     plugins={importedPlugins}
                     pluginsLoading={pluginsLoading}
                     onSelectSkill={applySkillSelection}
+                    onSelectPlugin={applyPluginSelection}
                     onConfigure={section => {
                       setToolMenuOpen(false);
                       props.onOpenSettingsSection?.(section);

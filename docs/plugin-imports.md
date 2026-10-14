@@ -6,6 +6,18 @@ The import popup's **Connectors** filter includes standalone configurations and 
 
 Imports are automatically available in all projects, matching the desktop Skills and Connectors libraries. Choose a folder using the native file picker, choose a ZIP, or select an auto-discovered installation. Preview opens automatically after selection. Discovery, installation and removal require owner access and respect custom-plugin, skill and connector policies. The underlying API retains project-scoped installation support for existing integrations.
 
+
+## Use a whole plugin in chat
+
+Open the chat tools menu and choose **Plugins**. Click a plugin row to add one plugin chip to your message. The arrow beside the row opens its individual contents; that view also offers **Use whole plugin**.
+
+The agent chooses the relevant bundled capabilities for your request. Selecting a plugin keeps the existing setup requirements for its connectors. The selection survives draft restoration and queue editing, and the current package is resolved when the message is sent.
+
+![Select a whole plugin or browse its contents](images/chat-whole-plugin-menu.png)
+
+![One plugin chip in the composer](images/chat-whole-plugin-selection.png)
+
+
 ## Integration libraries
 
 The Integrations page keeps **Plugins / Connectors / Skills / File storage** separate. **Import, Add and More** stay in the same positions with the same button styles on all four tabs. **Add** is the same dropdown everywhere, offering **Plugin, Connector, Skill and File storage**. Selecting an option switches to its library, selects All, and opens its existing creation or connection form. Permissions and firm policies disable unavailable options. Connectors has a separate Browse directory button immediately to the left of Import. The page-level More menu always contains Imported packages and Open skills folder, followed by separated Refresh, on every category. Imported packages opens the existing manager without switching categories; closing it restores focus to More. The folder action stays visible and is disabled when local desktop access is unavailable. One row of normal LegalWork segmented category tabs sits beside search and a compact **Filter** menu. The menu offers All sources, Personal and Team, with a checkmark on the selection. It closes after selection; the button reads Personal or Team when filtering, and Filter when showing all sources. Team items appear alongside personal items with a **Team** label. The second source-tab row is removed, bringing the list directly below navigation.

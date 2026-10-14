@@ -100,6 +100,7 @@ export type ComposerPart =
   | { type: "text"; text: string }
   | { type: "agent"; name: string }
   | { type: "skill"; name: string }
+  | { type: "plugin"; pluginId: string; label: string }
   | { type: "file"; path: string; label?: string }
   /** A macOS app targeted via Computer Use (composer "@App" mention). */
   | { type: "app"; name: string }

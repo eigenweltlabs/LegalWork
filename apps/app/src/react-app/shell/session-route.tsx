@@ -207,6 +207,7 @@ import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
+import { loadPluginSelectionContext } from "@/react-app/domains/session/surface/composer/plugin-selection";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
   countConnectedProviders,
@@ -320,6 +321,10 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
     }
     if (part.type === "skill") {
       parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
+      continue;
+    }
+    if (part.type === "plugin") {
+      parts.push({ type: "text", text: `[plugin ${JSON.stringify(part.label)}]` });
       continue;
     }
     if (part.type === "app") {
@@ -1421,12 +1426,18 @@ export function SessionRoute() {
           return;
         }
 
+        const pluginContext = await loadPluginSelectionContext({
+          parts: draft.parts,
+          client,
+          workspaceId: selectedWorkspaceId,
+          readStatuses: async () => unwrap(await opencodeClient.mcp.status({ directory: selectedWorkspaceRoot || undefined })),
+        });
         const parts = await draftToParts(draft, selectedWorkspaceRoot);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
-        const turnSystemContext = [envSystemContext, draft.modelContext]
+        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));

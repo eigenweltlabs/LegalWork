@@ -37,6 +37,7 @@ export function ComposerToolMenu(props: {
   plugins: readonly ImportedPlugin[];
   pluginsLoading: boolean;
   onSelectSkill: (name: string) => void;
+  onSelectPlugin: (plugin: ImportedPlugin) => void;
   onConfigure: (section: ComposerToolSection) => void;
 }) {
   const [pluginId, setPluginId] = useState<string | null>(null);
@@ -92,12 +93,15 @@ export function ComposerToolMenu(props: {
         <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain">
           {props.section === "workflows" || props.section === "skills" ? skills.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{skills.map(renderSkill)}</div> : empty(props.skillsLoading, props.section === "workflows" ? "composer.no_workflows" : "context_panel.no_skills") : null}
           {props.section === "connectors" ? props.connectors.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{props.connectors.map(renderConnector)}</div> : empty(props.connectorsLoading, "composer.no_connectors") : null}
-          {props.section === "plugins" && !activePlugin ? plugins.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{plugins.map(plugin => <button key={plugin.pluginId} type="button" className={itemClass} onClick={() => setPluginId(plugin.pluginId)}>
-            <Package size={16} className="mt-0.5 shrink-0 text-gray-9" />
-            <div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{pluginImportName(plugin)}</div>{plugin.description ? <div className="truncate text-xs text-gray-10">{plugin.description}</div> : null}<div className="mt-1"><PluginConnectorStatus states={pluginStates(plugin)} /></div></div>
-            <ChevronRight size={14} className="mt-0.5 shrink-0 text-gray-9" />
-          </button>)}</div> : empty(props.pluginsLoading, "composer.no_plugins") : null}
+          {props.section === "plugins" && !activePlugin ? plugins.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{plugins.map(plugin => <div key={plugin.pluginId} className="flex min-w-0 items-start rounded-[16px] hover:bg-gray-2/70">
+            <button type="button" className={`${itemClass} flex-1`} aria-label={t("composer.select_plugin", { name: pluginImportName(plugin) })} onClick={() => props.onSelectPlugin(plugin)}>
+              <Package size={16} className="mt-0.5 shrink-0 text-gray-9" />
+              <div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{pluginImportName(plugin)}</div>{plugin.description ? <div className="truncate text-xs text-gray-10">{plugin.description}</div> : null}<div className="mt-1"><PluginConnectorStatus states={pluginStates(plugin)} /></div></div>
+            </button>
+            <Button variant="ghost" size="icon-sm" className="mr-1 mt-1.5 shrink-0" aria-label={t("composer.plugin_contents", { name: pluginImportName(plugin) })} onClick={() => setPluginId(plugin.pluginId)}><ChevronRight className="size-3.5 text-gray-9" /></Button>
+          </div>)}</div> : empty(props.pluginsLoading, "composer.no_plugins") : null}
           {activePlugin ? <div className="grid min-w-0 grid-cols-1 gap-1">
+            <button type="button" className={`${itemClass} border-b border-dls-border`} onClick={() => props.onSelectPlugin(activePlugin)}><Package size={16} className="mt-0.5 shrink-0 text-gray-9" /><span className="text-xs font-medium">{t("composer.use_whole_plugin")}</span></button>
             {activePlugin.files.filter(file => file.objectType === "skill" || file.objectType === "mcp").map(file => {
               const name = pluginFileInstalledName(file);
               if (file.objectType === "mcp") {
