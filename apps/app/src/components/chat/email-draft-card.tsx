@@ -77,6 +77,18 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
     cache.setQueryData(key, result);
     return result.draft;
   };
+  const reload = async () => {
+    if (!client || !available || busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try {
+      await cache.cancelQueries({ queryKey: key });
+      const result = current.connectorTarget && current.delivery?.state === "saved"
+        ? await client.reloadEmailDraft(workspaceId, current)
+        : await client.emailDraft(workspaceId, current.id);
+      setDraft(result.draft); setBaseline(result.draft); cache.setQueryData(key, result); setError(null);
+    } catch (problem) { setError(problem instanceof Error ? problem.message : "Could not reload the draft."); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
   const run = async (action: "save" | "download" | "outlook-app" | "provider-save" | "provider-send" | "provider-open" | EmailApp) => {
     if (busyRef.current) return;
     // Reserve a browser window during the click so saving cannot trigger a popup block.
@@ -175,7 +187,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
     </fieldset>
     {!current.connectorTarget && nativeMail && (current.html || current.replyTo) && <p className="px-5 pb-3 text-xs text-muted-foreground">Apple Mail and Outlook use the message text. HTML and custom Reply-To are included in the .eml download.</p>}
     {!current.connectorTarget && !nativeMail && current.attachments.length > 0 && <p className="px-5 pb-3 text-xs text-muted-foreground">Attach files in your mail app, or download .eml to keep attachments.</p>}
-    {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setError(null); } })}>Discard edits and reload</Button></div>}
+    {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void reload()}>Discard edits and reload</Button></div>}
     <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
       <Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Attach files" title="Attach files" onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button>
       {current.connectorTarget && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .eml" title="Download .eml" onClick={() => void run("download")}><Download className="size-4" /></Button>}

@@ -8,6 +8,7 @@ import { canonicalFilePath, withFileWriteLocks } from "../file-write-lock.js";
 import { renderEml, type EmailAttachment } from "./eml.js";
 import { EmailDraftSchema } from "./schema.js";
 import { z } from "zod";
+import PostalMime, { type Address } from "postal-mime";
 import { connectorMailDraftTargetSchema, connectorCalendarDraftTargetSchema, connectorDraftDeliverySchema } from "../connectors/schema.js";
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -100,7 +101,37 @@ export function editableDraftMetadata(current: unknown) {
   return saved;
 }
 
-export async function saveDraftFiles<T extends object>(root: string, workspaceId: string, kind: "email" | "calendar", prepare: (id: string, previous: unknown) => Promise<{ input: T; content: string }>, previous?: { id: string; revision: string }) {
+/** Called inside the draft write lock; retain the provider MIME exactly, including inline parts. */
+export async function prepareEmailDraftReload(root: string, draft: EmailDraft, content: Buffer) {
+  if (content.length > 25 * 1024 * 1024) throw new ApiError(413, "connector_email_size", "This mailbox draft is too large to reload.");
+  const message = await PostalMime.parse(content, { attachmentEncoding: "base64", maxNestingDepth: 32, maxHeadersSize: 256 * 1024, forceRfc822Attachments: true, maxRfc822NestingDepth: 0 })
+    .catch(() => { throw new ApiError(502, "connector_api_invalid", "The mailbox draft could not be read. Open it in the mail app to review it."); });
+  const addresses = (items: Address[]) => items.flatMap(item => item.group ?? [item]).map(item => item.name ? `${JSON.stringify(item.name)} <${item.address}>` : item.address).join(", ");
+  const folder = `.legalwork/email-drafts/attachments/${randomUUID()}`;
+  let total = 0;
+  const attachments = message.attachments.map((item, index) => {
+    if (typeof item.content !== "string" || item.encoding !== "base64") throw new ApiError(502, "connector_api_invalid", "The mailbox draft contained an unreadable attachment.");
+    const data = Buffer.from(item.content, "base64");
+    total += data.length;
+    if (total > MAX_ATTACHMENT_BYTES) throw new ApiError(413, "email_attachment_size", "Attachments must total 20 MB or less.");
+    return { data, path: `${folder}/${index}`, name: (item.filename ?? "attachment").replace(/[\\/\r\n\u0000]/g, "_").slice(0, 255), contentType: item.mimeType };
+  });
+  const parsed = EmailDraftSchema.safeParse({ ...draft, from: addresses(message.from ? [message.from] : []), replyTo: addresses(message.replyTo ?? []),
+    to: addresses(message.to ?? []), cc: addresses(message.cc ?? []), bcc: addresses(message.bcc ?? []), subject: message.subject ?? "",
+    body: message.text ?? message.html ?? "", html: message.html ?? "", attachments: attachments.map(({ data: _data, ...item }) => item),
+    artifactHash: createHash("sha256").update(content).digest("hex") });
+  if (!parsed.success) throw new ApiError(502, "connector_api_invalid", "This mailbox draft cannot be displayed safely. Review it in the mail app.");
+  if (attachments.length) {
+    await mkdir(await containedPath(root, folder), { recursive: true, mode: 0o700 });
+    for (const item of attachments) {
+      const file = await open(await containedPath(root, item.path), "wx", 0o600);
+      try { await file.writeFile(item.data); } finally { await file.close(); }
+    }
+  }
+  return { input: parsed.data, content };
+}
+
+export async function saveDraftFiles<T extends object>(root: string, workspaceId: string, kind: "email" | "calendar", prepare: (id: string, previous: unknown) => Promise<{ input: T; content: string | Buffer }>, previous?: { id: string; revision: string }) {
   const id = previous?.id ?? randomUUID();
   const paths = await draftPaths(root, id, kind);
   return withFileWriteLocks([paths.metadata, paths.artifact], async () => {

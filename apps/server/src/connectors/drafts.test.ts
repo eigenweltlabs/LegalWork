@@ -10,18 +10,19 @@ import { startServer } from "../server.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { writeConnectorConnections } from "./store.js";
 import { recordConnectorActivation, saveConnectorWriteSetting } from "./settings.js";
-import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, deliverConnectorEmailDraft, deliverConnectorCalendarDraft } from "./drafts.js";
-import { readDraft, saveEmailDraft } from "../email-drafts/store.js";
+import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, deliverConnectorEmailDraft, deliverConnectorCalendarDraft, reloadConnectorEmailDraft } from "./drafts.js";
+import { readDraft, saveEmailDraft, readEmailDraftMime } from "../email-drafts/store.js";
 import { callConnectorExtensionAction } from "./index.js";
 
 const nativeFetch = globalThis.fetch;
 const prior = new Map(["EIGENWELT_PLATFORM_URL", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE"].map(key => [key, process.env[key]]));
 let root: string, config: ServerConfig;
 let requests: { url: URL; method: string; body: string }[];
-let changed = false, failSend = false;
+let changed = false, failSend = false, failReload = false, editDuringReload = false, gmailMime = "", outlookMime = "";
 const stops: (() => Promise<unknown> | unknown)[] = [];
 const owner = JSON.stringify(["https://draft-broker.test", "firm", "user"]);
 const email = { to: ["client@example.com"], cc: ["team@example.com"], bcc: ["archive@example.com"], subject: "Review Grüße", body: "Please review.", html: "<p>Please review.</p>", attachments: [{ path: "attachment.txt", contentType: "text/plain" }] };
+const mailboxMime = (encoded: string, encoding: "base64url" | "base64") => `From: Fixture User <fixture@example.com>\r\n${Buffer.from(encoded, encoding).toString().replace(/^Subject:.*$/m, changed ? "Subject: Changed by another editor\r" : "$&")}`;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "connected-drafts-"));
@@ -36,7 +37,7 @@ beforeEach(async () => {
   for (const id of ["gmail", "outlook", "google-calendar"]) await writeConnectorConnections(config, owner, id, [{ id: `${id}-account`, nangoConnectionId: `${id}-private`, createdAt: null, needsReconnect: false }]);
   for (const id of ["gmail", "outlook", "google-calendar", "outlook-calendar"]) await saveConnectorWriteSetting(config, id, { writeAccess: true });
   for (const id of ["outlook", "outlook-calendar"]) await recordConnectorActivation(config, id, "outlook-account", true);
-  requests = []; changed = false; failSend = false;
+  requests = []; changed = false; failSend = false; failReload = false; editDuringReload = false; gmailMime = ""; outlookMime = "";
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "127.0.0.1") return nativeFetch(input, init);
@@ -54,7 +55,11 @@ beforeEach(async () => {
     if (url.hostname === "gmail.googleapis.com") {
       if (url.pathname.endsWith("/profile")) return Response.json({ emailAddress: "fixture@example.com" });
       if (url.pathname.endsWith("/drafts/send")) return failSend ? new Response(null, { status: 500 }) : Response.json({ id: "sent-message", threadId: "sent-thread" });
-      if (method === "GET") return Response.json({ message: { id: changed ? "changed-message" : "gmail-message" } });
+      if (method === "GET") {
+        if (failReload) return new Response(null, { status: 404 });
+        return Response.json({ message: { id: changed ? "changed-message" : "gmail-message", raw: Buffer.from(mailboxMime(gmailMime, "base64url")).toString("base64url") } });
+      }
+      gmailMime = z.object({ message: z.object({ raw: z.string() }) }).parse(JSON.parse(body)).message.raw;
       return Response.json({ id: "gmail-draft", message: { id: "gmail-message", threadId: "gmail-thread" } });
     }
     if (url.hostname === "www.googleapis.com") {
@@ -64,7 +69,16 @@ beforeEach(async () => {
     if (url.hostname === "graph.microsoft.com") {
       if (url.pathname.endsWith("/send")) return failSend ? new Response(null, { status: 500 }) : new Response(null, { status: 202 });
       if (url.pathname.endsWith("/events")) return Response.json({ ...JSON.parse(body), id: "outlook-event", webLink: "https://outlook.office.com/calendar/item/fixture" });
-      if (method === "GET") return Response.json({ isDraft: true, changeKey: changed ? "changed-version" : "outlook-version" });
+      if (method === "GET") {
+        if (failReload) return new Response(null, { status: 404 });
+        if (url.pathname.endsWith("/$value")) {
+          const mime = mailboxMime(outlookMime, "base64");
+          if (editDuringReload) changed = !changed;
+          return new Response(mime, { headers: { "Content-Type": "message/rfc822" } });
+        }
+        return Response.json({ isDraft: true, changeKey: changed ? "changed-version" : "outlook-version" });
+      }
+      outlookMime = body;
       return Response.json({ id: "outlook-draft", changeKey: "outlook-version", webLink: "https://outlook.office.com/mail/item/fixture" });
     }
     throw new Error("Unexpected provider request");
@@ -163,6 +177,109 @@ test("provider edits stop sends, and an ambiguous send failure persists across r
     expect(requests).toHaveLength(before);
   }
   expect(requests.filter(item => item.url.pathname.endsWith("/send"))).toHaveLength(2);
+});
+
+test("reloading a conflicting mailbox draft refreshes reviewed content and version, then a separate send succeeds", async () => {
+  for (const id of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
+    changed = false;
+    const { draft } = await prepareMail(id);
+    const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+    changed = true;
+    await expect(deliverConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision, "send")).rejects.toMatchObject({ code: "connector_draft_changed" });
+    const before = requests.length;
+    const reloaded = await reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision);
+    expect(requests.slice(before).filter(item => item.url.hostname !== "draft-broker.test").every(item => item.method === "GET")).toBe(true);
+    expect(reloaded.draft.subject).toBe("Changed by another editor");
+    expect(reloaded.draft.from).toBe('"Fixture User" <fixture@example.com>');
+    expect(reloaded.draft.to).toBe("client@example.com"); expect(reloaded.draft.cc).toBe("team@example.com"); expect(reloaded.draft.bcc).toBe("archive@example.com");
+    expect(reloaded.draft.body.trim()).toBe(email.body); expect(reloaded.draft.html.trim()).toBe(email.html);
+    expect(reloaded.draft.revision).not.toBe(saved.draft.revision);
+    expect(reloaded.draft.connectorTarget).toEqual(saved.draft.connectorTarget);
+    expect(reloaded.draft.delivery?.id).toBe(saved.draft.delivery?.id);
+    expect(id === "gmail" ? reloaded.draft.delivery?.messageId : reloaded.draft.delivery?.version).toBe(id === "gmail" ? "changed-message" : "changed-version");
+    expect(reloaded.draft.attachments).toHaveLength(1);
+    expect(await readFile(join(root, reloaded.draft.attachments[0].path), "utf8")).toBe("Synthetic attachment");
+    expect((await readEmailDraftMime(root, reloaded.draft, 25 * 1024 * 1024)).toString()).toBe(mailboxMime(id === "gmail" ? gmailMime : outlookMime, id === "gmail" ? "base64url" : "base64"));
+    await expect(deliverConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision, "send")).rejects.toMatchObject({ code: "draft_conflict" });
+    const sent = await deliverConnectorEmailDraft(config, workspace(), draft.id, reloaded.draft.revision, "send");
+    expect(sent.draft.delivery?.state).toBe("sent");
+  }
+  expect(requests.filter(item => item.url.pathname.endsWith("/send"))).toHaveLength(2);
+  expect(requests.filter(item => item.url.hostname === "draft-broker.test").every(item => !item.body.includes("Changed by another editor") && !item.body.includes("Synthetic attachment"))).toBe(true);
+});
+
+test("failed reloads preserve the local reviewed snapshot and cannot reset uncertain, sent, or unsaved emails", async () => {
+  const { draft } = await prepareMail();
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, draft.revision)).rejects.toMatchObject({ code: "connector_draft_not_saved" });
+  const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+  const original = await readFile(join(root, draft.path));
+  failReload = true;
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_item_not_found" });
+  expect(await readDraft(root, draft.id)).toEqual(saved.draft);
+  expect(await readFile(join(root, draft.path))).toEqual(original);
+  failReload = false; failSend = true;
+  await expect(deliverConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision, "send")).rejects.toMatchObject({ code: "connector_api_failed" });
+  const uncertain = EmailDraftSchema.parse(await readDraft(root, draft.id));
+  const before = requests.length;
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, uncertain.revision)).rejects.toMatchObject({ code: "connector_draft_not_saved" });
+  expect(requests).toHaveLength(before);
+  failSend = false;
+  const next = await prepareMail();
+  const sent = await deliverConnectorEmailDraft(config, workspace(), next.draft.id, next.draft.revision, "send");
+  const sentCount = requests.length;
+  await expect(reloadConnectorEmailDraft(config, workspace(), sent.draft.id, sent.draft.revision)).rejects.toMatchObject({ code: "connector_draft_not_saved" });
+  expect(requests).toHaveLength(sentCount);
+});
+
+test("Outlook changes during MIME retrieval leave the local draft and version intact", async () => {
+  const { draft } = await prepareMail("outlook");
+  const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+  changed = true; editDuringReload = true;
+  const original = await readFile(join(root, draft.path));
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_draft_changed" });
+  expect(await readDraft(root, draft.id)).toEqual(saved.draft);
+  expect(await readFile(join(root, draft.path))).toEqual(original);
+  expect(requests.filter(item => item.url.pathname.endsWith("/send"))).toHaveLength(0);
+});
+
+test("mailbox reload requires the original active account, write setting and current local revision", async () => {
+  const { draft } = await prepareMail("outlook");
+  const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+  const before = requests.length;
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, draft.revision)).rejects.toMatchObject({ code: "draft_conflict" });
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: false });
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  await recordConnectorActivation(config, "outlook", "outlook-account", false);
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_inactive" });
+  await writeConnectorConnections(config, owner, "outlook", [{ id: "replacement", nangoConnectionId: "replacement-private", createdAt: null, needsReconnect: false }]);
+  await expect(reloadConnectorEmailDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_connection_not_found" });
+  expect(requests).toHaveLength(before);
+});
+
+test("reload routes are owner-only, reject extra provider details, and only read the provider draft", async () => {
+  const { draft } = await prepareMail();
+  const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+  const server = await startServer(config); stops.push(() => server.stop());
+  const path = `http://127.0.0.1:${server.port}/workspace/project/connector-drafts/email/${draft.id}/reload`;
+  const body = JSON.stringify({ revision: saved.draft.revision });
+  const headers = { "Content-Type": "application/json", "X-LegalWork-Host-Token": "host" };
+  const before = requests.length;
+  expect((await nativeFetch(path, { method: "POST", body })).status).toBe(401);
+  expect((await nativeFetch(path, { method: "POST", body, headers: { "Content-Type": "application/json", Authorization: "Bearer client" } })).status).toBe(401);
+  expect((await nativeFetch(path.replace("/project/", "/other/"), { method: "POST", body, headers })).status).toBe(409);
+  expect((await nativeFetch(path, { method: "POST", body: JSON.stringify({ revision: saved.draft.revision, providerId: "untrusted" }), headers })).status).toBe(400);
+  config.readOnly = true;
+  expect((await nativeFetch(path, { method: "POST", body, headers })).status).toBe(403);
+  config.readOnly = false;
+  expect(requests).toHaveLength(before);
+  changed = true;
+  const result = await nativeFetch(path, { method: "POST", body, headers });
+  expect(result.status).toBe(200);
+  const reloaded = z.object({ draft: EmailDraftSchema }).parse(await result.json()).draft;
+  expect(reloaded.subject).toBe("Changed by another editor");
+  expect(reloaded.delivery?.state).toBe("saved");
+  expect(requests.slice(before).filter(item => item.url.hostname !== "draft-broker.test").every(item => item.method === "GET")).toBe(true);
 });
 
 test("calendar delivery preserves date, time zone, reminders and selected calendar without invitations or duplicate entries", async () => {

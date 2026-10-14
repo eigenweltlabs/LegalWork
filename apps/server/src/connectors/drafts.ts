@@ -7,7 +7,7 @@ import { CalendarEventDraftInputSchema, CalendarEventDraftSchema, type CalendarE
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { withFileWriteLocks } from "../file-write-lock.js";
-import { draftPaths, readDraft, saveDraftFiles, saveEmailDraft, readEmailDraftMime } from "../email-drafts/store.js";
+import { draftPaths, readDraft, saveDraftFiles, saveEmailDraft, readEmailDraftMime, prepareEmailDraftReload } from "../email-drafts/store.js";
 import { eventDraftTimes, renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { savedConnectorConnections } from "./broker.js";
 import { requireConnectorConnectSlot } from "./single-connection.js";
@@ -157,6 +157,31 @@ export async function deliverConnectorEmailDraft(config: ServerConfig, workspace
       return { ...draft, revision: randomUUID(), delivery: { ...delivery, state: "sent" } };
     });
   });
+}
+
+export async function reloadConnectorEmailDraft(config: ServerConfig, workspace: WorkspaceInfo, id: string, revision: string) {
+  const draft = await saveDraftFiles(workspace.path, workspace.id, "email", async (_id, previous) => {
+    const initial = EmailDraftSchema.parse(previous);
+    const target = initial.connectorTarget, delivery = initial.delivery;
+    if (!target || !delivery?.id || delivery.state !== "saved") throw new ApiError(409, "connector_draft_not_saved", "Only a saved mailbox draft can be reloaded. Check the mail app for this email's status.");
+    await connectedAccount(config, target.connectorId, target.connectionId);
+    const request = await createConnectorRequest(config, target.connectorId, target.connectionId);
+    if (target.connectorId === "gmail") {
+      const current = parseNative(z.object({ message: z.object({ id: z.string().min(1), raw: z.string().min(1).max(35 * 1024 * 1024).regex(/^[A-Za-z0-9_-]+={0,2}$/) }) }),
+        await request(`/gmail/v1/users/me/drafts/${encodeURIComponent(delivery.id)}?format=raw&fields=message(id,raw)`));
+      return prepareEmailDraftReload(workspace.path, { ...initial, delivery: { ...delivery, messageId: current.message.id } }, Buffer.from(current.message.raw, "base64url"));
+    }
+    const path = `/v1.0/me/messages/${encodeURIComponent(delivery.id)}`;
+    const headers = { Prefer: 'IdType="ImmutableId"' };
+    const versionSchema = z.object({ isDraft: z.boolean(), changeKey: z.string().min(1) });
+    const before = parseNative(versionSchema, await request(`${path}?$select=isDraft,changeKey`, { headers }));
+    if (!before.isDraft) throw new ApiError(409, "connector_draft_changed", "This email is no longer an Outlook draft. Check the mail app before continuing.");
+    const mime = parseNative(z.object({ dataBase64: z.string() }), await request(`${path}/$value`, { headers, bytes: true }));
+    const after = parseNative(versionSchema, await request(`${path}?$select=isDraft,changeKey`, { headers }));
+    if (!after.isDraft || before.changeKey !== after.changeKey) throw new ApiError(409, "connector_draft_changed", "This draft changed while reloading from Outlook. Try reloading again.");
+    return prepareEmailDraftReload(workspace.path, { ...initial, delivery: { ...delivery, version: after.changeKey } }, Buffer.from(mime.dataBase64, "base64"));
+  }, { id, revision });
+  return { draft: EmailDraftSchema.parse(draft) };
 }
 
 export async function deliverConnectorCalendarDraft(config: ServerConfig, workspace: WorkspaceInfo, id: string, revision: string) {

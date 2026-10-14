@@ -13,6 +13,9 @@ import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft } from "../sr
 
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
+const editedDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_EDITED_DRAFTS === "1";
+const draftMime = new Map<string, string>();
+const mailboxMime = (provider: string) => (draftMime.get(provider) ?? "").replace(/^Subject:.*$/m, editedDrafts ? "Subject: Reloaded mailbox subject\r" : "$&");
 process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
 process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
 process.env.LEGALWORK_ENV_STORE = join(root, "env.json");
@@ -48,8 +51,12 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   if (showDrafts && url.hostname === "gmail.googleapis.com") {
     if (url.pathname.endsWith("/profile")) return Response.json({ emailAddress: "fixture@example.com" });
     if (url.pathname.endsWith("/send")) return Response.json({ id: "fixture-sent-message", threadId: "fixture-sent-thread" });
-    if (init?.method === "POST") return Response.json({ id: "fixture-gmail-draft", message: { id: "fixture-gmail-message", threadId: "fixture-gmail-thread" } });
-    return Response.json({ message: { id: "fixture-gmail-message" } });
+    if (init?.method === "POST") {
+      const saved = z.object({ message: z.object({ raw: z.string() }) }).parse(JSON.parse(String(init.body)));
+      draftMime.set("gmail", Buffer.from(saved.message.raw, "base64url").toString());
+      return Response.json({ id: "fixture-gmail-draft", message: { id: "fixture-gmail-message", threadId: "fixture-gmail-thread" } });
+    }
+    return Response.json({ message: { id: editedDrafts ? "fixture-gmail-reloaded-message" : "fixture-gmail-message", raw: Buffer.from(mailboxMime("gmail")).toString("base64url") } });
   }
   if (showDrafts && url.hostname === "www.googleapis.com") {
     const data = JSON.parse(String(init?.body ?? "{}"));
@@ -58,7 +65,13 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   if (showDrafts && url.hostname === "graph.microsoft.com") {
     if (url.pathname.endsWith("/send")) return new Response(null, { status: 202 });
     if (url.pathname.endsWith("/events")) return Response.json({ ...JSON.parse(String(init?.body ?? "{}")), id: "fixture-outlook-event", webLink: "https://outlook.office.com/calendar/item/fixture" });
-    return init?.method === "POST" ? Response.json({ id: "fixture-outlook-draft", changeKey: "fixture-version", webLink: "https://outlook.office.com/mail/item/fixture" }) : Response.json({ isDraft: true, changeKey: "fixture-version" });
+    if (init?.method === "POST") {
+      if (!(init.body instanceof Blob)) throw new Error("Expected Outlook MIME fixture");
+      draftMime.set("outlook", Buffer.from(await init.body.text(), "base64").toString());
+      return Response.json({ id: "fixture-outlook-draft", changeKey: "fixture-version", webLink: "https://outlook.office.com/mail/item/fixture" });
+    }
+    if (url.pathname.endsWith("/$value")) return new Response(mailboxMime("outlook"), { headers: { "Content-Type": "message/rfc822" } });
+    return Response.json({ isDraft: true, changeKey: editedDrafts ? "fixture-reloaded-version" : "fixture-version" });
   }
   if (url.hostname === "oauth2.googleapis.com" || url.hostname === "login.microsoftonline.com") {
     return Response.json({ access_token: "fixture-direct-token", refresh_token: "fixture-direct-refresh", expires_in: 3600 });
