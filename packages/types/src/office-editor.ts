@@ -64,10 +64,10 @@ export const docxReadSchema = z.object({
   view: z.enum(["all", "text", "structure", "formatting"]).optional().describe("Default all. Focus structure for linked fields, notes, controls/locks and sections; formatting for paragraph/run properties."),
   paraId: paraId.optional(),
   fromIndex: z.number().int().min(0).optional(),
-  toIndex: z.number().int().min(0).optional().describe("Inclusive end; at most 50 paragraphs per read."),
-  limit: z.number().int().min(1).max(50).optional().describe("Default 20. Follow nextIndex for the rest of the document."),
+  toIndex: z.number().int().min(0).optional().describe("Optional inclusive end paragraph index. Omit to read through the end unless limit is supplied."),
+  limit: z.number().int().min(1).optional().describe("Optional paragraph count for pagination. Omit to read the whole document. When paginating, follow nextIndex for the remaining paragraphs."),
   includeStyles: z.boolean().optional().describe("Include native style definitions with inheritance and explicit OOXML units."),
-}).refine(value => value.toIndex === undefined || value.toIndex >= (value.fromIndex ?? 0) && value.toIndex - (value.fromIndex ?? 0) < 50, "Use an ordered range of at most 50 paragraphs.");
+}).refine(value => value.toIndex === undefined || value.toIndex >= (value.fromIndex ?? 0), "Use an ordered paragraph range.");
 export const docxTemplateSchema = z.object({
   path: path.optional(),
   documentId: docxIdentity.documentId.optional(),

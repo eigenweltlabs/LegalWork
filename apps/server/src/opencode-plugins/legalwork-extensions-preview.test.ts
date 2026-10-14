@@ -568,6 +568,18 @@ test("Markdown chunks are scoped to the originating task and a failed save is a 
 });
 
 
+test("Word reads preserve whole-document defaults and accept optional ranges above 50 paragraphs", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true } }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  for (const args of [{}, { fromIndex: 0, toIndex: 100 }, { fromIndex: 10, limit: 75 }]) {
+    await plugin.tool.inapp_docx_read_document.execute(args, { sessionID: "ses_open" });
+    expect(requests.at(-1)).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "read_document", args } });
+  }
+  expect(plugin.tool.inapp_docx_read_document.description).toContain("whole document by default");
+  await expect(plugin.tool.inapp_docx_read_document.execute({ fromIndex: 2, toIndex: 1 }, { sessionID: "ses_open" })).rejects.toThrow("ordered paragraph range");
+});
+
 test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
   const requests: unknown[] = [];
   await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });

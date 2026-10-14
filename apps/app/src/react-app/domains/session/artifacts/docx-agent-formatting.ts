@@ -15,8 +15,8 @@ const twips = ["spaceBefore", "spaceAfter", "indentLeft", "indentRight", "indent
 export function readWordFormatting(doc: Node, document: Document, args: Record<string, unknown>) {
   const items = wordParagraphs(doc).map((item, index) => ({ ...item, index, paraId: typeof item.node.attrs.paraId === "string" ? item.node.attrs.paraId : `@paragraph:${index}` }));
   const from = typeof args.fromIndex === "number" ? args.fromIndex : 0;
-  const limit = typeof args.limit === "number" ? args.limit : 20;
-  if (!Number.isInteger(from) || from < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("Formatting reads require fromIndex >= 0 and limit between 1 and 50.");
+  const limit = typeof args.limit === "number" ? args.limit : Math.max(1, items.length - from);
+  if (!Number.isInteger(from) || from < 0 || !Number.isInteger(limit) || limit < 1) throw new Error("Formatting reads require fromIndex >= 0 and a positive integer limit.");
   const selected = typeof args.paraId === "string" ? items.filter((item) => item.paraId === args.paraId) : items.slice(from, from + limit);
   if (typeof args.paraId === "string" && selected.length !== 1) throw new Error("Paragraph is missing or ambiguous. Read the document again.");
   return {

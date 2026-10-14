@@ -63,8 +63,9 @@ For a named reference document that is not already open, inspect its saved file 
 - Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
   Start every new user edit request with a fresh live read. Do not reuse document
   identity, revision or paragraph handles from an earlier turn.
-  Both return stable `paraId` anchors. Read_document defaults to 20 paragraphs
-  (max 50); follow `nextIndex` until coverage is complete. Use `view: "structure"`
+  Both return stable `paraId` anchors. Read_document reads the whole document by
+  default. Pagination is optional via `limit`/`fromIndex`/`toIndex`; when paginating,
+  follow `nextIndex` until coverage is complete. Use `view: "structure"`
   or `view: "formatting"`, or a `paraId`, for focused reads. Structure exposes native
   field codes/targets/missing-reference status, bookmarks, linked notes, controls
   and locks, section numbering and protection. Formatting exposes run/paragraph

@@ -158,7 +158,7 @@ The public API retains dev's twelve tools and adds **three** tools:
 
 | Tool | Responsibility |
 | --- | --- |
-| `inapp_docx_read_document` | Bounded live text, structure and formatting reads; `view`, `paraId`, `fromIndex`, `limit`, `includeStyles`; explicit coverage and `nextIndex`. |
+| `inapp_docx_read_document` | Whole-document live text, structure and formatting reads by default; optional `view`, `paraId`, `fromIndex`, `toIndex`, `limit`, `includeStyles`; explicit coverage and `nextIndex` for pagination. |
 | `inapp_docx_fill_template` | Existing clean placeholder replacement plus native text controls by ID or unique tag, with lock/protection checks. |
 | `inapp_docx_edit` | Typed sequential native edit batches, one final save; formatting/styles, bookmarks/references, notes, breaks, numbering, protection and field refresh. `action: "save"` retries persistence without repeating edits. |
 | `inapp_docx_compare_documents` | Compare/combine saved returned project drafts with the live draft into a separate native redline copy. |
@@ -209,7 +209,7 @@ not claim full Word parity. The user's original demo document stays unchanged.
 
 Formatting reads and native edits are now exposed through
 `inapp_docx_read_document` (`view: "formatting"`) and typed `apply_formatting`
-operations in `inapp_docx_edit`. Default reads include a bounded formatting window,
+operations in `inapp_docx_edit`. Default reads include formatting for the whole document,
 and structure reads
 include paragraph/style handles and formatting capabilities. Focused/paginated
 reads expose run marks, fonts/sizes, emphasis, colors, character styles, paragraph
@@ -293,3 +293,15 @@ were removed: a test fixture's orphaned comment, rather than a production save
 failure, caused that warning.
 
 Update fields shares one document-tools bar with Review changes, Accept all changes and Reject all changes. The commands wrap together on narrow panes and retain their existing disabled/protection rules; no separate fields row remains.
+
+## Whole-document read compatibility — 15 October 2026
+
+Restored whole-document reads by default for text, structure and formatting.
+Pagination is optional; explicit ranges no longer have the added 50-paragraph cap.
+A 75-paragraph regression fixture verifies complete default reads, remaining reads,
+large explicit ranges, optional pagination and focused paragraph reads. Updated
+tool schemas, descriptions and bundled agent instructions consistently.
+
+Validation: `pnpm exec bun test` on the twelve editor suites above passed 78 tests;
+`pnpm exec bun test src/opencode-plugins/legalwork-extensions-preview.test.ts`
+passed 34 server tests. App and server `pnpm typecheck` passed.

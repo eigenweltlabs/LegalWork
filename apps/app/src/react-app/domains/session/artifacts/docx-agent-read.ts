@@ -7,7 +7,7 @@ import { readWordStructure } from "./docx-agent-structure";
 import { readWordFormatting } from "./docx-agent-formatting";
 import type { WordMetadata } from "./docx-word-package";
 
-/** Native structure and formatting share the text window. Coverage explicitly
+/** Reads cover the whole document unless the caller requests a window. Coverage explicitly
  * reports omitted paragraphs; reading never selects or changes the editor. */
 export function readWordDocument(doc: Node, document: Document, layout: Layout | null, metadata: WordMetadata, rawArgs: Record<string, unknown>, liveStories?: Map<string, Node>) {
   const args = docxReadSchema.parse(rawArgs);
@@ -15,7 +15,7 @@ export function readWordDocument(doc: Node, document: Document, layout: Layout |
   const focused = args.paraId ? full.paragraphs.find(item => item.paraId === args.paraId) : undefined;
   if (args.paraId && !focused) throw new Error("Paragraph is missing or ambiguous. Read the live document again.");
   const from = focused?.index ?? args.fromIndex ?? 0;
-  const limit = focused ? 1 : args.toIndex !== undefined ? args.toIndex - from + 1 : args.limit ?? 20;
+  const limit = focused ? 1 : args.toIndex !== undefined ? args.toIndex - from + 1 : args.limit ?? Math.max(1, full.paragraphs.length - from);
   const paragraphs = full.paragraphs.slice(from, from + limit);
   const ids = new Set(paragraphs.map(item => item.paraId));
   const view = args.view ?? "all";
@@ -34,6 +34,6 @@ export function readWordDocument(doc: Node, document: Document, layout: Layout |
     view, structure,
     formatting: view === "all" || view === "formatting" ? readWordFormatting(doc, document, { ...args, fromIndex: from, limit }) : undefined,
     coverage: { fromIndex: from, toIndex: paragraphs.at(-1)?.index ?? null, totalParagraphs: full.paragraphs.length, nextIndex: !focused && from + paragraphs.length < full.paragraphs.length ? from + paragraphs.length : null },
-    textArgs: { fromIndex: from, toIndex: from + limit - 1 },
+    textArgs: { fromIndex: from, ...(focused || args.toIndex !== undefined || args.limit !== undefined ? { toIndex: from + limit - 1 } : {}) },
   };
 }

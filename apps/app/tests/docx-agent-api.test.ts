@@ -29,7 +29,35 @@ test("paged live reads expose native references, notes and formatting with expli
   assert.equal(field.status, "linked"); assert.match(field.instruction, /REF Rueckbau/);
   const focused = readWordDocument(doc, document, null, metadata, { view: "formatting", paraId: field.paraId, includeStyles: true });
   assert.equal(focused.formatting!.paragraphs.length, 1); assert.equal(focused.structure, undefined); assert.equal(focused.coverage.nextIndex, null);
-  assert.ok(focused.formatting!.styleDefinitions); assert.throws(() => readWordDocument(doc, document, null, metadata, { fromIndex: 0, toIndex: 51 }));
+  assert.ok(focused.formatting!.styleDefinitions); assert.throws(() => readWordDocument(doc, document, null, metadata, { fromIndex: 2, toIndex: 1 }));
+});
+
+test("default live reads cover more than 50 paragraphs and pagination remains opt-in", async () => {
+  const buffer = new Uint8Array(await readFile(new URL("../scripts/fixtures/legal-word-workflows.docx", import.meta.url))).buffer;
+  const document = await parseDocx(buffer), metadata = await readWordMetadata(buffer);
+  const schema = toProseDoc(document, { styles: document.package.styles }).type.schema;
+  const doc = schema.node("doc", null, Array.from({ length: 75 }, (_, index) => schema.node("paragraph", { paraId: `P${index}` }, schema.text(`Clause ${index}`))));
+  const all = readWordDocument(doc, document, null, metadata, {});
+  assert.equal(all.structure!.paragraphs.length, 75);
+  assert.equal(all.formatting!.paragraphs.length, 75);
+  assert.equal(all.coverage.nextIndex, null);
+  assert.deepEqual(all.textArgs, { fromIndex: 0 });
+  const text = readWordDocument(doc, document, null, metadata, { view: "text" });
+  assert.equal(text.coverage.toIndex, 74); assert.equal(text.coverage.nextIndex, null);
+  assert.deepEqual(text.textArgs, { fromIndex: 0 });
+  const rest = readWordDocument(doc, document, null, metadata, { fromIndex: 20 });
+  assert.equal(rest.structure!.paragraphs.length, 55); assert.equal(rest.coverage.nextIndex, null);
+  assert.deepEqual(rest.textArgs, { fromIndex: 20 });
+  const range = readWordDocument(doc, document, null, metadata, { fromIndex: 0, toIndex: 74 });
+  assert.equal(range.structure!.paragraphs.length, 75);
+  assert.deepEqual(range.textArgs, { fromIndex: 0, toIndex: 74 });
+  const page = readWordDocument(doc, document, null, metadata, { fromIndex: 10, limit: 60 });
+  assert.equal(page.structure!.paragraphs.length, 60); assert.equal(page.formatting!.paragraphs.length, 60);
+  assert.equal(page.coverage.nextIndex, 70);
+  assert.deepEqual(page.textArgs, { fromIndex: 10, toIndex: 69 });
+  const focused = readWordDocument(doc, document, null, metadata, { paraId: "P74" });
+  assert.equal(focused.structure!.paragraphs.length, 1); assert.equal(focused.coverage.nextIndex, null);
+  assert.deepEqual(focused.textArgs, { fromIndex: 74, toIndex: 74 });
 });
 
 test("batch validates every operation before editing and rejects arbitrary formatting JSON", async () => {
