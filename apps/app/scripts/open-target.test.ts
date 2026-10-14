@@ -21,6 +21,35 @@ it("opens media files in players while keeping remote URLs in browser tabs", () 
   expect(targets.every((target) => isCollectibleArtifactTarget({ ...target, exists: true }))).toBe(true);
 });
 
+it.each([
+  ["contracts/Contract.docx_#a1b2c3d4.PDF", "pdf"],
+  ["contracts/Contract.docx_?a1b2c3d4.pdf", "pdf"],
+  ["contracts/#draft/Contract.docx", "word"],
+  ["tables/Revenue#final.tsv", "sheet"],
+  ["images/Signature?final.png", "image"],
+  ["notes/Summary#final.md", "markdown"],
+])("classifies the literal file path %s as %s", (path, preview) => {
+  expect(classifyOpenTarget(path, "file")).toBe(preview);
+});
+
+it("preserves special characters in file targets and their display names", () => {
+  const path = "contracts/?draft/Contract.docx_#a1b2c3d4.pdf";
+  const targets = deriveOpenTargets([
+    toolMessage("literal-path", "write", { filePath: path }, { filePath: path }),
+  ]);
+  expect(targets).toHaveLength(1);
+  expect(targets[0]).toMatchObject({ value: path, name: "Contract.docx_#a1b2c3d4.pdf", preview: "pdf" });
+});
+
+it("keeps URL queries and fragments while deriving names from the URL path", () => {
+  const url = "https://example.com/reports/Contract.pdf?download=1#page=2";
+  const targets = deriveOpenTargets([
+    message("url", "assistant", `[Contract.pdf](${url})`),
+  ]);
+  expect(targets).toHaveLength(1);
+  expect(targets[0]).toMatchObject({ value: url, name: "Contract.pdf", preview: "browser" });
+});
+
 function message(id: string, role: "user" | "assistant", text: string): UIMessage {
   return { id, role, parts: [{ type: "text", text, state: "done" }] };
 }
@@ -89,7 +118,7 @@ describe("deriveOpenTargets", () => {
     expect(targets[0]).toMatchObject({ value: "reports/summary.md", preview: "markdown", confidence: 95 });
   });
 
-  it("keeps written unsupported files available for opening externally", () => {
+  it("opens written code files in editor tabs", () => {
     const targets = deriveOpenTargets([
       toolMessage("msg_tool", "write", { filePath: "src/widget.tsx" }, { filePath: "src/widget.tsx" }),
     ]);
@@ -97,7 +126,7 @@ describe("deriveOpenTargets", () => {
     const target = targets[0];
 
     expect(target).toMatchObject({ value: "src/widget.tsx", preview: "text", confidence: 95 });
-    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : true).toBe(false);
+    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : false).toBe(true);
   });
 
   it("uses markdown link href once when the label is the href basename", () => {

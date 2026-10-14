@@ -9,6 +9,7 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import "./markdown-editor.css";
+import { markdownCodeTheme } from "./markdown-code-theme";
 import { t } from "@/i18n";
 
 type Props = {
@@ -29,8 +30,8 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
     tablePlugin(), thematicBreakPlugin(), frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
-    codeMirrorPlugin({ codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
-    diffSourcePlugin({ viewMode: "rich-text", diffMarkdown: baseline }),
+    codeMirrorPlugin({ codeMirrorExtensions: markdownCodeTheme, codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
+    diffSourcePlugin({ codeMirrorExtensions: markdownCodeTheme, viewMode: "rich-text", diffMarkdown: baseline }),
     markdownShortcutPlugin(),
     toolbarPlugin({ toolbarContents: () => (
       <DiffSourceToggleWrapper>
@@ -49,6 +50,11 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
 
   return <MDXEditor
     ref={editor}
+    translation={(key, defaultValue, interpolations) => {
+      const translationKey = `markdown.${key}`;
+      const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
+      return translated === translationKey ? defaultValue : translated;
+    }}
     className="lw-markdown-editor"
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}

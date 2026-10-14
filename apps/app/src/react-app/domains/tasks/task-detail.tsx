@@ -10,13 +10,15 @@
  * attachments, sessions, history, the original message, details — is folded
  * when a task opens, so what is asked is the first and only thing in view.
  */
-import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { registerUnsavedDocument } from "../session/artifacts/docx-document-state";
+import { createTaskDraft, type TaskDraft } from "./task-draft";
 import DOMPurify from "dompurify";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArchiveRestore,
   Bot,
-  CalendarClock,
   ChevronDown,
   Cloud,
   CloudDownload,
@@ -31,6 +33,9 @@ import {
   Plus,
   Sparkles,
   SquareArrowOutUpRight,
+  SquareCheck,
+  FolderOpen,
+  Check,
   Trash2,
   Tags,
   Webhook,
@@ -44,15 +49,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ItemDetailLabel, ItemDescriptionInput, ItemTitleInput } from "@/react-app/design-system/item-detail";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,11 +57,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type {
   LegalworkTask,
   LegalworkTaskAttachment,
+  LegalworkTaskConflictChoice,
   LegalworkTaskMember,
   LegalworkTaskNote,
   LegalworkTaskPatch,
   LegalworkTaskSessionLink,
+  LegalworkTaskTextConflict,
 } from "@/app/lib/legalwork-server";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { hasStorageFileDrag, readStorageFileDrag, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
 import { writeTaskAttachmentDrag } from "@/app/lib/task-attachment-drag";
 import { formatBytes } from "@/app/utils";
@@ -78,15 +78,14 @@ import {
   formatTaskDate,
   formatTaskDateTime,
   formatTaskDueDate,
-  taskDueDateInputValue,
-  taskDueTone,
   taskMemberOptions,
   taskPriorityLabel,
   taskStatusLabel,
 } from "./task-format";
-import { AssigneeMark, OptionText, PriorityMark, StatusGlyph, SyncMark } from "./task-glyphs";
+import { AssigneeMark, PriorityMark, StatusGlyph, SyncMark } from "./task-glyphs";
 import { taskOriginLabel } from "./task-list";
 import { readTaskSubmission } from "./task-submission";
+import { DueDateChip, PropertyChip, type PropertyChipItem } from "./task-property-chip";
 import { TaskTagInput } from "./task-tag-input";
 
 /** The "unassigned" choice needs a non-empty Select value of its own. */
@@ -145,14 +144,15 @@ function Section(props: {
   return (
     <details
       className={cn(
-        "group/section border-t border-border",
+        "group/section border-t border-border/60",
         props.dropZone?.active && "rounded-[var(--lw-radius-lg)] ring-2 ring-primary/35",
       )}
+      data-workspace-file-intake={props.dropZone ? "task" : undefined}
       onDragOver={props.dropZone?.onDragOver}
       onDragLeave={props.dropZone?.onDragLeave}
       onDrop={props.dropZone?.onDrop}
     >
-      <summary className="relative flex cursor-pointer list-none items-center gap-3 rounded-md py-4 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+      <summary className="relative flex cursor-pointer list-none items-center gap-3 rounded-md py-3.5 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
         {props.dropZone?.active ? (
           <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--lw-radius-lg)] bg-background/90">
             {props.dropZone.label}
@@ -168,122 +168,6 @@ function Section(props: {
   );
 }
 
-/** Status, assignee and priority as chips: the current value with its mark, a menu behind it. */
-type PropertyChipItem = {
-  value: string;
-  /** What the chip shows once chosen. */
-  label: string;
-  leading: ReactNode;
-  /** The menu's line when it differs from the chip's (defaults to `label`). */
-  primary?: string;
-  /** A second, muted line in the menu, e.g. a member's email. */
-  detail?: string;
-  /** A key that picks the entry while the menu is open, shown at its end. */
-  key?: string;
-};
-
-const CHIP_CLASS =
-  "h-9 w-full min-w-0 max-w-full gap-2 rounded-lg sm:w-fit border-transparent bg-muted/60 px-3 text-sm font-medium text-foreground hover:bg-muted/60 data-[size=sm]:h-9";
-
-function PropertyChip(props: {
-  label: string;
-  value: string;
-  items: PropertyChipItem[];
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const current = props.items.find((item) => item.value === props.value);
-  // Open state is held here so a key shortcut can close the menu after picking.
-  const [open, setOpen] = useState(false);
-  const pickByKey = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const item = props.items.find((entry) => entry.key === event.key);
-    if (!item) return;
-    event.preventDefault();
-    props.onChange(item.value);
-    setOpen(false);
-  };
-  return (
-    <Select
-      value={props.value}
-      items={props.items}
-      disabled={props.disabled}
-      open={open}
-      onOpenChange={setOpen}
-      onValueChange={(value) => props.onChange(value ?? "")}
-    >
-      <SelectTrigger size="sm" aria-label={props.label} className={CHIP_CLASS}>
-        {current?.leading}
-        <SelectValue className="min-w-0" title={current?.label}>
-          <span className="truncate">{current?.label}</span>
-        </SelectValue>
-      </SelectTrigger>
-      {/* As wide as the entries need rather than as the chip: the chip shows
-          one short value, the menu has to show every name in full. */}
-      <SelectContent align="start" className="w-auto min-w-(--anchor-width) max-w-80" onKeyDown={pickByKey}>
-        <SelectGroup>
-          {props.items.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.leading}
-              <OptionText primary={item.primary ?? item.label} detail={item.detail} />
-              {item.key ? (
-                <span aria-hidden className="ms-auto ps-5 text-[11px] font-normal tabular-nums text-muted-foreground">
-                  {item.key}
-                </span>
-              ) : null}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  );
-}
-
-/**
- * The due date as a chip around a native date input: the platform's own
- * picker, no library, and a clear button once a date is set. A date-only
- * deadline is the firm's local day; the server stores it as local midnight.
- */
-function DueDateChip(props: { value: string | null; disabled: boolean; onChange: (day: string | null) => void }) {
-  const id = useId();
-  const tone = taskDueTone(props.value);
-  return (
-    <span
-      className={cn(
-        "inline-flex h-9 min-w-0 items-center gap-2 rounded-lg bg-muted/60 ps-3 pe-1 text-sm font-medium",
-        tone === "overdue" && "text-red-9",
-        tone === "today" && "text-amber-9",
-      )}
-    >
-      <label htmlFor={id} className="sr-only">
-        {t("tasks.field_due")}
-      </label>
-      <CalendarClock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      <input
-        id={id}
-        type="date"
-        disabled={props.disabled}
-        value={taskDueDateInputValue(props.value)}
-        title={props.value ? t("tasks.due_label", { date: formatTaskDueDate(props.value) }) : t("tasks.due_none")}
-        className="h-9 min-w-0 bg-transparent text-sm font-medium text-inherit outline-none disabled:cursor-not-allowed"
-        onChange={(event) => props.onChange(event.target.value || null)}
-      />
-      {props.value ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t("tasks.due_clear")}
-          disabled={props.disabled}
-          onClick={() => props.onChange(null)}
-        >
-          <X />
-        </Button>
-      ) : null}
-    </span>
-  );
-}
-
 function Fact(props: { label: string; children: ReactNode }) {
   return (
     <>
@@ -294,6 +178,10 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  draftKey?: string;
+  draft?: TaskDraft;
+  onDirtyChange?: (dirty: boolean) => void;
+  projects?: { id: string; name: string }[];
   task: LegalworkTask;
   /** Raw `submission` half of the detail; shape is not pinned by the contract. */
   submission: unknown;
@@ -308,6 +196,11 @@ export type TaskDetailProps = {
   accountUserId: string | null;
   /** Closes the task, back to the list alone: the back arrow in one column, the cross in two. */
   onBack: () => void;
+  /** Panel tabs already provide navigation and a close button. */
+  inPanel?: boolean;
+  /** Reserve room for the standard dialog close button. */
+  inDialog?: boolean;
+  saving?: boolean;
   /** Every in-place change goes through here; it resolves when the store has it. */
   onPatch: (patch: LegalworkTaskPatch) => Promise<unknown>;
   onDelete: () => void;
@@ -323,23 +216,78 @@ export type TaskDetailProps = {
   onUploadAttachments: (files: File[]) => Promise<unknown>;
   onUploadStorageAttachment: (file: StorageFileDragItem) => Promise<unknown>;
   onRemoveAttachment: (attachment: LegalworkTaskAttachment) => Promise<unknown>;
+  /** Title or description a colleague changed in the same words: which version stays is this member's. */
+  conflicts?: LegalworkTaskTextConflict[];
+  onResolveConflict?: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
 };
+
+/** Both versions, and the member picks which stays; keeping both puts theirs in the history. */
+function TaskConflictNotice(props: {
+  conflict: LegalworkTaskTextConflict;
+  busy: boolean;
+  onResolve: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
+}) {
+  const { conflict } = props;
+  const [working, setWorking] = useState(false);
+  const choose = async (keep: "mine" | "theirs", both = false) => {
+    setWorking(true);
+    try {
+      const label = t(conflict.field === "title" ? "tasks.conflict_note_title" : "tasks.conflict_note_description");
+      await props.onResolve({ field: conflict.field, keep, ...(both ? { note: `${label}\n\n${conflict.mine}` } : {}) });
+    } catch (error) {
+      toast.error(t("tasks.conflict_failed"), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setWorking(false);
+    }
+  };
+  const disabled = props.busy || working;
+  const version = (label: string, text: string) => (
+    <div>
+      <dt className="font-medium text-foreground">{label}</dt>
+      <dd className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1.5">{text}</dd>
+    </div>
+  );
+  return (
+    <Alert className="mb-4">
+      <AlertTriangle className="text-warning" />
+      <AlertDescription className="space-y-3">
+        <p>{t(conflict.field === "title" ? "tasks.conflict_title" : "tasks.conflict_description")}</p>
+        <dl className="grid gap-2 text-xs">
+          {version(t("tasks.conflict_theirs"), conflict.theirs)}
+          {version(t("tasks.conflict_mine"), conflict.mine)}
+        </dl>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={disabled} onClick={() => void choose("theirs", true)}>{t("tasks.conflict_keep_both")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("theirs")}>{t("tasks.conflict_use_theirs")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("mine")}>{t("tasks.conflict_keep_mine")}</Button>
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export function TaskDetail(props: TaskDetailProps) {
   const { task } = props;
+  const resolveConflict = props.onResolveConflict;
   // The newest run started from the task on this machine, for the toolbar's
   // "Open run"; the session that filed the task is not a run of it.
   const latestRun = task.sessions.find((link) => link.kind !== "created") ?? null;
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [draggingAttachment, setDraggingAttachment] = useState(false);
-  const [draftTitle, setDraftTitle] = useState(task.title);
-  const [draftDescription, setDraftDescription] = useState(task.description);
+  const [localDraft] = useState(() => createTaskDraft(task));
+  const draft = props.draft ?? localDraft;
+  const { title: draftTitle, description: draftDescription, note: noteDraft, savingNote, pendingWrites, uploading } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const { setTitle: setDraftTitle, setDescription: setDraftDescription, setNote: setNoteDraft } = draft;
   const [draftTags, setDraftTags] = useState(task.tags);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
+  const [preparingSession, setPreparingSession] = useState(false);
+  const dirtyRef = useRef(false);
+  const saving = Boolean(props.saving || pendingWrites);
+  const dirty = Boolean(saving || uploading || savingNote || draftTitle !== task.title || draftDescription !== task.description || noteDraft.trim());
+  dirtyRef.current = dirty;
+  useEffect(() => props.onDirtyChange?.(dirty), [dirty, props.onDirtyChange]);
+  useEffect(() => !props.draft && props.draftKey ? registerUnsavedDocument(props.draftKey, task.title, () => dirtyRef.current) : undefined, [props.draft, props.draftKey, task.title]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const email = useMemo(() => readTaskSubmission(props.submission), [props.submission]);
   const emailHtml = useMemo(() => (email?.html ? sanitizeEmailHtml(email.html) : null), [email]);
@@ -347,8 +295,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const locked = props.busy || inTrash;
   const canRun = Boolean(props.onStartWorkflow && props.onStartSession && props.onOpenSession);
 
-  useEffect(() => setDraftTitle(task.title), [task.id, task.title]);
-  useEffect(() => setDraftDescription(task.description), [task.description, task.id]);
+  useEffect(() => draft.reconcile({ title: task.title, description: task.description }), [draft, task.title, task.description]);
   useEffect(() => setDraftTags(task.tags), [task.id, task.tags]);
 
   // Base UI's Select.Value renders the raw value unless the root is handed the
@@ -384,7 +331,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const patch = async (change: LegalworkTaskPatch, failure: string) => {
     try {
-      await props.onPatch(change);
+      await draft.write(() => props.onPatch(change));
       return true;
     } catch (error) {
       toast.error(failure, { description: error instanceof Error ? error.message : undefined });
@@ -398,6 +345,7 @@ export function TaskDetail(props: TaskDetailProps) {
       setDraftTitle(task.title);
       return;
     }
+    setDraftTitle(title);
     if (title !== task.title) await patch({ title }, t("tasks.update_failed"));
   };
 
@@ -405,6 +353,20 @@ export function TaskDetail(props: TaskDetailProps) {
     if (draftDescription !== task.description) {
       await patch({ description: draftDescription }, t("tasks.update_failed"));
     }
+  };
+
+  const startSession = async () => {
+    if (preparingSession || props.busy || saving || !draftTitle.trim()) return;
+    setDraftTitle(draftTitle.trim());
+    setPreparingSession(true);
+    try {
+      const changes = {
+        ...(draftTitle.trim() !== task.title ? { title: draftTitle.trim() } : {}),
+        ...(draftDescription !== task.description ? { description: draftDescription } : {}),
+      };
+      if (Object.keys(changes).length && !await patch(changes, t("tasks.update_failed"))) return;
+      props.onStartSession?.();
+    } finally { setPreparingSession(false); }
   };
 
   const saveInlineOnCommandEnter = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -415,14 +377,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const addNote = async (event: FormEvent) => {
     event.preventDefault();
-    const body = noteDraft.trim();
-    if (!body) return;
-    setSavingNote(true);
-    try {
-      if (await patch({ note: body }, t("tasks.note_failed"))) setNoteDraft("");
-    } finally {
-      setSavingNote(false);
-    }
+    await draft.submitNote(body => patch({ note: body }, t("tasks.note_failed")));
   };
 
   const download = async (attachment: LegalworkTaskAttachment) => {
@@ -464,25 +419,20 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const upload = async (files: File[]) => {
     if (files.length === 0) return;
-    setUploading(true);
     try {
-      await props.onUploadAttachments(files);
+      await draft.upload(() => props.onUploadAttachments(files));
     } catch (error) {
       toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
     } finally {
-      setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const uploadStorageAttachment = async (file: StorageFileDragItem) => {
-    setUploading(true);
     try {
-      await props.onUploadStorageAttachment(file);
+      await draft.upload(() => props.onUploadStorageAttachment(file));
     } catch (error) {
       toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -498,9 +448,11 @@ export function TaskDetail(props: TaskDetailProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="shrink-0 border-b border-border py-3">
-        <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
+      <header className={cn("shrink-0 border-b border-border/60 py-3", props.inDialog && "py-3.5 pe-12")}>
+        <div className={cn("mx-auto flex w-full max-w-2xl flex-wrap items-center gap-2 px-4 sm:px-6", props.inPanel && !props.inDialog ? "justify-end" : "justify-between")}>
+          {props.inDialog && <ItemDetailLabel icon={<SquareCheck />}>{t("calendar.task")}</ItemDetailLabel>}
+          {(!props.inPanel || inTrash) && <div className="flex min-w-0 items-center gap-2">
+            {!props.inPanel && <>
             <Button variant="ghost" size="icon-sm" className="@min-[880px]/tasks:hidden" aria-label={t("tasks.back_to_list")} onClick={props.onBack}>
               <ArrowLeft />
             </Button>
@@ -528,18 +480,24 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{sessionLinkLabel(task.createdSession)}</TooltipContent>
               </Tooltip>
             ) : null}
+            </>}
             {inTrash ? (
               <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 text-[11px] font-medium text-muted-foreground">
                 <Trash2 aria-hidden className="size-3" />
                 {t("tasks.in_trash")}
               </span>
             ) : null}
-          </div>
-          <div className="grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center">
+          </div>}
+          <div className={props.inPanel ? "flex flex-wrap items-center gap-2" : "grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center"}>
             {inTrash ? (
               <Button size="sm" disabled={props.busy} aria-busy={props.busy} onClick={props.onRestore}>
                 {props.busy ? <Loader2 className="animate-spin" /> : <ArchiveRestore />}
                 {t("tasks.restore")}
+              </Button>
+            ) : !canRun && props.onStartSession ? (
+              <Button size="sm" variant="outline" disabled={props.busy || saving || uploading || preparingSession || !draftTitle.trim()} onPointerDown={event => event.preventDefault()} onClick={() => void startSession()}>
+                {props.busy || preparingSession ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}
+                {t("tasks.start_session")}
               </Button>
             ) : canRun && task.cloudRunId ? (
               // Triage already started the workflow in the cloud; a local
@@ -612,7 +570,7 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{t("tasks.delete")}</TooltipContent>
               </Tooltip>
             )}
-            <Button
+            {!props.inPanel && <Button
               variant="ghost"
               size="icon-sm"
               className="hidden @min-[880px]/tasks:inline-flex"
@@ -620,27 +578,43 @@ export function TaskDetail(props: TaskDetailProps) {
               onClick={props.onBack}
             >
               <X />
-            </Button>
+            </Button>}
           </div>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-col px-5 py-6 sm:px-8">
+          {resolveConflict
+            ? (props.conflicts ?? []).map((conflict) => (
+                <TaskConflictNotice key={conflict.field} conflict={conflict} busy={props.busy} onResolve={resolveConflict} />
+              ))
+            : null}
           <>
-              <div className="space-y-4 pb-6">
-                <Input
+              <div className="space-y-5 pb-5">
+                <ItemTitleInput
                   aria-label={t("tasks.field_title")}
                   maxLength={500}
                   value={draftTitle}
                   placeholder={t("tasks.field_title_placeholder")}
                   disabled={locked}
-                  className="h-auto border-transparent bg-transparent px-0 py-0 text-xl font-medium leading-snug tracking-tight shadow-none hover:border-border focus-visible:border-border focus-visible:px-2 focus-visible:py-1 focus-visible:ring-0"
                   onChange={(event) => setDraftTitle(event.target.value)}
                   onBlur={() => void saveTitle()}
                   onKeyDown={saveInlineOnCommandEnter}
                 />
-                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:flex-wrap sm:[&>[data-slot=select-trigger]]:max-w-72">
+                <section aria-label={t("tasks.field_description")}>
+                  <ItemDescriptionInput
+                    aria-label={t("tasks.field_description")}
+                    rows={2}
+                    value={draftDescription}
+                    placeholder={t("tasks.description_empty")}
+                    disabled={locked}
+                    onChange={(event) => setDraftDescription(event.target.value)}
+                    onBlur={() => void saveDescription()}
+                    onKeyDown={saveInlineOnCommandEnter}
+                  />
+                </section>
+                <div className="flex flex-wrap items-center gap-2 [&>[data-slot=select-trigger]]:max-w-72">
                   <PropertyChip
                     label={t("tasks.column_status")}
                     value={task.status}
@@ -650,6 +624,11 @@ export function TaskDetail(props: TaskDetailProps) {
                       const next = TASK_STATUSES.find((status) => status === value);
                       if (next && next !== task.status) void patch({ status: next }, t("tasks.update_failed"));
                     }}
+                  />
+                  <DueDateChip
+                    value={task.dueDate}
+                    disabled={locked}
+                    onChange={(day) => void patch({ dueDate: day }, t("tasks.update_failed"))}
                   />
                   {showAssignee ? (
                     <PropertyChip
@@ -673,14 +652,12 @@ export function TaskDetail(props: TaskDetailProps) {
                       if (next !== undefined && next !== task.priority) void patch({ priority: next }, t("tasks.update_failed"));
                     }}
                   />
-                  <DueDateChip
-                    value={task.dueDate}
-                    disabled={locked}
-                    onChange={(day) => void patch({ dueDate: day }, t("tasks.update_failed"))}
-                  />
+                  {props.projects ? <PropertyChip label={t("projects.project")} value={task.projectId ?? "__none__"}
+                    items={[{ value: "__none__", label: t("projects.no_project"), leading: <FolderOpen className="size-3.5" /> }, ...props.projects.map((project) => ({ value: project.id, label: project.name, leading: <FolderOpen className="size-3.5" /> }))]}
+                    disabled={locked} onChange={(value) => void patch({ projectId: value === "__none__" ? null : value }, t("tasks.update_failed"))} /> : null}
                 </div>
-                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
-                  <Tags aria-hidden className="mt-2.5 size-4 text-muted-foreground" />
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                  <Tags aria-hidden className="size-3.5 text-muted-foreground" />
                   <TaskTagInput
                     tags={draftTags}
                     suggestions={props.tagSuggestions}
@@ -694,19 +671,6 @@ export function TaskDetail(props: TaskDetailProps) {
                   />
                 </div>
               </div>
-              <section className="pb-6" aria-label={t("tasks.field_description")}>
-                <Textarea
-                  aria-label={t("tasks.field_description")}
-                  rows={Math.max(3, draftDescription.split("\n").length)}
-                  value={draftDescription}
-                  placeholder={t("tasks.description_empty")}
-                  disabled={locked}
-                  className="min-h-20 resize-none border-transparent bg-transparent px-0 py-0 text-sm leading-relaxed shadow-none hover:border-border focus-visible:border-border focus-visible:px-2 focus-visible:py-2 focus-visible:ring-0"
-                  onChange={(event) => setDraftDescription(event.target.value)}
-                  onBlur={() => void saveDescription()}
-                  onKeyDown={saveInlineOnCommandEnter}
-                />
-              </section>
             </>
 
           <Section
@@ -1015,6 +979,10 @@ export function TaskDetail(props: TaskDetailProps) {
           </Section>
         </div>
       </div>
+      {props.inDialog && <footer className="flex shrink-0 items-center justify-end gap-1.5 border-t border-border/60 bg-muted/20 px-6 py-3 text-xs text-muted-foreground">
+        {saving ? <Loader2 className="size-3 animate-spin" /> : draftTitle === task.title && draftDescription === task.description ? <Check className="size-3" /> : null}
+        {t(saving ? "common.saving" : draftTitle !== task.title || draftDescription !== task.description ? "common.unsaved_changes" : "common.saved")}
+      </footer>}
     </div>
   );
 }

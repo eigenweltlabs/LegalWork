@@ -25,7 +25,6 @@ import {
   RefreshCw,
   Search,
   Share2,
-  Table2,
   Trash2,
   Wand2,
   X,
@@ -73,6 +72,13 @@ import {
   type SkillResourcesStore,
   type StagedResourceFile,
 } from "./skill-resources-panel";
+import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
+import { FirmItemNote } from "../../connections/org-policy-ui";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
+import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
+import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
+import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -109,7 +115,12 @@ export type ImportedCloudSkillRecord = {
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
 
-export type SkillsExtensionsStore = SkillResourcesStore & {
+export type SkillsExtensionsStore = SkillResourcesStore & SkillPackagesStore & {
+  /** A GitHub repo that is a package (skills, connectors and commands together): what it would bring, and importing it. */
+  previewClaudePlugin: (url: string) => Promise<LegalworkClaudePluginPreview>;
+  installClaudePlugin: (url: string) => Promise<{ ok: boolean; message: string }>;
+  /** A file of one of the firm's skills or workflows, to read (they cannot be changed here). */
+  readFirmSkill: (name: string, path?: string) => Promise<FirmHubSkillFile>;
   skills: () => SkillCard[];
   skillsStatus: () => string | null;
   hubSkills: () => HubSkillCard[];
@@ -187,14 +198,10 @@ export type SkillsViewProps = {
 // Workflows are ordinary skills tagged with `kind: workflow` frontmatter (surfaced on the
 // SkillCard), so the two views filter the same list. The legacy `workflow-` name prefix is
 // still recognized as a fallback for anything created before the switch.
-export type WorkflowType = "tabular" | "assistant";
+export type WorkflowType = "assistant";
 const WORKFLOW_PREFIX = "workflow-";
 export function isWorkflowCard(card: Pick<SkillCard, "name" | "kind">): boolean {
   return card.kind === "workflow" || card.name.startsWith(WORKFLOW_PREFIX);
-}
-function cardWorkflowType(card: SkillCard): WorkflowType {
-  if (card.workflowType === "tabular" || card.name.startsWith("workflow-tabular-")) return "tabular";
-  return "assistant";
 }
 export function workflowDisplayName(name: string): string {
   const slug = name.replace(/^workflow-(?:tabular|assistant)-/, "").replace(/^workflow-/, "");
@@ -316,6 +323,10 @@ export function SkillsView(props: SkillsViewProps) {
   useEffect(() => {
     void extensions.refreshSkills({ force: true });
   }, [extensions]);
+  // The firm's skills and workflows change with its hub.
+  useEffect(() => onSyncPoke((poke) => {
+    if (poke.hub) void extensions.refreshSkills({ force: true });
+  }), [extensions]);
 
   useEffect(() => {
     if (!SKILLS_HUB_UI_ENABLED && activeFilter === "hub") setActiveFilter("all");
@@ -417,6 +428,10 @@ export function SkillsView(props: SkillsViewProps) {
   // Workflows are local-authored only — no Hub/Cloud catalogs.
   const effectiveActiveFilter = !SKILLS_HUB_UI_ENABLED && activeFilter === "hub" ? "all" : activeFilter;
   const showInstalledSection = showLocal && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
+  // Read the imported packages again once the import dialog brought one in.
+  const [packagesRevision, setPackagesRevision] = useState(0);
+  // One of the firm's skills, open to read.
+  const [firmSkill, setFirmSkill] = useState<SkillCard | null>(null);
   const showHubSection = showLocal && SKILLS_HUB_UI_ENABLED && !isWorkflowsView && (effectiveActiveFilter === "all" || effectiveActiveFilter === "hub");
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
 
@@ -691,6 +706,7 @@ export function SkillsView(props: SkillsViewProps) {
                   canUseDesktopTools={props.canUseDesktopTools}
                   existingNames={installedNames}
                   extensions={extensions}
+                  onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
                 />
                 <button
                   type="button"
@@ -823,15 +839,32 @@ export function SkillsView(props: SkillsViewProps) {
               <div className="grid gap-3 sm:grid-cols-2">
                 {pagedWorkflows.map((skill) => {
                   const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
-                  const workflowType = isWorkflowsView ? cardWorkflowType(skill) : null;
-                  const typeLabel = isWorkflowsView
-                    ? workflowType === "tabular"
-                      ? "Tabular"
-                      : "Assistant"
-                    : isLegalworkInjectedSkill(skill)
-                      ? "LegalWork"
-                      : null;
-                  const TypeIcon = isWorkflowsView ? (workflowType === "tabular" ? Table2 : Bot) : Blocks;
+                  const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
+                  const TypeIcon = isWorkflowsView ? Bot : Blocks;
+                  // The firm's skill follows its hub: members read it, but cannot change or remove it here.
+                  if (skill.firm) {
+                    return (
+                      <button
+                        key={skill.path}
+                        type="button"
+                        onClick={() => setFirmSkill(skill)}
+                        className="flex flex-col rounded-[16px] border border-dls-border bg-dls-surface p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(var(--dls-accent-rgb),0.3)] hover:shadow-[0_14px_34px_-18px_rgba(8,23,79,0.3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent">
+                            <TypeIcon size={14} strokeWidth={1.75} />
+                          </span>
+                          <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{displayName}</h4>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                          {skill.description || t("skills.no_description")}
+                        </p>
+                        <div className="mt-2.5">
+                          <FirmItemNote added={skill.firm === "optional"} />
+                        </div>
+                      </button>
+                    );
+                  }
                   return (
                     <div
                       key={skill.path}
@@ -957,6 +990,13 @@ export function SkillsView(props: SkillsViewProps) {
             </div>
           )}
         </div>
+      ) : null}
+
+      {showInstalledSection && !isWorkflowsView ? (
+        <>
+          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision} />
+          <BuiltInSkills />
+        </>
       ) : null}
 
       {/* Hub catalog hidden for now; flip SKILLS_HUB_UI_ENABLED to restore. */}
@@ -1140,6 +1180,10 @@ export function SkillsView(props: SkillsViewProps) {
         </DialogContent>
       </Dialog>
 
+      {firmSkill ? (
+        <FirmSkillDialog name={firmSkill.name} added={firmSkill.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmSkill(null)} />
+      ) : null}
+
       <ConfirmModal
         open={Boolean(uninstallTarget)}
         title={t("skills.uninstall_title")}
@@ -1293,7 +1337,14 @@ function SkillCreatorButton(props: {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} disabled={props.disabled} className={pillPrimaryClass}>
+      <button
+        type="button"
+        onClick={async () => {
+          if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
+        }}
+        disabled={props.disabled}
+        className={pillPrimaryClass}
+      >
         <Plus size={14} />
         {t("skills.new_skill")}
       </button>
@@ -1381,40 +1432,6 @@ function SkillCreatorButton(props: {
       </Dialog>
     </>
   );
-}
-
-// Builds the SKILL.md for a workflow. Both types carry `kind: workflow` + `workflow_type`
-// frontmatter; tabular workflows embed the instruction to run via the tabular-review skill
-// plus the free-text list of fields the creator typed.
-function buildWorkflowContent(input: {
-  type: WorkflowType;
-  fullName: string;
-  title: string;
-  description: string;
-  body: string;
-}): string {
-  // Frontmatter stays standard (name + description only) so opencode loads workflows
-  // as ordinary skills — non-standard keys like `kind`/`workflow_type` make the engine
-  // skip the SKILL.md. The `workflow-<type>-` name prefix is what marks it as a workflow.
-  const frontmatter =
-    `---\nname: ${input.fullName}\ndescription: ${JSON.stringify(input.description.trim())}\n---\n`;
-  if (input.type === "assistant") {
-    return `${frontmatter}\n${input.body.trim()}\n`;
-  }
-  const md = [
-    `# ${input.title}`,
-    ``,
-    "This is a **tabular review workflow**. To run it, load the **`tabular-review`** skill",
-    "and build a review grid over the user's documents — one row per document, with a",
-    "source citation in every cell — extracting the fields described below.",
-    ``,
-    `## What to extract`,
-    ``,
-    input.body.trim(),
-    ``,
-    `When the user asks to run "${input.title}", use the \`tabular-review\` skill.`,
-  ].join("\n");
-  return `${frontmatter}\n${md}\n`;
 }
 
 // Progress card for a template-to-workflow generation run. Clicking it opens
@@ -1519,7 +1536,6 @@ function WorkflowCreatorButton(props: {
   saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<WorkflowType | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -1530,12 +1546,11 @@ function WorkflowCreatorButton(props: {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   // Workflows are stored with a `workflow-<type>-` name prefix so opencode loads them as
   // standard skills (frontmatter stays just name + description). The UI recognizes them by
-  // this prefix — see isWorkflowCard / cardWorkflowType / workflowDisplayName.
-  const fullName = type ? `workflow-${type}-${slug}` : slug;
+  // this prefix — see isWorkflowCard / workflowDisplayName.
+  const fullName = `workflow-assistant-${slug}`;
   const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && fullName.length <= 200;
   const nameTaken = nameValid && props.existingNames.has(fullName);
   const canSubmit =
-    !!type &&
     nameValid &&
     !nameTaken &&
     description.trim().length > 0 &&
@@ -1543,7 +1558,6 @@ function WorkflowCreatorButton(props: {
     !saving;
 
   const reset = () => {
-    setType(null);
     setName("");
     setDescription("");
     setBody("");
@@ -1553,11 +1567,10 @@ function WorkflowCreatorButton(props: {
   };
 
   const submit = async () => {
-    if (!canSubmit || !type) return;
+    if (!canSubmit) return;
     setSaving(true);
     setError(null);
-    const title = name.trim() || workflowDisplayName(fullName);
-    const content = buildWorkflowContent({ type, fullName, title, description, body });
+    const content = `---\nname: ${fullName}\ndescription: ${JSON.stringify(description.trim())}\n---\n\n${body.trim()}\n`;
     try {
       const result = await props.onCreate({ name: fullName, content, description: description.trim() });
       if (result.ok) {
@@ -1598,61 +1611,14 @@ function WorkflowCreatorButton(props: {
       >
         <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{type === "tabular"
-              ? t("skills.new_tabular_workflow")
-              : type === "assistant"
-                ? t("skills.new_assistant_workflow")
-                : t("skills.new_workflow")}</DialogTitle>
-            <DialogDescription>
-              {type === "tabular"
-                ? "A tabular workflow runs a review grid: it tells the agent to use the tabular-review skill with the columns you define."
-                : type === "assistant"
-                  ? t("skills.assistant_hint")
-                  : t("skills.choose_run_hint")}
-            </DialogDescription>
+            <DialogTitle>{t("skills.new_workflow")}</DialogTitle>
+            <DialogDescription>{t("skills.assistant_hint")}</DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
             {error ? (
               <div className="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{error}</div>
             ) : null}
-
-            {!type ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setType("tabular")}
-                  className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
-                >
-                  <Package size={20} className="text-dls-secondary" />
-                  <span className="text-sm font-semibold text-dls-text">Tabular</span>
-                  <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    {t("skills.tabular_desc")}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setType("assistant")}
-                  className="flex flex-col gap-2 rounded-2xl border border-dls-border bg-dls-hover p-4 text-left transition-colors hover:border-[rgba(var(--dls-accent-rgb),0.5)]"
-                >
-                  <Bot size={20} className="text-dls-secondary" />
-                  <span className="text-sm font-semibold text-dls-text">Assistant</span>
-                  <span className="text-[12px] leading-relaxed text-dls-secondary">
-                    {t("skills.assistant_desc")}
-                  </span>
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-2 text-xs font-medium text-dls-text">
-                    {type === "tabular" ? <Package size={14} /> : <Bot size={14} />}
-                    {type === "tabular" ? t("skills.tabular_workflow") : t("skills.assistant_workflow")}
-                  </span>
-                  <button type="button" onClick={() => setType(null)} className="text-[11px] text-dls-secondary underline">
-                    {t("skills.change_type")}
-                  </button>
-                </div>
 
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium text-dls-text">Name</span>
@@ -1686,7 +1652,7 @@ function WorkflowCreatorButton(props: {
 
                 <label className="block space-y-1.5">
                   <span className="text-xs font-medium text-dls-text">
-                    {type === "assistant" ? "Instructions" : t("skills.columns_to_extract")}
+                    {t("workflows.instructions")}
                   </span>
                   <textarea
                     value={body}
@@ -1694,27 +1660,17 @@ function WorkflowCreatorButton(props: {
                     rows={10}
                     spellCheck={false}
                     placeholder={
-                      type === "assistant"
-                        ? t("skills.instructions_placeholder")
-                        : t("skills.columns_placeholder")
+                      t("skills.instructions_placeholder")
                     }
                     className={`${inputClass} min-h-[200px] font-mono text-xs`}
                   />
-                  {type === "tabular" ? (
-                    <span className="text-[11px] text-dls-secondary">
-                      {t("skills.columns_hint")}
-                    </span>
-                  ) : null}
                 </label>
 
                 <StagedResourcesField staged={staged} onChange={setStaged} disabled={saving} />
-              </>
-            )}
           </div>
 
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>{t("common.cancel")}</DialogClose>
-            {type ? (
               <Button type="button" disabled={!canSubmit} onClick={() => void submit()}>
                 {saving ? (
                   <>
@@ -1725,7 +1681,6 @@ function WorkflowCreatorButton(props: {
                   "Create workflow"
                 )}
               </Button>
-            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1741,8 +1696,13 @@ export function ImportSkillsButton(props: {
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
   extensions: SkillsExtensionsStore;
+  /** A whole package was imported (skills, connectors and commands together). */
+  onPackageImported?: () => void;
 }) {
   const { extensions, asWorkflow } = props;
+  // A repo that is a package is offered whole, where the firm lets members import packages.
+  const offerPackages = !asWorkflow && !useOrgPolicyForbids("plugins.allowCustom");
+  const [found, setFound] = useState<{ url: string; preview: LegalworkClaudePluginPreview } | null>(null);
   const noun = asWorkflow ? "workflow" : "skill";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = props.open ?? internalOpen;
@@ -1770,6 +1730,7 @@ export function ImportSkillsButton(props: {
     setFilter("");
     setImporting(false);
     setStatus(null);
+    setFound(null);
   };
 
   const finalNameFor = (item: GithubSkillItem) => {
@@ -1787,11 +1748,17 @@ export function ImportSkillsButton(props: {
     setSelected(new Set());
     setStatus(null);
     setFilter("");
+    setFound(null);
     try {
-      const result = await extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined);
+      const [result, preview] = await Promise.all([
+        extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined),
+        // Not a package: the repo just has skill folders, if any.
+        offerPackages ? extensions.previewClaudePlugin(trimmed).catch(() => null) : Promise.resolve(null),
+      ]);
       setRef(result.ref);
       setScanned(result.skills);
-      if (result.skills.length === 0) setError(t("skills.repo_no_skills"));
+      setFound(preview ? { url: trimmed, preview } : null);
+      if (result.skills.length === 0 && !preview) setError(t("skills.repo_no_skills"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("skills.repo_scan_failed"));
     } finally {
@@ -1860,6 +1827,25 @@ export function ImportSkillsButton(props: {
     }
   };
 
+  const runPackageImport = async () => {
+    if (!found) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await extensions.installClaudePlugin(found.url);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      toast.success(t("skills.package_imported", { name: found.preview.name }));
+      props.onPackageImported?.();
+      setOpen(false);
+      reset();
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const runLocal = () => {
     setOpen(false);
     void Promise.resolve(extensions.importLocalSkill({ asWorkflow }));
@@ -1872,7 +1858,15 @@ export function ImportSkillsButton(props: {
 
   return (
     <>
-      <button hidden={props.open !== undefined} type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
+      <button
+        hidden={props.open !== undefined}
+        type="button"
+        onClick={async () => {
+          if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
+        }}
+        disabled={props.busy}
+        className={ghostActionClass}
+      >
         <Download size={14} />
         {t("skills.import")}
       </button>
@@ -1931,6 +1925,19 @@ export function ImportSkillsButton(props: {
 
               {error ? (
                 <div className="rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{error}</div>
+              ) : null}
+
+              {found ? (
+                <div className="space-y-3 rounded-xl border border-dls-border bg-dls-hover/40 p-4">
+                  <div>
+                    <div className="text-sm font-medium text-dls-text">{t("skills.package_found", { name: found.preview.name })}</div>
+                    <div className="mt-1 text-xs text-dls-secondary">{packageParts(found.preview.components.map((component) => component.type))}</div>
+                  </div>
+                  <Button type="button" disabled={importing} onClick={() => void runPackageImport()}>
+                    {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {t("skills.package_import")}
+                  </Button>
+                </div>
               ) : null}
 
               {scanned && scanned.length > 0 ? (

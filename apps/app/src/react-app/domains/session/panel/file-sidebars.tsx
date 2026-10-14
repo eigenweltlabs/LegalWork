@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import type { FileSidebarItem } from "../../../shell/ui-state-store";
+import { FILE_SIDEBAR_DRAG_TYPE } from "./file-drop-intent";
 
 /** Keep visited navigation panes mounted so previews, rail switches and closing
  * the navigation column preserve folder expansion, search and scroll position.
@@ -12,6 +13,7 @@ export function FileSidebars(props: {
   active: FileSidebarItem | null;
   memory: ReactNode;
   files: ReactNode;
+  onResize?: (width: number) => void;
 }) {
   const panelRef = usePanelRef();
   const expandedWidth = useRef(300);
@@ -32,7 +34,7 @@ export function FileSidebars(props: {
 
   return (
     <>
-      <ResizableHandle withHandle className={props.active ? "hidden lg:flex" : "hidden"} />
+      <ResizableHandle withHandle className={props.active ? undefined : "hidden"} />
       <ResizablePanel
         id="file-navigation"
         panelRef={panelRef}
@@ -44,11 +46,14 @@ export function FileSidebars(props: {
         disabled={!props.active}
         onResize={(size) => {
           if (props.active && size.inPixels > 0) expandedWidth.current = size.inPixels;
+          props.onResize?.(size.inPixels);
         }}
         className="min-h-0 overflow-hidden"
       >
         {(["memory", "files"] satisfies FileSidebarItem[]).map((kind) => (
-          <div key={kind} hidden={props.active !== kind} className="h-full min-h-0">
+          <div key={kind} hidden={props.active !== kind} className="h-full min-h-0" data-file-sidebar={kind}
+            // Mark after row/selection handlers have finished replacing drag payloads.
+            onDragStart={event => event.dataTransfer.setData(FILE_SIDEBAR_DRAG_TYPE, "")}>
             {props.active === kind || visited.includes(kind) ? props[kind] : null}
           </div>
         ))}

@@ -110,7 +110,7 @@ function servicesFor(draft: WorkflowDraft) {
 }
 
 export function showWorkflow(draft: WorkflowDraft) {
-  requestPanelTab({ id: draft.id, type: "workflow", label: draft.title || t("skills.new_workflow") });
+  requestPanelTab({ id: draft.id, type: "workflow", label: draft.title || t("skills.new_workflow") }, { kind: "workflows", workspaceId: draft.workspaceId });
 }
 
 export async function openWorkflow(workspaceId: string, skill: SkillCard) {
@@ -140,7 +140,7 @@ export async function createWorkflow(workspaceId: string, type: WorkflowType, in
   const title = input.title.trim();
   const description = input.description.trim();
   const name = workflowName(title, type);
-  const body = `# ${title}\n\n${type === "tabular" ? t("workflows.tabular_starter") : t("workflows.assistant_starter")}\n`;
+  const body = `# ${title}\n\n${t("workflows.assistant_starter")}\n`;
   const draft: WorkflowDraft = {
     id: workflowDraftId(workspaceId, name), workspaceId, contextKey: boundServices.contextKey, name, title, description, savedDescription: description,
     type, body, savedBody: body, baseline: "", isNew: true, loading: false, saving: false, error: null, staged: [],

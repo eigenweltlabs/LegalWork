@@ -8,6 +8,7 @@
  * collapsed state. Components import it directly with selectors, avoiding
  * context/prop drilling.
  */
+import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -61,6 +62,7 @@ type SessionManagementState = {
 
 type SessionManagementActions = {
   togglePin: (sessionId: string) => void;
+  pinSession: (sessionId: string) => void;
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
   createGroup: (workspaceId: string, label: string) => void;
@@ -168,6 +170,8 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       pinnedIds: [],
       orderByWorkspace: {},
       groupsByWorkspace: {},
+
+      pinSession: sessionId => set(state => ({ pinnedIds: [sessionId, ...state.pinnedIds.filter(id => id !== sessionId)] })),
 
       togglePin: (sessionId) =>
         set((state) => {
@@ -328,7 +332,7 @@ export function usePinnedSessionIds(): Set<string> {
   const ids = useSessionManagementStore((s) => s.pinnedIds);
   // Derive a Set; reference-stable when the array is the same object.
   // Consumers only need membership checks so Set is ideal.
-  return ids.length ? new Set(ids) : EMPTY_PINNED;
+  return useMemo(() => ids.length ? new Set(ids) : EMPTY_PINNED, [ids]);
 }
 
 export function useSessionOrder(workspaceId: string): string[] {

@@ -77,6 +77,13 @@ describe("validateHubName", () => {
     expect(() => validateHubName("has space")).toThrow(ApiError);
     expect(() => validateHubName("a".repeat(101))).toThrow(ApiError);
   });
+
+  test("a prompt set keeps the name a person gave it", () => {
+    expect(validateHubName(" Prüfung (Kaufvertrag) ", "review_set")).toBe("Prüfung (Kaufvertrag)");
+    expect(() => validateHubName("Prüfung (Kaufvertrag)", "workflow")).toThrow(ApiError);
+    expect(() => validateHubName("Zeile\nzwei", "review_set")).toThrow(ApiError);
+    expect(() => validateHubName("a".repeat(101), "review_set")).toThrow(ApiError);
+  });
 });
 
 describe("serializeWorkflowSkill", () => {
@@ -333,6 +340,13 @@ describe("parseEigenweltEntitlements", () => {
 });
 
 describe("parseEigenweltAccountIdentity", () => {
+  test("preserves the current membership role for subscription renewal", () => {
+    const identity = { userId: "user_123", orgId: "org_123", orgName: "Firm" };
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: " org:admin " })?.orgRole).toBe("org:admin");
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: "org:member" })?.orgRole).toBe("org:member");
+    expect(parseEigenweltAccountIdentity({ ...identity, orgRole: { admin: true } })?.orgRole).toBeUndefined();
+    expect(parseEigenweltAccountIdentity(identity)?.orgRole).toBeUndefined();
+  });
   test("normalizes safe account fields", () => {
     expect(
       parseEigenweltAccountIdentity({

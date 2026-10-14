@@ -1,4 +1,17 @@
+import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
+import { projectViewFromPath } from "./workspace-routes";
+import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import type { QueueInput } from "@legalwork/types/session-queue";
+import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
+import { useSessionInbox } from "./use-session-inbox";
+import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
+import { CalendarView } from "../domains/calendar/calendar-view";
+import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
+import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
+import { useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { onboardingPermissionsEnforced } from "@/react-app/domains/onboarding/permissions-policy";
+import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 import {
   useCallback,
   useEffect,
@@ -7,9 +20,11 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
+import { openTaskProject } from "../domains/tasks/task-project-navigation";
 import {
   TASKS_PANE_OPEN_EVENT,
   takePendingTasksPaneRequest,
@@ -33,11 +48,13 @@ import type {
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
+import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
   buildLegalworkWorkspaceBaseUrl,
   createLegalworkServerClient,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerClient,
   type LegalworkWorkspaceInfo,
@@ -77,6 +94,7 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
+  isElectronRuntime,
   isOfficeAddinRuntime,
   isSandboxWorkspace,
   normalizeDirectoryPath,
@@ -105,7 +123,12 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
+import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import { AppHome } from "@/react-app/domains/session/home/app-home";
+import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
+import { replaceHomeAttachmentTokens, type HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
+import { seedSubmittedMessage } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -115,14 +138,19 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useHostApprovalSync } from "./use-host-approval-sync";
+import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
+import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
-import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
+import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
@@ -133,9 +161,13 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
+import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
+import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
-import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
-import { SessionSearchDialog } from "./session-search-dialog";
+import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
+import type { ContentSearchResult } from "@legalwork/types/search";
+import { useSearchNavigation } from "./search-navigation";
 import {
   eigenweltBillingUrl,
   hasEigenweltFeature,
@@ -145,7 +177,6 @@ import {
 import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
-import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -184,10 +215,9 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
-import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import {
   countConnectedProviders,
   ensureProviderListQuery,
@@ -197,9 +227,6 @@ import {
   RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
-
-/** How long a task opened on arrival from another screen outlasts the route settling. */
-const TASK_OPEN_SETTLE_MS = 4_000;
 
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
@@ -343,61 +370,35 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const detached = useMemo(
-    () => new URLSearchParams(location.search).get("detached") === "1",
-    [location.search],
-  );
-  const [showEvals, setShowEvals] = useState(false);
-  // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
-  // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
-  const [showWorkflows, setShowWorkflows] = useState(false);
-  const [showExtensions, setShowExtensions] = useState(false);
-  const [showRecorder, setShowRecorder] = useState(false);
-  const [showTasks, setShowTasks] = useState(false);
-  // A task a notification asked to show: the pane opens on it (see
-  // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
-  // their task in the side panel instead.
+  const detached = useDetachedWindow();
+  // Page content and sidebar layout must change with the same route render.
+  // Mirroring the URL in state lets urgent updates reopen the chat sidebar
+  // while React Router is still committing a top-level navigation.
+  const mainPage = sessionMainPage(location.pathname);
+  const showEvals = mainPage === "evals";
+  const showWorkflows = mainPage === "workflows";
+  const showRecorder = mainPage === "recorder";
+  const showTasks = mainPage === "tasks";
+  const recorderOff = useOrgPolicyForbids("recorder.allow");
+  const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
+  const recordingSessionStarting = useRef(false);
+  // A task a notification asked to show: a null id opens the task list.
+  // Chat chips open their task in the side panel instead.
   const [openTask, setOpenTask] = useState<{ id: string | null; at: number } | null>(null);
-  // An ask made outside the session view (Settings) is taken when this route
-  // mounts, while it still settles on a session: the resets that follow must
-  // not close the pane it opened (see the pane-closing effect below).
-  const keepTasksPaneUntil = useRef(0);
-  const showEvalsPane = useCallback(() => {
-    setShowEvals(true);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-    setShowTasks(false);
-  }, []);
-  const showWorkflowsPane = useCallback(() => {
-    setShowWorkflows(true);
-    setShowEvals(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-    setShowTasks(false);
-  }, []);
-  const showRecorderPane = useCallback(() => {
-    setShowRecorder(true);
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowTasks(false);
-  }, []);
-  const showTasksPane = useCallback(() => {
-    setShowTasks(true);
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    setShowRecorder(false);
-  }, []);
+  const showEvalsPane = () => navigate("/evals");
+  const showWorkflowsPane = () => navigate("/workflows");
+  const showRecorderPane = () => {
+    setRecorderProject(null);
+    navigate("/recorder");
+  };
+  const showTasksPane = useCallback(() => navigate("/tasks"), [navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
   // the window is in the background stays counted until the window comes
-  // back. A detached window leaves the (shared, persisted) announcements to
-  // the main one.
+  // back. Reading Tasks in any app window clears those announcements.
   useEffect(() => {
-    if (!showTasks || detached) return;
+    if (!showTasks) return;
     const markRead = () => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       const store = useNotificationStore.getState();
@@ -414,24 +415,22 @@ export function SessionRoute() {
       window.removeEventListener("focus", markRead);
       document.removeEventListener("visibilitychange", markRead);
     };
-  }, [detached, showTasks]);
+  }, [showTasks]);
   useEffect(() => {
     const pending = takePendingTasksPaneRequest();
     if (pending) {
-      keepTasksPaneUntil.current = Date.now() + TASK_OPEN_SETTLE_MS;
       setOpenTask({ id: pending.taskId, at: Date.now() });
-      showTasksPane();
     }
     const handleRequest = (event: Event) => {
-      // Taken here: nothing is left for a later mount.
+      // useShowTasksPane owns navigation. Only consume the selection here,
+      // so a notification does not add the same page to history twice.
       takePendingTasksPaneRequest();
       const taskId = (event as CustomEvent<Partial<TasksPaneOpenDetail>>).detail?.taskId ?? null;
       setOpenTask({ id: taskId, at: Date.now() });
-      showTasksPane();
     };
     window.addEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
     return () => window.removeEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
-  }, [showTasksPane]);
+  }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -465,7 +464,7 @@ export function SessionRoute() {
     setLegacySelectedWorkspaceId,
     retryingWorkspaceIds,
     setRetryingWorkspaceIds,
-    refreshInFlightRef,
+    forgetSession,
     startupRetryTimerRef,
     selectedWorkspaceId,
     selectedWorkspace,
@@ -481,11 +480,57 @@ export function SessionRoute() {
     refreshRouteState,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
+    handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  // Projects synced with the firm arrive, leave and get renamed in the background.
+  useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
+    // Sync changed files of these projects here: whatever shows them reloads.
+    for (const id of workspaceIds) {
+      void getReactQueryClient().invalidateQueries({ predicate: (query) => query.queryKey.includes(id) });
+    }
+  }, (workspaceIds) => {
+    // Sync took these projects off this computer (access ended, or removed from Home).
+    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState()).catch(error => toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) }));
+  });
+  // The server says when projects or tasks changed here: what shows them re-reads.
+  useSyncEvents(client);
+  useHostApprovalSync(client, workspaces, selectedSessionId);
+  useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
+  useEffect(() => {
+    if (!client || detached) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { reminders } = await client.claimCalendarReminders();
+        if (cancelled) return;
+        for (const reminder of reminders) {
+          const target = workspaceCalendarRoute(reminder.projectId);
+          toast.info(`${reminder.title} · ${reminder.deadline.slice(0, 10)}`, { id: reminder.id, action: { label: t("calendar.title"), onClick: () => navigate(target) } });
+          void platform.notify(reminder.title, reminder.deadline.slice(0, 10), () => navigate(target));
+        }
+      } catch { /* Retry after a server restart or while disconnected. */ }
+    };
+    void poll(); const timer = window.setInterval(() => void poll(), 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [client?.baseUrl, detached, platform, navigate]);
+  useEffect(() => onSyncPoke((poke) => {
+    if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+    if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
+    // The firm's policy may have changed the engine's providers.
+    if (poke.policy) void refreshProviderListQueries(getReactQueryClient());
+  }), []);
+  useEffect(() => {
+    if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
+    const search = new URLSearchParams(location.search);
+    const oldTab = search.get("tab");
+    if (!oldTab) return;
+    search.delete("tab");
+    navigate({ pathname: oldTab === "tasks" ? workspaceTasksRoute(routeWorkspaceId) : location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [location.pathname, location.search, location.hash, routeWorkspaceId, navigate]);
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -498,25 +543,23 @@ export function SessionRoute() {
   // One-way latch for "a refreshRouteState is currently running"; prevents
   // overlapping route refreshes from queueing up when the user clicks fast.
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [selectCreatedProjectForHome, setSelectCreatedProjectForHome] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
-  const [developerMode, setDeveloperMode] = useState(() => {
+  const [developerMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("legalwork.developerMode") === "1";
   });
-  const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
 
   // Provider IDs that were just added — used to highlight them as
-  useEffect(() => {
-    setPaletteAccessibleTargets([]);
-  }, [selectedSessionId, selectedWorkspaceId]);
 
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
@@ -603,19 +646,18 @@ export function SessionRoute() {
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
-  const selectedWorkspaceGroupState = sessionManagementStore((state) => (
-    selectedWorkspaceId ? state.groupsByWorkspace[selectedWorkspaceId] : undefined
-  ));
-  const assignSessionToGroup = sessionManagementStore((state) => state.assignGroup);
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
   const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
   useEffect(() => {
     for (const group of workspaceSessionGroups) {
       seedWorkspaceActivitySessions(group.workspace.id, group.sessions);
+      const sessions = group.sessions.map(session => ({ id: session.id, parentID: session.parentID ?? undefined, title: session.title ?? "" }));
+      seedInteractionSessions(group.workspace.id, sessions);
       const serverId = workspaceServerId(group.workspace);
       if (serverId && serverId !== group.workspace.id) {
         seedWorkspaceActivitySessions(serverId, group.sessions);
+        seedInteractionSessions(serverId, sessions);
       }
     }
   }, [seedWorkspaceActivitySessions, workspaceSessionGroups]);
@@ -803,9 +845,9 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio -> permissions -> ai -> done. The Office and audio
-  // steps are desktop-only, so the web flow starts at permissions (see
-  // WelcomeRoute) and its permissions step has no way back.
+  // Order: office -> audio -> ai -> permissions -> done. Signing in first
+  // lets us apply firm policies before offering permission choices.
+  // Office and audio are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
@@ -821,16 +863,14 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  // The AI step (the plan screen) is the last one, so finishing it finishes
-  // onboarding. It finishes by itself once a model is usable: "connected"
-  // (Eigenwelt), "own_model" (an own provider) or "existing" (one was there
-  // before).
+  const onboardingAiMethod = useRef<"connected" | "own_model" | "existing">("existing");
   const finishOnboarding = useCallback(
     (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
+      navigate(homeRoute(homeProjectIdFromSearch(location.search) || selectedWorkspaceId), { replace: true });
     },
-    [setOnboardingStage],
+    [location.search, navigate, selectedWorkspaceId, setOnboardingStage],
   );
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
@@ -848,6 +888,10 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  useEffect(() => {
+    if (modelPicker.open || modelPicker.compactOpen) void sessionProviderAuthStore.refreshCustomProviderModels().catch(() => undefined);
+  }, [modelPicker.open, modelPicker.compactOpen, sessionProviderAuthStore]);
+
   // "Start free trial" CTAs (migration dialog, connect-AI bar): the choice is
   // already made, so go straight to the Eigenwelt sign-in in the browser (the
   // platform funnel continues to the trial) instead of the provider picker.
@@ -960,7 +1004,7 @@ export function SessionRoute() {
   // The plan screen. LegalWork has no free model tier: with neither an own
   // provider nor an Eigenwelt plan that includes the models, the screen lies
   // over the app until one of them works (see aiAccessState for its variants).
-  // The same screen is the last onboarding step.
+  // The same screen connects a model before onboarding permissions.
   const eigenweltView = eigenweltEntitlementsQuery.data;
   // The last signed-in account, remembered so a returning user is asked to
   // sign in instead of being shown the plans.
@@ -985,15 +1029,18 @@ export function SessionRoute() {
   }, [disabledProviderIds, providerListQuery.data]);
   const aiAccess = aiAccessState({
     connectedProviders: accessProviders,
-    eigenwelt: eigenweltView ?? (eigenweltEntitlementsQuery.isError ? null : undefined),
+    eigenwelt: eigenweltView,
     signedInBefore: rememberedEigenweltAccount !== null,
   });
   const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;
   // Not in the Office task pane: it shares this computer's connection, and
   // its composer notice keeps the ways out in the space it has.
   const aiPlansGateEnabled = !isOfficeAddinRuntime();
+  // Organizing local project files, notes and tasks does not need an AI model.
+  // Expiry stays in the conversation with role-aware inline renewal actions.
   const aiPlansGateVisible =
-    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
+    location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -1041,11 +1088,38 @@ export function SessionRoute() {
     captureAnalyticsEvent("ai_plans_viewed", { mode, variant: aiPlansVariant, trigger });
   }, [aiAccess, aiPlansScreenVisible, aiPlansVariant, onboardingStage]);
   useEffect(() => {
-    if (onboardingStage !== "ai" || aiAccess !== "ready") return;
+    if (onboardingStage !== "ai" && onboardingStage !== "permissions") return;
+    if (aiAccess === "unknown") return;
+    if (aiAccess !== "ready") {
+      // Resume installations that saved the old permissions-before-sign-in order.
+      if (onboardingStage === "permissions") setOnboardingStage("ai");
+      return;
+    }
+    const policyClient = selectedWorkspaceEndpoint?.client ?? client;
+    if (!policyClient) return;
+    let cancelled = false;
     const path = aiPlansPathRef.current;
-    captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
-    finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
-  }, [aiAccess, finishOnboarding, onboardingStage]);
+    if (onboardingStage === "ai") onboardingAiMethod.current = path === "eigenwelt" ? "connected" : (path ?? "existing");
+    void (async () => {
+      let enforced = false;
+      try {
+        const view = await policyClient.orgPolicy();
+        if (cancelled) return;
+        useOrgPolicyStore.setState({ view });
+        enforced = onboardingPermissionsEnforced(view);
+      } catch {
+        // Unknown policy must not skip choices. The settings enforce their
+        // server-side locks and report any connection problem.
+      }
+      if (cancelled) return;
+      if (onboardingStage === "ai") captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
+      if (enforced) {
+        captureAnalyticsEvent("onboarding_permissions_skipped", { reason: "enforced" });
+        finishOnboarding(onboardingAiMethod.current);
+      } else if (onboardingStage === "ai") setOnboardingStage("permissions");
+    })();
+    return () => { cancelled = true; };
+  }, [aiAccess, client, finishOnboarding, onboardingStage, selectedWorkspaceEndpoint?.client, setOnboardingStage]);
   // "Check for updates" on the plan screen: the Updates settings in a dialog
   // above it, so an app that cannot get past the screen can still update. It
   // starts a check the way the app menu's "Check for Updates…" does.
@@ -1084,7 +1158,7 @@ export function SessionRoute() {
     }
     setProviderModalFromPlans(false);
   }, [providerConnectedIds, providerModalOpen]);
-  const openProvidersFromPlans = useCallback(() => {
+  const openProvidersFromPlans = useCallback((preferredProviderId?: string, startOAuth = false) => {
     aiPlansPathRef.current = "own_model";
     providersAtOwnModelOpenRef.current = {
       ids: providerConnectedIds,
@@ -1092,7 +1166,7 @@ export function SessionRoute() {
       variant: aiPlansVariant ?? "new",
     };
     setProviderModalFromPlans(true);
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none", preferredProviderId, startOAuth }).catch(() => {
       providersAtOwnModelOpenRef.current = null;
       setProviderModalFromPlans(false);
       toast.error(t("providers.load_failed"));
@@ -1153,7 +1227,8 @@ export function SessionRoute() {
     todos,
   } = useSessionInteractions({
     client: opencodeClient,
-    workspaceId: selectedWorkspaceId,
+    serverClient: selectedWorkspaceEndpoint?.client,
+    workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? "",
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
   });
@@ -1255,7 +1330,7 @@ export function SessionRoute() {
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
   const surfaceProps = useMemo(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
+    if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !opencodeClient) {
       return null;
     }
 
@@ -1313,6 +1388,14 @@ export function SessionRoute() {
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
       },
+      onChooseAiPlan: async (plan: "plus" | "pro") => {
+        const started = await sessionProviderAuthStore.startEigenweltSignIn({ plan });
+        await openDesktopUrl(started.authorizeUrl);
+        const result = await sessionProviderAuthStore.completeEigenweltSignIn(started.sessionId);
+        if (!result.connected) throw new Error(result.message ?? t("providers.connect_failed"));
+        modelPicker.setQuery("eigenwelt");
+        modelPicker.setOpen(true);
+      },
       onModelPickerOpenChange: modelPicker.setCompactOpen,
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
@@ -1328,7 +1411,9 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
+        const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
+        const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1338,15 +1423,15 @@ export function SessionRoute() {
         // locked behind the connect-AI bar, so this only backstops programmatic
         // sends. Without it the prompt reaches the engine with no model and
         // fails there with a generic error.
-        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
-        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+        if (!sendModel) throw new Error(t("session_route.no_model"));
+        if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
           is_command: Boolean(draft.command),
-          provider_id: local.prefs.defaultModel?.providerID ?? null,
-          model_id: local.prefs.defaultModel?.modelID ?? null,
+          provider_id: sendModel?.providerID ?? null,
+          model_id: sendModel?.modelID ?? null,
           surface: analyticsSurface(),
           fusion_enabled: isFusionEnabled(targetSessionId),
           fusion_model_count: fusionModels.length,
@@ -1354,21 +1439,27 @@ export function SessionRoute() {
         });
         markTaskRunStart(targetSessionId);
 
+        const enqueue = async (execution: QueueInput["execution"]) => {
+          if (!options?.queue || !selectedWorkspaceEndpoint) throw new Error(t("session.loading_detail"));
+          await selectedWorkspaceEndpoint.client.updateSessionMessageQueue(selectedWorkspaceEndpoint.workspaceId, targetSessionId, { type: "enqueue", ...options.queue, execution });
+        };
         if (draft.mode === "shell") {
+          if (options?.queue) { await enqueue({ kind: "shell", command: text }); return; }
           await shellInSession(opencodeClient, targetSessionId, text);
           return;
         }
 
         if (draft.command) {
+          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${sendModel.providerID}/${sendModel.modelID}`, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined }); return; }
           const result = await opencodeClient.session.command({
             sessionID: targetSessionId,
             command: draft.command.name,
             arguments: draft.command.arguments,
-            model: local.prefs.defaultModel
-              ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
+            model: sendModel
+              ? `${sendModel.providerID}/${sendModel.modelID}`
               : undefined,
             agent: selectedAgent ?? undefined,
-            variant: modelVariantValue ?? undefined,
+            variant: sendVariant ?? undefined,
           });
           if (result.error) {
             throw new Error(serializeSDKError(result.error));
@@ -1384,7 +1475,16 @@ export function SessionRoute() {
         const turnSystemContext = [envSystemContext, draft.modelContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
+        if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
 
+        if (options?.queue) {
+          if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId) && fusionModels.length) {
+            const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
+            parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
+          }
+          await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
+          return;
+        }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
           const candidateModels = getFusionSelectedModels(targetSessionId);
           if (candidateModels.length === 0) {
@@ -1396,36 +1496,42 @@ export function SessionRoute() {
             // the message is handed off, not when the whole fusion turn
             // (task calls + synthesis) finishes. Progress streams
             // through the fusion store; failures surface as a session error.
-            void runFusionSend({
+            const run = runFusionSend({
               client: opencodeClient,
               directory: selectedWorkspaceRoot || undefined,
               mainSessionId: targetSessionId,
               parts,
               userText: text,
               candidateModels,
-              mainModel: local.prefs.defaultModel ?? undefined,
+              mainModel: sendModel ?? undefined,
               agent: selectedAgent ?? undefined,
-              variant: modelVariantValue ?? undefined,
-              baseSystem: turnSystemContext || undefined,
+              variant: sendVariant ?? undefined,
             }).catch((error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
               useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
+              if (options?.waitForCompletion) throw error;
             });
+            if (options?.waitForCompletion) await run;
             return;
           }
         }
 
-        const result = await opencodeClient.session.promptAsync({
+        const request = buildSessionPromptRequest({
           sessionID: targetSessionId,
           parts,
-          model: local.prefs.defaultModel ?? undefined,
+          model: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
-          ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(turnSystemContext ? { system: turnSystemContext } : {}),
+          ...(sendVariant ? { variant: sendVariant } : {}),
         });
-        if (result.error) {
-          throw new Error(serializeSDKError(result.error));
+        if (options?.waitForCompletion) {
+          // The queue advances after the engine's whole loop, not after a tool
+          // step, a streamed assistant message, or the prompt_async HTTP 204.
+          const result = unwrap(await opencodeClient.session.prompt(request));
+          if (result.info.error) throw new Error(serializeSDKError(result.info.error));
+        } else {
+          const result = await opencodeClient.session.promptAsync(request);
+          if (result.error) throw new Error(serializeSDKError(result.error));
         }
       },
       onDraftChange: () => {
@@ -1534,6 +1640,7 @@ export function SessionRoute() {
     selectedAgent,
     selectedSessionId,
     selectedModelUnavailable,
+    providerListQuery.data,
     soloEigenweltModel,
     selectedWorkspace,
     selectedWorkspaceId,
@@ -1543,6 +1650,7 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
+    setSelectCreatedProjectForHome(false);
     setCreateWorkspaceOpen(true);
   }, []);
 
@@ -1558,28 +1666,40 @@ export function SessionRoute() {
     );
   }, [workspaces]);
 
-  const handleSaveRenameWorkspace = useCallback(async () => {
-    if (!renameWorkspaceId) return;
-    const trimmed = renameWorkspaceTitle.trim();
-    if (!trimmed) return;
-    setRenameWorkspaceBusy(true);
+  const handleRenameWorkspace = useCallback(async (workspaceId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return false;
     try {
       if (!client) {
         toast.error(t("session_route.rename_server_unavailable"));
-        return;
+        return false;
       }
-      await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
-      setRenameWorkspaceId(null);
-      setRenameWorkspaceTitle("");
+      await client.updateWorkspaceDisplayName(workspaceId, trimmed);
+      setWorkspaces((current) => current.map((workspace) => workspace.id === workspaceId
+        ? { ...workspace, displayName: trimmed, displayNameResolved: trimmed, name: trimmed }
+        : workspace));
       await refreshRouteState();
+      return true;
     } catch (error) {
       toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
+      return false;
+    }
+  }, [client, refreshRouteState, setWorkspaces]);
+
+  const handleSaveRenameWorkspace = useCallback(async () => {
+    if (!renameWorkspaceId || !renameWorkspaceTitle.trim()) return;
+    setRenameWorkspaceBusy(true);
+    try {
+      if (await handleRenameWorkspace(renameWorkspaceId, renameWorkspaceTitle)) {
+        setRenameWorkspaceId(null);
+        setRenameWorkspaceTitle("");
+      }
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle]);
+  }, [handleRenameWorkspace, renameWorkspaceId, renameWorkspaceTitle]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1592,6 +1712,26 @@ export function SessionRoute() {
     }
   }, [workspaces]);
 
+  // Gone from the server (removed from the sidebar, or taken off this
+  // computer by project sync): the desktop's own list and this window forget
+  // it too, so the next refresh can't resurrect the row from whichever list
+  // wins the merge.
+  const forgetWorkspaceHere = useCallback(
+    async (workspaceId: string) => {
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId);
+      }
+      if (selectedWorkspaceId === workspaceId) {
+        setLegacySelectedWorkspaceId("");
+        writeActiveWorkspaceId(null);
+        navigate("/home");
+      }
+      forgetWorkspaceMemory(workspaceId);
+      sessionManagementStore.getState().forgetWorkspace(workspaceId);
+    },
+    [navigate, selectedWorkspaceId],
+  );
+
   const handleForgetWorkspace = useCallback(
     async (workspaceId: string) => {
       if (typeof window !== "undefined") {
@@ -1600,28 +1740,25 @@ export function SessionRoute() {
           "Remove this workspace from the sidebar?";
         if (!window.confirm(message)) return;
       }
-      // Remove from both stores so the next refresh can't resurrect the row
-      // from whichever list wins the merge.
-      if (client) {
-        await client.deleteWorkspace(workspaceId).catch(() => undefined);
+      try {
+        const workspace = workspaces.find(item => item.id === workspaceId);
+        if (workspace?.workspaceType !== "remote") {
+          if (!client) throw new Error(t("session_route.create_server_unavailable"));
+          await client.deleteWorkspace(workspaceId).catch(error => {
+            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+          });
+        }
+        await forgetWorkspaceHere(workspaceId);
+        await refreshRouteState();
+      } catch (error) {
+        toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
       }
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId).catch(() => undefined);
-      }
-      if (selectedWorkspaceId === workspaceId) {
-        setLegacySelectedWorkspaceId("");
-        writeActiveWorkspaceId(null);
-        navigate(legacySessionRoute());
-      }
-      forgetWorkspaceMemory(workspaceId);
-      sessionManagementStore.getState().forgetWorkspace(workspaceId);
-      await refreshRouteState();
     },
-    [client, navigate, refreshRouteState, selectedWorkspaceId],
+    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1645,6 +1782,7 @@ export function SessionRoute() {
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
+      registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
       // are: renaming the event or its source breaks funnel continuity against
       // every event already recorded.
@@ -1664,9 +1802,25 @@ export function SessionRoute() {
         sessionsByWorkspaceIdRef.current = next;
         return next;
       });
+      const recorder = useRecorderStore.getState();
+      if (options?.shareRecordingId && recorder.recording?.id === options.shareRecordingId) {
+        const shared = await recorder.startLiveTranscriptShare(
+          session.id,
+          workspace.path?.trim() || "",
+          workspace.path?.trim() || undefined,
+          workspaceClient,
+        );
+        if (!shared) toast.error(useRecorderStore.getState().error || t("recorder.live_transcript_failed"));
+      }
+      if (options?.paneId) {
+        usePanelTabStore.getState().openTab(workspacePanelKey(workspaceId), {
+          id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
+        }, options.paneId);
+      }
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
+      return session.id;
     } catch (error) {
       const message = describeTaskCreateError(error);
       setRouteError(message);
@@ -1675,7 +1829,7 @@ export function SessionRoute() {
         description: message,
         action: {
           label: "Retry",
-          onClick: () => void handleCreateChatInWorkspace(workspaceId),
+          onClick: () => void handleCreateChatInWorkspace(workspaceId, options),
         },
         duration: Infinity,
       });
@@ -1684,7 +1838,6 @@ export function SessionRoute() {
         if (startupRetryTimerRef.current === null) {
           startupRetryTimerRef.current = window.setTimeout(() => {
             startupRetryTimerRef.current = null;
-            refreshInFlightRef.current = false;
             void refreshRouteState();
           }, 1_000);
         }
@@ -1724,14 +1877,14 @@ export function SessionRoute() {
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
-    sessionSearchOpen,
-    setSessionSearchOpen,
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
-    canCreateChat,
-    workspaceId: selectedWorkspaceId,
-    onCreateChat: handleCreateChatInWorkspace,
+    onCreateChat: () => {
+      const openProjectId = routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null);
+      if (openProjectId) void handleCreateChatInWorkspace(openProjectId);
+      else setNewChatOpen(true);
+    },
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1753,8 +1906,8 @@ export function SessionRoute() {
   }, [navigateToWorkspaceSession, selectedWorkspaceId, sessionsByWorkspaceId]);
 
   const navigateToSessionRootForControl = useCallback(() => {
-    navigateToWorkspaceSession(selectedWorkspaceId);
-  }, [navigateToWorkspaceSession, selectedWorkspaceId]);
+    navigate("/home");
+  }, [navigate]);
 
   const openModelPickerForControl = useCallback(() => {
     modelPicker.setOpen(true);
@@ -1817,6 +1970,7 @@ export function SessionRoute() {
         t("session.workspace_fallback");
       const list = sessionsByWorkspaceId[workspace.id] ?? [];
       for (const session of list) {
+        if (session.time?.archived) continue;
         const sessionId = (session as { id?: string }).id?.trim() ?? "";
         if (!sessionId) continue;
         const title = getDisplaySessionTitle(
@@ -1855,101 +2009,39 @@ export function SessionRoute() {
     navigate: navigateToWorkspaceSession,
   };
 
-  const paletteSessionGroups = useMemo<SessionGroupOption[]>(
-    () => selectedWorkspaceGroupState?.groups ?? [],
-    [selectedWorkspaceGroupState?.groups],
-  );
+  const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
+    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
+    server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
+  })), [sidebarWorkspaces, endpointForWorkspace]);
 
-  const currentSessionForGroupMove = useMemo(() => {
-    if (!selectedWorkspaceId || !selectedSessionId) return null;
-    return paletteSessionOptions.find(
-      (session) => session.workspaceId === selectedWorkspaceId && session.sessionId === selectedSessionId,
-    ) ?? null;
-  }, [paletteSessionOptions, selectedSessionId, selectedWorkspaceId]);
+  const searchContents = useCallback(async (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    const response = await endpoint.client.searchContents(endpoint.workspaceId, kind, query, signal, options);
+    return { ...response, items: response.items.map(item => ({ ...item,
+      workspaceId: item.workspaceId === endpoint.workspaceId ? workspaceId : item.workspaceId,
+      title: item.kind === "sessions" ? getDisplaySessionTitle(item.title) : item.title,
+    })) };
+  }, [workspaces, endpointForWorkspace]);
 
-  const currentSessionGroupId = selectedSessionId
-    ? selectedWorkspaceGroupState?.assignments[selectedSessionId] ?? null
-    : null;
+  const searchProject = useCallback(async (workspaceId: string) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    return endpoint.client.getProjectDetails(endpoint.workspaceId);
+  }, [workspaces, endpointForWorkspace]);
 
-  const handleMoveCurrentSessionToGroup = useCallback((groupId: string) => {
-    if (!selectedWorkspaceId || !selectedSessionId) return;
-    assignSessionToGroup(selectedWorkspaceId, selectedSessionId, groupId);
-  }, [assignSessionToGroup, selectedSessionId, selectedWorkspaceId]);
-
-  const sessionSearchFetcher = useMemo<SessionMessageFetcher | null>(() => {
-    if (!client) return null;
-    // Cap the transcript fetch to keep multi-workspace scans fast; matches in
-    // anything older than the most recent 400 messages are traded away for
-    // responsiveness.
-    return async (workspaceId: string, sessionId: string) =>
-      (await client.getSessionMessages(workspaceId, sessionId, { limit: 400 })).items;
-  }, [client]);
-
-  const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-search.open",
-    title: t("session_route.search_messages_title"),
-    detail: t("session_route.search_messages_detail"),
-    meta: "Cmd/Ctrl+Shift+F",
-    searchText: "search find sessions messages history transcript content",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setSessionSearchOpen(true);
-    },
-  }), []);
-
-  const terminalPaletteItems = useMemo<PaletteItem[]>(() => [
-    {
-      id: "terminal.toggle",
-      title: terminalOpen ? "Hide terminal" : "Show terminal",
-      detail: t("session_route.terminal_detail"),
-      meta: "Cmd/Ctrl+J",
-      searchText: "terminal shell command line console show hide toggle",
-      action: () => {
-        setCommandPaletteOpen(false);
-        setTerminalOpen((value) => !value);
-      },
-    },
-  ], [terminalOpen]);
-
-  const developerModePaletteItem = useMemo<PaletteItem>(() => ({
-    id: "developer-mode.toggle",
-    title: developerMode ? t("settings.disable_developer_mode") : t("settings.enable_developer_mode"),
-    detail: t("settings.developer_mode_desc"),
-    meta: developerMode ? "On" : "Off",
-    searchText: "developer dev mode debug diagnostics toggle enable disable",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setDeveloperMode((current) => {
-        const next = !current;
-        try { window.localStorage.setItem("legalwork.developerMode", next ? "1" : "0"); } catch {}
-        return next;
-      });
-    },
-  }), [developerMode]);
-
-  const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.next",
-    title: t("session_route.next_tab_title"),
-    detail: t("session_route.next_tab_detail"),
-    meta: "Cmd/Ctrl+T",
-    searchText: "next session tab switch forward",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToNextSessionTab();
-    },
-  }), [goToNextSessionTab]);
-
-  const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.previous",
-    title: t("session_route.prev_tab_title"),
-    detail: t("session_route.prev_tab_detail"),
-    meta: "Cmd/Ctrl+Shift+T",
-    searchText: "previous session tab switch back",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToPrevSessionTab();
-    },
-  }), [goToPrevSessionTab]);
+  const openSearchResult = useCallback((result: ContentSearchResult) => {
+    if (result.kind === "tasks") {
+      setOpenTask({ id: result.id, at: Date.now() });
+      navigate("/tasks");
+      return;
+    }
+    useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
+    if (result.kind === "sessions") navigateToWorkspaceSession(result.workspaceId, result.id);
+    else navigate(workspaceProjectRoute(result.workspaceId));
+  }, [navigate, navigateToWorkspaceSession]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -1974,16 +2066,21 @@ export function SessionRoute() {
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
 
+  const sessionTarget = useCallback((sessionId: string) => {
+    const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
+    const workspace = workspaces.find(workspace => workspace.id === (owner?.[0] ?? selectedWorkspaceId));
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!workspace || !endpoint) throw new Error(t("sidebar.sessions_unavailable"));
+    return { workspace, endpoint, client: createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, { token: endpoint.token, mode: "legalwork" }) };
+  }, [sessionsByWorkspaceId, workspaces, selectedWorkspaceId, endpointForWorkspace]);
+
   const handleArchiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
       if (!opencodeClient) return;
       try {
-        await setSessionArchived(
-          opencodeClient,
-          sessionId,
-          archived,
-          selectedWorkspaceRoot || undefined,
-        );
+        const target = sessionTarget(sessionId);
+        await setSessionArchived(target.client, sessionId, archived, target.workspace.path || undefined);
+        await loadWorkspaceSessionsInBackground([target.workspace]);
         await refreshRouteState();
       } catch (error) {
         console.error("[session-route] archive session failed", error);
@@ -1995,7 +2092,7 @@ export function SessionRoute() {
         );
       }
     },
-    [opencodeClient, refreshRouteState, selectedWorkspaceRoot],
+    [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
@@ -2008,7 +2105,7 @@ export function SessionRoute() {
       let createdOnServer = false;
       if (client) {
         list = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .then((serverList) => {
             createdOnServer = true;
             return serverList;
@@ -2042,6 +2139,7 @@ export function SessionRoute() {
         writeActiveWorkspaceId(targetWorkspaceId);
         captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
         if (session?.id) {
+          registerEmptySession(session.id);
           captureAnalyticsEvent("task_created", { source: "workspace_created", surface: analyticsSurface() });
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
@@ -2067,6 +2165,56 @@ export function SessionRoute() {
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
+  const handleCreateProject = async (input: CreateProjectInput) => {
+    if (!client || createWorkspaceBusy) return;
+    setCreateWorkspaceBusy(true);
+    setCreateWorkspaceError(null);
+    try {
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      const id = resolveWorkspaceListSelectedId(list);
+      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      setLegacySelectedWorkspaceId(id);
+      writeActiveWorkspaceId(id);
+      if (isDesktopRuntime()) {
+        await workspaceSetSelected(id).catch(() => undefined);
+        await workspaceSetRuntimeActive(id).catch(() => undefined);
+      }
+      local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
+      await refreshRouteState();
+      setCreateWorkspaceOpen(false);
+      if (selectCreatedProjectForHome && !input.initializeFromFolders) {
+        setHomeProjectId(id);
+        pendingHomeMessage.current = null;
+        navigate(homeRoute(id), { replace: true });
+      } else {
+        navigate(workspaceProjectRoute(id));
+      }
+      if (input.initializeFromFolders) {
+        try {
+          if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
+          const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
+          const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, mode: "legalwork" });
+          const session = unwrap(await firstClient.session.create({ directory: workspacePath }));
+          rememberPendingCreatedSession(id, session.id);
+          writeLastSessionFor(id, session.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = { ...current, [id]: [session, ...(current[id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          navigateToWorkspaceSession(id, session.id, { replace: true });
+          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
+          if (result.error) throw new Error(serializeSDKError(result.error));
+        } catch (error) {
+          toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
+    } catch (error) {
+      setCreateWorkspaceError(projectErrorMessage(error, true));
+    } finally { setCreateWorkspaceBusy(false); }
+  };
+
   const handleCreateChatInNewWorkspace = useCallback(async () => {
     if (createWorkspaceBusy) return;
     const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
@@ -2074,20 +2222,126 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Evals/Skills/Integrations): any session/workspace
-  // navigation drops back to the session view.
+  const scheduledPage = mainPage === "scheduled";
+  const calendarPage = mainPage === "calendar";
+  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
+  const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
+  const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  const homeSending = useRef(false);
+  const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
   useEffect(() => {
-    setShowEvals(false);
-    setShowWorkflows(false);
-    setShowExtensions(false);
-    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(false);
-  }, [selectedSessionId, selectedWorkspaceId]);
+    if (!homePage) return;
+    setHomeProjectId(homeEntryProjectId);
+    pendingHomeMessage.current = null;
+  }, [homePage, homeEntryProjectId]);
+
+  const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
+    if (homeSending.current) return;
+    if (!client) throw new Error(t("session_route.create_server_unavailable"));
+    const model = local.prefs.defaultModel;
+    if (!model) throw new Error(t("session_route.no_model"));
+    if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+    homeSending.current = true;
+    try {
+      const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
+      const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
+      const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
+      let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
+      if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
+      if (!workspace) {
+        const name = displayText.trim().split(/\r?\n/)[0].slice(0, 80) || t("home.new_project");
+        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
+        const createdId = resolveWorkspaceListSelectedId(list);
+        const created = list.workspaces.find((item) => item.id === createdId);
+        if (!created) throw new Error(t("session_route.create_server_unavailable"));
+        const createdWorkspace = mapDesktopWorkspace(created);
+        workspace = createdWorkspace;
+        // Expose the saved project immediately, even if copying a file fails.
+        setHomeProjectId(created.id);
+        setWorkspaces((current) => [createdWorkspace, ...current.filter((item) => item.id !== created.id)]);
+        captureAnalyticsEvent("workspace_created", { source: "home", surface: analyticsSurface() });
+      }
+      const targetWorkspace = workspace;
+      const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token });
+      if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
+      await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
+      if (isDesktopRuntime() && !endpoint.isRemote) {
+        await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
+        await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
+      }
+      const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, mode: "legalwork" });
+      let pending = pendingHomeMessage.current;
+      if (!pending || pending.workspaceId !== targetWorkspace.id) {
+        pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
+        pendingHomeMessage.current = pending;
+      }
+      const sessionId = await submitHomeMessage({
+        workspaceId: endpoint.workspaceId,
+        text,
+        files,
+        references,
+        attachments,
+        referenceClient: endpoint.client,
+        pending,
+        client: endpoint.client,
+        createSession: async () => {
+          const session = unwrap(await workspaceClient.session.create({ directory: targetWorkspace.path || undefined }));
+          rememberPendingCreatedSession(targetWorkspace.id, session.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = { ...current, [targetWorkspace.id]: [session, ...(current[targetWorkspace.id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          captureAnalyticsEvent("task_created", { source: "home", surface: analyticsSurface() });
+          return session;
+        },
+        sendPrompt: async (sessionId, prompt, fileContext, message) => {
+          const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
+          const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          const result = await workspaceClient.session.promptAsync({
+            sessionID: sessionId,
+            messageID: message.id,
+            parts: [{ id: message.partId, type: "text", text: prompt }],
+            model,
+            agent: selectedAgent ?? undefined,
+            ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+            ...(system ? { system } : {}),
+          });
+          if (result.error) throw new Error(serializeSDKError(result.error));
+          seedSubmittedMessage(endpoint.workspaceId, sessionId, {
+            id: message.id,
+            role: "user",
+            metadata: { opencode: { created: message.created } },
+            parts: [{ type: "text", text: prompt, state: "done", providerMetadata: { opencode: { partId: message.partId } } }],
+          });
+          markTaskRunStart(sessionId);
+          captureAnalyticsEvent("task_message_sent", { session_id: sessionId, provider_id: model.providerID, model_id: model.modelID, surface: analyticsSurface() });
+        },
+      });
+      pendingHomeMessage.current = null;
+      setLegacySelectedWorkspaceId(targetWorkspace.id);
+      writeActiveWorkspaceId(targetWorkspace.id);
+      writeLastSessionFor(targetWorkspace.id, sessionId);
+      navigateToWorkspaceSession(targetWorkspace.id, sessionId);
+      // The workspace and session lists were already updated above. A full
+      // refresh here remounts the just-opened transcript behind loading UI.
+    } finally {
+      homeSending.current = false;
+    }
+  };
+
+  const workflowLibraryView = <SettingsSurface embedded singleView active={showWorkflows} initialPath="workflows" workspaceId={selectedWorkspaceId}
+    onClose={() => { navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
 
   return (
     <WorkspaceProvider
       client={opencodeClient}
       opencodeBaseUrl={opencodeBaseUrl}
       selectedWorkspaceRoot={selectedWorkspaceRoot}
+      workspaces={workspaces}
+      baseUrl={baseUrl}
+      token={token}
+      onOpenSession={navigateToWorkspaceSession}
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (
       <ReactSessionRuntime
@@ -2100,6 +2354,7 @@ export function SessionRoute() {
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         legalworkToken={selectedWorkspaceServerToken}
+        onSessionLoaded={handleRuntimeSessionLoaded}
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
@@ -2125,7 +2380,7 @@ export function SessionRoute() {
         }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_audio_done", { result });
-          setOnboardingStage("permissions");
+          setOnboardingStage("ai");
         }}
       />
     ) : null}
@@ -2152,25 +2407,32 @@ export function SessionRoute() {
         }
         onDone={() => {
           captureAnalyticsEvent("onboarding_permissions_done");
-          setOnboardingStage("ai");
+          finishOnboarding(onboardingAiMethod.current);
         }}
       />
     ) : null}
+    {aiPlansGateEnabled && <SyncProviderSetup
+      client={client}
+      workspaceId={selectedWorkspaceId}
+      connection={eigenweltView}
+      connectedProviders={providerListQuery.data ? getConnectedProviderItems(providerListQuery.data) : null}
+      paused={providerModalOpen || onboardingStage !== "done" && onboardingStage !== "ai"}
+      onChooseProvider={openProvidersFromPlans}
+    />}
     {aiPlansScreenVisible ? (
-      // The plan screen: the last onboarding step, and the screen over the
-      // app while no model is usable. There is no skip: it closes by itself
-      // once a model works (onboarding then finishes, see above).
+      // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
+        initialSeats={eigenweltView?.entitlements?.seats}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onSignedIn={() => {
+        onSignedIn={(plan) => {
           // Connected: refetch the entitlements so the screen closes (and the
           // models are live) the moment the account shows up.
-          aiPlansPathRef.current = "eigenwelt";
+          aiPlansPathRef.current = plan === "sync" ? "own_model" : "eigenwelt";
           invalidateEigenweltEntitlements();
         }}
         onBringOwnModel={openProvidersFromPlans}
@@ -2178,10 +2440,10 @@ export function SessionRoute() {
         onCheckModels={checkEigenweltPlanModels}
         onUseOtherAccount={switchEigenweltAccount}
         onBack={
-          onboardingStage === "ai"
+          onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("permissions");
+                setOnboardingStage("audio");
               }
             : undefined
         }
@@ -2202,13 +2464,14 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
-      detached={detached}
+      workflowLibraryView={workflowLibraryView}
+      homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {
         id: selectedWorkspace.id,
         name: selectedWorkspace.name ?? undefined,
-        displayName: selectedWorkspace.displayNameResolved,
+        displayName: workspaceLabel(selectedWorkspace),
         workspaceType: selectedWorkspace.workspaceType,
       } : { workspaceType: "local" }}
       selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2234,10 +2497,14 @@ export function SessionRoute() {
       titlebarControlsHidden={aiPlansScreenVisible}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
+        allowChatGptSubscription: Boolean(
+          eigenweltView?.connected && hasEigenweltFeature(eigenweltView.entitlements, "org_management"),
+        ),
         loading: false,
         submitting: sessionProviderAuthSnapshot.providerAuthBusy,
         error: sessionProviderAuthSnapshot.providerAuthError,
         preferredProviderId: sessionProviderAuthSnapshot.providerAuthPreferredProviderId,
+        startOAuth: sessionProviderAuthSnapshot.providerAuthStartOAuth,
         workerType: sessionProviderAuthSnapshot.providerAuthWorkerType,
         providers: sessionProviderAuthSnapshot.providerAuthProviders,
         connectedProviderIds: providerConnectedIds,
@@ -2252,6 +2519,7 @@ export function SessionRoute() {
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
         onFetchCustomModels: sessionProviderAuthStore.fetchCustomProviderModels,
+        onRefreshCustomProvider: sessionProviderAuthStore.refreshCustomProvider,
         onReadCustomProvider: sessionProviderAuthStore.readCustomProviderForEdit,
         // From the plan screen's "own model" card: providers only.
         onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
@@ -2260,24 +2528,110 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
+      projectsPage={mainPage === "projects"}
+      projectPage={projectViewFromPath(location.pathname)}
+      onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
+      onCreateProjectSession={async (shareRecording) => {
+        if (recordingSessionStarting.current) return;
+        recordingSessionStarting.current = true;
+        const recorder = useRecorderStore.getState();
+        const recording = recorder.recording;
+        try {
+          await handleCreateChatInWorkspace(selectedWorkspaceId,
+            shareRecording && recording && recording.id !== recorder.dictationRecordingId && !recorder.finalizing
+              ? { shareRecordingId: recording.id }
+              : undefined,
+          );
+        } finally { recordingSessionStarting.current = false; }
+      }}
+      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
+      projectTasksView={(embedded, inWorkspace) =>
+        <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => {
+          const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: (selectedWorkspaceEndpoint?.client ?? client)?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+          if (route) navigate(route);
+          else toast.error(t("tasks.linked_project_unavailable"));
+        }} baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      }
+      onStartProjectRecording={() => {
+        const recorder = useRecorderStore.getState();
+        if (recorder.recording) {
+          void recorder.stopRecording().then(() => {
+            const error = useRecorderStore.getState().error;
+            if (error) toast.error(error);
+          });
+          return;
+        }
+        if (recorder.starting || recorder.importing) return;
+        const project = { id: selectedWorkspaceId, name: selectedWorkspace?.displayNameResolved || selectedWorkspaceId };
+        const setupAction = {
+          label: t("recorder.open"),
+          onClick: () => {
+            showRecorderPane();
+            setRecorderProject(project);
+          },
+        };
+        if (!isElectronRuntime()) {
+          toast.info(t("recorder.desktop_required_body"));
+          return;
+        }
+        void recorder.init().then(async () => {
+          const ready = useRecorderStore.getState();
+          if (!ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
+            toast.info(t("recorder.install_model_first"), { action: setupAction });
+            return;
+          }
+          await ready.startRecording(undefined, { projectId: project.id });
+          const started = useRecorderStore.getState();
+          if (started.permissionsNeeded.length) {
+            toast.info(t("recorder.setup_subtitle_flow"), { action: setupAction });
+          } else if (started.error) {
+            toast.error(started.error);
+          }
+        }).catch(() => {
+          toast.error(t("recorder.transcriber_start_failed"));
+        });
+      }}
       mainView={
-        // One reused SettingsSurface instance across the pages — it follows `initialPath`
-        // via an effect, so switching Workflows <-> Integrations is instant and doesn't
-        // re-fetch the workspace/stores.
-        showWorkflows ? (
-          // onClose drops the pane so actions that navigate to a session (e.g.
-          // opening the workflow-generation session) always reveal the chat —
-          // even when the target session is already the selected one and the
-          // route (and thus the pane-closing route effect) doesn't change.
-          <SettingsSurface
-            embedded
-            singleView
-            initialPath="workflows"
-            workspaceId={selectedWorkspaceId}
-            onClose={() => setShowWorkflows(false)}
+        scheduledPage ? (
+          <ScheduledTasksPage client={client}
+            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
+            defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
+            openTaskId={new URLSearchParams(location.search).get("task")}
+            onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+        ) : calendarPage ? (
+          <CalendarView client={client}
+            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
+        ) : homePage ? (
+          <AppHome
+            workspaces={sidebarWorkspaces}
+            projectId={homeProjectId}
+            onCreateProject={() => {
+              setSelectCreatedProjectForHome(true);
+              setCreateWorkspaceError(null);
+              setCreateWorkspaceOpen(true);
+            }}
+            onProjectChange={(id) => {
+              if (id === homeProjectId) return;
+              setHomeProjectId(id);
+              pendingHomeMessage.current = null;
+              if (id) setLegacySelectedWorkspaceId(id);
+              if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
+            }}
+            onSend={handleHomeSend}
+            disabled={effectiveLoading || createWorkspaceBusy || !client}
+            providerConnectedCount={usableProviderCount}
+            onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+            selectedModel={local.prefs.defaultModel}
+            modelLocked={soloEigenweltModel}
+            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
+            modelVariant={modelVariantValue}
+            modelVariantLabel={modelVariantLabel}
+            modelBehaviorOptions={modelBehaviorOptions}
+            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
           />
-        ) : showExtensions ? (
-          <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
+        ) : showWorkflows ? (
+          workflowLibraryView
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
         ) : showTasks ? (
@@ -2289,15 +2643,24 @@ export function SessionRoute() {
             workspaces={sidebarWorkspaces}
             defaultModel={local.prefs.defaultModel}
             openTask={openTask}
+            onOpenInProject={(projectId, task) => {
+              const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: client?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+              if (route) navigate(route);
+              else toast.error(t("tasks.linked_project_unavailable"));
+            }}
             onOpenSession={(workspaceId, sessionId) => {
-              setShowTasks(false);
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, sessionId);
               navigateToWorkspaceSession(workspaceId, sessionId);
             }}
           />
+        ) : showRecorder && recorderOff ? (
+          <div className="mx-auto w-full max-w-2xl p-6">
+            <OrgPolicyFeatureOff policyKey="recorder.allow" />
+          </div>
         ) : showRecorder ? (
           <RecorderPane
+            project={recorderProject}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
@@ -2312,7 +2675,7 @@ export function SessionRoute() {
               // The composer's listener lives in SessionSurface, which is
               // unmounted while this pane is the main view — swap back to the
               // session first, then dispatch once it has remounted.
-              setShowRecorder(false);
+              navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
               window.setTimeout(() => {
                 window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
               }, 350);
@@ -2326,6 +2689,10 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
+        onOpenSearch: () => setCommandPaletteOpen(true),
+        onNewChat: () => setNewChatOpen(true),
+        onShowChats: () => navigate("/home"),
+        onShowProjects: () => navigate("/projects"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2334,7 +2701,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
+        activeNav: mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2345,8 +2712,8 @@ export function SessionRoute() {
         newChatDisabled: !canCreateChat,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
-        onSelectWorkspace: async (workspaceId) => {
-          if (workspaceId === selectedWorkspaceId) return true;
+        onSelectWorkspace: async (workspaceId, options) => {
+          if (workspaceId === selectedWorkspaceId) { if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2373,39 +2740,17 @@ export function SessionRoute() {
               void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
-          // If we remember what the user last opened here and that session
-          // still exists in our local list, navigate. Otherwise stay put.
-          const remembered = readLastSessionFor(workspaceId);
-          if (remembered && remembered !== selectedSessionId) {
-            const known = sessionsByWorkspaceId[workspaceId];
-            if (known?.some((session) => session?.id === remembered)) {
-              navigateToWorkspaceSession(workspaceId, remembered);
-            } else {
-              navigateToWorkspaceSession(workspaceId);
-            }
-          } else {
-            navigateToWorkspaceSession(workspaceId);
-          }
+          if (options?.navigate !== false) navigate(workspaceProjectRoute(workspaceId));
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
-          // Opening a session returns to the chat view — drop any open top-level
-          // pane (Evals/Workflows/Integrations) so it doesn't stay rendered
-          // over the session.
-          setShowEvals(false);
-          setShowWorkflows(false);
-          setShowExtensions(false);
-          setShowRecorder(false);
-          setShowTasks(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateChatInWorkspace: (workspaceId) => {
-          void handleCreateChatInWorkspace(workspaceId);
-        },
+        onCreateChatInWorkspace: handleCreateChatInWorkspace,
         onCreateChatWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2441,12 +2786,6 @@ export function SessionRoute() {
         onRevealWorkspace: (id) => void handleRevealWorkspace(id),
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
-          // New Chat returns to the session view — drop any open top-level pane
-          // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
-          setShowEvals(false);
-          setShowWorkflows(false);
-          setShowExtensions(false);
-          setShowTasks(false);
           handleOpenCreateWorkspace();
         },
         onCreateChatInNewWorkspace: () => {
@@ -2470,17 +2809,16 @@ export function SessionRoute() {
       activeQuestion={activeQuestion}
       questionReplyBusy={questionReplyBusy}
       respondQuestion={respondQuestion}
+      onOpenInteractionSession={navigateToSessionForControl}
       safeStringify={safeStringify}
       onRenameSession={
         opencodeClient
           ? async (sessionId, nextTitle) => {
               const trimmed = nextTitle.trim();
               if (!trimmed) return;
-              await opencodeClient.session.update({
-                sessionID: sessionId,
-                title: trimmed,
-                directory: selectedWorkspaceRoot || undefined,
-              });
+              const target = sessionTarget(sessionId);
+              await target.client.session.update({ sessionID: sessionId, title: trimmed, directory: target.workspace.path || undefined });
+              await loadWorkspaceSessionsInBackground([target.workspace]);
               await refreshRouteState();
             }
           : undefined
@@ -2488,11 +2826,14 @@ export function SessionRoute() {
       onDeleteSession={
         client && selectedWorkspaceId
           ? async (sessionId) => {
-              const endpoint = endpointForWorkspace(selectedWorkspace);
-              if (!endpoint) return;
+              const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              usePanelTabStore.getState().clearSession(sessionId);
+              forgetSession(workspace.id, sessionId);
+              await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
-                navigateToWorkspaceSession(selectedWorkspaceId);
+                writeLastSessionFor(selectedWorkspaceId, null);
+                navigate("/home");
               }
               await refreshRouteState();
             }
@@ -2501,18 +2842,28 @@ export function SessionRoute() {
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
-      onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
-    <CreateWorkspaceModal
+    {newChatOpen && <NewChatDialog
+      groups={workspaceSessionGroups}
+      disabled={!canCreateChat}
+      onClose={() => setNewChatOpen(false)}
+      onSelectProject={(workspaceId) => void handleCreateChatInWorkspace(workspaceId)}
+      onCreateProject={handleOpenCreateWorkspace}
+    />}
+    <CreateProjectModal
+      client={client}
       open={createWorkspaceOpen}
       onClose={() => {
         setCreateWorkspaceOpen(false);
         setCreateWorkspaceError(null);
       }}
-      onConfirm={handleCreateWorkspace}
-      onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
+      onConfirm={handleCreateProject}
+      onPickFolder={async () => {
+        const result = await pickDirectory({ title: t("onboarding.authorize_folder") });
+        return typeof result === "string" ? result : null;
+      }}
       submitting={createWorkspaceBusy}
-      localError={createWorkspaceError}
+      error={createWorkspaceError}
     />
     <RenameWorkspaceModal
       open={renameWorkspaceId !== null}
@@ -2530,43 +2881,11 @@ export function SessionRoute() {
     <CommandPalette
       open={commandPaletteOpen}
       onClose={() => setCommandPaletteOpen(false)}
-      onCreateNewSession={() => {
-        if (selectedWorkspaceId) {
-          void handleCreateChatInWorkspace(selectedWorkspaceId);
-        }
-      }}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
-      onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
-      onOpenModelPicker={() => {
-        modelPicker.setQuery("");
-        modelPicker.setRecentProviderIds(new Set());
-        window.requestAnimationFrame(() => modelPicker.setOpen(true));
-      }}
-      selectedModelLabel={modelLabel}
-      accessibleTargets={paletteAccessibleTargets}
-      onOpenAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-open-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
-      onHideAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-hide-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
+      workspaces={searchWorkspaces}
       sessions={paletteSessionOptions}
-      sessionGroups={paletteSessionGroups}
-      currentSessionForGroupMove={currentSessionForGroupMove}
-      currentSessionGroupId={currentSessionGroupId}
-      onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem]}
-      listAgents={listAgents}
-      selectedAgent={selectedAgent}
-      onSelectAgent={setSelectedAgent}
+      search={searchContents}
+      project={searchProject}
+      onOpenResult={openSearchResult}
     />
     <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
@@ -2586,13 +2905,6 @@ export function SessionRoute() {
           return false;
         }
       }}
-    />
-    <SessionSearchDialog
-      open={sessionSearchOpen}
-      onClose={() => setSessionSearchOpen(false)}
-      sessions={paletteSessionOptions}
-      fetchMessages={sessionSearchFetcher}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
     />
     <ModelPickerModal
       open={modelPicker.open}
@@ -2633,6 +2945,7 @@ export function SessionRoute() {
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
     />
+    {client ? <ProjectShareHost client={client} /> : null}
     </WorkspaceProvider>
   );
 }

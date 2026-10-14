@@ -9,6 +9,7 @@ import type {
   StorageSearch,
   StorageSearchPage,
   StorageCapabilities,
+  StorageTransferUpdate,
 } from "@legalwork/types/file-storage";
 import { STORAGE_MAX_FILE_BYTES, STORAGE_PAGE_SIZE } from "./schema.js";
 import { ApiError } from "../errors.js";
@@ -17,7 +18,11 @@ export type FileInfo = { size: number; version: string; contentType?: string };
 export type FileData = FileInfo & { data: Buffer };
 export type DownloadedFile = FileInfo & { sha256: string };
 export type WriteCondition = { version?: string; createOnly?: boolean };
+export type FolderReference = { path: string; name: string; id?: string; namespace?: string };
 export interface StorageAdapter {
+  /** Native identity where supported; resolution must recheck permissions and the configured root. */
+  folderReference?(path: string): Promise<FolderReference>;
+  resolveFolder?(reference: FolderReference): Promise<string>;
   list(path: string, cursor?: string): Promise<StoragePage>;
   /** Flat metadata listing for object stores; avoids walking virtual folders. */
   listFiles?(path: string, cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
@@ -29,9 +34,10 @@ export interface StorageAdapter {
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
   upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
-  rename?(path: string, destination: string, kind: StorageEntry["kind"]): Promise<void>;
-  deleteFile?(path: string): Promise<void>;
-  deleteFolder?(path: string): Promise<void>;
+  rename?(path: string, destination: string, kind: StorageEntry["kind"], onProgress?: (progress: StorageTransferUpdate) => void): Promise<void>;
+  /** With a version, removes only that version; a newer one is a `storage_conflict`. */
+  deleteFile?(path: string, condition?: WriteCondition): Promise<void>;
+  deleteFolder?(path: string, recursive?: boolean): Promise<void>;
   close?(): Promise<void>;
 }
 

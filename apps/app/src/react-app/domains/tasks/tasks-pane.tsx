@@ -17,17 +17,21 @@
  * Deliberately small otherwise: no sub-tasks, labels, cycles, saved views or
  * drag ordering; this is a queue to work through, not a project tracker.
  *
- * The surface is global (there is no workspace-scoped route) because tasks
- * are the machine's while workspaces are folders on it. A folder only enters
- * the picture when a task is actually run locally.
+ * The shared surface also renders a project's filtered list, either on its
+ * Tasks page or embedded in Home. Project links do not duplicate task data.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { projectViewTab } from "../session/panel/panel-tab-store";
+import { useRequestOpenTask, useRequestPanelTab } from "../session/panel/panel-tab-destination";
+import { ArtifactPanel } from "../session/artifacts/artifact-panel";
 import {
   ArrowDownWideNarrow,
+  ArrowUpRight,
   AtSign,
   ChevronDown,
   CloudOff,
   ListFilter,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -37,14 +41,10 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
+import { ListPagination } from "@/components/list-pagination";
+import { SectionHeading, Surface } from "@/react-app/design-system/surface";
+import { FilterSelect as SortFilterChip } from "@/components/filter-select";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -62,6 +62,7 @@ import type {
 import type { ModelRef } from "@/app/types";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { projectErrorMessage } from "../workspace/project-errors";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import {
   StartWorkflowDialog,
@@ -70,10 +71,13 @@ import {
 } from "./start-workflow-dialog";
 import { importViewerFile } from "@/react-app/domains/session/panel/import-viewer-file";
 import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
-import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-store";
 import { NewTaskDialog } from "./new-task-dialog";
 import { startTaskWorkflow } from "./start-workflow";
+import { artifactDocumentKey, hasUnsavedSessionDocument } from "../session/artifacts/docx-document-state";
+import { createTaskAttachmentState } from "./task-attachment-state";
 import { TaskDetail } from "./task-detail";
+import { getTaskDraft, retainTaskDraftScope, taskDraftScope } from "./task-draft-cache";
+import { LinkProjectTaskDialog } from "./link-project-task-dialog";
 import { TASK_STATUSES, taskMemberOptions, taskStatusLabel } from "./task-format";
 import { OptionText } from "./task-glyphs";
 import { TaskList, type TaskListGroup } from "./task-list";
@@ -98,12 +102,22 @@ import {
   useTaskSyncStatus,
   useTaskTags,
   useTasks,
+  useResolveTaskConflict,
   useUpdateTask,
   useUploadTaskAttachments,
   type TaskQuery,
 } from "./tasks-queries";
 
+const HOME_PAGE_SIZE = 6;
+
 export type TasksPaneProps = {
+  /** A bounded Home section using the same rows, actions and task viewer. */
+  embedded?: boolean;
+  onViewAll?: () => void;
+  /** Restricts the shared list and new tasks to one project. */
+  projectId?: string;
+  /** Project views open the existing task viewer without leaving the project. */
+  detailMode?: "inline" | "panel";
   /** The local LegalWork server, which holds the task store (and the firm connection). */
   client: LegalworkServerClient | null;
   /** Transport only: which server instance the call goes to. */
@@ -122,10 +136,19 @@ export type TasksPaneProps = {
    * tasks-pane-request.ts); a null id shows the list. `at` makes a repeat
    * ask distinct.
    */
+  onOpenInProject?: (projectId: string, task: LegalworkTask) => void;
   openTask?: { id: string | null; at: number } | null;
 };
 
 export function TasksPane(props: TasksPaneProps) {
+  const draftScope = taskDraftScope(props.client?.baseUrl ?? props.baseUrl, props.workspaceId, props.projectId, Boolean(props.embedded));
+  useEffect(() => retainTaskDraftScope(draftScope), [draftScope]);
+  const requestOpenTask = useRequestOpenTask();
+  const requestPanelTab = useRequestPanelTab();
+  const viewAll = props.detailMode === "panel" ? () => requestPanelTab(projectViewTab("tasks", t("projects.tasks"))) : props.onViewAll;
+  const attachments = useMemo(() => createTaskAttachmentState(props.workspaceId, draftScope), [props.workspaceId, draftScope]);
+  const attachment = useSyncExternalStore(attachments.subscribe, attachments.getSnapshot, attachments.getSnapshot);
+  const attachmentRequest = useRef(0);
   const context = { client: props.client, workspaceId: props.workspaceId };
   const access = useTaskAccess(context);
 
@@ -142,24 +165,34 @@ export function TasksPane(props: TasksPaneProps) {
   const sort = useTaskFilterStore((state) => state.sort);
   const setSort = useTaskFilterStore((state) => state.setSort);
   const clearFilters = useTaskFilterStore((state) => state.clear);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, selectTaskId] = useState<string | null>(null);
+  const setSelectedTaskId = useCallback((id: string | null) => attachments.closeThen(() => {
+    attachmentRequest.current++;
+    selectTaskId(id);
+  }), [attachments]);
+  const attachmentTab = attachment?.taskId === selectedTaskId ? attachment.tab : null;
   const [startMode, setStartMode] = useState<StartTaskMode | null>(null);
   const [starting, setStarting] = useState(false);
   const [creating, setCreating] = useState(false);
-  const inTrash = view === "trash";
+  const [linking, setLinking] = useState(false);
+  const inTrash = !props.embedded && view === "trash";
+  const [page, setPage] = useState(0);
 
   const openTask = props.openTask;
   useEffect(() => {
     if (!openTask) return;
     setView("tasks");
     setSelectedTaskId(openTask.id);
-  }, [openTask, setView]);
+  }, [openTask, setView, setSelectedTaskId]);
 
   const query = useMemo<TaskQuery>(() => {
+    // Home always shows this project's tasks, independently of the full page's filters.
+    if (props.embedded) return { projectId: props.projectId, sort: "updated", order: "desc" };
     const resolvedAssignees = [...new Set(assignees
       .map((assignee) => assignee === ASSIGNEE_ME ? access.accountUserId : assignee)
       .filter((assignee): assignee is string => Boolean(assignee)))];
     return {
+      ...(props.projectId ? { projectId: props.projectId } : {}),
       ...(resolvedAssignees.length ? { assignees: resolvedAssignees } : {}),
       ...(statuses.length && !inTrash ? { statuses } : {}),
       ...(endpointIds.length ? { endpointIds } : {}),
@@ -170,7 +203,7 @@ export function TasksPane(props: TasksPaneProps) {
       // and priority carries its own documented order in the store.
       ...((sort === "priority" || sort === "due") && !inTrash ? {} : { order: "desc" as const }),
     };
-  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses]);
+  }, [access.accountUserId, assignees, endpointIds, inTrash, selectedTags, sort, statuses, props.projectId, props.embedded]);
 
   const tasksQuery = useTasks(context, query);
   const membersQuery = useTaskMembers(context);
@@ -181,12 +214,23 @@ export function TasksPane(props: TasksPaneProps) {
   const runSync = useRunTaskSync(context);
   const createTask = useCreateTask(context);
   const updateTask = useUpdateTask(context);
+  const resolveConflict = useResolveTaskConflict(context);
   const deleteTask = useDeleteTask(context);
   const restoreTask = useRestoreTask(context);
   const uploadAttachments = useUploadTaskAttachments(context);
   const deleteAttachment = useDeleteTaskAttachment(context);
 
   const tasks = flattenTaskPages(tasksQuery.data?.pages);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(tasks.length / HOME_PAGE_SIZE) - 1));
+  const visibleTasks = props.embedded ? tasks.slice(currentPage * HOME_PAGE_SIZE, (currentPage + 1) * HOME_PAGE_SIZE) : tasks;
+  const changePage = async (next: number) => {
+    if (tasksQuery.isFetchingNextPage) return;
+    if ((next + 1) * HOME_PAGE_SIZE > tasks.length && tasksQuery.hasNextPage) {
+      const result = await tasksQuery.fetchNextPage();
+      if (result.isError) { toast.error(t("tasks.load_failed")); return; }
+    }
+    setPage(next);
+  };
   const members = membersQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const recordRun = useTaskRunStore((state) => state.recordRun);
@@ -204,18 +248,19 @@ export function TasksPane(props: TasksPaneProps) {
   // "All" keeps the queue legible by sectioning it: what needs attention on
   // top, finished work at the bottom, in the chosen order within each.
   const groups = useMemo<TaskListGroup[] | null>(() => {
-    if (statuses.length === 1 || inTrash) return null;
+    if (props.embedded || statuses.length === 1 || inTrash) return null;
     return TASK_STATUSES.map((status) => ({
       status,
       tasks: tasks.filter((task) => task.status === status),
     })).filter((group) => group.tasks.length > 0);
-  }, [inTrash, statuses.length, tasks]);
+  }, [inTrash, statuses.length, tasks, props.embedded]);
 
   // Open the detail from the row already in hand so the click is instant; the
   // fetch only adds the submission, the history and any field changed meanwhile.
   const selectedTask =
     detailQuery.data?.task ?? tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const filtered = assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash;
+  const selectedDraft = selectedTask && props.detailMode !== "panel" ? getTaskDraft(draftScope, props.workspaceId, selectedTask) : undefined;
+  const filtered = !props.embedded && (assignees.length > 0 || endpointIds.length > 0 || selectedTags.length > 0 || statuses.length > 0 || inTrash);
   const syncing = runSync.isPending;
   const refreshing = syncing || (tasksQuery.isFetching && !tasksQuery.isFetchingNextPage);
   const busy = deleteTask.isPending || restoreTask.isPending || starting;
@@ -227,10 +272,10 @@ export function TasksPane(props: TasksPaneProps) {
   const emptyHint =
     syncQuery.data && !syncQuery.data.connected && syncQuery.data.signedOut ? t("tasks.empty_signed_out_body") : null;
 
-  const switchView = (next: "tasks" | "trash") => {
+  const switchView = (next: "tasks" | "trash") => attachments.closeThen(() => {
     setView(next);
     setSelectedTaskId(null);
-  };
+  });
 
   const refresh = () => {
     // A connected firm gets a real round trip; otherwise the store is re-read.
@@ -247,17 +292,19 @@ export function TasksPane(props: TasksPaneProps) {
   };
 
   const create = (input: Parameters<typeof createTask.mutate>[0]) => {
-    createTask.mutate(input, {
-      onSuccess: (task) => {
+    createTask.mutate({ ...input, ...(props.projectId ? { projectId: props.projectId } : {}) }, {
+      onSuccess: task => {
         setCreating(false);
+        if (props.detailMode === "panel") requestOpenTask(task.id, task.title, { preview: false });
+        else setSelectedTaskId(task.id);
+        if (props.embedded) setPage(0);
         if (inTrash) switchView("tasks");
-        setSelectedTaskId(task.id);
       },
       onError: (error) => toast.error(t("tasks.create_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
   };
 
-  const remove = (task: LegalworkTask) => {
+  const remove = (task: LegalworkTask) => attachments.closeThen(() => {
     deleteTask.mutate(task.id, {
       onSuccess: () => {
         setSelectedTaskId(null);
@@ -265,7 +312,7 @@ export function TasksPane(props: TasksPaneProps) {
       },
       onError: (error) => toast.error(t("tasks.delete_failed"), { description: error instanceof Error ? error.message : undefined }),
     });
-  };
+  });
 
   const restore = (task: LegalworkTask) => {
     restoreTask.mutate(task.id, {
@@ -295,9 +342,13 @@ export function TasksPane(props: TasksPaneProps) {
    */
   const openAttachment = async (task: LegalworkTask, attachment: LegalworkTaskAttachment) => {
     if (!props.client || !props.workspaceId) throw new Error(t("side_panel.wait_for_workspace"));
+    const request = ++attachmentRequest.current;
     const file = await props.client.downloadTaskAttachment(props.workspaceId, task.id, attachment.id);
     const copy = new File([file.data], attachment.filename, { type: attachment.contentType });
-    requestPanelTab(await importViewerFile(props.client, props.workspaceId, copy));
+    const tab = await importViewerFile(props.client, props.workspaceId, copy);
+    if (request !== attachmentRequest.current) return;
+    if (props.detailMode === "panel") requestPanelTab(tab);
+    else attachments.open({ taskId: task.id, tab });
   };
 
   const startRun = async (task: LegalworkTask, selection: StartWorkflowSelection) => {
@@ -341,7 +392,23 @@ export function TasksPane(props: TasksPaneProps) {
       ? t("tasks.count_more", { count: tasks.length })
       : t("tasks.count", { count: tasks.length })
     : null;
-  const showingDetail = selectedTask !== null;
+  const requestRun = (task: LegalworkTask, mode: StartTaskMode) => attachments.closeThen(() => {
+    setSelectedTaskId(task.id);
+    const project = task.projectId ? props.workspaces.find((workspace) => workspace.id === task.projectId) : null;
+    if (task.projectId && !project) {
+      toast.error(t("tasks.linked_project_unavailable"));
+      return;
+    }
+    if (project && mode === "session") { void startRun(task, { workspace: project, workflowName: null }); return; }
+    setStartMode(mode);
+  });
+  const showingDetail = selectedTask !== null && props.detailMode !== "panel";
+  const selectTask = (id: string) => {
+    setSelectedTaskId(id);
+    if (props.detailMode === "panel") requestOpenTask(id, tasks.find((task) => task.id === id)?.title ?? t("tasks.title"));
+  };
+
+  const pageLayout = !props.embedded && !showingDetail;
 
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
@@ -349,27 +416,34 @@ export function TasksPane(props: TasksPaneProps) {
     // panels can take the rest) — list beside detail — and below that the
     // detail takes over. task-detail.tsx uses the same breakpoint to swap its
     // back arrow for a close cross.
-    <div className="@container/tasks flex h-full min-h-0 flex-1">
-      <section
+    <div className={cn("@container/tasks flex min-h-0 min-w-0 h-full", !props.embedded && "flex-1")}>
+      <ContextMenu disabled={!props.embedded}>
+      <ContextMenuTrigger render={props.embedded ? <Surface role="region" /> : <section />}
         aria-label={t(inTrash ? "tasks.trash" : "tasks.title")}
         className={cn(
           "min-h-0 w-full flex-col",
           showingDetail
             ? "hidden @min-[880px]/tasks:flex @min-[880px]/tasks:w-[340px] @min-[880px]/tasks:shrink-0 @min-[880px]/tasks:border-e @min-[880px]/tasks:border-border @min-[1200px]/tasks:w-[380px]"
-            : "mx-auto flex max-w-4xl",
+            : props.embedded ? "flex overflow-hidden rounded-xl border-border/60 shadow-none" : "lw-page-content flex pb-8",
         )}
       >
-        <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 pb-3 pt-4">
-          <div className="flex items-center gap-2">
-            <h1 className="text-[15px] font-medium leading-6 tracking-[-0.02em] text-foreground">{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
+        {props.embedded ? (
+          <SectionHeading className="items-center border-b border-border/50 px-4 py-3" title={t("projects.tasks")} action={<>
+            {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 className="size-4" /></Button> : null}
+            <Button variant="ghost" size="icon-sm" aria-label={t("tasks.new_task")} title={t("tasks.new_task")} onClick={() => setCreating(true)}><Plus className="size-4" /></Button>
+          </>} />
+        ) : <header className={cn("flex shrink-0 flex-col", pageLayout ? "lw-page-top gap-5 border-b border-border/70 pb-4" : "gap-3 border-b border-border px-4 pb-3 pt-4")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className={cn("text-foreground", pageLayout ? "text-2xl font-semibold leading-tight tracking-[-0.035em]" : "text-[15px] font-medium leading-6 tracking-[-0.02em]")}>{t(inTrash ? "tasks.trash" : "tasks.title")}</h1>
             {countLabel ? <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span> : null}
             <div className="ms-auto flex items-center gap-0.5">
+              {props.projectId ? <Button variant="ghost" size="icon-sm" aria-label={t("projects.link_task")} title={t("projects.link_task")} onClick={() => setLinking(true)}><Link2 /></Button> : null}
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      variant={pageLayout ? "default" : "ghost"}
+                      size={pageLayout ? "default" : "icon-sm"}
                       aria-label={t("tasks.new_task")}
                       disabled={!props.client}
                       onClick={() => setCreating(true)}
@@ -377,6 +451,7 @@ export function TasksPane(props: TasksPaneProps) {
                   }
                 >
                   <Plus />
+                  {pageLayout ? t("tasks.new_task") : null}
                 </TooltipTrigger>
                 <TooltipContent>{t("tasks.new_task")}</TooltipContent>
               </Tooltip>
@@ -405,11 +480,11 @@ export function TasksPane(props: TasksPaneProps) {
               label={t("tasks.column_status")}
               emptyLabel={t("tasks.status_all")}
               selected={statuses}
-              onChange={(values) => {
+              onChange={(values) => attachments.closeThen(() => {
                 setView("tasks");
                 setStatuses(values.filter(isTaskStatusValue));
                 setSelectedTaskId(null);
-              }}
+              })}
               options={[
                 { value: "open", label: taskStatusLabel("open") },
                 { value: "in_progress", label: taskStatusLabel("in_progress") },
@@ -480,18 +555,18 @@ export function TasksPane(props: TasksPaneProps) {
               <span><strong className="font-medium text-foreground">{t("tasks.sync_unavailable")}</strong> {t("tasks.sync_unavailable_detail")}</span>
             </p>
           ) : null}
-        </header>
+        </header>}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className={cn(props.embedded ? "flex min-h-36 flex-1 flex-col" : "min-h-0 flex-1 overflow-y-auto")}>
           <TaskList
-            tasks={tasks}
+            tasks={visibleTasks}
             groups={groups}
             selectedTaskId={selectedTaskId}
             accountUserId={access.accountUserId}
             loading={tasksQuery.isLoading}
             error={
-              tasksQuery.error
-                ? tasksQuery.error instanceof Error
+              tasksQuery.error && (!props.embedded || !tasksQuery.data)
+                ? props.projectId ? projectErrorMessage(tasksQuery.error) : tasksQuery.error instanceof Error
                   ? tasksQuery.error.message
                   : t("tasks.load_failed")
                 : null
@@ -499,17 +574,11 @@ export function TasksPane(props: TasksPaneProps) {
             filtered={filtered}
             trash={inTrash}
             emptyHint={emptyHint}
-            hasNextPage={Boolean(tasksQuery.hasNextPage)}
+            hasNextPage={!props.embedded && Boolean(tasksQuery.hasNextPage)}
             fetchingNextPage={tasksQuery.isFetchingNextPage}
-            onSelect={setSelectedTaskId}
-            onStartSession={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("session");
-            }}
-            onStartWorkflow={(task) => {
-              setSelectedTaskId(task.id);
-              setStartMode("workflow");
-            }}
+            onSelect={selectTask}
+            onStartSession={(task) => requestRun(task, "session")}
+            onStartWorkflow={(task) => requestRun(task, "workflow")}
             members={members}
             tagSuggestions={tags}
             onPatch={(task, patch) => {
@@ -520,19 +589,41 @@ export function TasksPane(props: TasksPaneProps) {
             }}
             onDelete={remove}
             onRestore={restore}
-            busy={busy}
+            busy={busy || updateTask.isPending}
             onLoadMore={() => void tasksQuery.fetchNextPage()}
             onRetry={() => void tasksQuery.refetch()}
             onClearFilters={clearFilters}
+            onCreate={(pageLayout || props.embedded) && props.client ? () => setCreating(true) : undefined}
+            compactEmpty={props.embedded}
           />
         </div>
-      </section>
+        {props.embedded ? <footer className="mt-auto border-t border-border/50">
+          <ListPagination label={t("tasks.pagination")} page={currentPage} pageSize={HOME_PAGE_SIZE} total={tasks.length} hasMore={tasksQuery.hasNextPage} busy={tasksQuery.isFetchingNextPage} onPageChange={(next) => void changePage(next)} />
+          <Button variant="ghost" className="h-10 w-full justify-between rounded-none px-4 text-xs text-muted-foreground" onClick={viewAll}>{t("projects.view_all")}<ArrowUpRight className="size-3.5" /></Button>
+        </footer> : null}
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!props.client} onClick={() => setCreating(true)}><Plus />{t("tasks.new_task")}</ContextMenuItem>
+        {props.projectId ? <ContextMenuItem disabled={!props.client} onClick={() => setLinking(true)}><Link2 />{t("projects.link_task")}</ContextMenuItem> : null}
+        {viewAll ? <ContextMenuItem onClick={viewAll}><ArrowUpRight />{t("projects.view_all")}</ContextMenuItem> : null}
+        <ContextMenuItem disabled={syncing || refreshing || !props.client} onClick={refresh}><RefreshCw />{t("tasks.refresh")}</ContextMenuItem>
+      </ContextMenuContent>
+      </ContextMenu>
 
-      {selectedTask ? (
+      {selectedTask && props.detailMode !== "panel" ? (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <TaskDetail
+          {selectedTask.projectId && props.onOpenInProject && <div className="flex justify-end px-4 pt-2"><Button variant="ghost" size="sm" onClick={() => {
+            if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
+            attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
+          }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
+          {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
+          <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
             key={selectedTask.id}
+            draft={selectedDraft}
+            draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
+            saving={updateTask.isPending || resolveConflict.isPending}
             task={selectedTask}
+            projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
             submission={detailQuery.data?.submission}
             notes={detailQuery.data?.notes ?? []}
             submissionPending={detailQuery.isLoading}
@@ -541,11 +632,17 @@ export function TasksPane(props: TasksPaneProps) {
             busy={busy}
             accountUserId={access.accountUserId}
             onBack={() => setSelectedTaskId(null)}
-            onPatch={(patch) => updateTask.mutateAsync({ taskId: selectedTask.id, patch })}
+            onPatch={async (patch) => {
+              const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
+              selectedDraft?.reconcile(result.task);
+              return result;
+            }}
+            conflicts={detailQuery.data?.conflicts}
+            onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
             onDelete={() => remove(selectedTask)}
             onRestore={() => restore(selectedTask)}
-            onStartWorkflow={() => setStartMode("workflow")}
-            onStartSession={() => setStartMode("session")}
+            onStartWorkflow={() => requestRun(selectedTask, "workflow")}
+            onStartSession={() => requestRun(selectedTask, "session")}
             onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
             onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
             onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
@@ -556,7 +653,7 @@ export function TasksPane(props: TasksPaneProps) {
               return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
             }}
             onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
-          />
+          /></div>
         </section>
       ) : null}
 
@@ -566,7 +663,8 @@ export function TasksPane(props: TasksPaneProps) {
           taskTitle={selectedTask.title}
           onClose={() => setStartMode(null)}
           workspaces={props.workspaces}
-          defaultWorkspaceId={props.workspaceId}
+          defaultWorkspaceId={selectedTask.projectId ?? props.workspaceId}
+          linkedProjectId={selectedTask.projectId ?? undefined}
           baseUrl={props.baseUrl}
           token={props.token}
           busy={starting}
@@ -574,6 +672,7 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
 
+      {linking && props.projectId && props.client ? <LinkProjectTaskDialog client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} onClose={() => setLinking(false)} /> : null}
       {creating ? (
         <NewTaskDialog
           open
@@ -586,42 +685,6 @@ export function TasksPane(props: TasksPaneProps) {
         />
       ) : null}
     </div>
-  );
-}
-
-/** A filter as a chip: its icon says which, its value says what. */
-function SortFilterChip(props: {
-  icon: LucideIcon;
-  compact?: boolean;
-  label: string;
-  value: string;
-  options: FilterOption[];
-  onChange: (value: string) => void;
-}) {
-  const Icon = props.icon;
-  return (
-    <Select value={props.value} items={props.options} onValueChange={(value) => props.onChange(value ?? "")}>
-      <SelectTrigger
-        size="sm"
-        aria-label={props.label}
-        title={props.options.find((option) => option.value === props.value)?.label}
-        className="h-7 min-w-0 max-w-full gap-1.5 rounded-lg border-transparent bg-transparent px-2 text-xs text-foreground hover:bg-muted/60 data-[size=sm]:h-7"
-      >
-        <Icon aria-hidden className="size-3.5 text-muted-foreground" />
-        <SelectValue className={props.compact ? "sr-only" : "min-w-0 truncate"} />
-      </SelectTrigger>
-      {/* As wide as the entries need rather than as the chip, which may only
-          say "All". */}
-      <SelectContent align="start" className="w-auto min-w-(--anchor-width) max-w-80">
-        <SelectGroup>
-          {props.options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              <OptionText primary={option.primary ?? option.label} detail={option.detail} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
   );
 }
 

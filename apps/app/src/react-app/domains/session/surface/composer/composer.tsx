@@ -1,13 +1,18 @@
+import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
+import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { resolveBrandIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { IconTile } from "@/react-app/design-system/surface";
 import "@/components/chat/session-surfaces.css";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LEGALWORK_EXTENSION_CATALOG, type McpDirectoryInfo } from "@/app/constants";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import {
@@ -23,8 +28,9 @@ import {
   readStorageFileDrag,
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
+import { hasWorkspaceFileDrag, readWorkspaceFileDrag, type WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
 import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
-import { formatBytes, isMacPlatform } from "@/app/utils";
+import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
 import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, LEGALWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
 import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
@@ -65,12 +71,11 @@ type ComposerProps = {
   mentions: Record<string, ComposerMentionKind>;
   onDraftChange: (value: string) => void;
   onSend: () => void | Promise<void>;
-  onSteer: () => void | Promise<void>;
-  onQueue: () => void | Promise<void>;
   onStop: () => void | Promise<void>;
   busy: boolean;
   queuedCount: number;
   disabled: boolean;
+  inputDisabled?: boolean;
   modelUnavailable?: boolean;
   /** The notice above the composer already explains the dead selection. */
   modelUnavailableLabelHidden?: boolean;
@@ -110,11 +115,14 @@ type ComposerProps = {
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
   /** Sent-prompt history (oldest first) recalled with ArrowUp/ArrowDown (#2012). */
   inputHistory?: string[];
-  onPasteText: (text: string) => void;
+  onPasteMentions?: (mentions: string[]) => void;
+  onPasteText: (text: string) => PastedTextChip;
   onUnsupportedFileLinks: (links: string[]) => void;
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
   onDropLegalMemoryFolder: (folder: LegalMemoryFolderDragItem) => void | Promise<void>;
   onDropStorageFile: (file: StorageFileDragItem) => void | Promise<void>;
+  onDropProjectFile?: (file: ProjectFileSource) => void;
+  onDropWorkspaceFile: (file: WorkspaceFileDragItem) => void | Promise<void>;
   pastedText: PastedTextChip[];
   onExpandPastedText: (id: string) => void;
   onRemovePastedText: (id: string) => void;
@@ -124,6 +132,7 @@ type ComposerProps = {
   draftScopeKey?: string;
   compactTopSpacing?: boolean;
   topAccessory?: ReactNode;
+  queueAccessory?: ReactNode;
   /** Fusion mode: fan tasks out to the selected candidate models; the session model fuses their outputs. */
   fusionEnabled?: boolean;
   onToggleFusion?: () => void;
@@ -307,9 +316,9 @@ export function ReactSessionComposer(props: ComposerProps) {
   const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
   const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
   const [, setExtensionStateVersion] = useState(0);
-  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | null>(null);
+  const [dropzoneKind, setDropzoneKind] = useState<"attachment" | "memory" | "memory-folder" | "workspace" | "project" | null>(null);
   const [fusionNewTooltipOpen, setFusionNewTooltipOpen] = useState(false);
-  const toolMenuRef = useRef<HTMLDivElement | null>(null);
+  const [previewPastedLabel, setPreviewPastedLabel] = useState<string | null>(null);
   const editorRef = useRef<LexicalPromptEditorHandle | null>(null);
   // IME composition guard: while an IME composition is active, we must not
   // treat Enter as a submit. Three signals keep this reliable across WebKit,
@@ -339,8 +348,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.fusionEnabled, props.onToggleFusion]);
 
   // Follow-up message UX (only relevant while the agent is busy):
-  // - Enter sends immediately (the agent adjusts mid-task, aka "steer").
-  // - Cmd/Ctrl+Enter queues the message to send once the agent finishes.
+  // - Enter submits to the session queue while the agent is busy.
   // - Escape arms a "Hit Escape again to stop the agent" prompt for 3s;
   //   a second Escape within that window stops the agent.
   const [escapeArmed, setEscapeArmed] = useState(false);
@@ -379,20 +387,12 @@ export function ReactSessionComposer(props: ComposerProps) {
     if (escapeTimerRef.current) clearTimeout(escapeTimerRef.current);
   }, []);
 
-  // Editor submit (Enter). While idle this sends normally; while busy
-  // Enter sends immediately (steer) and Cmd/Ctrl+Enter queues the
-  // message to send once the agent finishes the current task.
-  const handleEditorSubmit = useCallback((options: { queue: boolean }) => {
-    if (props.uploading) return;
-    const hasContent = props.draft.trim().length > 0 || props.attachments.length > 0;
-    if (!hasContent) return;
-    if (props.busy) {
-      if (options.queue) void props.onQueue();
-      else void props.onSteer();
-      return;
-    }
+  // The session owns the queue decision so keyboard and button sends agree.
+  const handleEditorSubmit = useCallback(() => {
+    if (props.uploading || props.disabled) return;
+    if (!props.draft.trim() && !props.attachments.length) return;
     void props.onSend();
-  }, [props.busy, props.uploading, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue]);
+  }, [props.uploading, props.disabled, props.draft, props.attachments, props.onSend]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
   const slashOpenNext = slashCommandQuery !== null;
@@ -555,20 +555,6 @@ export function ReactSessionComposer(props: ComposerProps) {
 
   useEffect(() => {
     if (!toolMenuOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (toolMenuRef.current?.contains(target)) return;
-      setToolMenuOpen(false);
-    };
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-    };
-  }, [toolMenuOpen]);
-
-  useEffect(() => {
-    if (!toolMenuOpen) return;
     const openId = toolMenuLoadRef.current.openId;
     const listImportedPlugins = listImportedPluginsRef.current;
     if (listImportedPlugins && !toolMenuLoadRef.current.plugins) {
@@ -669,10 +655,16 @@ export function ReactSessionComposer(props: ComposerProps) {
     () => props.pastedText.map((item) => ({ label: item.label, lines: item.lines })),
     [props.pastedText],
   );
+  const previewPastedText = props.pastedText.find((item) => item.label === previewPastedLabel);
+
+  useEffect(() => {
+    setPreviewPastedLabel(null);
+  }, [props.draftScopeKey]);
 
   const handleExpandPastedText = useCallback((label: string) => {
     const target = props.pastedText.find((item) => item.label === label);
     if (!target) return;
+    editorRef.current?.expandPastedText(target.label, target.text);
     props.onExpandPastedText(target.id);
   }, [props.onExpandPastedText, props.pastedText]);
 
@@ -790,7 +782,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     const handleFocus = () => {
       const root = rootRef.current;
-      if (!root) return;
+      if (!root || !root.isConnected || root.closest('[data-workspace-tab-active="false"]')) return;
       const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
       editable?.focus();
     };
@@ -814,6 +806,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.onDraftChange]);
 
   const handleKeyDownCapture: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+    if (event.target instanceof Element && event.target.closest("[data-message-queue]")) return;
     // IME composition guard — block Enter while IME is mid-character.
     const imeActive =
       imeComposingRef.current ||
@@ -1045,9 +1038,11 @@ export function ReactSessionComposer(props: ComposerProps) {
         imeComposingRef.current = false;
       }}
     >
-      <div className="max-w-[800px] mx-auto">
+      <div className="lw-session-column">
+        {props.queueAccessory}
         {/* Main composer panel */}
         <div
+          data-workspace-file-intake="composer"
           className={`lw-composer relative overflow-visible rounded-[22px] border ${
             props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
           } ${panelRoundedClass}`}
@@ -1102,14 +1097,18 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-dls-accent bg-[color:color-mix(in_oklab,var(--dls-accent)_10%,transparent)]">
               <div className="rounded-2xl border border-dls-border bg-dls-surface/95 px-5 py-4 text-center">
                 <div className="text-sm font-medium text-dls-text">
-                  {dropzoneKind === "memory-folder"
+                  {dropzoneKind === "project" ? t("project_files.attach") : dropzoneKind === "workspace"
+                    ? t("composer.reference_workspace_file")
+                    : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder")
                     : dropzoneKind === "memory"
                       ? t("composer.download_memory_file")
                       : t("composer.attach_files")}
                 </div>
                 <div className="mt-1 text-xs text-dls-secondary">
-                  {dropzoneKind === "memory-folder"
+                  {dropzoneKind === "project" ? t("project_files.snapshot_hint") : dropzoneKind === "workspace"
+                    ? t("composer.reference_workspace_file_hint")
+                    : dropzoneKind === "memory-folder"
                     ? t("composer.download_memory_folder_hint")
                     : dropzoneKind === "memory"
                       ? t("composer.download_memory_file_hint")
@@ -1126,12 +1125,15 @@ export function ReactSessionComposer(props: ComposerProps) {
               value={props.draft}
               mentions={props.mentions}
               pastedText={pastedTextTokens}
-              disabled={props.disabled}
+              disabled={Boolean(props.inputDisabled)}
+              submitDisabled={props.disabled}
               placeholder={t("composer.placeholder")}
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
               onExpandPastedText={handleExpandPastedText}
+              onPreviewPastedText={setPreviewPastedLabel}
               onPasteText={props.onPasteText}
+              onPasteMentions={props.onPasteMentions}
               onPaste={(event) => {
                 // Paste policy:
                 // 1. Actual files on the clipboard -> attach them.
@@ -1160,7 +1162,7 @@ export function ReactSessionComposer(props: ComposerProps) {
 
                 const text = event.clipboardData?.getData("text/plain") ?? "";
 
-                // Long pastes (3+ lines / 200+ chars) are collapsed into
+                // Long pastes (10+ lines / 1,000+ chars) are collapsed into
                 // an inline chip by PasteChipPlugin inside the Lexical
                 // editor. Do NOT duplicate that here — calling onPasteText
                 // from both the React onPaste handler and the Lexical
@@ -1186,6 +1188,13 @@ export function ReactSessionComposer(props: ComposerProps) {
                 }
               }}
               onDragOver={(event) => {
+                if (event.dataTransfer && (hasProjectFileDrag(event.dataTransfer) || hasWorkspaceFileDrag(event.dataTransfer))) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  const kind = hasProjectFileDrag(event.dataTransfer) ? "project" : "workspace";
+                  if (dropzoneKind !== kind) setDropzoneKind(kind);
+                  return;
+                }
                 if (event.dataTransfer && hasLegalMemoryFolderDrag(event.dataTransfer)) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
@@ -1212,10 +1221,18 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneKind(null);
               }}
               onDrop={(event) => {
+                const projectFiles = event.dataTransfer ? readProjectFilesDrag(event.dataTransfer) : [];
+                if (projectFiles.length && props.onDropProjectFile) { event.preventDefault(); event.stopPropagation(); setDropzoneKind(null); projectFiles.forEach(props.onDropProjectFile); return; }
+                const workspaceFile = event.dataTransfer ? readWorkspaceFileDrag(event.dataTransfer) : null;
                 const memoryFolder = event.dataTransfer ? readLegalMemoryFolderDrag(event.dataTransfer) : null;
                 const memoryFile = event.dataTransfer ? readLegalMemoryFileDrag(event.dataTransfer) : null;
                 const storageFile = event.dataTransfer ? readStorageFileDrag(event.dataTransfer) : null;
                 setDropzoneKind(null);
+                if (workspaceFile) {
+                  event.preventDefault();
+                  void props.onDropWorkspaceFile(workspaceFile);
+                  return;
+                }
                 if (memoryFolder) {
                   event.preventDefault();
                   void props.onDropLegalMemoryFolder(memoryFolder);
@@ -1239,8 +1256,8 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
-            <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
+              <div className="contents">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1269,34 +1286,36 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <Paperclip size={16} />
                 </button>
-                <div
-                  ref={toolMenuRef}
-                  className="relative"
-                  onMouseDown={(event) => {
-                    const target = event.target;
-                    if (target instanceof Element && target.closest("button")) event.preventDefault();
-                  }}
-                >
-                  <button
+                <Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
+                  <PopoverTrigger
                     type="button"
                     className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
                       setMentionOpen(false);
                       setMentionItems([]);
                       setSlashOpen(false);
-                      setToolMenuOpen((value) => !value);
                     }}
-                    aria-expanded={toolMenuOpen}
-                    aria-haspopup="dialog"
                     title={t("composer.tools_label")}
                     aria-label={t("composer.tools_label")}
                   >
                     <Plug size={16} />
-                  </button>
-                  {toolMenuOpen ? (
-                    <div className="absolute bottom-full left-0 z-40 mb-3 w-[min(calc(100vw-2.5rem),34rem)] overflow-hidden rounded-[22px] border border-dls-border bg-dls-surface shadow-[var(--dls-shell-shadow)]">
-                      <div className="grid grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
-                        <div className="border-r border-dls-border bg-gray-2/30 p-2">
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    sideOffset={12}
+                    aria-label={t("composer.tools_label")}
+                    initialFocus={(interaction) => interaction === "keyboard"}
+                    finalFocus={(interaction) => interaction === "keyboard"}
+                    onMouseDown={(event) => {
+                      const target = event.target;
+                      if (target instanceof Element && target.closest("button")) event.preventDefault();
+                    }}
+                    className="max-h-[min(24rem,var(--available-height))] w-[min(calc(100vw-2.5rem),34rem)] gap-0 overflow-hidden rounded-[22px] border-dls-border bg-dls-surface p-0 shadow-[var(--dls-shell-shadow)]"
+                  >
+                      <div className="grid min-h-0 flex-1 grid-cols-[152px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]">
+                        <div className="min-h-0 overflow-y-auto border-r border-dls-border bg-gray-2/30 p-2">
                           {([
                             ["commands", t("dashboard.commands")],
                             ["skills", t("dashboard.skills")],
@@ -1326,7 +1345,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                             </button>
                           ))}
                         </div>
-                        <div className="max-h-72 overflow-y-auto p-2">
+                        <div className="min-h-0 max-h-72 overflow-y-auto p-2">
                           <div className="mb-2 flex justify-end border-b border-dls-border px-1 pb-2">
                             <button
                               type="button"
@@ -1473,9 +1492,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                           ) : null}
                         </div>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
+                  </PopoverContent>
+                </Popover>
 
                 <ModelSelect
                   open={props.modelPickerOpen}
@@ -1563,18 +1581,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 ) : null}
               </div>
 
-              {/*
-                Action area.
-                - Idle: single "Run task" button (sends immediately).
-                - Busy: an outline "Stop" on the left (kept apart from the
-                  send cluster), then a split send button — the primary
-                  segment sends now (the agent adjusts mid-task, aka
-                  "steer"; Enter does the same), and the chevron opens a
-                  menu with "Send when agent finishes" (queue, ⌘⏎). A badge
-                  on the chevron shows how many messages are queued.
-                  Escape arms a "Hit Escape again to stop the agent" prompt.
-              */}
-              <div className="ml-auto flex shrink-0 items-end gap-1.5">
+              {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
+              <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-end justify-end gap-1.5">
                 {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
                   <button
                     type="button"
@@ -1604,59 +1612,18 @@ export function ReactSessionComposer(props: ComposerProps) {
                       <Square size={12} fill="currentColor" />
                       <span>{t("composer.stop")}</span>
                     </button>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={canSend ? props.onSteer : undefined}
-                        disabled={!canSend}
-                        className={`lw-composer-send inline-flex h-9 max-h-9 items-center gap-2 rounded-l-xl pl-4 pr-3 text-[13px] font-medium ${
-                          canSend
-                            ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                            : "bg-gray-4 text-gray-10"
-                        }`}
-                        title={t("composer.steer_hint")}
-                      >
-                        <Zap size={14} />
-                        <span>{t("composer.steer")}</span>
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={t("composer.send_options")}
-                              className={`lw-composer-send relative inline-flex h-9 max-h-9 items-center rounded-r-xl border-l pl-1.5 pr-2.5 ${
-                                canSend
-                                  ? "border-[color-mix(in_srgb,var(--dls-accent-fg)_25%,transparent)] bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                                  : "border-gray-6 bg-gray-4 text-gray-10"
-                              }`}
-                            >
-                              <ChevronDown size={14} />
-                              {props.queuedCount > 0 ? (
-                                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gray-12 px-1 text-[10px] font-semibold text-gray-1">
-                                  {props.queuedCount}
-                                </span>
-                              ) : null}
-                            </button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            disabled={!canSend}
-                            onClick={() => void props.onQueue()}
-                            title={t("composer.queue_hint")}
-                          >
-                            <ListPlus size={14} />
-                            <span>
-                              {props.queuedCount > 0
-                                ? `${t("composer.queue")} · ${t("composer.queued_count", { count: props.queuedCount })}`
-                                : t("composer.queue")}
-                            </span>
-                            <DropdownMenuShortcut>{isMacPlatform() ? "⌘⏎" : "Ctrl+⏎"}</DropdownMenuShortcut>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={canSend ? props.onSend : undefined}
+                      disabled={!canSend || props.disabled}
+                      className={`lw-composer-send inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[13px] font-medium ${
+                        canSend ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]" : "bg-gray-4 text-gray-10"
+                      }`}
+                      title={t("composer.queue_hint")}
+                    >
+                      <ArrowUp size={15} />
+                      <span>{t("composer.add_to_queue")}</span>
+                    </button>
                   </>
                 ) : (
                   <button
@@ -1680,6 +1647,23 @@ export function ReactSessionComposer(props: ComposerProps) {
         </div>
 
       </div>
+      <Dialog open={Boolean(previewPastedText)} onOpenChange={(open) => { if (!open) setPreviewPastedLabel(null); }}>
+        <DialogContent aria-describedby={undefined} className="max-h-[min(70dvh,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-3 rounded-2xl p-4 sm:max-w-lg">
+          <DialogTitle className="pr-9 text-sm leading-8 text-gray-11">{t("artifact.pasted_text")}</DialogTitle>
+          <pre className="min-h-0 overflow-auto whitespace-pre-wrap break-words pr-1 font-sans text-sm leading-relaxed text-dls-text select-text">
+            {previewPastedText?.text}
+          </pre>
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={props.disabled} onClick={() => {
+              if (!previewPastedText) return;
+              handleExpandPastedText(previewPastedText.label);
+              setPreviewPastedLabel(null);
+            }}>
+              {t("artifact.expand_pasted")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

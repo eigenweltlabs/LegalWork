@@ -1,3 +1,6 @@
+import { registerProjectFolderRoutes } from "./project-folders.js";
+import { readProjectDetails } from "../project-store.js";
+import { connectionFingerprint, projectFolderScopes } from "../file-storage/project-folders.js";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -5,13 +8,16 @@ import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { StorageTransferEvent, StorageTransferProgress } from "@legalwork/types/file-storage";
 import {
   storageInputSchema,
   storageSearchSchema,
   storageFilenameSearchSchema,
+  storageTransferSchema,
   STORAGE_MAX_FILE_BYTES,
 } from "../file-storage/schema.js";
 import { searchFilenames } from "../file-storage/filename-search.js";
+import { transferDestination, transferEntry } from "../file-storage/transfer.js";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import {
@@ -32,8 +38,11 @@ import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
+import { appliedOrgPolicy, requireOrgPolicyAllows } from "../org-policy.js";
 
 type Options = {
+  onProjectFoldersChanged?: (workspaceId: string) => Promise<void>;
+  onProjectRenamed?: (workspaceId: string, name: string) => Promise<void>;
   routes: Route[];
   config: ServerConfig;
   jsonResponse: (data: unknown, status?: number) => Response;
@@ -56,6 +65,7 @@ const writeSchema = z.object({
 });
 
 export function registerStorageRoutes({
+  onProjectFoldersChanged, onProjectRenamed,
   routes,
   config,
   jsonResponse,
@@ -81,6 +91,9 @@ export function registerStorageRoutes({
     }
   };
   const base = "/workspace/:id/storage";
+  // The member's own connections, unless the firm allows none (they are kept, not shown).
+  const personal = async (workspaceId: string) =>
+    (await appliedOrgPolicy(config, "storage.allowPersonal"))?.value === false ? [] : store.list(workspaceId);
   const workspace = async (ctx: RequestContext) => (await resolveWorkspace(config, ctx.params.id)).id;
   const canWrite = (ctx: RequestContext) =>
     !config.readOnly &&
@@ -88,13 +101,18 @@ export function registerStorageRoutes({
   const lookup = async (workspaceId: string, id: string) => {
     const item = isTeamStorage(id)
       ? (await team.list(workspaceId)).connections.find((item) => item.id === id)
-      : await store.get(workspaceId, id);
+      : (await personal(workspaceId)).find((item) => item.id === id);
     if (!item)
       throw new ApiError(404, "storage_not_found", "This team connection is unavailable. Refresh Memory Drive.");
     return item;
   };
-  const selected = async (ctx: RequestContext, writing = false) => {
-    const item = await lookup(await workspace(ctx), ctx.params.storageId);
+  const projectFolders = registerProjectFolderRoutes({ routes, config, storagePath: store.path, oauth, lookup, resolveWorkspace, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, onChanged: onProjectFoldersChanged, onRenamed: onProjectRenamed });
+  const selected = async (ctx: RequestContext, writing = false, storageId = ctx.params.storageId) => {
+    if (storageId.startsWith("project:")) {
+      if (writing) throw new ApiError(403, "storage_read_only", "Linked project folders are read-only references.");
+      return projectFolders.selected(await workspace(ctx), storageId);
+    }
+    const item = await lookup(await workspace(ctx), storageId);
     if (item.team?.installed === false)
       throw new ApiError(409, "storage_not_installed", "Add this connection from the Team tab in File storage first.");
     if (!item.enabled)
@@ -125,6 +143,24 @@ export function registerStorageRoutes({
     if (id) oauth.bind(await workspace(ctx), id, input);
     return input;
   };
+  addRoute(routes, "GET", "/storage/project-sources", "host", async () => {
+    const sources: { sourceWorkspaceId: string; connectionId: string; name: string }[] = [];
+    const seen = new Set<string>();
+    let error: string | undefined;
+    const available = await Promise.all(config.workspaces.filter((item) => item.workspaceType === "local").map(async (workspace) => ({
+      workspace, shared: await team.list(workspace.id), personal: await personal(workspace.id),
+    })));
+    for (const { workspace, shared, personal } of available) {
+      if (shared.status.error) error = shared.status.error;
+      for (const item of [...personal, ...shared.connections]) {
+        if (!item.enabled || item.team?.installed === false || seen.has(item.id)) continue;
+        if (item.config.kind === "oauth" && !(await oauth.status(oauth.key(workspace.id, item.id, item))).connected) continue;
+        seen.add(item.id);
+        sources.push({ sourceWorkspaceId: workspace.id, connectionId: item.id, name: item.name });
+      }
+    }
+    return jsonResponse({ sources, ...(error ? { error } : {}) });
+  });
   addRoute(routes, "GET", `${base}/oauth/providers`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
     return jsonResponse({ providers: oauthProviders.filter((p) => p.clientId).map(({ id, name, rootHint }) => ({ id, name, rootHint })) });
@@ -161,31 +197,40 @@ export function registerStorageRoutes({
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
     return jsonResponse({
-      connections: [...(await store.list(workspaceId)), ...shared.connections].map(publicConnection),
+      connections: [...(await personal(workspaceId)), ...shared.connections].map(publicConnection),
       team: shared.status,
     });
   });
   addRoute(routes, "GET", `${base}/roots`, "client", async (ctx) => {
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
-    const connections = [...(await store.list(workspaceId)), ...shared.connections];
+    const connections = [...(await personal(workspaceId)), ...shared.connections]
+      .filter((item) => item.enabled && item.team?.installed !== false);
+    const details = await readProjectDetails((await resolveWorkspace(config, workspaceId)).path);
+    const linkedRoots = (details.remote?.folders ?? []).map((folder) => {
+      const source = connections.find((item) => item.id === folder.connectionId && item.team?.orgId === folder.organizationId && connectionFingerprint(item) === folder.connectionFingerprint);
+      return {
+        id: `project:${folder.id}`, name: folder.folder.name, kind: "linked", writable: false,
+        ...(source ? { sourceConnectionId: source.id } : {}),
+      };
+    });
     return jsonResponse({
       ...(shared.status.error ? { teamError: shared.status.error } : {}),
-      roots: connections
-        .filter((item) => item.enabled && item.team?.installed !== false)
+      roots: [...linkedRoots, ...connections
         .map((item) => ({
           id: item.id,
           name: item.name,
           revision: item.team ? `${item.team.orgId}:${item.team.version}` : String(item.updatedAt),
           kind: item.config.kind,
           writable: !item.readOnly && canWrite(ctx),
-        })),
+        }))],
     });
   });
   for (const method of ["POST", "PUT"]) {
     addRoute(routes, method, method === "POST" ? base : `${base}/:storageId`, "host", async (ctx) => {
       requireClientScope(ctx, "owner");
       ensureWritable(config);
+      if (!isTeamStorage(ctx.params.storageId ?? "")) await requireOrgPolicyAllows(config, "storage.allowPersonal");
       const input = await parsedInput(ctx, ctx.params.storageId);
       if (ctx.params.storageId) {
         const id = await workspace(ctx);
@@ -284,7 +329,7 @@ export function registerStorageRoutes({
   });
   addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
     const connection = await selected(ctx);
-    const writable = !connection.readOnly && canWrite(ctx);
+    const writable = !projectFolderScopes.has(connection) && !connection.readOnly && canWrite(ctx);
     return jsonResponse(await withStorage(connection, async (adapter) => ({
       read: true, write: writable, createFolder: writable,
       rename: writable && Boolean(adapter.rename), deleteFile: writable && Boolean(adapter.deleteFile),
@@ -320,7 +365,7 @@ export function registerStorageRoutes({
     storagePath(parsed.data.path);
     return jsonResponse(
       await withStorage(connection, (adapter) =>
-        searchFilenames(adapter, parsed.data, `${connection.id}:${connection.updatedAt}`, ctx.request.signal),
+        searchFilenames(adapter, parsed.data, `${ctx.params.storageId}:${connection.updatedAt}`, ctx.request.signal),
       ),
     );
   });
@@ -333,7 +378,7 @@ export function registerStorageRoutes({
       contentType: result.contentType ?? "application/octet-stream",
       version: result.version,
       writable:
-        !connection.readOnly &&
+        !projectFolderScopes.has(connection) && !connection.readOnly &&
         canWrite(ctx) &&
         !result.version.startsWith("sha256:") &&
         !result.version.startsWith("W/"),
@@ -355,7 +400,7 @@ export function registerStorageRoutes({
         contentType: file.contentType ?? "application/octet-stream",
         updatedAt: (await stat(copy.path)).mtimeMs,
         writable:
-          !connection.readOnly &&
+          !projectFolderScopes.has(connection) && !connection.readOnly &&
           canWrite(ctx) &&
           !file.version.startsWith("sha256:") &&
           !file.version.startsWith("W/"),
@@ -542,6 +587,69 @@ export function registerStorageRoutes({
     });
     return jsonResponse({ ok: true, path: destination, kind });
   });
+  addRoute(routes, "POST", `${base}/:storageId/transfer`, "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
+    ensureWritable(config);
+    const parsed = storageTransferSchema.safeParse(await readJsonBodyLimited(ctx.request, 16 * 1024));
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_transfer", "Choose a file or folder, destination connection and folder, and move or copy mode.");
+    const input = parsed.data;
+    const sameRoot = ctx.params.storageId === input.destinationId;
+    transferDestination(input, sameRoot);
+    // Acquire both connection locks in a stable order, including transfers in opposite directions.
+    const ids = [...new Set([ctx.params.storageId, input.destinationId])].sort();
+    const run = async (onProgress?: (progress: StorageTransferProgress) => void) => {
+      const locked = (index: number): Promise<string> => index < ids.length
+        ? serializeWrite(ids[index], () => locked(index + 1))
+        : (async () => {
+          const source = await selected(ctx, input.mode === "move");
+          const destination = await selected(ctx, true, input.destinationId);
+          return withStorage(source, (adapter) => sameRoot
+            ? transferEntry(adapter, adapter, input, true, onProgress)
+            : withStorage(destination, (target) => transferEntry(adapter, target, input, false, onProgress)));
+        })();
+      const path = await locked(0);
+      const current = await resolveWorkspace(config, ctx.params.id);
+      await recordAudit(current.path, {
+        id: randomUUID(), timestamp: Date.now(), workspaceId: current.id, actor: ctx.actor!,
+        action: input.mode === "move" ? "storage.move" : "storage.copy", target: input.destinationId,
+        summary: `${input.mode === "move" ? "Moved" : "Copied"} ${ctx.params.storageId}/${input.path} to ${input.destinationId}/${path}`,
+      });
+      return path;
+    };
+    if (!ctx.request.headers.get("accept")?.includes("text/event-stream"))
+      return jsonResponse({ ok: true, path: await run(), kind: input.kind });
+    // Reject access errors before starting the stream. Recheck under both locks when the operation starts.
+    await selected(ctx, input.mode === "move");
+    await selected(ctx, true, input.destinationId);
+    const encoder = new TextEncoder();
+    let closed = false;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (text: string) => {
+          if (closed) return;
+          try { controller.enqueue(encoder.encode(text)); }
+          catch { closed = true; clearInterval(heartbeat); }
+        };
+        const publish = (event: StorageTransferEvent) => {
+          send(`data: ${JSON.stringify(event)}\n\n`);
+        };
+        heartbeat = setInterval(() => send(": keepalive\n\n"), 15_000);
+        void run((progress) => publish({ type: "progress", progress })).then(
+          (path) => publish({ type: "result", path }),
+          (error: unknown) => {
+            const failure = providerError(error);
+            publish({ type: "error", status: failure.status, code: failure.code, message: failure.message });
+          },
+        ).finally(() => {
+          clearInterval(heartbeat);
+          if (!closed) { closed = true; controller.close(); }
+        });
+      },
+      cancel() { closed = true; clearInterval(heartbeat); },
+    });
+    return new Response(body, { headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
+  });
   addRoute(routes, "DELETE", `${base}/:storageId/file`, "client", async (ctx) => {
     const connection = await selected(ctx, true);
     const path = storagePath(ctx.url.searchParams.get("path") ?? "", false);
@@ -584,4 +692,5 @@ export function registerStorageRoutes({
     });
     return jsonResponse({ ok: true });
   });
+  return projectFolders;
 }

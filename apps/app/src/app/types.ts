@@ -184,6 +184,7 @@ export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
+  "tabular-review",
   "account",
   "personalisation",
   "notifications",
@@ -298,6 +299,8 @@ export type SkillCard = {
   kind?: string;
   /** SKILL.md frontmatter `workflow_type` — "tabular" | "assistant" for workflows. */
   workflowType?: string;
+  /** From the firm's hub: installed for everyone, or added by the member. Members cannot change or remove it here. */
+  firm?: "automatic" | "optional";
 };
 
 /** A file attached to a skill — lives in the skill's own resources/ folder. */
@@ -400,12 +403,16 @@ export type ReloadTrigger = {
 export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   always: unknown;
   receivedAt: number;
-  protocol: "legacy" | "v2";
+  protocol: "legacy" | "v2" | "host";
+  host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
+  sourceSession?: { id: string; title: string };
 };
 
 export type PendingQuestion = QuestionRequest & {
   receivedAt: number;
+  protocol?: "legacy" | "v2";
+  sourceSession?: { id: string; title: string };
 };
 
 export type TodoItem = {
@@ -423,6 +430,7 @@ export type ModelRef = {
 export type ModelBehaviorOption = {
   value: string | null;
   label: string;
+  isDefault?: boolean;
   description: string;
 };
 

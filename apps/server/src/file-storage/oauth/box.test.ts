@@ -107,8 +107,8 @@ test("Box renames files and folders with version guards and deletes only files",
   await expect(adapter.deleteFile!("Matter")).rejects.toMatchObject({ code: "storage_not_a_file" });
   await expect(adapter.rename!("matter.txt", "Matter", "file")).rejects.toMatchObject({ code: "storage_conflict" });
   expect(mutations).toEqual([
-    { path: "/2.0/files/20", method: "PUT", version: "2", body: { name: "Renamed.txt" } },
-    { path: "/2.0/folders/30", method: "PUT", version: "4", body: { name: "Renamed folder" } },
+    { path: "/2.0/files/20", method: "PUT", version: "2", body: { name: "Renamed.txt", parent: { id: "10" } } },
+    { path: "/2.0/folders/30", method: "PUT", version: "4", body: { name: "Renamed folder", parent: { id: "10" } } },
     { path: "/2.0/files/20", method: "DELETE", version: "2", body: null },
   ]);
 });
@@ -131,4 +131,36 @@ test("Box folder deletion is recursive, version guarded, and cannot delete the c
   expect(deleted).toBe(false);
   await adapter.deleteFolder!("Matter");
   expect(deleted).toBe(true);
+});
+
+test("Box links follow native folder IDs after renaming but reject moves outside the configured root", async () => {
+  let movedOutside = false;
+  requests((url) => {
+    if (url.pathname === "/2.0/folders/10") return Response.json(root);
+    if (url.pathname === "/2.0/folders/30") return Response.json({ id: "30", type: "folder", name: "Renamed", path_collection: { entries: movedOutside ? [{ id: "99", name: "Elsewhere" }] : [root] } });
+    return Response.json({ entries: [{ id: "30", type: "folder", name: "Original" }] });
+  });
+  const adapter = await boxAdapter({ kind: "oauth", provider: "box", root: "10" }, async () => "member-token");
+  const reference = await adapter.folderReference!("Original");
+  expect(reference.id).toBe("30");
+  expect(await adapter.resolveFolder!(reference)).toBe("Renamed");
+  movedOutside = true;
+  await expect(adapter.resolveFolder!(reference)).rejects.toMatchObject({ status: 404 });
+});
+test("Box moves a file into the resolved destination folder", async () => {
+  const archive = { id: "30", type: "folder", name: "Archive", etag: "4" };
+  let moved = false;
+  requests((url, init) => {
+    if (init?.method === "PUT") {
+      expect(url.pathname).toBe("/2.0/files/20");
+      expect(typeof init.body === "string" ? JSON.parse(init.body) : null).toEqual({ name: "matter.txt", parent: { id: "30" } });
+      moved = true;
+      return Response.json(file);
+    }
+    if (url.pathname === "/2.0/folders/10") return Response.json(root);
+    return Response.json({ entries: url.pathname === "/2.0/folders/30/items" ? [] : [file, archive] });
+  });
+  const adapter = await boxAdapter({ kind: "oauth", provider: "box", root: "10" }, async () => "token");
+  await adapter.rename!("matter.txt", "Archive/matter.txt", "file");
+  expect(moved).toBe(true);
 });

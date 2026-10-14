@@ -99,4 +99,4 @@ The tests use fixtures and include an actual Node subprocess MCP handshake. They
 - The connection UI was exercised with simulated credentials, including save, test, tool-group selection/counts, reconnect, write access and disconnect.
 - No live Actaport account or signed installer was tested.
 
-The MCP package installs with a filtered frozen-lockfile pnpm install. A full fresh workspace install currently encounters the repository's existing missing integrity checksum for the SheetJS CDN tarball; the application checks above used the already-installed dependency cache.
+The MCP package installs with a filtered frozen-lockfile pnpm install. Application checks in this worktree use the existing dependency cache; a full fresh workspace install was not part of acceptance.

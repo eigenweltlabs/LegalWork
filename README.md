@@ -8,6 +8,10 @@ A local computer-use agent for law firms, from Eigenwelt Labs. Point it at a fol
 
 [Verify downloads](docs/verify-downloads.md) using the release's `SHA256SUMS` file.
 
+[Code signing policy](CODE_SIGNING_POLICY.md): Windows production signing is
+being set up with free code signing provided by [SignPath.io](https://signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
 https://github.com/user-attachments/assets/4a576c3a-7c2a-46c6-9856-1254282b1b70
 
 
@@ -46,6 +50,8 @@ pnpm dev:ui     # web UI only
 ```
 
 Checks: `pnpm typecheck` · `pnpm build` · `pnpm test:e2e`.
+
+Desktop builds also require the bundled protected-execution resources. See [the sandbox build instructions](docs/security/agent-sandbox.md#build-and-verify) to build them locally or use the platform artifacts from the **Protected execution runtime** workflow. Released installers include these resources; users do not install Docker or Python.
 
 ## Contributing
 

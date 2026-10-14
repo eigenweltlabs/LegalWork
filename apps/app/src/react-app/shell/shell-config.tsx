@@ -1,11 +1,47 @@
 /** @jsxImportSource react */
-import { createContext, useCallback, use, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useEffect, useMemo, useState, type ReactNode } from "react";
+
+import { useOrgPolicy } from "../domains/connections/org-policy";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
+
+export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionProjects" | "sectionRecent";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionProjects", "sectionRecent"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+
 export type ShellConfig = {
+  newWindowBehavior: "ask" | "empty" | "copy";
+  navHome: boolean;
+  navCalendar: boolean;
+  navScheduled: boolean;
+  navProjects: boolean;
+  chatSectionOrder: ChatSectionKey[];
+  sectionPinned: boolean;
+  sectionPinnedProjects: boolean;
+  sectionProjects: boolean;
+  sectionRecent: boolean;
+  projectNavOrder: ProjectNavKey[];
+  projectCalendar: boolean;
+  projectHome: boolean;
+  projectReviews: boolean;
+  projectTasks: boolean;
+  projectFiles: boolean;
+  /** Retained for saved config compatibility; sessions are always enabled. */
+  projectSessions: true;
+  collapseProjectSessions: boolean;
+  navOrder: ShellNavKey[];
+  navNewChat: boolean;
+  navTasks: boolean;
+  navWorkflows: boolean;
+  navRecorder: boolean;
+  navEvaluations: boolean;
   /** Display name shown in the title bar, sidebar, and welcome page. */
   appName: string;
   /** Brand name shown at the top of the left sidebar. */
@@ -39,6 +75,30 @@ export type ShellConfig = {
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SHELL_CONFIG: ShellConfig = {
+  newWindowBehavior: "ask",
+  navOrder: DEFAULT_NAV_ORDER,
+  navHome: true,
+  navCalendar: true,
+  navScheduled: true,
+  navProjects: true,
+  chatSectionOrder: DEFAULT_CHAT_ORDER,
+  sectionPinned: true,
+  sectionPinnedProjects: true,
+  sectionProjects: true,
+  sectionRecent: true,
+  projectNavOrder: DEFAULT_PROJECT_ORDER,
+  projectCalendar: true,
+  projectHome: true,
+  projectReviews: true,
+  projectTasks: true,
+  projectFiles: true,
+  projectSessions: true,
+  collapseProjectSessions: true,
+  navNewChat: true,
+  navTasks: true,
+  navWorkflows: true,
+  navRecorder: true,
+  navEvaluations: true,
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",
   sidebarBrandLogoDataUrl: "",
@@ -61,6 +121,13 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
 export const SHELL_CONFIG_STORAGE_KEY = "legalwork.shell-config";
 const STORAGE_KEY = SHELL_CONFIG_STORAGE_KEY;
 
+function readOrder<K extends string>(value: unknown, defaults: K[]): K[] {
+  const saved = Array.isArray(value)
+    ? value.filter((key): key is K => defaults.some((item) => item === key))
+    : [];
+  return [...new Set([...saved, ...defaults])];
+}
+
 function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;
   try {
@@ -68,8 +135,29 @@ function readShellConfig(): ShellConfig {
     if (!raw) return DEFAULT_SHELL_CONFIG;
     const parsed = JSON.parse(raw);
     const next = { ...DEFAULT_SHELL_CONFIG, ...parsed };
+    const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
+    const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
+    // Place newly available items beside their default neighbors, preserving saved ordering.
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
+      navOrder.splice(navOrder.indexOf("navCalendar"), 1);
+      navOrder.splice(navOrder.indexOf("navProjects") + 1, 0, "navCalendar");
+    }
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
+      navOrder.splice(navOrder.indexOf("navScheduled"), 1);
+      navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
+    }
+    const chatSectionOrder = readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER);
+    if (Array.isArray(next.chatSectionOrder) && !next.chatSectionOrder.includes("sectionPinnedProjects")) {
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinnedProjects"), 1);
+      chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinned") + 1, 0, "sectionPinnedProjects");
+    }
     return {
       ...next,
+      newWindowBehavior: next.newWindowBehavior === "empty" || next.newWindowBehavior === "copy" ? next.newWindowBehavior : "ask",
+      navOrder,
+      chatSectionOrder,
+      projectNavOrder: readOrder(next.projectNavOrder, DEFAULT_PROJECT_ORDER),
+      projectSessions: true,
       // The notifications bell has no UI toggle anymore, so force it off even if
       // an older persisted config had it enabled.
       notifications: false,
@@ -104,10 +192,15 @@ const ShellConfigContext = createContext<ShellConfigContextValue | undefined>(un
 
 export function ShellConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<ShellConfig>(readShellConfig);
+  useEffect(() => {
+    const changed = (event: StorageEvent) => { if (event.key === STORAGE_KEY) setConfig(readShellConfig()); };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
 
   const update = useCallback((patch: Partial<ShellConfig>) => {
     setConfig((prev) => {
-      const next = { ...prev, ...patch };
+      const next: ShellConfig = { ...prev, ...patch, projectSessions: true };
       writeShellConfig(next);
       return next;
     });
@@ -118,9 +211,22 @@ export function ShellConfigProvider({ children }: { children: ReactNode }) {
     writeShellConfig(DEFAULT_SHELL_CONFIG);
   }, []);
 
+  // The firm's branding shows over the member's own while it applies.
+  const branding = useOrgPolicy("branding")?.value;
   const value = useMemo<ShellConfigContextValue>(
-    () => ({ config, update, reset }),
-    [config, update, reset],
+    () => ({
+      config: branding
+        ? {
+            ...config,
+            ...(branding.appName ? { appName: branding.appName } : {}),
+            ...(branding.sidebarBrandName ? { sidebarBrandName: branding.sidebarBrandName } : {}),
+            ...(branding.logoDataUrl ? { sidebarBrandLogoDataUrl: branding.logoDataUrl } : {}),
+          }
+        : config,
+      update,
+      reset,
+    }),
+    [config, branding, update, reset],
   );
 
   return (

@@ -6,10 +6,15 @@
  * of owning the process lifecycle.
  */
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
+import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
@@ -21,8 +26,10 @@ import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
+import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
@@ -35,6 +42,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** OS-resolved Documents project root provided by the desktop host. */
+  projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
@@ -57,21 +66,20 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
+  config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
-  // No trailing slash: the engine appends "/api.json" to this value, so a
-  // trailing slash produces the malformed "https://…com//api.json" seen in
-  // user-reported engine logs.
-  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
-    ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com");
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
+  let catalogRelay: Awaited<ReturnType<typeof startModelCatalogRelay>> | null = null;
 
   if (!config.readOnly) {
+    await retireSharedLegacyReview(globalSkillsDir());
+    await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }
@@ -124,6 +132,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       const managedDb = await prepareManagedOpencodeEngineDb(config);
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
 
+      catalogRelay = await startModelCatalogRelay(config);
+      const engineHome = join(runtimeStorageDir(config), "engine-home");
+      if (config.agentSandboxEnabled) await mkdir(engineHome, { recursive: true });
       managedOpencode = await createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
         cwd,
@@ -134,9 +145,22 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_MODELS_URL: opencodeModelsUrl,
+          // The firm's enforced settings: read after every project's own config.
+          OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
+          OPENCODE_MODELS_URL: catalogRelay.url,
+          OPENCODE_MODELS_PATH: catalogRelay.catalogPath,
+          ...(config.agentSandboxEnabled ? {
+            OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+            // In the pinned engine this controls home config/plugin discovery.
+            OPENCODE_TEST_HOME: engineHome,
+            XDG_CONFIG_HOME: join(engineHome, "config"),
+            OPENCODE_CONFIG_CONTENT: "",
+          } : {}),
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
+      }).catch(async (error: unknown) => {
+        await catalogRelay?.stop();
+        throw error;
       });
 
       config.opencodeBaseUrl = managedOpencode.url;
@@ -158,7 +182,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   }
 
-  const server = await startServer(config);
+  const server = await startServer(config).catch(async (error: unknown) => {
+    await managedOpencode?.close();
+    await catalogRelay?.stop();
+    throw error;
+  });
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -178,6 +206,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     async stop() {
       await managedOpencode?.close();
       await server.stop();
+      await catalogRelay?.stop();
     },
   };
 }

@@ -1,4 +1,6 @@
 import type { UIMessage } from "ai";
+import { codeLanguage } from "./code-language";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
@@ -36,7 +38,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{*])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
 const ARTIFACT_METADATA_TOOL_NAMES = new Set(["legalwork_extension_call"]);
@@ -69,8 +71,9 @@ function normalizePath(path: string) {
     .replace(WORKSPACE_ID_PREFIX_PATTERN, "");
 }
 
-function basename(value: string) {
-  const clean = value.split(/[?#]/)[0] ?? value;
+function basename(value: string, kind: OpenTargetKind = "file") {
+  // Query and fragment delimiters are literal characters in filesystem paths.
+  const clean = kind === "url" ? value.split(/[?#]/)[0] ?? value : value;
   return clean.split("/").filter(Boolean).pop() ?? value;
 }
 
@@ -82,7 +85,7 @@ function extname(value: string) {
 
 export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
-  const ext = extname(value);
+  const ext = extname(attachmentFilename(value));
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
   if ([".ppt", ".pptx", ".pptm", ".pot", ".potx", ".odp", ".key", ".sxi"].includes(ext)) return "slides";
@@ -94,7 +97,7 @@ export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTar
   if ([".mp4", ".m4v", ".webm", ".mov", ".ogv", ".mkv", ".avi"].includes(ext)) return "video";
   if (ext === ".pdf") return "pdf";
   if ([".html", ".htm"].includes(ext)) return "html";
-  if ([".txt", ".log", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml", ".ts", ".tsx", ".js", ".jsx", ".css", ".scss"].includes(ext)) return "text";
+  if ([".txt", ".log"].includes(ext) || codeLanguage(value)) return "text";
   return "external";
 }
 
@@ -102,7 +105,7 @@ function textWithoutRedundantMarkdownLinkLabels(text: string) {
   return text.replace(MARKDOWN_LINK_PATTERN, (match, label: string, href: string) => {
     const cleanLabel = label.trim();
     const cleanHref = href.trim();
-    return cleanLabel === basename(cleanHref) ? `[](${cleanHref})` : match;
+    return cleanLabel === basename(cleanHref, URI_PATTERN.test(cleanHref) ? "url" : "file") ? `[](${cleanHref})` : match;
   });
 }
 
@@ -136,7 +139,7 @@ function targetFromUrl(url: string, confidence: number, reason: string): OpenTar
     id: `url:${clean}`,
     kind: "url",
     value: clean,
-    name: basename(clean) || clean,
+    name: basename(clean, "url") || clean,
     preview: "browser",
     confidence,
     reason,

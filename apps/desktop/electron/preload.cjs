@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "legalwork:native-menu:open-settings";
@@ -25,6 +25,12 @@ function applyShellDocumentMarkers() {
       root.classList.add("legalwork-platform-mac");
     } else if (process.platform === "win32") {
       root.classList.add("legalwork-platform-windows");
+      const overlay = typeof navigator === "undefined" ? null : navigator.windowControlsOverlay;
+      if (overlay) {
+        const syncOverlay = () => root.classList.toggle("legalwork-window-controls-hidden", !overlay.visible);
+        syncOverlay();
+        overlay.addEventListener("geometrychange", syncOverlay);
+      }
     } else if (process.platform === "linux") {
       root.classList.add("legalwork-platform-linux");
     }
@@ -54,6 +60,13 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   invokeDesktop(command, ...args) {
     return ipcRenderer.invoke("legalwork:desktop", command, ...args);
   },
+  files: {
+    copyIntoProject(workspaceId, files, folder) {
+      const paths = files.map((file) => webUtils.getPathForFile(file));
+      if (paths.some((filePath) => !filePath)) return Promise.reject(new Error("Native files are required"));
+      return ipcRenderer.invoke("legalwork:desktop", "workspaceCopyFiles", { workspaceId, paths, folder });
+    },
+  },
   /** Subscribe to content-free error signals relayed from the main process. */
   onAppError(callback) {
     const handler = (_event, data) => callback(data);
@@ -73,6 +86,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   system: {
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
+    },
+    getArchitectureDownload() {
+      return ipcRenderer.invoke("legalwork:system:architecture-download");
     },
     getMicrophoneStatus() {
       return ipcRenderer.invoke("legalwork:system:microphoneStatus");
@@ -115,14 +131,14 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   browser: {
-    show(bounds) { return ipcRenderer.invoke("legalwork:browser:show", bounds); },
-    hide() { return ipcRenderer.invoke("legalwork:browser:hide"); },
-    openUrl(url, provider) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider); },
-    navigate(url) { return ipcRenderer.invoke("legalwork:browser:navigate", url); },
-    back() { return ipcRenderer.invoke("legalwork:browser:back"); },
-    forward() { return ipcRenderer.invoke("legalwork:browser:forward"); },
-    reload() { return ipcRenderer.invoke("legalwork:browser:reload"); },
-    setBounds(bounds) { return ipcRenderer.invoke("legalwork:browser:bounds", bounds); },
+    show(bounds, tabId) { return ipcRenderer.invoke("legalwork:browser:show", bounds, tabId); },
+    hide(tabId) { return ipcRenderer.invoke("legalwork:browser:hide", tabId); },
+    openUrl(url, provider, context) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider, context); },
+    navigate(url, tabId) { return ipcRenderer.invoke("legalwork:browser:navigate", url, tabId); },
+    back(tabId) { return ipcRenderer.invoke("legalwork:browser:back", tabId); },
+    forward(tabId) { return ipcRenderer.invoke("legalwork:browser:forward", tabId); },
+    reload(tabId) { return ipcRenderer.invoke("legalwork:browser:reload", tabId); },
+    setBounds(bounds, tabId) { return ipcRenderer.invoke("legalwork:browser:bounds", bounds, tabId); },
     getState() { return ipcRenderer.invoke("legalwork:browser:state"); },
     createTab(url) { return ipcRenderer.invoke("legalwork:browser:createTab", url); },
     closeTab(tabId) { return ipcRenderer.invoke("legalwork:browser:closeTab", tabId); },
@@ -130,7 +146,7 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     selectTab(tabId) { return ipcRenderer.invoke("legalwork:browser:selectTab", tabId); },
     reorderTabs(tabIds) { return ipcRenderer.invoke("legalwork:browser:reorderTabs", tabIds); },
     listTabs() { return ipcRenderer.invoke("legalwork:browser:listTabs"); },
-    setProxy(proxy) { return ipcRenderer.invoke("legalwork:browser:setProxy", proxy); },
+    setProxy(proxy, context) { return ipcRenderer.invoke("legalwork:browser:setProxy", proxy, context); },
     getProxy() { return ipcRenderer.invoke("legalwork:browser:getProxy"); },
     showTabContextMenu(tabId, point) { return ipcRenderer.invoke("legalwork:browser:tabContextMenu", tabId, point); },
     destroy() { return ipcRenderer.invoke("legalwork:browser:destroy"); },

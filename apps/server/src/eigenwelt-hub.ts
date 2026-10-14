@@ -28,7 +28,8 @@ export type EigenweltHubKind =
   | "mcp"
   | "plugin"
   | "integration"
-  | "preset";
+  | "preset"
+  | "review_set";
 
 export type EigenweltHubItem = {
   id: string;
@@ -46,6 +47,8 @@ export type EigenweltHubItem = {
   /** Whether an encrypted key is attached and this caller may copy it. */
   hasSecret?: boolean;
   canAccessSecret?: boolean;
+  /** Who gets it (newer platform): installed for everyone, or offered for members to add. */
+  installation?: "automatic" | "optional";
 };
 
 export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
@@ -60,9 +63,17 @@ export const EIGENWELT_HUB_MAX_BATCH_ITEMS = 50;
 export const EIGENWELT_HUB_MAX_SECRET_BYTES = 64 * 1024;
 
 const HUB_NAME_REGEX = /^[a-z0-9][a-z0-9-_]*$/i;
+/** A prompt set keeps the name a person gave it; it never names a folder. */
+const HUB_TEXT_NAME_REGEX = /^[^\x00-\x1f\x7f]+$/;
 
-export function validateHubName(name: string): string {
+export function validateHubName(name: string, kind?: EigenweltHubKind): string {
   const trimmed = name.trim();
+  if (kind === "review_set") {
+    if (!trimmed || trimmed.length > 100 || !HUB_TEXT_NAME_REGEX.test(trimmed)) {
+      throw new ApiError(400, "invalid_hub_name", "A shared prompt set needs a name of at most 100 characters.");
+    }
+    return trimmed;
+  }
   if (!trimmed || trimmed.length > 100 || !HUB_NAME_REGEX.test(trimmed)) {
     throw new ApiError(
       400,
@@ -182,6 +193,17 @@ export async function installWorkflowFiles(
   skillName: string,
   files: unknown,
 ): Promise<{ name: string; path: string; written: number }> {
+  // Install into the GLOBAL skills dir the desktop app reads from (skills are
+  // global there and auto-sync into projects).
+  return installSkillFiles(globalSkillsDir(), skillName, files);
+}
+
+/** Write a shared skill's files into `<skillsDir>/<skillName>/`, checked like installWorkflowFiles. */
+export async function installSkillFiles(
+  skillsDir: string,
+  skillName: string,
+  files: unknown,
+): Promise<{ name: string; path: string; written: number }> {
   const name = skillName.trim();
   validateSkillName(name);
   if (!Array.isArray(files) || files.length === 0 || files.length > EIGENWELT_HUB_MAX_FILES) {
@@ -194,10 +216,7 @@ export async function installWorkflowFiles(
     throw new ApiError(400, "invalid_workflow", "The shared workflow is missing its SKILL.md.");
   }
 
-  // Install into the GLOBAL skills dir the desktop app reads from (skills are
-  // global there and auto-sync into projects); fall back to the workspace's
-  // project dir for remote workspaces that don't have the global one.
-  const baseDir = join(globalSkillsDir(), name);
+  const baseDir = join(skillsDir, name);
   await writeHubFiles(baseDir, normalized);
   return { name, path: baseDir, written: normalized.length };
 }
@@ -378,6 +397,22 @@ export function parseIntegrationPayload(payload: unknown): EigenweltIntegrationP
   return { mcp, key };
 }
 
+/** A shared MCP credential: the full server entry, keys included. */
+export function parseSharedMcpSecret(secretJson: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(secretJson);
+  } catch {
+    throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
+  }
+  const config = parsed as Record<string, unknown>;
+  validateMcpConfig(config);
+  return config;
+}
+
 // ---------------------------------------------------------------------------
 // Platform hub HTTP client
 // ---------------------------------------------------------------------------
@@ -513,7 +548,7 @@ export async function hubCreate(
 ): Promise<{ id: string; version: number }> {
   const json = await hubRequest(client, "POST", "/api/hub", {
     kind: input.kind,
-    name: validateHubName(input.name),
+    name: validateHubName(input.name, input.kind),
     description: input.description ?? undefined,
     payload: input.payload,
     ...(input.secret === undefined ? {} : { secret: input.secret }),

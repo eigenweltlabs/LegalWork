@@ -9,21 +9,12 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./den/desktop-app-restrictions": {
-      "types": "./src/den/desktop-app-restrictions.ts",
-      "development": "./src/den/desktop-app-restrictions.ts",
-      "default": "./src/den/desktop-app-restrictions.ts"
-    },
-    "./den/desktop-policies": {
-      "types": "./src/den/desktop-policies.ts",
-      "development": "./src/den/desktop-policies.ts",
-      "default": "./src/den/desktop-policies.ts"
-    },
     "./den/inference": {
       "types": "./src/den/inference.ts",
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
     },
+    "./project-files": "./src/project-files.ts",
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",
@@ -41,7 +32,24 @@
     },
     "./office-editor": "./src/office-editor.ts",
     "./file-storage": "./src/file-storage.ts",
-    "./model-limits": "./src/model-limits.ts"
+    "./model-limits": "./src/model-limits.ts",
+    "./usage-control": "./src/usage-control.ts",
+    "./provider-usage-limit": "./src/provider-usage-limit.ts",
+    "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
+    "./systemone": "./src/systemone.ts",
+    "./ocr": "./src/ocr.ts",
+    "./document-structure": "./src/document-structure.ts",
+    "./reviews": "./src/reviews.ts",
+    "./corpus": "./src/corpus.ts",
+    "./search": "./src/search.ts",
+    "./sync-events": "./src/sync-events.ts",
+    "./calendar": "./src/calendar.ts",
+    "./calculation": "./src/calculation.ts",
+    "./session-queue": "./src/session-queue.ts",
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
+    "./org-policy": "./src/org-policy.ts",
+    "./org-policy-view": "./src/org-policy-view.ts",
+    "./firm-hub": "./src/firm-hub.ts"
   },
   "files": [
     "src",

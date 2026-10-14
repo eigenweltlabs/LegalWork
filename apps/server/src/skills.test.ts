@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
+let configHome: string;
+let savedConfigHome: string | undefined;
 
 async function writeSkill(dir: string, name: string, metadata = "") {
   await mkdir(dir, { recursive: true });
@@ -15,9 +17,14 @@ async function writeSkill(dir: string, name: string, metadata = "") {
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "legalwork-skills-"));
   await mkdir(join(workspace, ".git"), { recursive: true });
+  savedConfigHome = process.env.XDG_CONFIG_HOME;
+  configHome = join(workspace, "global-config");
+  process.env.XDG_CONFIG_HOME = configHome;
 });
 
 afterEach(async () => {
+  if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = savedConfigHome;
   await rm(workspace, { recursive: true, force: true });
 });
 
@@ -47,21 +54,6 @@ describe("deleteSkill", () => {
 });
 
 describe("upsertSkill", () => {
-  let configHome: string;
-  let savedConfigHome: string | undefined;
-
-  beforeEach(async () => {
-    savedConfigHome = process.env.XDG_CONFIG_HOME;
-    configHome = await mkdtemp(join(tmpdir(), "legalwork-skills-config-"));
-    process.env.XDG_CONFIG_HOME = configHome;
-  });
-
-  afterEach(async () => {
-    if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = savedConfigHome;
-    await rm(configHome, { recursive: true, force: true });
-  });
-
   test("defaults to the workspace's own skills dir", async () => {
     const result = await upsertSkill(workspace, {
       name: "matter-intake",
@@ -177,4 +169,15 @@ describe("listSkills", () => {
     expect(resolveHubSkillKind(undefined, "skill", "workflow-legacy-review")).toBe("workflow");
     expect(resolveHubSkillKind(undefined, "skill", "ordinary-skill")).toBe("skill");
   });
+});
+
+test("legacy tabular workflows are normal workflows without renaming or rewriting user content", async () => {
+  for (const [name, metadata] of [["workflow-tabular-commercial", ""], ["private-review", "workflow_type: tabular\n"]]) {
+    const dir = join(workspace, ".opencode", "skills", name);
+    await writeSkill(dir, name, metadata);
+    const path = join(dir, "SKILL.md"), before = await readFile(path, "utf8");
+    const item = (await listSkills(workspace, false)).find(item => item.name === name);
+    expect(item).toMatchObject({ name, path, kind: "workflow", workflowType: "assistant" });
+    expect(await readFile(path, "utf8")).toBe(before);
+  }
 });

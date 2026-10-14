@@ -176,15 +176,63 @@ export type StorageConnection = Omit<StorageInput, "secrets"> & {
   team?: { orgId: string; version: number; installed: boolean };
 };
 export type StorageTeamStatus = { connected: boolean; canManage: boolean; error?: string };
-export type StorageRoot = { id: string; name: string; kind: StorageKind; writable: boolean; revision?: string };
+export type StorageRoot = {
+  id: string;
+  name: string;
+  kind: StorageKind | "linked";
+  writable: boolean;
+  revision?: string;
+  /** A linked folder already contained in this available connection. Browsers show the source once; tools keep the scoped root. */
+  sourceConnectionId?: string;
+};
 export type StorageEntry = {
   path: string;
   name: string;
   kind: "file" | "folder";
   size: number | null;
   modifiedAt: string | null;
+  /** The version a conditional write names, when the provider lists it. */
+  version?: string;
 };
+// Window navigation transfers retain the source connection, never just its
+// temporary local working path (which would lose read-only/publish semantics).
+export const storageFileSourceSchema = z.object({
+  workspaceId: z.string(),
+  root: z.object({
+    id: z.string(), name: z.string(), writable: z.boolean(),
+    kind: z.enum(["oauth", "smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp", "linked"]),
+    revision: z.string().optional(), sourceConnectionId: z.string().optional(),
+  }),
+  file: z.object({
+    path: z.string(), name: z.string(), kind: z.enum(["file", "folder"]),
+    size: z.number().nullable(), modifiedAt: z.string().nullable(), version: z.string().optional(),
+  }),
+});
+
 export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
+export const storageTransferSchema = z.object({
+  path: z.string().min(1).max(4096),
+  kind: z.enum(["file", "folder"]),
+  destinationId: z.string().min(1).max(200),
+  destinationPath: z.string().max(4096),
+  mode: z.enum(["move", "copy"]).default("copy"),
+});
+export type StorageTransfer = z.infer<typeof storageTransferSchema>;
+export const storageTransferProgressSchema = z.object({
+  phase: z.enum(["scanning", "transferring", "verifying", "removing", "completed"]),
+  completedFiles: z.number().int().nonnegative(),
+  totalFiles: z.number().int().nonnegative().nullable(),
+  elapsedMs: z.number().nonnegative(),
+  currentFile: z.string().optional(),
+});
+export type StorageTransferProgress = z.infer<typeof storageTransferProgressSchema>;
+export type StorageTransferUpdate = Omit<StorageTransferProgress, "elapsedMs">;
+export const storageTransferEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("progress"), progress: storageTransferProgressSchema }),
+  z.object({ type: z.literal("result"), path: z.string() }),
+  z.object({ type: z.literal("error"), status: z.number(), code: z.string(), message: z.string() }),
+]);
+export type StorageTransferEvent = z.infer<typeof storageTransferEventSchema>;
 /** Literal, case-insensitive metadata search over files, including unopened folders. */
 export const storageFilenameSearchSchema = z.object({
   query: z.string().trim().min(1).max(512),

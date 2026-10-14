@@ -1,3 +1,4 @@
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 
 import type { UIMessage } from "ai";
@@ -6,7 +7,6 @@ import { ArrowUpRightIcon, Inbox } from "lucide-react";
 import { ArtifactIcon } from "@/components/chat/artifact-icon";
 import type { FiledTask } from "@/components/chat/filed-tasks";
 import { t } from "@/i18n";
-import { requestOpenTask } from "@/react-app/domains/tasks/task-reference";
 import {
   DescriptiveButton,
   DescriptiveButtonContent,
@@ -51,13 +51,7 @@ function ArtifactButton({ artifact }: ArtifactButtonProps) {
     </>
   );
 
-  if (!canOpen) {
-    return (
-      <div className="flex h-auto w-fit max-w-full flex-none shrink-0 items-center justify-start gap-1.5 rounded-xl border border-border px-2 py-1.5 text-left whitespace-nowrap">
-        {content}
-      </div>
-    );
-  }
+  if (!canOpen) return null;
 
   return (
     <DescriptiveButton
@@ -72,6 +66,7 @@ function ArtifactButton({ artifact }: ArtifactButtonProps) {
 
 /** A task the turn filed, in the same strip and the same shape as a file it produced. */
 function TaskButton({ task }: { task: FiledTask }) {
+  const requestOpenTask = useRequestOpenTask();
   const name = task.title ?? t("message_list.task_badge_fallback");
   return (
     <DescriptiveButton
@@ -98,14 +93,14 @@ interface ArtifactListProps {
 }
 
 export function ArtifactList({ messages, includeTargetFallbacks = false, tasks = [] }: ArtifactListProps) {
-  const artifacts = useArtifacts(messages, { includeTargetFallbacks });
+  const artifacts = useArtifacts(messages, { includeTargetFallbacks }).filter(canOpenArtifact);
 
   if (artifacts.length === 0 && tasks.length === 0) {
     return null;
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+    <div className="w-full min-w-0">
       <div className="no-scrollbar flex min-w-0 flex-nowrap gap-2 overflow-x-auto pb-1">
         {artifacts.map((artifact) => (
           <ArtifactButton key={artifact.id} artifact={artifact} />

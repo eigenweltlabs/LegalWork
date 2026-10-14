@@ -10,7 +10,6 @@ import {
 } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
@@ -29,11 +28,11 @@ import {
 } from "../settings-layout";
 import { SettingsNotice } from "../settings-section";
 import { t } from "@/i18n";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
+import { FirmInstructions, OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
-  localMemoriesEnabled: false,
-  allowToolAssistedMemory: true,
   personality: "pragmatic",
 };
 
@@ -57,7 +56,6 @@ function describeError(error: unknown): string {
 export type PersonalisationViewProps = {
   client: LegalworkServerClient | null;
   onSettingsApplied: () => void;
-  onOpenLink: (url: string) => void;
 };
 
 export function PersonalisationView(props: PersonalisationViewProps) {
@@ -118,6 +116,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
   // Not memoised on []: the labels come from `t()`, so they must rebuild when
   // the language changes.
+  const firmPersonality = useOrgPolicy("personalization.personality");
   const labels = personalityLabels();
   const personalityItems = LEGALWORK_PERSONALITY_VALUES.map((value) => ({
     value,
@@ -187,56 +186,14 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               {t("personalisation.characters_remaining", { count: remainingCharacters.toLocaleString() })}
             </div>
           </div>
+          <FirmInstructions />
         </LayoutSection>
 
         <LayoutSection>
           <LayoutSectionHeader>
             <LayoutSectionTitle>{t("personalisation.memory_title")}</LayoutSectionTitle>
-            <LayoutSectionDescription>
-              {t("personalisation.memory_desc")}{" "}
-              <button
-                type="button"
-                className="text-primary hover:underline"
-                onClick={() => props.onOpenLink("https://www.opencode.asia/ecosystem/plugins/agent-memory/")}
-              >
-                {t("personalisation.learn_more")}
-              </button>
-            </LayoutSectionDescription>
+            <LayoutSectionDescription>{t("personalisation.memory_desc")}</LayoutSectionDescription>
           </LayoutSectionHeader>
-
-          <LayoutSectionItem>
-            <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.enable_memories")}</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>
-                {t("personalisation.enable_memories_desc")}
-              </LayoutSectionItemDescription>
-              <LayoutSectionItemHeaderActions>
-                <Switch
-                  aria-label={t("personalisation.enable_memories")}
-                  checked={settings.localMemoriesEnabled}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => void persist({ ...settings, localMemoriesEnabled: checked })}
-                />
-              </LayoutSectionItemHeaderActions>
-            </LayoutSectionItemHeader>
-          </LayoutSectionItem>
-
-          <LayoutSectionItem>
-            <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.allow_tool_memories")}</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>
-                {t("personalisation.allow_tool_memories_desc")}
-              </LayoutSectionItemDescription>
-              <LayoutSectionItemHeaderActions>
-                <Switch
-                  aria-label={t("personalisation.allow_tool_memories")}
-                  checked={settings.allowToolAssistedMemory}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => void persist({ ...settings, allowToolAssistedMemory: checked })}
-                />
-              </LayoutSectionItemHeaderActions>
-            </LayoutSectionItemHeader>
-          </LayoutSectionItem>
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
@@ -265,15 +222,16 @@ export function PersonalisationView(props: PersonalisationViewProps) {
             <LayoutSectionItemHeader>
               <LayoutSectionItemTitle>{t("personalisation.personality")}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>{t("personalisation.tone_desc")}</LayoutSectionItemDescription>
+              <OrgPolicyNote policyKey="personalization.personality" />
               <LayoutSectionItemHeaderActions>
                 <Select
-                  value={settings.personality}
+                  value={firmPersonality?.value ?? settings.personality}
                   // Base UI resolves the trigger label from `items`; without it
                   // the trigger shows the raw value ("pragmatic").
                   items={personalityItems}
-                  disabled={disabled}
+                  disabled={disabled || firmPersonality?.locked === true}
                   onValueChange={(value) => {
-                    if (isPersonality(value)) void persist({ ...settings, personality: value });
+                    if (isPersonality(value)) void changeOrgPolicySetting("personalization.personality", () => persist({ ...settings, personality: value }));
                   }}
                 >
                   <SelectTrigger className="w-44" aria-label={t("personalisation.personality")}>

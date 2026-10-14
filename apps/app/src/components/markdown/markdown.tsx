@@ -1,3 +1,4 @@
+import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -31,7 +32,7 @@ import {
   parseLegalMemoryRef,
 } from "./legalmemory-ref";
 import { t } from "@/i18n";
-import { parseTaskLink, requestOpenTask } from "@/react-app/domains/tasks/task-reference";
+import { parseTaskLink } from "@/react-app/domains/tasks/task-reference";
 
 function escapeHtml(value: string) {
   return value
@@ -98,6 +99,9 @@ function localPathFromHref(href: string) {
 }
 
 function openTargetForHref(href: string, openTargets: OpenTarget[]) {
+  if (/^https?:\/\//i.test(href)) {
+    return { id: `url:${href}`, kind: "url", value: href, name: href, preview: "browser", confidence: 100, reason: "link" } satisfies OpenTarget;
+  }
   const path = localPathFromHref(href);
 
   if (!path) {
@@ -228,7 +232,7 @@ const baseMarkedOptions = {
       return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
     },
     codespan({ text }) {
-      return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
+      return `<code class="rounded-sm bg-foreground/4 px-1 py-0.5 [font:inherit] text-inherit">${escapeHtml(text)}</code>`;
     },
     del({ raw, tokens }) {
       if (!raw.startsWith("~~")) {
@@ -329,7 +333,7 @@ const highlightedMarkdownParser = new Marked({
       return codeToHtml(code, {
         lang: language,
         meta: { __raw: props.join(" ") },
-        theme: "github-light",
+        themes: { light: "github-light", dark: "github-dark" },
         transformers: [
           transformerNotationDiff({ matchAlgorithm: "v3" }),
           transformerNotationHighlight({ matchAlgorithm: "v3" }),
@@ -341,7 +345,7 @@ const highlightedMarkdownParser = new Marked({
         ],
       });
     },
-    container: `<div data-legalwork-shiki="true" class="my-4 overflow-hidden rounded-lg border border-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
+    container: `<div data-legalwork-shiki="true" class="my-4 overflow-x-auto rounded-lg border border-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
   }),
 );
 
@@ -379,9 +383,10 @@ function MarkdownBlockInner({
   highlightQuery,
   ...props
 }: MarkdownBlockInnerProps) {
+  const requestOpenTask = useRequestOpenTask();
   const rootRef = useRef<HTMLDivElement>(null);
   const { openTargets, onOpenTarget } = useOpenTargets();
-  const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; rect: DOMRect } | null>(null);
+  const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; anchor: HTMLElement } | null>(null);
   const syncHtml = useMemo(() => {
     if (!text.trim()) {
       return "";
@@ -414,6 +419,10 @@ function MarkdownBlockInner({
   }, [streaming, text]);
 
   const html = !streaming && highlightedHtml?.text === text ? highlightedHtml.html : syncHtml;
+  // Preserve the clicked chevron while opening its menu rerenders this block.
+  const innerHtml = useMemo(() => ({ __html: html }), [html]);
+
+  useEffect(() => { setLinkMenu(null); }, [html]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -480,7 +489,7 @@ function MarkdownBlockInner({
         const href = chevron.dataset.legalworkLinkChevron ?? "";
         const target = openTargetForHref(href, openTargets);
         if (target) {
-          setLinkMenu({ target, rect: chevron.getBoundingClientRect() });
+          setLinkMenu((current) => current?.anchor === chevron ? null : { target, anchor: chevron });
         }
         return;
       }
@@ -492,7 +501,7 @@ function MarkdownBlockInner({
 
         if (target && onOpenTarget) {
           event.preventDefault();
-          onOpenTarget(target, { external: true });
+          onOpenTarget(target, { external: event.metaKey || event.ctrlKey });
           return;
         }
       }
@@ -509,13 +518,25 @@ function MarkdownBlockInner({
       sync();
     };
 
+    const handleContextMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !onOpenTarget) return;
+      const anchor = event.target.closest<HTMLAnchorElement>("a[data-legalwork-link-href]");
+      if (!anchor) return;
+      const target = openTargetForHref(anchor.dataset.legalworkLinkHref ?? "", openTargets);
+      if (!target) return;
+      event.preventDefault();
+      setLinkMenu({ target, anchor });
+    };
+
     root.addEventListener("load", handleLoad, true);
     root.addEventListener("click", handleClick);
+    root.addEventListener("contextmenu", handleContextMenu);
 
     if (globalThis.ResizeObserver === undefined) {
       return () => {
         root.removeEventListener("load", handleLoad, true);
         root.removeEventListener("click", handleClick);
+        root.removeEventListener("contextmenu", handleContextMenu);
       };
     }
 
@@ -526,6 +547,7 @@ function MarkdownBlockInner({
       observer.disconnect();
       root.removeEventListener("load", handleLoad, true);
       root.removeEventListener("click", handleClick);
+      root.removeEventListener("contextmenu", handleContextMenu);
     };
   }, [html, onOpenTarget, openTargets]);
 
@@ -538,13 +560,13 @@ function MarkdownBlockInner({
       <motion.div
         ref={rootRef}
         className={cn("markdown-content max-w-none text-foreground", className)}
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={innerHtml}
         {...props}
       />
       {linkMenu && onOpenTarget ? (
         <LinkActionMenu
           target={linkMenu.target}
-          anchorRect={linkMenu.rect}
+          anchor={linkMenu.anchor}
           onOpenTarget={onOpenTarget}
           onClose={() => setLinkMenu(null)}
         />
