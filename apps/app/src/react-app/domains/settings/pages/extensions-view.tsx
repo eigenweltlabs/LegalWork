@@ -238,7 +238,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div className="flex w-full items-center gap-2 sm:w-auto">
-            <div ref={setSearchTarget} className="min-w-0 flex-1 empty:hidden sm:flex-none" />
+            <div ref={setSearchTarget} className="h-9 min-w-0 flex-1 sm:w-64 sm:flex-none" />
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
                 <ListFilter className="size-3.5" />{source === "all" ? t("integrations.filter") : source === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
