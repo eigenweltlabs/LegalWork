@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { ViewSaveSourceSchema, type ViewRecord, type ViewSaveSource } from "@legalwork/types/views";
+import type { ViewRecord, ViewSaveSource } from "@legalwork/types/views";
+import { ViewSaveSourceSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
 import type { ServerConfig } from "../types.js";
