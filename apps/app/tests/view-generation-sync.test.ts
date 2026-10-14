@@ -46,6 +46,21 @@ test("history never auto-opens and manual closure is respected while streaming",
   expect(opened).toHaveLength(1);
   expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs).toHaveLength(0);
 });
+test("saved report JSON with runtime reminders resolves the preview and repairs historical cards", async () => {
+  const report = { ...saved, mode: "report", owner: { kind: "workspace", id: "project" } };
+  const output = JSON.stringify(report, null, 2) + '\n\n<system-reminder topic="project-folders">\nFolders: {"folders":["Reports"]}\n</system-reminder>' + '\n\n<system-reminder topic="sidebar">\nReport is open\n</system-reminder>';
+  const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "completed", input: {}, output, title: "Report", metadata: { truncated: false }, time: { start: 1, end: 2 } } });
+  expect(part).not.toBeNull();
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, part!, open);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "saved", saved: report });
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs).toMatchObject([{ type: "view", viewId: report.id }]);
+  useViewGenerationStore.getState().update(id, { ...useViewGenerationStore.getState().entries[id], saved: undefined, status: "failed", error: "The agent did not return a saved view." });
+  await reconcileViewGenerations(context, [part!]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "saved", saved: report });
+  expect(useViewGenerationStore.getState().entries[id].error).toBeUndefined();
+  expect(opened).toHaveLength(1);
+});
 test("project dashboards stream beside their chat and stay in that project's tabs", async () => {
   const project = { ...context, workspaceId: "project" };
   const scope = "workspace:project";

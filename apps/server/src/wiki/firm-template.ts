@@ -26,7 +26,7 @@ These are editable defaults for a small or midsize law firm. Adapt them during s
 
 | Folder | What belongs here |
 | --- | --- |
-| Clients/ | One current page per verified client, linked to matters |
+| Clients/ | One maintained profile per client or other relevant organization, linked to matters and relationships where supported; placement here does not establish client status |
 | Matters/ | One current page per matter, with scope, developments and source references |
 | Knowledge/ | Reusable legal concepts, research, drafting judgment, exceptions and lessons, grouped by practice only as needed |
 | Processes/ | How the firm does repeatable work, with triggers, steps, roles and exceptions |
@@ -34,7 +34,7 @@ These are editable defaults for a small or midsize law firm. Adapt them during s
 | Firm/ | Firm context, practice areas, relevant people and agreed internal conventions |
 | Sources/ | Optional, concise guides to useful source collections, with readable descriptions; no original documents or technical provenance |
 | Dashboards/ | Live dashboards and reusable widgets saved as .view.json files |
-| Reports/ | Dated reports with frozen data and source references |
+| Reports/ | Requested analyses and dated snapshots with a distinct purpose; historical entity facts stay on their profiles |
 | Skills/ | The four editable workspace skills for setup, capture, use and maintenance |
 
 ## What earns a place
@@ -45,11 +45,11 @@ Save information a colleague will need later: useful entity and relationship fac
 
 Use readable entity names in paths, with a short distinguishing suffix only when needed. Preserve verified source IDs as properties. A tax number, court number or archive folder is not automatically a firm client ID. Verify identities from actual records. Similar names alone are not proof of identity, and an inconsistent identifier alone is not proof of a second client. Compare organization, business, contacts, roles, related matters and source dates before deciding. Keep one useful profile per established entity, distinguish subsidiaries and counterparties, and keep conflicting source assertions together with a concise explanation instead of multiplying provisional client pages.
 
-Start with a shallow structure, then group growing regions by a dimension people browse: Clients/<client name>/, Matters/<practice>/<matter name>/, Firm/People/, Knowledge/<practice>/ and Processes/<job>/. These are examples, not required empty folders. Prefer one stable home per entity over copies under every practice or year. Use relations and indexed filters for additional ways to browse. Folder hubs should orient readers with useful categories, not repeat the file tree as hundreds of links. Use Reports/ for dated snapshots rather than monthly copies of every page.
+Start with a shallow structure, then group growing regions by a dimension people browse: Clients/<client name>/, Matters/<practice>/<matter name>/, Firm/People/, Knowledge/<practice>/ and Processes/<job>/. These are examples, not required empty folders. Prefer one stable home per entity over copies under every practice or year. Use relations and indexed filters for additional ways to browse. Folder hubs should orient readers with useful categories, not repeat the file tree as hundreds of links. Use Reports/ for requested analyses or snapshots with a distinct purpose, rather than monthly copies of every page or dated facts separated from their subject.
 
 Discover fields with wiki_fields and maintain them through Properties or wiki_properties_update. Use only fields useful for retrieval, relationships or a real view. Unknown values stay absent. Folder landing pages have type=index and must not count as client or matter records.
 
-- type: client, matter, knowledge, process, template, person, firm, source or index.
+- type: client, organization, matter, knowledge, process, template, person, firm, source or index. Use organization when client status is not established; folder placement does not supply that evidence.
 - client_id / matter_id: verified source identifiers, stored as text.
 - client / related_matters / related_knowledge / owner: real page relations when the referenced page exists. For example \`[[Clients/C001.md]]\`. Names alone do not create graph edges.
 - stage / practice / jurisdiction: supported values relevant to the page. Distinguish client engagement stages from matter stages.
@@ -113,8 +113,10 @@ type: skill
 
 Use only when the user asks to capture knowledge, including an explicitly added scheduled review. Do not propose contributions during ordinary project work.
 
+For a broad capture request from a project, inspect its current work and files and read the promising sources before asking what to save. Do not fixate on the last unrelated wiki lookup. Search the available wikis for the supported subjects, then apply their guidance. A request for ideas warrants specific recommendations, not a draft unless requested.
+
 1. Read AGENTS.md and Structure.md, then relevant existing pages and evidence. Apply the selection guidance: identify the future question or decision this information helps and briefly explain that in chat. Useful facts about an organization or relationship may be the contribution; do not manufacture a general lesson instead. Prefer one focused improvement to an existing page over several thin new pages. Routine checking advice and unfinished speculation do not earn space. No worthwhile addition means no draft.
-2. Select the destination by its actual purpose: entities in Clients/ or Matters/, substantive answers in Knowledge/, non-obvious workflows in Processes/, master guidance and documents in Templates/, firm conventions in Firm/. Follow a customized structure instead when present. Read the applicable regional AGENTS.md. Use the supplied page templates where useful, not as compulsory empty headings.
+2. Select the destination by its actual purpose: client and organization profiles in Clients/, matters in Matters/, substantive answers in Knowledge/, non-obvious workflows in Processes/, master guidance and documents in Templates/, firm conventions in Firm/. Follow a customized structure instead when present. Read the applicable regional AGENTS.md. Keep dated ownership and other historical entity facts on the relevant profile with an as-of date, rather than filing them as Reports. Do not infer client status from the source. Use the supplied page templates where useful, not as compulsory empty headings.
 3. Retain scope, jurisdiction, relevant dates, source evidence, uncertainty and exceptions. A single matter supports an observation, not a universal standard. Distinguish draft, observed and firm-approved guidance. Processes need a trigger, inputs, steps, roles, outputs and exceptions. Do not invent owners or review dates.
 4. Prepare the entire contribution for the destination audience. Entity and relationship pages retain necessary identities and useful specific facts when that audience is authorized. For general lessons shared more broadly, remove or generalize unnecessary client/person names, identifiers, unusual amounts and other identifying combinations. Do not turn useful entity facts into anonymous generic advice. Inspect body, properties, source labels, links, filenames and reusable template files, including comments and tracked changes. ${WIKI_SOURCE_COPY_RULE} Prefer public authority for general legal findings where it supports them. Keep sensitive matter provenance in its authorized source context. If suitability is uncertain, keep the draft in the project and resolve that issue before sharing. Do not claim anonymization without inspecting the material.
 5. In a project, use wiki_suggest to stage the complete proposed page in the project's .legalwork/tmp folder, with its destination wiki and path and the exact current page revision (null for a new page). The user edits the draft and destination, then clicks Save to wiki or Dismiss. Never publish it yourself, save pending drafts into the wiki, bypass review with file tools, or repeat a rejected suggestion without a new request. Check wiki_suggestions for duplicates. Reads need no contribution approval.
@@ -228,9 +230,9 @@ Use only for a supported, non-obvious workflow, dependency, decision or exceptio
   "Clients/Clients.md": `---
 type: index
 ---
-# Clients
+# Clients and organizations
 
-Verified client relationships and linked matters.
+Useful organization profiles, verified client relationships and linked matters. Keep one profile per entity; record client status only when supported.
 `,
   "Matters/Matters.md": `---
 type: index

@@ -15,7 +15,7 @@ export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
   const generationId = legalworkClient ? viewGenerationId(legalworkClient.baseUrl, sessionId, part.toolCallId) : "";
   const generation = useViewGenerationStore(state => state.entries[generationId]);
   const view = outcome && "view" in outcome ? outcome.view : generation?.saved ?? null;
-  const failure = outcome && "error" in outcome ? outcome.error : part.state === "output-error" ? part.errorText : generation?.error;
+  const failure = view ? undefined : outcome && "error" in outcome ? outcome.error : part.state === "output-error" ? part.errorText : generation?.error;
   const pending = !view && !failure && (part.state === "input-streaming" || part.state === "input-available");
   const open = () => {
     if (!legalworkClient) return;

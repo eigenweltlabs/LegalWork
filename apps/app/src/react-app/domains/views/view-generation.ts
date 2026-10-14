@@ -13,7 +13,12 @@ export function viewProgramInput(value: unknown) {
 }
 export function viewToolOutcome(output: unknown): { view: ViewRecord } | { error: string } {
   let value = output;
-  if (typeof output === "string") { try { value = JSON.parse(output); } catch { return { error: "The agent did not return a saved view." }; } }
+  if (typeof output === "string") {
+    // Runtime reminders are appended after tool JSON, including in saved history.
+    // Strip only that trailing envelope; malformed or incomplete JSON must still fail.
+    const json = output.replace(/(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/u, "");
+    try { value = JSON.parse(json); } catch { return { error: "The agent did not return a saved view." }; }
+  }
   if (record(value) && value.ok === false) return { error: typeof value.error === "string" ? value.error : record(value.error) && typeof value.error.message === "string" ? value.error.message : "The view could not be saved." };
   const parsed = ViewRecordSchema.strip().safeParse(record(value) && value.view ? value.view : value);
   return parsed.success ? { view: parsed.data } : { error: "The agent did not return a saved view." };

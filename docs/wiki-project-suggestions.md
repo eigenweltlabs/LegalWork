@@ -5,7 +5,7 @@ Project agents can search and read every wiki currently accessible to their proj
 ## Contribution flow
 
 1. Ask a project agent to turn a finding into a wiki suggestion.
-2. The agent discovers accessible wikis, searches for existing knowledge, and inspects plausible destinations. `wiki_guidance` returns actual folders, example pages, root instructions and inherited regional `AGENTS.md` files. After reading the relevant procedures and representative pages, it explains the specific knowledge, destination and whether to add or update.
+2. For a broad request to add knowledge, the agent first inspects current project work and promising files, rather than asking the user to supply a topic or extending the last unrelated lookup. It discovers accessible wikis, searches for existing knowledge about the supported candidates, and inspects plausible destinations. `wiki_guidance` returns actual folders, example pages, root instructions and inherited regional `AGENTS.md` files. After reading the relevant procedures and representative pages, it explains the specific knowledge, destination and whether to add or update.
 3. `wiki_suggest` creates a normal Markdown draft under the originating project's `.legalwork/tmp/wiki-suggestions/<id>/draft.md`. The adjacent metadata records its proposed wiki, path, revision and review status.
 4. A review tab opens beside the chat. Both user edits and requested agent edits update only the project draft. Properties render beneath the title. The user can edit content and metadata, choose an existing folder in a wiki, and rename the file through a location picker. Switching wiki resets folder browsing to that wiki's root. The server validates the selected folder when staging, editing and saving; existing page collisions require a reviewed revision.
 5. **Save to wiki** publishes the exact reviewed draft and replaces it in the same tab and pane with the saved read-only wiki page. Back/Forward treats this as the same navigation stop. **Dismiss** leaves the wiki unchanged and retains the decision so future reviews can avoid repeating it.
@@ -18,7 +18,7 @@ Suggestions require an explicit user request. An explicitly added weekly review 
 
 The agent must identify a concrete future question or decision the information helps, check what it adds to existing knowledge, and choose the smallest useful contribution. Useful organization and relationship facts should remain specific when the destination audience is authorized. General lessons may need anonymization; that is not a reason to replace entity facts with a generic checklist.
 
-Processes merit a page when they capture a non-obvious dependency, decision, handoff, exception or organization-specific practice. Repetition alone does not justify documenting an obvious checking step. Prefer an update to an existing subject over several thin pages. Both requested captures and weekly reviews may correctly produce no suggestions. An explicit request for a specific record or checklist takes precedence.
+Processes merit a page when they capture a non-obvious dependency, decision, handoff, exception or organization-specific practice. Repetition alone does not justify documenting an obvious checking step. Prefer an update to an existing subject over several thin pages. Dated ownership and relationship facts belong on entity profiles with an as-of date; historical evidence alone does not justify filing a separate report. The default firm Clients directory now includes relevant organization profiles, using type=organization when client status is unverified. Do not infer a client relationship merely to fit a folder. Existing customized wiki layouts are not rewritten. Both requested captures and weekly reviews may correctly produce no suggestions. An explicit request for a specific record or checklist takes precedence.
 
 The same default selection guidance reaches project agents through the wiki tool instructions and new firm/blank wikis through their editable structure. Capture procedures and the weekly starter follow it. Existing wiki files, drafts, customized workflows and saved schedules are not rewritten.
 
@@ -67,3 +67,22 @@ Four fresh calls to the app's configured `openai/gpt-6.1-sol-fast` model used th
 All four selections matched the expected judgment. These examples are a behavioral smoke check, not a guarantee of future editorial quality. No user wiki content or pending suggestion was changed.
 
 Validation: `pnpm --dir apps/server exec bun test src/wiki/templates.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts` passed 28 tests. App typechecking, server build and the six scheduled-template tests passed. The bundled workflow was regenerated from its canonical source; all 12 global-skill tests passed, including a check that installed defaults match that source.
+
+
+## Project discovery and saved-report feedback
+
+Broad capture requests now inspect current project work and promising sources before asking for a topic. Candidates are compared with accessible wiki content and guidance. Entity facts, including historical ownership, stay with the subject profile and carry the relevant dates; neither a dated source nor unverified client status turns them into a report.
+
+A fresh model-driven check used the restarted dev app with read tools enabled and mutation tools disabled. After a Daniel Obi lookup, the next prompt was exactly "Let's add some knowledge to the wiki". The agent browsed the verification project, read a temporary synthetic company source and an existing briefing, searched for duplicates, inspected three wiki entry points, and read capture instructions and representative pages. It recommended a company profile with dated ownership facts, then asked only which of two plausible wikis should receive it. It did not ask the user to provide a topic or extend the unrelated person lookup. The disposable session and source fixture were removed. This checks discovery and selection, not publication.
+
+Two additional model checks used supplied synthetic evidence with tools disabled: an existing company profile was selected for update, and the revised firm layout produced a new `Clients/Arbor Solar GmbH.md` organization profile rather than a report. The earlier client-only default had left a new non-client organization without a suitable destination; the new default separates folder placement from client status. Explicit restrictions in an existing customized wiki still apply, and call for a proposed layout adjustment rather than misfiling. These checks cover destination decisions, not Save.
+
+Saved report cards previously attempted to parse the entire tool result as JSON, although runtime reminders can follow the JSON. The parser now excludes the trailing reminder envelope, validates the saved record, and clears a prior failure on successful reconciliation. Malformed output still fails. Reports were removed from the plus menu; their files remain available through project Files.
+
+Validation:
+
+- `pnpm --dir apps/app exec bun test tests/views.test.ts tests/view-generation-sync.test.ts`: 18 passed, including reminder-appended completion, preview replacement, historical recovery, and malformed/error output.
+- `pnpm --dir apps/server exec bun test src/opencode-plugins/legalwork-wiki-tools.test.ts src/global-skills.test.ts src/wiki/properties.test.ts`: 54 passed.
+- `pnpm --dir apps/server exec bun test src/wiki/templates.test.ts`: 4 passed.
+- App typecheck and server build passed. The built-in workflow bundle was regenerated.
+- Native Electron verified the actual affected saved report card now says Report snapshot, its Open action renders the report beside chat, and the plus menu has no Reports item. No user wiki content, saved report, or pending suggestion was rewritten.

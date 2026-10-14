@@ -1,4 +1,3 @@
-import { ViewMenu } from "../../views/view-menu";
 import { ViewHostProvider } from "../../views/view-host";
 import { documentControlTarget } from "./document-control-target";
 import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
@@ -1052,7 +1051,6 @@ function SidePanelContent({
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
-            {client && workspaceId && renderProjectView && <ViewMenu client={client} workspaceId={workspaceId} onOpen={tab => usePanelTabStore.getState().openTab(sessionId, tab, pane.id)} />}
             {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
             {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
             {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
