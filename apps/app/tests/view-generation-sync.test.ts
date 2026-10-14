@@ -167,3 +167,13 @@ test("large preview data is recovered from persisted tool metadata even if tool 
   expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "preview", preview });
   expect(opened).toHaveLength(0);
 });
+
+
+test("deleting a chat removes its transient dashboard tabs but retains saved views", async () => {
+  await syncViewGeneration(context, pending, open);
+  const scope = "workspace:wiki";
+  usePanelTabStore.getState().openTab(scope, { type: "view", id: "saved-view", serverUrl: "local", owner: { kind: "wiki", id: "wiki" }, viewId: saved.id, label: "Saved" });
+  usePanelTabStore.getState().clearSession("session");
+  expect(usePanelTabStore.getState().sessions[scope].tabs.map(tab => tab.type)).toEqual(["view"]);
+  expect(useViewGenerationStore.getState().entries[id]).toBeUndefined();
+});

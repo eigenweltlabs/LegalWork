@@ -769,6 +769,9 @@ export function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPa
   if (scope === "viewer" && m !== "GET" && m !== "HEAD") {
     throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
   }
+  if (m === "DELETE" && /^\/session\/[^/]+$/.test(normalizeOpencodeProxyPath(proxyPath))) {
+    throw new ApiError(409, "session_delete_requires_review", "Delete chats through the LegalWork session API so unsaved dashboards can be reviewed.");
+  }
 
   // Prevent viewers from self-approving OpenCode permission requests via the
   // proxy. OpenCode uses /permission/:requestId/reply (and historically also

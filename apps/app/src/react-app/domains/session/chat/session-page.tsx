@@ -1,3 +1,4 @@
+import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
@@ -671,8 +672,9 @@ export function SessionPage(props: SessionPageProps) {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
   const openFilesRailPane = useCallback(() => {
+    if (wikiWorkspace && props.selectedSessionId) { openWikiProjectPicker(props.selectedSessionId); return; }
     toggleCurrentSidePanel("files");
-  }, [toggleCurrentSidePanel]);
+  }, [toggleCurrentSidePanel, wikiWorkspace, props.selectedSessionId]);
   const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry, permanent = false) => {
     const preview = classifyOpenTarget(entry.name, "file");
     if (preview === "external" || preview === "browser") {

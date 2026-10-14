@@ -33,9 +33,11 @@ type GenerationState = {
   update(id: string, next: ViewGeneration): void;
   fail(id: string, error: string): void;
   markSaved(id: string, view: ViewRecord): void;
+  forgetSession(sessionId: string): void;
 };
 export const useViewGenerationStore = create<GenerationState>()(persist((set) => ({
   entries: {}, savedResults: {},
+  forgetSession: (sessionId) => set(state => ({ entries: Object.fromEntries(Object.entries(state.entries).filter(([, entry]) => entry.sessionId !== sessionId)) })),
   update: (id, next) => set(state => ({ entries: { ...state.entries, [id]: next } })),
   fail: (id, error) => set(state => { const current = state.entries[id]; return current?.status === "streaming" ? { entries: { ...state.entries, [id]: { ...current, status: "failed", error } } } : state; }),
   markSaved: (id, view) => set(state => ({

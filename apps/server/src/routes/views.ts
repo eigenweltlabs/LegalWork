@@ -1,7 +1,7 @@
 import { isAbsolute, relative, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
-import { ViewInputSchema } from "../views/schema.js";
+import { ViewSaveInputSchema, ViewInputSchema } from "../views/schema.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
@@ -70,17 +70,17 @@ export function registerViewRoutes(options: {
   addRoute(options.routes, "POST", "/workspace/:id/ui-views", "client", async ctx => {
     if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const { workspace, repository } = await select(ctx, true);
-    const parsed = ViewInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    const parsed = ViewSaveInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the report title, program and data.");
     await authorize(ctx, workspace, parsed.data.mode === "report" ? "Reports" : "Dashboards");
-    return options.jsonResponse(await repository.create(parsed.data), 201);
+    return options.jsonResponse(await repository.create(ViewInputSchema.strip().parse(parsed.data), parsed.data.savedFrom), 201);
   });
   addRoute(options.routes, "PUT", "/workspace/:id/ui-views/:viewId", "client", async ctx => {
     if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const { workspace, repository } = await select(ctx, true);
-    const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewSaveInputSchema }).strict().safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the report before editing its definition.");
     await authorize(ctx, workspace, await repository.location(ctx.params.viewId));
-    return options.jsonResponse(await repository.update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision));
+    return options.jsonResponse(await repository.update(ctx.params.viewId, ViewInputSchema.strip().parse(parsed.data.input), parsed.data.baseRevision, parsed.data.input.savedFrom));
   });
 }

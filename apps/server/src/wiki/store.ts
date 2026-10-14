@@ -1,3 +1,5 @@
+import { captureWikiViews } from "./view-snapshots.js";
+import { WikiViewSnapshotsSchema } from "../views/schema.js";
 import { lineChanges } from "./line-diff.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, watch, type FSWatcher } from "node:fs";
@@ -98,6 +100,7 @@ export class WikiStore {
         CREATE TABLE IF NOT EXISTS wiki_pages (wiki TEXT NOT NULL,path TEXT NOT NULL,content TEXT NOT NULL,revision TEXT NOT NULL,mtime REAL NOT NULL,ctime REAL NOT NULL,size INTEGER NOT NULL,updatedAt REAL NOT NULL,warning TEXT, PRIMARY KEY(wiki,path));
         CREATE VIRTUAL TABLE IF NOT EXISTS wiki_search USING fts5(wiki UNINDEXED,path UNINDEXED,title,body);
         CREATE TABLE IF NOT EXISTS wiki_history (id TEXT PRIMARY KEY,wiki TEXT NOT NULL,path TEXT NOT NULL,createdAt REAL NOT NULL,action TEXT NOT NULL,size INTEGER NOT NULL,content TEXT NOT NULL,revision TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_history_views (historyId TEXT PRIMARY KEY,content TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS wiki_folders (root TEXT PRIMARY KEY,id TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS wiki_history_path ON wiki_history(wiki,path,createdAt DESC);`);
       return db;
@@ -325,7 +328,29 @@ export class WikiStore {
     const db = await this.db(), revision = hash(content);
     const latest = z.object({ action: z.string(), revision: z.string() }).optional().parse(db.all("SELECT action,revision FROM wiki_history WHERE wiki=? AND path=? ORDER BY createdAt DESC,rowid DESC LIMIT 1", [id, path])[0]);
     if (latest?.revision === revision && (latest.action === action || (action === "write" && latest.action !== "delete"))) return;
-    db.run("INSERT INTO wiki_history(id,wiki,path,createdAt,action,size,content,revision) VALUES(?,?,?,?,?,?,?,?)", [randomUUID(), id, path, Date.now(), action, Buffer.byteLength(content), content, revision]);
+    const historyId = randomUUID(), createdAt = Date.now();
+    const wiki = await this.get(id);
+    let inventory: Awaited<ReturnType<WikiStore["inventory"]>> | undefined;
+    const files = async () => (inventory ??= await this.inventory(wiki)).files;
+    const snapshots = await captureWikiViews(content, { kind: "wiki", id }, {
+      list: async () => (await files()).map(file => file.path),
+      read: path => this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES),
+      write: async () => { throw new Error("Read only"); },
+    }, async () => {
+      const pages = [];
+      for (const file of await files()) {
+        if (!isMarkdown(file.path) || file.size > WIKI_MAX_PAGE_BYTES) continue;
+        const bytes = await this.fileBytes(wiki, file.path, WIKI_MAX_PAGE_BYTES);
+        pages.push(parseWikiPage(file.path, bytes.toString("utf8"), hash(bytes), file.updatedAt).page);
+      }
+      return pages;
+    });
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.run("INSERT INTO wiki_history(id,wiki,path,createdAt,action,size,content,revision) VALUES(?,?,?,?,?,?,?,?)", [historyId, id, path, createdAt, action, Buffer.byteLength(content), content, revision]);
+      db.run("INSERT INTO wiki_history_views(historyId,content) VALUES(?,?)", [historyId, JSON.stringify(snapshots)]);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
   private async remember(id: string, path: string, content: string, knownWiki?: WikiRegistration, knownFile?: WikiAsset): Promise<IndexedPage> {
     const wiki = knownWiki ?? await this.get(id);
@@ -682,7 +707,9 @@ export class WikiStore {
     const db = await this.db();
     const raw = db.all("SELECT path,content,revision,createdAt AS updatedAt FROM wiki_history WHERE id=? AND wiki=? AND path=?", [revisionId, id, wikiPath(path)])[0];
     if (!raw) throw new ApiError(404, "wiki_revision_not_found", "This revision is unavailable for this page.");
-    return z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() }).parse(raw);
+    const document = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() }).parse(raw);
+    const snapshot = z.object({ content: z.string() }).optional().parse(db.all("SELECT content FROM wiki_history_views WHERE historyId=?", [revisionId])[0]);
+    return { ...document, ...(snapshot ? { viewSnapshots: WikiViewSnapshotsSchema.parse(JSON.parse(snapshot.content)) } : {}) };
   }
   async restore(id: string, path: string, revisionId: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, async () => {

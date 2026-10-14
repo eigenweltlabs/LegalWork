@@ -1,3 +1,5 @@
+import { grantWikiAgentSession, verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
+import { grantWikiProjectAccess, revokeWikiProjectAccess, wikiProjectAccessRevision } from "../wiki/project-access.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -101,7 +103,8 @@ test("sandbox mounts external wiki content read-only but retains writable projec
     expect(f.executions[0].mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
     const own = f.config.workspaces.find(workspace => workspace.id === wiki.workspaceId);
     if (!own) throw new Error("Wiki workspace missing");
-    await f.service.run(own, { command: "true", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+    await grantWikiAgentSession(f.config, { sessionId: "own", directory: own.path, scope: "owner" });
+    await f.service.run(own, { command: "true", sessionID: "own", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
     expect(f.executions[1].mounts).toEqual([{ source: wiki.root, target: "/workspace", writable: true }]);
     await expect(f.service.run(own, { command: "true", write: false, timeoutMs: 1000 }, { type: "remote", scope: "collaborator" }, new AbortController().signal))
       .rejects.toMatchObject({ code: "workspace_not_found" });
@@ -632,4 +635,35 @@ test("approval-off project reads and writes run repeatedly without inherited eng
     }
   }
   expect(f.prompts).toHaveLength(0);
+});
+
+
+test("wiki shell requires protected execution and approved project mounts stay read-only and abort on revoke", async () => {
+  let revoke = () => {};
+  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" }, true, async run => {
+    expect(run.signal.aborted).toBe(false);
+    revoke();
+    expect(run.signal.aborted).toBe(true);
+    await expect(run.beforeCommit?.()).rejects.toThrow();
+  });
+  const store = new WikiStore(f.config);
+  try {
+    const wiki = await store.create({ name: "Wiki project access", template: "blank" });
+    const own = f.config.workspaces.find(item => item.id === wiki.workspaceId);
+    if (!own) throw new Error("Missing wiki workspace");
+    await grantWikiAgentSession(f.config, { sessionId: "wiki-chat", directory: own.path, scope: "owner" });
+    const signal = new AbortController().signal;
+    const origin = await verifiedWikiSessionOrigin(f.config, own, "wiki-chat", "owner", signal);
+    const command = { command: "true", sessionID: "wiki-chat", write: true, timeoutMs: 1000 };
+    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permission: { external_directory: { [`${f.workspace.path}/*`]: "allow" } } }));
+    await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_project_access_required" });
+    grantWikiProjectAccess(f.config, "wiki-chat", { wikiId: wiki.id, projectId: f.workspace.id, root: await realpath(f.workspace.path), scope: "owner", origin: origin.generation }, wikiProjectAccessRevision(f.config, "wiki-chat"));
+    revoke = () => revokeWikiProjectAccess(f.config, "wiki-chat", f.workspace.id);
+    await f.service.run(own, command, { type: "host" }, signal);
+    const run = f.executions[0];
+    expect(run.mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
+    await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+    await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_sandbox_required" });
+    expect(f.executions).toHaveLength(1);
+  } finally { await store.close(); }
 });

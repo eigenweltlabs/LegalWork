@@ -14,6 +14,7 @@ export function WikiRevisionDialog({ client, wikiId, revision, writable, onClose
   onClose: () => void; onRestore: (path: string, revisionId: string, baseRevision: string) => Promise<void>;
 }) {
   const [compare, setCompare] = useState(false);
+  const [currentViews, setCurrentViews] = useState(false);
   const [target, setTarget] = useState("current");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,10 +42,11 @@ export function WikiRevisionDialog({ client, wikiId, revision, writable, onClose
         {versions.data?.items.filter(item => item.id !== revision.id).map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString()} · {item.action === "delete" ? t("wiki.revision_delete") : item.action === "restore" ? t("wiki.revision_restore") : t("wiki.revision_write")}</option>)}
       </select></label>}
     </div>
+    {!compare && version.data?.content.includes("legalwork-view") && <label className="flex items-center gap-2 text-sm">{t("wiki.embedded_dashboards")}<select className="h-9 rounded-md border bg-background px-2" value={currentViews ? "current" : "historical"} onChange={event => setCurrentViews(event.target.value === "current")}><option value="historical">{t("wiki.views_at_revision")}</option><option value="current">{t("wiki.views_current")}</option></select></label>}
     {compare && <p className="text-xs text-muted-foreground">{t("wiki.diff_direction")}{comparison.data && "deleted" in comparison.data ? ` · ${t("wiki.current_deleted")}` : ""}</p>}
     {failure && <p role="alert" className="text-sm text-destructive">{failure}<Button size="sm" variant="ghost" onClick={() => { setError(""); void version.refetch(); void current.refetch(); if (compare && target !== "current") void historical.refetch(); }}>{t("wiki.retry")}</Button></p>}
-    <div className="min-h-0 overflow-auto rounded-lg border">
-      {!version.data || (compare && !comparison.data) ? failure ? null : <div className="p-8"><Loader2 className="mx-auto size-5 animate-spin" aria-label={t("wiki.loading")} /></div> : compare && comparison.data ? <WikiDiff before={version.data.content} after={comparison.data.content} /> : <WikiContentPreview client={client} wikiId={wikiId} path={revision.path} content={version.data.content} />}
+    <div className="min-h-0 overflow-auto rounded-lg border [&_.wiki-reader]:p-5">
+      {!version.data || (compare && !comparison.data) ? failure ? null : <div className="p-8"><Loader2 className="mx-auto size-5 animate-spin" aria-label={t("wiki.loading")} /></div> : compare && comparison.data ? <WikiDiff before={version.data.content} after={comparison.data.content} /> : <WikiContentPreview client={client} wikiId={wikiId} path={revision.path} content={version.data.content} historicalViews={currentViews ? undefined : { id: revision.id, snapshots: version.data.viewSnapshots ?? {} }} />}
     </div>
     <DialogFooter>
       <Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.close")}</Button>

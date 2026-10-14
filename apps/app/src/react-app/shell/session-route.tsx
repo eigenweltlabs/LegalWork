@@ -1,3 +1,4 @@
+import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
@@ -592,6 +593,7 @@ export function SessionRoute() {
   // overlapping route refreshes from queueing up when the user clicks fast.
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [viewDeleteRequest, setViewDeleteRequest] = useState<SessionViewDeleteRequest | null>(null);
   const [selectCreatedProjectForHome, setSelectCreatedProjectForHome] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
@@ -2913,7 +2915,8 @@ export function SessionRoute() {
         client && selectedWorkspaceId
           ? async (sessionId) => {
               const { workspace, endpoint } = sessionTarget(sessionId);
-              await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              const deleteChat = async (discardReview?: string) => {
+              await endpoint.client.deleteSession(endpoint.workspaceId, sessionId, discardReview);
               usePanelTabStore.getState().clearSession(sessionId);
               forgetSession(workspace.id, sessionId);
               await loadWorkspaceSessionsInBackground([workspace]);
@@ -2922,6 +2925,10 @@ export function SessionRoute() {
                 navigate("/home");
               }
               await refreshRouteState();
+              };
+              const review = await endpoint.client.sessionViewReview(endpoint.workspaceId, sessionId);
+              if (review.items.length) setViewDeleteRequest({ client: endpoint.client, workspaceId: endpoint.workspaceId, sessionId, review, onDelete: deleteChat });
+              else await deleteChat();
             }
           : undefined
       }
@@ -2929,6 +2936,7 @@ export function SessionRoute() {
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
     />
+    {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}
     {newChatOpen && <NewChatDialog
       groups={workspaceSessionGroups}
       disabled={!canCreateChat}

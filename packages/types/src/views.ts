@@ -33,8 +33,11 @@ export const ViewInputSchema = z.object({
   datasets: z.record(field, WikiDataResultSchema).refine(datasets => Object.keys(datasets).length <= 20).optional(),
   fallbackMarkdown: z.string().max(100_000).optional(),
 }).strict();
+export const ViewSaveSourceSchema = z.object({ workspaceId: z.string().min(1).max(200), sessionId: z.string().min(1).max(200), callId: z.string().min(1).max(200) }).strict();
+export type ViewSaveSource = z.infer<typeof ViewSaveSourceSchema>;
+export const ViewSaveInputSchema = ViewInputSchema.extend({ savedFrom: ViewSaveSourceSchema.optional() });
 /** Owner is supplied by the authorized repository, never trusted from saved bytes. */
-export const StoredViewSchema = ViewInputSchema.extend({ id: z.string().uuid(), updatedAt: z.number().nonnegative() });
+export const StoredViewSchema = ViewInputSchema.extend({ id: z.string().uuid(), updatedAt: z.number().nonnegative(), savedFrom: ViewSaveSourceSchema.optional() });
 export const ViewRecordSchema = StoredViewSchema.extend({ owner: ViewOwnerSchema, revision: z.string().min(1).max(200) });
 export const WikiFieldsSchema = z.object({ fields: z.array(z.object({
   id: field, name: z.string(), type: z.enum(["string", "number", "boolean", "date", "array", "object", "mixed"]),
@@ -64,3 +67,22 @@ export const ViewPreviewSchema = z.object({
   target: z.object({ viewId: z.string().uuid(), baseRevision: z.string().min(1).max(200) }).strict().optional(),
 }).strict();
 export type ViewPreview = z.infer<typeof ViewPreviewSchema>;
+export type SessionViewPreview = { sessionId?: string; callId: string; title: string; preview?: ViewPreview };
+export type SessionViewReview = { items: SessionViewPreview[]; reviewToken: string };
+
+
+export type ViewReference = { owner: ViewOwner; viewId: string };
+export function parseViewReference(source: string, owner?: ViewOwner): ViewReference | null {
+  const value = source.trim();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (owner && uuid.test(value)) return { owner, viewId: value };
+  const match = /^(?:legalwork-view:\/\/)?(wiki|workspace)(?::|\/)([^/\s]+)\/([^/\s]+)$/.exec(value);
+  if (!match || !uuid.test(match[3])) return null;
+  try {
+    const parsed = ViewOwnerSchema.safeParse({ kind: match[1], id: decodeURIComponent(match[2]) });
+    return parsed.success ? { owner: parsed.data, viewId: match[3] } : null;
+  } catch { return null; }
+}
+export function viewReferenceKey(reference: ViewReference) { return `legalwork-view://${reference.owner.kind}/${encodeURIComponent(reference.owner.id)}/${reference.viewId}`; }
+export const WikiViewSnapshotsSchema = z.record(z.string(), ViewInputSchema);
+export type WikiViewSnapshots = z.infer<typeof WikiViewSnapshotsSchema>;

@@ -1,9 +1,11 @@
+import type { SessionViewPreview } from "@legalwork/types/views";
+import { reviewSessionViews, savedSessionViews, sessionViewPreviews } from "../views/session-previews.js";
 import { retryStopReason } from "../session-retry-policy.js";
 import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
 import { WikiStore } from "../wiki/store.js";
-import { grantWikiAgentSession } from "../wiki/agent-access.js";
+import { grantWikiAgentSession, revokeWikiAgentSession } from "../wiki/agent-access.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
@@ -503,6 +505,25 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     },
   );
 
+  async function viewReview(workspace: WorkspaceInfo, sessionId: string) {
+    const pending = [sessionId], sessionIds = new Set<string>(), items: SessionViewPreview[] = [];
+    while (pending.length) {
+      const id = pending.shift()!;
+      if (sessionIds.has(id)) throw new ApiError(409, "invalid_session_tree", "This chat's related chats could not be verified.");
+      if (sessionIds.size >= 1000) throw new ApiError(413, "session_tree_too_large", "Review and delete related chats in smaller groups.");
+      sessionIds.add(id);
+      const client = await queueClient(workspace, id);
+      const [messageResult, childResult] = await Promise.all([client.session.messages({ sessionID: id }), client.session.children({ sessionID: id })]);
+      items.push(...sessionViewPreviews(unwrapOpencodeResult(messageResult, "session messages")).map(item => ({ ...item, sessionId: id })));
+      pending.push(...unwrapOpencodeResult(childResult, "session children").map(child => child.id));
+    }
+    return { review: reviewSessionViews(items, items.length ? await savedSessionViews(config) : [], workspace.id, sessionId), sessionIds: [...sessionIds] };
+  }
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/views", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    return jsonResponse((await viewReview(await resolveWorkspace(config, ctx.params.id), ctx.params.sessionId)).review);
+  });
+
   addRoute(routes, "DELETE", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -513,15 +534,23 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
+    const opencode = await queueClient(workspace, sessionId);
+    const { review, sessionIds } = await viewReview(workspace, sessionId);
+    const statuses = unwrapOpencodeResult(await opencode.session.status(), "session/status");
+    if (sessionIds.some(id => statuses[id] && statuses[id].type !== "idle")) throw new ApiError(409, "session_busy", "Stop this chat and its related agent chats before deleting, so their dashboards can be checked.");
+    const discardReview = ctx.url.searchParams.get("discardReview");
+    if (review.items.length && discardReview !== review.reviewToken) throw new ApiError(409, "unsaved_session_views", "Save or explicitly discard this chat's dashboards before deleting it.", review);
     // Stop pending sends before deleting the underlying chat.
-    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
+    for (const id of sessionIds) await messageQueue.act(workspace.id, id, { type: "pause", paused: true });
     unwrapOpencodeResult(
       await opencode.session.delete({ sessionID: sessionId }),
       `/session/${encodeURIComponent(sessionId)}`,
     );
-    await messageQueue.removeSession(workspace.id, sessionId);
-    await deleteSessionUsageLimits(config, workspace.id, sessionId);
+    for (const id of sessionIds) {
+      revokeWikiAgentSession(config, id);
+      await messageQueue.removeSession(workspace.id, id);
+      await deleteSessionUsageLimits(config, workspace.id, id);
+    }
 
     return jsonResponse({ ok: true });
   });

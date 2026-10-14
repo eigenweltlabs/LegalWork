@@ -1,7 +1,8 @@
+import { matchesGraphCondition, type GraphPropertyCondition } from "./wiki-graph-properties";
 import type { WikiGraphData, WikiGraphResponse } from "@legalwork/types/wiki";
 
-export type WikiGraphFilter = { query: string; type: string; folder: string; local: boolean; depth: number; orphans: boolean };
-export const defaultGraphFilter: WikiGraphFilter = { query: "", type: "", folder: "", local: false, depth: 1, orphans: true };
+export type WikiGraphFilter = { query: string; type: string; folder: string; local: boolean; depth: number; orphans: boolean; conditions: GraphPropertyCondition[]; conditionMode: "all" | "any" };
+export const defaultGraphFilter: WikiGraphFilter = { query: "", type: "", folder: "", local: false, depth: 1, orphans: true, conditions: [], conditionMode: "all" };
 
 export function applyWikiGraphResponse(current: WikiGraphData | undefined, response: WikiGraphResponse): WikiGraphData {
   if (response.kind === "snapshot") return { revision: response.revision, nodes: response.nodes, edges: response.edges };
@@ -55,6 +56,7 @@ export function filterWikiGraph(index: ReturnType<typeof indexWikiGraph>, filter
     && (!filter.type || node.type === filter.type)
     && (!filter.folder || node.path.startsWith(`${filter.folder}/`))
     && (filter.orphans || index.adjacent.has(node.id))
+    && (!filter.conditions.length || (filter.conditionMode === "all" ? filter.conditions.every(condition => matchesGraphCondition(node.properties, condition)) : filter.conditions.some(condition => matchesGraphCondition(node.properties, condition))))
     && words.every((word) => `${node.title} ${node.path}`.toLocaleLowerCase().includes(word)));
   const ids = new Set(nodes.map((node) => node.id));
   return { revision: index.data.revision, nodes, edges: index.data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };

@@ -2,14 +2,14 @@ import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, Loader2 } from "lucide-react";
-import type { ViewOwner, ViewPreview, ViewRecord } from "@legalwork/types/views";
+import type { ViewSaveSource, ViewOwner, ViewPreview, ViewRecord } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
 import { sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
 
-export function ViewSaveDialog({ client, preview, fromChat = false, onClose, onSaved }: { fromChat?: boolean; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
+export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, onClose, onSaved }: { savedFrom?: ViewSaveSource; fromChat?: boolean; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
   const cache = useQueryClient();
   const [selected, setSelected] = useState<string[]>([viewOwnerKey(preview.owner)]);
   const [saved, setSaved] = useState<ViewRecord[]>([]);
@@ -29,7 +29,7 @@ export function ViewSaveDialog({ client, preview, fromChat = false, onClose, onS
     try {
       for (const { owner } of targets) {
         if (completed.some(view => sameViewOwner(view.owner, owner))) continue;
-        const input = viewInputForDestination(preview.input, preview.owner, owner);
+        const input = { ...viewInputForDestination(preview.input, preview.owner, owner), savedFrom };
         const result = preview.target && sameViewOwner(preview.owner, owner)
           ? await client.updateView(owner, preview.target.viewId, { baseRevision: preview.target.baseRevision, input })
           : await client.createView(owner, input);
