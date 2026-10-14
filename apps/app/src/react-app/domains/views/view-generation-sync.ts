@@ -38,7 +38,7 @@ export async function syncViewGeneration(context: Context, part: DynamicToolUIPa
     if (previous?.status === "saved") return;
     const saved = store.savedResults[id];
     if (saved) {
-      store.update(id, { ...current, status: "saved", saved, title: saved.title, error: undefined });
+      store.update(id, { ...current, status: "saved", saved, preview: outcome.preview, program: outcome.preview.input.program, title: saved.title, error: undefined });
       usePanelTabStore.getState().resolveViewTab(id, viewPanelTab(context.serverUrl, { owner: saved.owner, viewId: saved.id }, saved.title));
       return;
     }

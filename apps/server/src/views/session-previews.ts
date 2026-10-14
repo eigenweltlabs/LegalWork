@@ -34,7 +34,9 @@ export function savedViewMatchesPreview(view: ViewRecord, preview: ViewPreview):
   const input = preview.input;
   if (view.program !== input.program || view.title !== input.title || view.mode !== input.mode || view.catalog !== input.catalog || view.fallbackMarkdown !== input.fallbackMarkdown) return false;
   if (view.owner.kind === preview.owner.kind && view.owner.id === preview.owner.id && canonical(view.queries) === canonical(input.queries)) {
-    return input.mode === "dashboard" && Object.keys(input.queries).length > 0 || canonical(view.datasets ?? {}) === canonical(input.datasets ?? {});
+    // Only live bindings can be regenerated. Static bindings still need a saved copy.
+    const retained = (datasets: ViewRecord["datasets"]) => Object.fromEntries(Object.entries(datasets ?? {}).filter(([name]) => input.mode !== "dashboard" || !Object.hasOwn(input.queries, name)));
+    return canonical(retained(view.datasets)) === canonical(retained(input.datasets));
   }
   const datasets = Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, dataset]) => [name, { ...dataset, sourceOwner: dataset.sourceOwner ?? preview.owner }]));
   return Object.keys(view.queries).length === 0 && canonical(view.datasets ?? {}) === canonical(datasets);

@@ -14,19 +14,21 @@ export function WikiChatHistory({ group, selectedSessionId, onOpen, stateKey, on
   const drag = useRef<{ y: number; height: number } | null>(null);
   const storageKey = `legalwork.wiki.chats.height.${stateKey}`;
   const [height, setHeight] = useState<number | null>(() => {
-    try { const saved = Number(localStorage.getItem(storageKey)); return saved >= 88 ? saved : null; } catch { return null; }
+    try { const saved = Number(localStorage.getItem(storageKey)); return Number.isFinite(saved) && saved > 0 ? saved : null; } catch { return null; }
   });
   const resize = (value: number) => {
-    const next = Math.max(88, Math.min(value, (section.current?.parentElement?.clientHeight ?? 600) * 0.6));
+    const next = Math.max(minimumHeight, Math.min(value, (section.current?.parentElement?.clientHeight ?? 600) * 0.6));
     setHeight(next);
     try { localStorage.setItem(storageKey, String(next)); } catch { /* Resizing also works without storage. */ }
   };
   const sessions = (group?.sessions ?? []).filter(session => !session.parentID && !session.time?.archived);
   const visible = sessions.filter(session => getDisplaySessionTitle(session.title).toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
   const showSearch = sessions.length > 5 || Boolean(search);
+  const minimumHeight = 54 + 36 + (showSearch ? 40 : 0);
   const defaultHeight = 54 + Math.max(1, Math.min(3, sessions.length)) * 36 + (showSearch ? 40 : 0);
-  return <section ref={section} className="relative flex max-h-[60%] shrink-0 flex-col border-t p-2" style={{ height: expanded ? height ?? defaultHeight : undefined }} aria-label={t("wiki.chats")}>
-    {expanded && <div role="separator" tabIndex={0} aria-orientation="horizontal" aria-label={t("wiki.resize_chats")} aria-valuemin={88} aria-valuemax={Math.round((section.current?.parentElement?.clientHeight ?? 600) * 0.6)} aria-valuenow={Math.round(height ?? defaultHeight)} className="absolute -top-1 inset-x-0 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20"
+  const displayHeight = Math.max(minimumHeight, height ?? defaultHeight);
+  return <section ref={section} className="relative flex max-h-[60%] shrink-0 flex-col border-t p-2" style={{ height: expanded ? displayHeight : undefined, minHeight: expanded ? minimumHeight : undefined }} aria-label={t("wiki.chats")}>
+    {expanded && <div role="separator" tabIndex={0} aria-orientation="horizontal" aria-label={t("wiki.resize_chats")} aria-valuemin={minimumHeight} aria-valuemax={Math.round(Math.max(minimumHeight, (section.current?.parentElement?.clientHeight ?? 600) * 0.6))} aria-valuenow={Math.round(displayHeight)} className="absolute -top-1 inset-x-0 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20"
       onPointerDown={event => { drag.current = { y: event.clientY, height: section.current?.clientHeight ?? defaultHeight }; event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
       onPointerMove={event => { if (drag.current) resize(drag.current.height + drag.current.y - event.clientY); }}
       onPointerUp={event => { drag.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { drag.current = null; }}

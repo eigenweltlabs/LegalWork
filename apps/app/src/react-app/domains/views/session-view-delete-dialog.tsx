@@ -18,7 +18,9 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
   const cache = useQueryClient();
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<Record<string, ViewRecord>>({});
-  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"save" | "discard" | null>(null);
+  const busy = action !== null;
+  const hasUnsaved = review.items.length > 0;
   const [error, setError] = useState("");
   const destinations = useViewSaveDestinations(client);
   const groups = viewSaveDestinationGroups(destinations.data);
@@ -30,7 +32,7 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
     return target ? [{ owner: target.owner, preview: item.preview }] : [];
   });
   const run = async (save: boolean) => {
-    setBusy(true); setError("");
+    setAction(save ? "save" : "discard"); setError("");
     try {
       if (save) for (const item of review.items) {
         if (saved[itemKey(item)]) continue;
@@ -56,12 +58,12 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
         setSaved(values => Object.fromEntries(Object.entries(values).filter(([key]) => !current.items.some(item => itemKey(item) === key))));
       } catch { /* Keep the dialog and chat intact if refreshing fails. */ }
     }
-    finally { setBusy(false); }
+    finally { setAction(null); }
   };
-  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent className="sm:max-w-xl">
-    <DialogHeader><DialogTitle>{t("views.delete_chat_title")}</DialogTitle><DialogDescription>{t("views.delete_chat_description")}</DialogDescription></DialogHeader>
-    {destinations.isPending && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>}
-    {destinations.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("views.no_save_destinations")}</p>}
+  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="sm:max-w-xl">
+    <DialogHeader><DialogTitle>{t(hasUnsaved ? "views.delete_chat_title" : "session.delete_session_title")}</DialogTitle><DialogDescription>{t(hasUnsaved ? "views.delete_chat_description" : "views.delete_copies_kept")}</DialogDescription></DialogHeader>
+    {hasUnsaved && destinations.isPending && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>}
+    {hasUnsaved && destinations.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("views.no_save_destinations")}</p>}
     <div className="max-h-[45vh] space-y-3 overflow-auto">
       {review.items.map(item => <div key={itemKey(item)} className="space-y-2 rounded-lg border p-3">
         <div className="flex items-center gap-2"><DashboardIcon className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title}</span>{saved[itemKey(item)] && <Check className="size-4 text-success" aria-label={t("views.delete_saved")} />}</div>
@@ -73,8 +75,8 @@ export function SessionViewDeleteDialog({ request, onClose }: { request: Session
     </div>
     {selectedTargets.some(({ owner, preview }) => !sameViewOwner(owner, preview.owner) && Object.keys(preview.input.queries).length > 0) && <p className="text-xs text-muted-foreground">{t("views.copy_snapshot_hint")}</p>}
     {selectedTargets.some(({ owner }) => owner.kind === "wiki") && <p className="text-xs text-muted-foreground">{t("views.wiki_save_hint")}</p>}
-    {(error || destinations.error) && <p role="alert" className="text-sm text-destructive">{error || destinations.error?.message}</p>}
-    {destinations.error && <Button variant="ghost" size="sm" disabled={busy || destinations.isFetching} onClick={() => void destinations.refetch()}>{t("wiki.retry")}</Button>}
-    <DialogFooter className="flex-wrap"><Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button><Button variant="outline" disabled={busy} onClick={() => void run(false)}>{t("views.delete_without_saving")}</Button><Button disabled={busy || destinations.isFetching || Boolean(destinations.error) || review.items.some(item => !item.preview || !saved[itemKey(item)] && !destination(item, item.preview.owner))} onClick={() => void run(true)}>{busy && <Loader2 className="size-4 animate-spin" />}{t("views.save_and_delete")}</Button></DialogFooter>
+    {(error || hasUnsaved && destinations.error) && <p role="alert" className="text-sm text-destructive">{error || destinations.error?.message}</p>}
+    {hasUnsaved && destinations.error && <Button variant="ghost" size="sm" disabled={busy || destinations.isFetching} onClick={() => void destinations.refetch()}>{t("wiki.retry")}</Button>}
+    <DialogFooter className="flex-wrap"><Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>{hasUnsaved && <Button variant="outline" disabled={busy} onClick={() => void run(false)}>{action === "discard" && <Loader2 className="size-4 animate-spin" />}{t("views.delete_without_saving")}</Button>}<Button disabled={busy || hasUnsaved && (destinations.isFetching || Boolean(destinations.error)) || review.items.some(item => !item.preview || !saved[itemKey(item)] && !destination(item, item.preview.owner))} onClick={() => void run(true)}>{action === "save" && <Loader2 className="size-4 animate-spin" />}{t(hasUnsaved ? "views.save_and_delete" : "session.delete")}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }

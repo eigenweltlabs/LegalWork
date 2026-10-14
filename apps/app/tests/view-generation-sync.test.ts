@@ -135,6 +135,7 @@ test("a saved destination is remembered when the preview transcript replays afte
   await syncViewGeneration(context, { ...done, output: { status: "preview", owner, input: { version, title, mode, catalog, program, queries } } }, open);
   expect(useViewGenerationStore.getState().entries[id].status).toBe("saved");
   expect(useViewGenerationStore.getState().entries[id].saved?.id).toBe(saved.id);
+  expect(useViewGenerationStore.getState().entries[id].preview?.input.program).toBe(program);
   expect(opened).toHaveLength(1);
 });
 

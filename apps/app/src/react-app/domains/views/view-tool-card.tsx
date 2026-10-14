@@ -10,7 +10,7 @@ import { viewPanelTab } from "./view-reference";
 import { viewProgramInput, viewToolOutcome, viewGenerationId, viewDraftTab, useViewGenerationStore } from "./view-generation";
 
 export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
-  const { legalworkClient, sessionId } = useMessageList();
+  const { legalworkClient, workspaceId, sessionId } = useMessageList();
   const request = useRequestPanelTab();
   const outcome = useMemo(() => part.state === "output-available" ? viewToolOutcome(part.output) : null, [part.state, part.output]);
   const input = useMemo(() => viewProgramInput(part.input), [part.input]);
@@ -21,17 +21,17 @@ export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
   const preview = outcome && "preview" in outcome ? outcome.preview : generation?.preview;
   const failure = view ? undefined : outcome && "error" in outcome ? outcome.error : part.state === "output-error" ? part.errorText : generation?.error;
   const pending = !view && !preview && !failure && (part.state === "input-streaming" || part.state === "input-available");
-  const open = () => {
+  const open = (originalPreview = false) => {
     if (!legalworkClient) return;
-    if (view) request(viewPanelTab(legalworkClient.baseUrl, { owner: view.owner, viewId: view.id }, view.title), { besideChat: true });
+    if (view && !originalPreview) request(viewPanelTab(legalworkClient.baseUrl, { owner: view.owner, viewId: view.id }, view.title), { besideChat: true });
     else {
       let entry = useViewGenerationStore.getState().entries[generationId];
-      if (!entry && preview) {
-        entry = { serverUrl: legalworkClient.baseUrl, workspaceId: preview.owner.kind === "workspace" ? preview.owner.id : "", sessionId, toolCallId: part.toolCallId, title: preview.input.title, program: preview.input.program, status: "preview", preview };
+      if (preview && (!entry || !entry.preview)) {
+        entry = { ...entry, serverUrl: legalworkClient.baseUrl, workspaceId: entry?.workspaceId ?? workspaceId, sessionId, toolCallId: part.toolCallId, title: preview.input.title, program: preview.input.program, status: view ? "saved" : "preview", saved: view ?? undefined, preview };
         useViewGenerationStore.getState().update(generationId, entry);
       }
       if (entry) request(viewDraftTab(generationId, entry), { besideChat: true });
     }
   };
-  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex items-center gap-3 p-4"><DashboardIcon className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? t("views.preview_failed", { error: failure }) : pending ? t("views.creating_preview") : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? t("views.live_dashboard") : t("views.dashboard") : view ? t("views.report_snapshot") : t("views.preview_missing")}</p></div>{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={open}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}{t("session.open")}<ArrowUpRight /></Button> : null}</div></div>;
+  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex flex-wrap items-center gap-3 p-4"><DashboardIcon className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1 basis-36"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? t("views.preview_failed", { error: failure }) : pending ? t("views.creating_preview") : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? t("views.live_dashboard") : t("views.dashboard") : view ? t("views.report_snapshot") : t("views.preview_missing")}</p></div>{legalworkClient && view && preview && <Button size="sm" variant="ghost" onClick={() => open(true)}>{t("views.original_preview")}</Button>}{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={() => open()}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}{t("session.open")}<ArrowUpRight /></Button> : null}</div></div>;
 }

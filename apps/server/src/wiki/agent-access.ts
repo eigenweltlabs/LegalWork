@@ -8,17 +8,29 @@ import { ApiError } from "../errors.js";
 
 type SessionOrigin = { directory: string; scope: TokenScope; generation: string };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), revoked: new Set() };
+    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
     runtimes.set(config, access);
   }
   return access;
+}
+
+/** Verified lineage is a revocation dependency, never a cached scope grant. */
+function revokeProjectTree(config: ServerConfig, sessionId: string) {
+  const pending = [sessionId], visited = new Set<string>(), access = runtime(config);
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    revokeWikiProjectAccess(config, id);
+    for (const [child, parent] of access.parents) if (parent === id) pending.push(child);
+  }
 }
 
 /** The server supplies its authenticated, directory-pinned engine client. */
@@ -43,7 +55,7 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     // A remote engine may use a directory absent on this host. Its ordinary
     // session can proceed, but no private wiki grant may survive that change.
     const access = runtime(config);
-    revokeWikiProjectAccess(config, input.sessionId);
+    revokeProjectTree(config, input.sessionId);
     access.sessions.delete(input.sessionId);
     access.revoked.add(input.sessionId);
     return;
@@ -54,7 +66,8 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     throw new ApiError(403, "wiki_agent_directory_mismatch", "This agent session belongs to another working directory.");
   // Replace rather than merge: a collaborator taking over an owner's session
   // must immediately lose the owner's private wiki access.
-  if (previous && previous.scope !== input.scope) revokeWikiProjectAccess(config, input.sessionId);
+  if (previous && previous.scope !== input.scope || access.parents.has(input.sessionId)) revokeProjectTree(config, input.sessionId);
+  access.parents.delete(input.sessionId);
   access.sessions.set(input.sessionId, { directory, scope: input.scope, generation: previous?.scope === input.scope ? previous.generation : randomBytes(16).toString("hex") });
   access.revoked.delete(input.sessionId);
 }
@@ -69,6 +82,11 @@ export async function verifiedWikiSessionOrigin(config: ServerConfig, workspace:
   const found = lookup ? sessionSchema.safeParse(await lookup(workspace, sessionId, directory, AbortSignal.any([signal, AbortSignal.timeout(10_000)])).catch(() => null)) : null;
   if (!found?.success || found.data.id !== sessionId || await realpath(found.data.directory).catch(() => null) !== directory || access.revoked.has(sessionId))
     throw new ApiError(403, "wiki_agent_session_unknown", "This chat does not belong to this wiki.");
+  if (found.data.parentID) {
+    const inherited = await inheritedOrigin(config, access, sessionId, directory, signal);
+    if (!inherited) throw new ApiError(403, "wiki_agent_session_unknown", "This chat's originating permissions are unavailable.");
+    return inherited;
+  }
   await grantWikiAgentSession(config, { sessionId, directory, scope });
   const origin = access.sessions.get(sessionId);
   if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "This chat is unavailable.");
@@ -79,7 +97,7 @@ export function revokeWikiAgentSession(config: ServerConfig, sessionId: string):
   const access = runtime(config);
   access.sessions.delete(sessionId);
   access.revoked.add(sessionId);
-  revokeWikiProjectAccess(config, sessionId);
+  revokeProjectTree(config, sessionId);
 }
 
 /** Inherit live scope, never a cached owner grant, from an engine-verified ancestor. */
@@ -106,6 +124,8 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
     const origin = access.sessions.get(id);
     if (access.revoked.has(id)) return;
     if (origin) return origin.directory === directory ? origin : undefined;
+    if (session.data.parentID) access.parents.set(id, session.data.parentID);
+    else access.parents.delete(id);
     id = session.data.parentID;
   }
 }
@@ -134,7 +154,7 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
     ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+)$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web))$/.test(route));
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|sessions\/[^/]+\/review-recovery)$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 
@@ -172,6 +192,9 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   if (directory !== origin.directory)
     throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
   if (toolWorkspaceId) {
+    const recovery = pathname.match(/\/sessions\/([^/]+)\/review-recovery$/);
+    if (recovery && decodeURIComponent(recovery[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use recovery only for this chat.");
     const candidates = await Promise.all(config.workspaces.map(async item => ({
       id: item.id, root: await realpath(item.directory || item.path).catch(() => null),
     })));

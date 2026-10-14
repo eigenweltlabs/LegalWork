@@ -109,7 +109,7 @@ function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClien
     if (view.owner.kind === "wiki" && view.mode === "dashboard") for (const [name, query] of Object.entries(view.queries)) datasets[name] = { ...await client.queryWiki(view.owner.id, query), sourceOwner: view.owner };
     return { ...viewInput(view), datasets };
   } });
-  if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
+  if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}{snapshot.error && <Button variant="ghost" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
   return <ViewSaveDialog client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
 }
 export function PreviewView({ client, preview, generationId }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string }) {

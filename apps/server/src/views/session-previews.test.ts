@@ -40,3 +40,13 @@ test("a saved report with the same live query but older rows does not protect a 
   const older: ViewRecord = { ...saved, owner: report.owner, queries: report.input.queries, datasets: { rows: { ...preview.input.datasets!.rows, rows: [{ count: 0 }] } } };
   expect(savedViewMatchesPreview(older, report)).toBe(false);
 });
+
+test("mixed live dashboards still protect unsaved static data", () => {
+  const mixed: ViewPreview = { ...preview, owner: { kind: "wiki", id: "wiki" }, input: { ...preview.input, mode: "dashboard", queries: { live: { fields: ["count"] } }, datasets: { ...preview.input.datasets, live: { rows: [{ count: 10 }], total: 1, revision: "live", asOf: 20, truncated: false } } } };
+  const copy: ViewRecord = { ...saved, ...mixed.input, owner: mixed.owner, datasets: { ...mixed.input.datasets, live: { ...mixed.input.datasets!.live, rows: [] } } };
+  expect(savedViewMatchesPreview(copy, mixed)).toBe(true);
+  const stale = { ...copy, datasets: { ...copy.datasets, rows: { ...preview.input.datasets!.rows, rows: [{ count: 0 }] } } };
+  expect(savedViewMatchesPreview(stale, mixed)).toBe(false);
+  expect(reviewSessionViews([{ callId: "mixed", title: "Mixed", preview: mixed }], [stale], "project", "chat").items).toHaveLength(1);
+  expect(savedViewMatchesPreview({ ...copy, datasets: { ...copy.datasets, extra: preview.input.datasets!.rows } }, mixed)).toBe(false);
+});

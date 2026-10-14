@@ -41,7 +41,7 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
-  return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent>
+  return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent showCloseButton={!busy}>
     <DialogHeader><DialogTitle className="break-words">{t(fromChat ? "views.save_named" : "views.save_copy_named", { title: preview.input.title })}</DialogTitle><DialogDescription>{t(fromChat ? "views.preview_save_hint" : "views.save_hint")}</DialogDescription></DialogHeader>
     <div className="max-h-[45vh] space-y-5 overflow-y-auto">
       {destinations.isPending && <p role="status" className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>}

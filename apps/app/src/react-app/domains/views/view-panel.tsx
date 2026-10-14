@@ -30,9 +30,9 @@ export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client:
     return () => window.clearTimeout(timer);
   }, [activity, generation?.status, tab.generationId]);
   if (generation?.preview && client?.baseUrl === tab.serverUrl) return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
-    <div className="lw-saved-view-toolbar"><span>{t("views.preview_unsaved")}</span><Button size="sm" onClick={() => setSaving(true)}>{t("views.save_title")}</Button></div>
+    <div className="lw-saved-view-toolbar"><span>{t(generation.saved ? "views.original_preview" : "views.preview_unsaved")}</span><Button size="sm" onClick={() => setSaving(true)}>{t(generation.saved ? "views.save_copy" : "views.save_title")}</Button></div>
     <PreviewView client={client} preview={generation.preview} generationId={tab.generationId} />
-    {saving && <ViewSaveDialog fromChat savedFrom={{ workspaceId: generation.workspaceId, sessionId: generation.sessionId, callId: generation.toolCallId }} client={client} preview={generation.preview} onClose={() => setSaving(false)} onSaved={view => {
+    {saving && <ViewSaveDialog fromChat={!generation.saved} savedFrom={{ workspaceId: generation.workspaceId, sessionId: generation.sessionId, callId: generation.toolCallId }} client={client} preview={generation.saved ? { ...generation.preview, target: undefined } : generation.preview} onClose={() => setSaving(false)} onSaved={view => {
       useViewGenerationStore.getState().markSaved(tab.generationId, view);
       usePanelTabStore.getState().resolveViewTab(tab.generationId, viewPanelTab(client.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
       setSaving(false);

@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
-import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
+import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession, verifiedWikiSessionOrigin } from "./agent-access.js";
+import { grantWikiProjectAccess, wikiProjectAccessRevision, wikiProjectAccessSignal, wikiProjectGrants } from "./project-access.js";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -165,10 +166,35 @@ test("workspace tools retain the session origin and cannot borrow another worksp
   const shellRequest = request("/workspace/project/sandbox/execute", { method: "POST" });
   const shell = (sessionID: string) => new Request(shellRequest.url, { method: "POST", headers: shellRequest.headers, body: JSON.stringify({ sessionID, command: "pwd" }) });
   expect((await authenticateWikiAgentRequest(config, shell("session-1")))?.actor.scope).toBe("owner");
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/project/sessions/session-1/review-recovery", { method: "POST" })))?.actor.scope).toBe("owner");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/project/sessions/other/review-recovery", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/sessions/session-1/review-recovery", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await expect(authenticateWikiAgentRequest(config, shell("another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
   await grantWikiAgentSession(config, { sessionId: "nested", directory: nested, scope: "owner" });
   expect((await authenticateWikiAgentRequest(config, request("/workspace/wiki/storage/roots", { session: "nested", directory: nested })))?.actor.scope).toBe("owner");
   await expect(authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots", { session: "nested", directory: nested }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
   expect((await authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots")))?.actor.scope).toBe("viewer");
+});
+
+test("verified descendants retain live scope and ancestor changes abort grants and pending approvals", async () => {
+  const { config, root, request } = await fixture();
+  const parents: Record<string, string | undefined> = { child: "middle", middle: "parent" };
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: root, parentID: parents[id] }));
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "owner" });
+  const origin = await verifiedWikiSessionOrigin(config, config.workspaces[0], "child", "owner", new AbortController().signal);
+  const revision = wikiProjectAccessRevision(config, "child"), signal = wikiProjectAccessSignal(config, "child");
+  const grant = { wikiId: "wiki", projectId: "project", root, scope: "owner", origin: origin.generation } satisfies Parameters<typeof grantWikiProjectAccess>[2];
+  grantWikiProjectAccess(config, "child", grant, revision);
+  await grantWikiAgentSession(config, { sessionId: "parent", directory: root, scope: "collaborator" });
+  expect((await authenticateWikiAgentRequest(config, request("/wikis", { session: "child" })))?.actor.scope).toBe("collaborator");
+  const current = await verifiedWikiSessionOrigin(config, config.workspaces[0], "child", "collaborator", new AbortController().signal);
+  expect(current.generation).not.toBe(origin.generation);
+  expect(signal.aborted).toBe(true);
+  expect(wikiProjectGrants(config, "child")).toEqual([]);
+  expect(() => grantWikiProjectAccess(config, "child", grant, revision)).toThrow();
+  const nextSignal = wikiProjectAccessSignal(config, "child");
+  revokeWikiAgentSession(config, "middle");
+  expect(nextSignal.aborted).toBe(true);
+  await expect(authenticateWikiAgentRequest(config, request("/wikis", { session: "child" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
 });
