@@ -1966,7 +1966,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           aria-hidden={props.realtimeVoiceActive || undefined}
@@ -2101,9 +2101,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
           />
         )}
+        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} />
       </div>
 
-      <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} />
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>
