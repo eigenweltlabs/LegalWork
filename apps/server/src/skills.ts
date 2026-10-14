@@ -113,7 +113,7 @@ async function parseSkillEntry(
 
 export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -135,7 +135,7 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
         console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
       }
-      for (const subEntry of subEntries) {
+      for (const subEntry of subEntries.sort((a, b) => a.name.localeCompare(b.name))) {
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;

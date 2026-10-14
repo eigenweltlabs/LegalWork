@@ -1,3 +1,4 @@
+import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
 import { useEffect } from "react";
@@ -58,6 +59,7 @@ export function AppRoot() {
         <ShellConfigProvider>
         <AppMenuProvider>
         <LegalworkControlProvider>
+          <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
           <Routes>
               <Route
@@ -161,6 +163,7 @@ export function AppRoot() {
               <Route path="/" element={<Navigate to="/home" replace />} />
               <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
+          </DocumentRuntimeProvider>
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>
