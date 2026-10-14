@@ -273,7 +273,9 @@ test("reload routes are owner-only, reject extra provider details, and only read
   const path = `http://127.0.0.1:${server.port}/workspace/project/connector-drafts/email/${draft.id}/reload`;
   const body = JSON.stringify({ revision: saved.draft.revision });
   const headers = { "Content-Type": "application/json", "X-LegalWork-Host-Token": "host" };
-  const before = requests.length;
+  // Server startup also performs unrelated policy/hub sync in the background.
+  const draftRequests = () => requests.filter(item => item.url.hostname !== "draft-broker.test" || item.url.pathname.startsWith("/api/connectors/"));
+  const before = draftRequests().length;
   expect((await nativeFetch(path, { method: "POST", body })).status).toBe(401);
   expect((await nativeFetch(path, { method: "POST", body, headers: { "Content-Type": "application/json", Authorization: "Bearer client" } })).status).toBe(401);
   expect((await nativeFetch(path.replace("/project/", "/other/"), { method: "POST", body, headers })).status).toBe(409);
@@ -281,14 +283,14 @@ test("reload routes are owner-only, reject extra provider details, and only read
   config.readOnly = true;
   expect((await nativeFetch(path, { method: "POST", body, headers })).status).toBe(403);
   config.readOnly = false;
-  expect(requests).toHaveLength(before);
+  expect(draftRequests()).toHaveLength(before);
   changed = true;
   const result = await nativeFetch(path, { method: "POST", body, headers });
   expect(result.status).toBe(200);
   const reloaded = z.object({ draft: EmailDraftSchema }).parse(await result.json()).draft;
   expect(reloaded.subject).toBe("Changed by another editor");
   expect(reloaded.delivery?.state).toBe("saved");
-  expect(requests.slice(before).filter(item => item.url.hostname !== "draft-broker.test").every(item => item.method === "GET")).toBe(true);
+  expect(draftRequests().slice(before).filter(item => item.url.hostname !== "draft-broker.test").every(item => item.method === "GET")).toBe(true);
 });
 
 test("calendar delivery preserves date, time zone, reminders and selected calendar without invitations or duplicate entries", async () => {

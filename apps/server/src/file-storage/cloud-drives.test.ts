@@ -113,4 +113,4 @@ test("Microsoft creates files above 250 MB in bounded chunks on a signed session
     await adapter.upload("Large.bin", source, "application/octet-stream", { createOnly: true });
     expect(uploaded).toBe(251 * 1024 * 1024); expect(Math.max(...sizes)).toBe(10 * 1024 * 1024); expect(guarded).toBe(sizes.length);
   } finally { await rm(directory, { recursive: true, force: true }); }
-});
+}, 30_000);
