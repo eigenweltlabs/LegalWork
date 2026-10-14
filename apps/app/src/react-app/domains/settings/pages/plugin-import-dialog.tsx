@@ -25,6 +25,7 @@ export type PluginImportStore = {
 const componentTypes: PluginImportPreview["components"][number]["type"][] = ["skill", "mcp", "agent", "command"];
 type ImportFilter = "all" | "plugin" | "skill" | "connector";
 const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal };
+const connectionStatusLabels = { compatible: "extensions.import_connection_compatible", setup: "extensions.import_connection_setup", unchecked: "extensions.import_connection_unchecked", blocked: "extensions.import_connection_blocked" };
 const componentLabel = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "extensions.import_skill" : type === "mcp" ? "integrations.connector" : type === "agent" ? "composer.agent_label" : "session.permission_detail_command");
 
@@ -276,7 +277,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           {selected.connectors?.length ? <div className="space-y-4 rounded-xl border border-border p-4">
             <h4 className="text-sm font-medium">{t("extensions.import_connection_requirements")}</h4>
             {selected.connectors.map(check => <div key={check.installedName} className="space-y-1 text-sm">
-              <div className="flex items-center justify-between gap-3"><span className="font-medium">{pluginImportName(check)}</span><span className={check.status === "blocked" ? "text-destructive" : "text-muted-foreground"}>{t(`extensions.import_connection_${check.status}`)}</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="font-medium">{pluginImportName(check)}</span><span className={check.status === "blocked" ? "text-destructive" : "text-muted-foreground"}>{t(connectionStatusLabels[check.status])}</span></div>
               <p className="text-sm leading-relaxed text-muted-foreground">{check.message}</p>
               {check.inputs?.length ? <p className="break-words text-xs text-muted-foreground">{t("extensions.import_required_values", { values: check.inputs.join(", ") })}</p> : null}
               {check.documentationUrl ? <a href={check.documentationUrl} target="_blank" rel="noreferrer" className="text-xs underline underline-offset-4">{t("extensions.import_provider_requirements")}</a> : null}
