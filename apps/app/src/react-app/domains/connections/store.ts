@@ -298,7 +298,7 @@ export function createConnectionsStore(options: {
     return { next, nextStatuses, engineSync };
   };
 
-  const resolveDesktopCommand = async (commandName: "getComputerUseMcpCommand" | "getLegalworkUiMcpCommand", fallbackOnError = true) => {
+  const resolveDesktopCommand = async (commandName: "getComputerUseMcpCommand" | "getLegalworkUiMcpCommand" | "getActaportMcpCommand", fallbackOnError = true) => {
     try {
       const command = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.(commandName);
       if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
@@ -317,6 +317,11 @@ export function createConnectionsStore(options: {
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
     const mcpResource = extensionResource(entry.extensionManifest, "mcp");
+    if (mcpResource?.localCommandRef === "legalwork.actaportMcp") {
+      const command = await resolveDesktopCommand("getActaportMcpCommand", false);
+      if (!command) throw new Error(t("actaport.desktop_required"));
+      return command;
+    }
     if (mcpResource?.localCommandRef === "legalwork.computerUseMcp") {
       const command = await resolveDesktopCommand("getComputerUseMcpCommand", false);
       return command ?? entry.command;
@@ -329,6 +334,11 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpEnvironment = async (entry: McpDirectoryInfo) => {
+    if (entry.serverName === "actaport") {
+      const environment = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getActaportMcpEnvironment");
+      if (!environment) throw new Error(t("actaport.desktop_required"));
+      return environment;
+    }
     if (entry.environment) return entry.environment;
     if (entry.serverName !== "legalwork-ui") return undefined;
     try {
@@ -598,6 +608,7 @@ export function createConnectionsStore(options: {
     try {
       connectingMcpGeneration = authGeneration;
       mutateState((current) => ({ ...current, mcpStatus: null, mcpConnectingName: entry.name }));
+      if (entry.serverName === "actaport" && isRemoteWorkspace) throw new Error(t("actaport.local_worker_required"));
 
       // Resolve dynamic URLs for built-in MCPs
       let resolvedUrl = entry.url;

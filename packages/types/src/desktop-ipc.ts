@@ -13,6 +13,16 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+
+export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
+export type ActaportConnectionStatus = {
+  configured: boolean;
+  secureStorage: boolean;
+  allowWrites: boolean;
+  coreToolCount: number;
+  enabledToolsets: ActaportToolset[];
+  toolsets: Array<{ id: ActaportToolset; readTools: number; writeTools: number }>;
+};
 import type {
   AudioCapturePermissions,
   AudioDiarizationState,
@@ -485,6 +495,14 @@ export type DesktopCommandMap = {
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
   getComputerUseMcpCommand: { args: []; result: string[] };
+  getActaportMcpCommand: { args: []; result: string[] };
+  getActaportMcpEnvironment: { args: []; result: Record<string, string> };
+  actaportStatus: { args: []; result: ActaportConnectionStatus };
+  actaportConnect: { args: [credentials: { realm: string; clientId: string; clientSecret: string; username: string; password: string }]; result: ActaportConnectionStatus };
+  actaportTest: { args: []; result: { ok: boolean } };
+  actaportSetWriteAccess: { args: [enabled: boolean]; result: ActaportConnectionStatus };
+  actaportSetToolsets: { args: [toolsets: ActaportToolset[]]; result: ActaportConnectionStatus };
+  actaportDisconnect: { args: []; result: ActaportConnectionStatus };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use

@@ -16,10 +16,11 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -111,6 +112,22 @@ function recordingAudioContentType(filePath) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function actaportBundlePath(file) {
+  return app.isPackaged ? path.join(process.resourcesPath, "actaport-mcp", file)
+    : path.resolve(__dirname, "../../../packages/actaport-mcp/dist", file);
+}
+/** @type {ReturnType<typeof createActaportConnection> | undefined} */
+let actaportConnection;
+function getActaportConnection() {
+  actaportConnection ??= createActaportConnection({ directory: app.getPath("userData"), safeStorage,
+    loadAuth: () => import(pathToFileURL(actaportBundlePath("auth.mjs")).href) });
+  return actaportConnection;
+}
+function prepareActaportMcpRuntime() {
+  return prepareActaportRuntime(path.dirname(actaportBundlePath("index.mjs")), path.join(app.getPath("userData"), "mcp", "actaport"));
+}
+app.on("will-quit", () => { void actaportConnection?.close(); });
 
 // Where the app UI is served from: the dev server, or the built app folder.
 const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
@@ -1819,6 +1836,31 @@ const desktopCommandHandlers = {
   "getComputerUseMcpCommand": async (event, ...args) => {
       return getComputerUseMcpCommand();
   },
+  "getActaportMcpCommand": async (event, ...args) => {
+      // The worker's PATH already contains LegalWork's bundled Node runtime.
+      return ["node", await prepareActaportMcpRuntime()];
+  },
+  "getActaportMcpEnvironment": async (event, ...args) => {
+      return getActaportConnection().environment();
+  },
+  "actaportStatus": async (event, ...args) => {
+      return getActaportConnection().status();
+  },
+  "actaportConnect": async (event, ...args) => {
+      return getActaportConnection().connect(args[0]);
+  },
+  "actaportTest": async (event, ...args) => {
+      return getActaportConnection().test();
+  },
+  "actaportSetWriteAccess": async (event, ...args) => {
+      return getActaportConnection().setWriteAccess(args[0]);
+  },
+  "actaportSetToolsets": async (event, ...args) => {
+      return getActaportConnection().setToolsets(args[0]);
+  },
+  "actaportDisconnect": async (event, ...args) => {
+      return getActaportConnection().disconnect();
+  },
   "checkComputerUsePermissions": async (event, ...args) => {
       // Spawn --check → fresh TCC read → always accurate.
       return checkComputerUsePermissions();
@@ -2964,6 +3006,9 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
+    // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
+    await getActaportConnection().environment();
     // Serve recording audio to <audio> elements. The element loads this URL
     // natively (no async JS between the click and play()), so first-play works
     // within the user gesture, and Range requests stream the file for seeking.
