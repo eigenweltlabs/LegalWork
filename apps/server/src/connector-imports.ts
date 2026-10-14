@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PluginImportCandidate, PluginImportConnector, PluginImportProvider } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
+import { isCredentialHeader } from "./connector-config.js";
 
 const MAX_CONFIG_BYTES = 16 * 1024 * 1024;
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -66,18 +67,28 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
   return candidates;
 }
 
-function normalizeCodex(original: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+export function normalizeImportedConnector(original: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const config = { ...original };
   const env = record(original.env) ? { ...original.env } : {};
   if (Array.isArray(original.env_vars)) for (const name of original.env_vars) if (typeof name === "string" && !Object.hasOwn(env, name)) env[name] = `\${${name}}`;
   if (Object.keys(env).length) config.env = env;
-  const headers = record(original.http_headers) ? { ...original.http_headers } : {};
+  const headers = { ...(record(original.http_headers) ? original.http_headers : {}), ...(record(original.headers) ? original.headers : {}) };
   if (record(original.env_http_headers)) for (const [header, name] of Object.entries(original.env_http_headers)) if (typeof name === "string") headers[header] = `\${${name}}`;
   if (typeof original.bearer_token_env_var === "string") headers.Authorization = `Bearer \${${original.bearer_token_env_var}}`;
   if (Object.keys(headers).length) config.headers = headers;
   if (record(original.oauth)) {
-    config.oauth = typeof original.oauth.client_id === "string" ? { clientId: original.oauth.client_id } : {};
+    const oauth = original.oauth;
+    config.oauth = {
+      ...(typeof (oauth.clientId ?? oauth.client_id) === "string" ? { clientId: oauth.clientId ?? oauth.client_id } : {}),
+      ...(typeof (oauth.clientSecret ?? oauth.client_secret) === "string" ? { clientSecret: oauth.clientSecret ?? oauth.client_secret } : {}),
+      ...(typeof oauth.scope === "string" ? { scope: oauth.scope } : {}),
+      ...(typeof (oauth.callbackPort ?? oauth.callback_port) === "number" ? { callbackPort: oauth.callbackPort ?? oauth.callback_port } : {}),
+      ...(typeof (oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url) === "string" ? { redirectUri: oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url } : {}),
+    };
   }
+  if (original.oauth === undefined && Object.keys(headers).some(isCredentialHeader)) config.oauth = false;
+  if (typeof original.timeout !== "number" && typeof original.startup_timeout_sec === "number") config.timeout = original.startup_timeout_sec * 1000;
+  if (original.http_headers_helper) config.headersHelper = original.http_headers_helper;
   if (original.auth === "chatgpt") warnings.push("ChatGPT-only authentication is not supported for this connector.");
   const policies = ["enabled_tools", "disabled_tools", "tools", "default_tools_approval_mode"];
   if (policies.some(key => original[key] !== undefined)) warnings.push("Codex tool restrictions and approval rules will not carry over. LegalWork's tool permissions apply instead.");
@@ -92,7 +103,7 @@ export async function connectorImportBundle(provider: PluginImportProvider, path
   const original = own(servers(source, provider, connector.project), connector.name);
   if (!record(original)) throw new ApiError(400, "invalid_connector_import", "This connector is no longer in its source configuration. Rescan and choose it again.");
   const warnings: string[] = [];
-  const config = provider === "chatgpt" ? normalizeCodex(original, warnings) : { ...original };
+  const config = normalizeImportedConnector(original, warnings);
   config.enabled = false;
   if (original.type === "sdk") throw new ApiError(400, "invalid_connector_import", "This connector requires its original SDK host and cannot run as a standalone MCP server.");
   const name = `connector-${connector.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32)}-${createHash("sha256").update(JSON.stringify({ provider, path: resolve(path), connector })).digest("hex").slice(0, 12)}`;

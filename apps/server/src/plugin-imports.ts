@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, posix, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { unzipSync } from "fflate";
 import { z } from "zod";
 import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
 import { buildFrontmatter, parseFrontmatter } from "./frontmatter.js";
 import { pluginNamespace, resolveWorkspaceInstallPath, type CloudPluginResolved } from "./cloud-plugins.js";
-import { connectorImportBundle, discoverConnectorImports } from "./connector-imports.js";
+import { connectorImportBundle, discoverConnectorImports, normalizeImportedConnector } from "./connector-imports.js";
+import { connectorConfigVariables } from "./connector-config.js";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
@@ -299,7 +300,7 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
     if (ignored.length) warnings.push(`${type} ${originalName}: ${ignored.join(", ")} will not carry over. LegalWork's own execution and tool permissions apply.`);
     const content = buildFrontmatter({ ...parsed.data, name: installedName }) + "\n" + body;
     memberships.push({ configObjectId: key, configObject: { id: key, objectType: type, title: installedName, description: str(parsed.data.description) ?? originalName, currentRelativePath: target, status: "active", updatedAt: null, latestVersion: { id: createHash("sha256").update(raw).digest("hex"), rawSourceText: content, normalizedPayloadJson: null } } });
-    components.push({ type, name: originalName, installedName });
+    components.push({ type, name: originalName, installedName: type === "agent" ? `${namespace}/${installedName}` : installedName });
     if (type === "skill" && inline === undefined) {
       const directory = posix.dirname(sourcePath);
       const prefix = directory === "." ? "" : `${directory}/`;
@@ -340,26 +341,31 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
   for (const [serverName, original] of Object.entries(servers)) {
     if (serverName === "$schema") continue;
     if (!record(original)) fail(`Invalid MCP server: ${serverName}`);
-    const expanded = expandRoot(original, absoluteBundle);
+    const expanded = expandRoot(normalizeImportedConnector(original, warnings), absoluteBundle);
     if (!record(expanded)) fail(`Invalid MCP server: ${serverName}`);
     const normalized: Record<string, unknown> = { ...expanded };
+    if (typeof normalized.cwd === "string" && !isAbsolute(normalized.cwd) && !normalized.cwd.includes("${")) normalized.cwd = resolve(absoluteBundle, normalized.cwd);
     if (Array.isArray(normalized.args)) normalized.args = normalized.args.map(argument => typeof argument === "string" && files.has(argument.replace(/^\.\//, "")) ? join(absoluteBundle, argument.replace(/^\.\//, "")) : argument);
     if (typeof normalized.command === "string" && !normalized.url) normalized.env = { ...(record(normalized.env) ? normalized.env : {}), CLAUDE_PLUGIN_ROOT: absoluteBundle, CODEX_PLUGIN_ROOT: absoluteBundle, PLUGIN_ROOT: absoluteBundle };
     if (normalized.headersHelper) warnings.push(`Connector ${serverName}: its automatic credential script will not run. LegalWork does not support this authentication helper.`);
     if (typeof normalized.command === "string" && /^\.\//.test(normalized.command)) normalized.command = join(absoluteBundle, safePath(normalized.command));
     const auth = record(normalized.extensions) && record(normalized.extensions["com.openai"]) && record(normalized.extensions["com.openai"].auth) ? normalized.extensions["com.openai"].auth : null;
     if (auth?.type === "none") normalized.oauth = false;
+    else if (auth?.type === "api_key") {
+      normalized.oauth = false;
+      const header = auth.headerScheme === "custom_header" ? str(auth.headerName) : "Authorization";
+      if (!header || /^host$/i.test(header)) fail(`Connector ${serverName} has an invalid API key header.`);
+      normalized.headers = { ...(record(normalized.headers) ? normalized.headers : {}), [header]: auth.headerScheme === "bearer" ? "Bearer ${API_KEY}" : auth.headerScheme === "basic" ? "Basic ${BASIC_AUTH_CREDENTIALS}" : "${API_KEY}" };
+    }
     else if (auth?.type === "oauth" || auth?.type === "mixed") {
       const client = record(auth.client) ? auth.client : {};
       normalized.oauth = { ...(str(client.clientId) ? { clientId: client.clientId } : {}), ...(Array.isArray(auth.baseScopes) ? { scope: auth.baseScopes.filter(scope => typeof scope === "string").join(" ") } : {}) };
       if (auth.authorizationUrl || auth.tokenUrl || (client.tokenEndpointAuthMethod && client.tokenEndpointAuthMethod !== "none")) { normalized.enabled = false; warnings.push(`Connector ${serverName}: custom sign-in endpoints and confidential-client authentication will not be imported.`); }
     }
-    const unresolved = JSON.stringify(normalized).match(/\$\{(?!CLAUDE_PLUGIN_ROOT|CODEX_PLUGIN_ROOT)[^}]+\}/g);
-    if (unresolved || normalized.cwd || auth?.type === "api_key" || normalized.userConfig) {
+    if (connectorConfigVariables(normalized).length || auth?.type === "api_key" || normalized.userConfig) {
       normalized.enabled = false;
     }
     if (typeof normalized.url === "string" && (!normalized.url.trim() || /\$\{|[{}]/.test(normalized.url))) {
-      normalized.url = "https://configure-before-connecting.invalid/mcp";
       normalized.enabled = false;
     }
     if (normalized.headersHelper) normalized.enabled = false;

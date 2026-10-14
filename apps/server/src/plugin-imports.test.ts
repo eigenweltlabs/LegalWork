@@ -124,7 +124,7 @@ describe("complete plugin imports", () => {
     expect(plan!.preview.warnings).toEqual([]);
     expect(new Set(plan!.preview.components.filter(item => item.type === "skill").map(item => item.installedName)).size).toBe(2);
     const mcp = JSON.stringify(plan!.resolved.memberships.find(item => item.configObject?.objectType === "mcp"));
-    expect(mcp).toContain("https://configure-before-connecting.invalid/mcp");
+    expect(mcp).toContain("https://${HOST}/mcp");
     expect(mcp).toContain('"enabled":false');
     expect(mcp).toContain("${GITHUB_TOKEN}");
     expect(mcp).toContain('"SETTING":"default"');

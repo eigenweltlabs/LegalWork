@@ -62,7 +62,9 @@ const browserWindow = new EventTarget();
 let config = "{}";
 let status: McpStatusMap = {};
 let saveError = "";
+let engineSaveError = "";
 let serverAdds: unknown[] = [];
+let engineAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
 let reloads: Array<{ reason: ReloadReason; trigger?: ReloadTrigger }> = [];
 let restoreAnalytics = () => {};
@@ -136,7 +138,9 @@ describe("connection store success reporting", () => {
     config = "{}";
     status = { "test-server": { status: "connected" } };
     saveError = "";
+    engineSaveError = "";
     serverAdds = [];
+    engineAdds = [];
     analyticsEvents = [];
     reloads = [];
     selectedWorkspaceId = "local";
@@ -177,6 +181,8 @@ describe("connection store success reporting", () => {
           return Response.json({ items: emptyServerList || serverListReads <= emptyServerReads ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
+        if (request.method === "POST") engineAdds.push(await request.json());
+        if (request.method === "POST" && engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
         const engineStatus = status;
         engineStatusRequests += 1;
         engineStatusStarted?.();
@@ -367,6 +373,23 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp(entry)).toBe(false);
     expect(store.getSnapshot().mcpStatus).toBe("MCP endpoint returned 503");
     expect(connectedEvents()).toHaveLength(0);
+  });
+
+  test("a rejected settings update cannot report success using the old connected engine entry", async () => {
+    const store = makeStore();
+    engineSaveError = "Updated configuration was rejected";
+    expect(await store.connectMcp({ ...entry, headers: { Authorization: "Bearer synthetic-token" }, oauth: false })).toBe(false);
+    expect(connectedEvents()).toEqual([]);
+    store.dispose();
+  });
+
+  test("configuring an imported local connector preserves ownership and forwards its full launch configuration to the engine", async () => {
+    const config = { type: "local", command: ["node", "/plugin/server.js", "", "two words"], cwd: "/plugin", environment: { KEY: "synthetic-key", EMPTY: "" }, timeout: 45000 } satisfies import("../src/app/types").McpServerConfig;
+    const store = makeStore();
+    expect(await store.connectMcp({ ...entry, ...config, existingConfig: config, oauth: false })).toBe(true);
+    expect(serverAdds[0]).toMatchObject({ name: "test-server", preserveScope: true, config: { ...config, enabled: true } });
+    expect(engineAdds[0]).toMatchObject({ name: "test-server", config: { ...config, enabled: true } });
+    store.dispose();
   });
 
   test("a failed save cannot silently report success", async () => {

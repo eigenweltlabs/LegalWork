@@ -42,7 +42,7 @@ import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
-import { addMcp, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
+import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
@@ -4458,7 +4458,8 @@ function createRoutes(
       summary: `Add MCP ${name}`,
       paths: [legalworkConfigPath(workspace.path)],
     });
-    const scope = parseMcpScope(body.scope);
+    const scope = body.preserveScope === true ? await existingMcpScope(config, workspace.id, name) : parseMcpScope(body.scope);
+    if (!scope) throw new ApiError(404, "connector_not_found", "This connector is no longer available.");
     const result = await addMcp(config, workspace.id, name, configPayload, scope);
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.

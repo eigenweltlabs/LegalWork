@@ -329,6 +329,7 @@ export function createConnectionsStore(options: {
   };
 
   const resolveLocalMcpEnvironment = async (entry: McpDirectoryInfo) => {
+    if (entry.environment) return entry.environment;
     if (entry.serverName !== "legalwork-ui") return undefined;
     try {
       const environment = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getLegalworkUiMcpEnvironment");
@@ -618,9 +619,11 @@ export function createConnectionsStore(options: {
         }
       }
 
-      const mcpEntryConfig: Record<string, unknown> = {
+      const mcpEntryConfig: import("@/app/types").McpServerConfig = {
+        ...entry.existingConfig,
         type: entryType,
         enabled: true,
+        ...(entry.timeout !== undefined ? { timeout: entry.timeout } : {}),
       };
 
       if (entryType === "remote") {
@@ -647,6 +650,7 @@ export function createConnectionsStore(options: {
           throw new Error(t("mcp.missing_command"));
         }
         mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
+        if (entry.cwd) mcpEntryConfig.cwd = entry.cwd;
         const environment = await resolveLocalMcpEnvironment(entry);
         if (environment) {
           mcpEntryConfig["environment"] = environment;
@@ -660,19 +664,21 @@ export function createConnectionsStore(options: {
       // engine reads the first once per process and the server rebuilds the
       // second from its DB, so neither made a connector visible everywhere.
       if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-        await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig });
+        await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig, ...(entry.existingConfig ? { preserveScope: true } : {}) });
       } else {
         throw new Error(t("mcp.connect_server_first"));
       }
 
       let engineHasMcp = false;
+      let engineUpdatedMcp = false;
       let engineAddError: unknown;
       if (isDesktopRuntime() && !isRemoteWorkspace && activeClient && resolvedProjectDir) {
         // Hot-add to the active workspace's engine for a live connection + OAuth
         // detection. Other workspaces load the MCP from global config on next start.
-        const mcpAddConfig =
+        const mcpAddConfig: import("@opencode-ai/sdk/v2/client").McpLocalConfig | import("@opencode-ai/sdk/v2/client").McpRemoteConfig =
           entryType === "remote"
             ? {
+                ...mcpEntryConfig,
                 type: "remote" as const,
                 url: resolvedUrl ?? entry.url!,
                 enabled: true,
@@ -686,8 +692,9 @@ export function createConnectionsStore(options: {
                       : {}),
               }
             : {
+                ...mcpEntryConfig,
                 type: "local" as const,
-                command: (mcpEntryConfig["command"] as string[]) ?? entry.command!,
+                command: mcpEntryConfig.command ?? entry.command!,
                 enabled: true,
               };
 
@@ -706,6 +713,7 @@ export function createConnectionsStore(options: {
                 config: mcpAddConfig,
               }),
             );
+            engineUpdatedMcp = true;
             setStateField("mcpStatuses", status as McpStatusMap);
             engineHasMcp = Object.prototype.hasOwnProperty.call(status ?? {}, slug);
           } catch (error) {
@@ -725,6 +733,7 @@ export function createConnectionsStore(options: {
             await new Promise((resolve) => setTimeout(resolve, 400));
           }
         }
+        if (!engineUpdatedMcp && engineAddError) throw engineAddError;
       } else {
         setStateField("mcpStatuses", filterConfiguredStatuses(snapshot.mcpStatuses, snapshot.mcpServers));
       }

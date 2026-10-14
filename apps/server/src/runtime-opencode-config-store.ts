@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { connectorConfigVariables } from "./connector-config.js";
 
 export type RuntimeOpencodeConfig = {
   default_agent?: string;
@@ -264,7 +265,9 @@ export function runtimeDisabledProviderList(config: RuntimeOpencodeConfig): stri
 }
 
 export function runtimeMcpMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {
-  return isRecord(config.mcp) ? config.mcp as Record<string, Record<string, unknown>> : {};
+  return Object.fromEntries(Object.entries(recordRecordMap(config.mcp) ?? {}).map(([name, entry]): [string, Record<string, unknown>] => [name,
+    connectorConfigVariables(entry).length || entry.url === "https://configure-before-connecting.invalid/mcp" ? { ...entry, enabled: false } : entry,
+  ]));
 }
 
 export function runtimeAgentMap(config: RuntimeOpencodeConfig): Record<string, Record<string, unknown>> {

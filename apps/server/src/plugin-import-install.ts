@@ -29,7 +29,7 @@ export async function installPluginImport(config: ServerConfig, workspaceId: str
       if (backup) { await mkdir(dirname(backup), { recursive: true }); await rename(path, backup); }
       backups.push({ path, backup });
     }
-    const installed = await installCloudPlugin({ serverConfig: config, workspaceId: registry, workspaceRoot, marketplaceId: null, resolved: plan.resolved, global, resourceFiles: plan.resourceFiles, preserveSkillMetadata: true });
+    const installed = await installCloudPlugin({ serverConfig: config, workspaceId: registry, workspaceRoot, marketplaceId: null, resolved: plan.resolved, global, resourceFiles: plan.resourceFiles, preserveSkillMetadata: true, preserveConnectorSetup: true });
     for (const entry of backups) if (entry.backup) await rm(entry.backup, { recursive: true, force: true }).catch(() => undefined);
     return installed;
   } catch (error) {

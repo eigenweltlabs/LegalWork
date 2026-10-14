@@ -1,7 +1,8 @@
 import type { McpServerEntry, McpStatus } from "@/app/types";
 import { t } from "@/i18n";
+import { connectorNeedsSetup } from "@/app/mcp-configuration";
 
-export type ConnectorState = McpStatus["status"] | "disconnected" | "needs_key";
+export type ConnectorState = McpStatus["status"] | "disconnected" | "needs_key" | "needs_setup";
 
 /** Ownership changes available controls, not the meaning of a connection state. */
 export function resolveConnectorState(input: {
@@ -18,6 +19,7 @@ export function resolveConnectorState(input: {
 }
 
 export function configuredConnectorState(entry: McpServerEntry, status?: McpStatus): ConnectorState {
+  if (connectorNeedsSetup(entry.config)) return "needs_setup";
   return resolveConnectorState({ enabled: entry.config.enabled !== false, status: status?.status });
 }
 
@@ -26,6 +28,7 @@ const messages = {
   disabled: "integrations.connector_needs_enable",
   needs_auth: "firm_hub.connector_needs_sign_in",
   needs_key: "firm_hub.connector_needs_key",
+  needs_setup: "connector_setup.required_status",
   needs_client_registration: "integrations.team_sign_in_setup",
   failed: "mcp.friendly_status_issue",
   disconnected: "mcp.friendly_status_offline",
@@ -36,6 +39,7 @@ const dots = {
   disabled: null,
   needs_auth: "bg-amber-9",
   needs_key: "bg-amber-9",
+  needs_setup: "bg-amber-9",
   needs_client_registration: "bg-amber-9",
   failed: "bg-red-9",
   disconnected: "bg-gray-7",

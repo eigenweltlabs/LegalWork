@@ -61,6 +61,11 @@ export async function runtimeMcpMapForWorkspace(
   return { ...rows.global, ...rows.workspace };
 }
 
+export async function existingMcpScope(config: ServerConfig, workspaceId: string, name: string): Promise<McpScope | null> {
+  const rows = await readMcpRows(config, workspaceId);
+  return hasOwn(rows.workspace, name) ? "workspace" : hasOwn(rows.global, name) ? "global" : null;
+}
+
 function getMcpConfig(config: Record<string, unknown>): Record<string, Record<string, unknown>> {
   const mcp = config.mcp;
   if (!mcp || typeof mcp !== "object") return {};

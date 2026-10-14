@@ -3048,7 +3048,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // caller asks for one workspace's own entry.
     addMcp: (
       workspaceId: string,
-      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace" },
+      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace"; preserveScope?: boolean },
     ) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,

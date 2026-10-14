@@ -64,6 +64,9 @@ import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { FirmConnectorLibrary, FirmConnectorRow, firmConnectorName } from "./firm-connectors";
 import { ConnectorStatus, configuredConnectorState, type ConnectorState } from "./connector-status";
+import { connectorUsesOAuth } from "@legalwork/types/connector-config";
+import { connectorNeedsSetup } from "@/app/mcp-configuration";
+import { McpConfigurationForm } from "../../connections/modals/mcp-configuration-form";
 
 export type ReactMcpStatus = ConnectorState;
 
@@ -369,7 +372,7 @@ export function McpView(props: McpViewProps) {
   };
 
   const supportsOauth = (entry: McpServerEntry) =>
-    entry.config.type === "remote" && entry.config.oauth !== false;
+    connectorUsesOAuth(entry.config);
 
   const resolveStatus = (entry: McpServerEntry): ReactMcpStatus => {
     return configuredConnectorState(entry, props.mcpStatuses[entry.name]);
@@ -421,7 +424,7 @@ export function McpView(props: McpViewProps) {
   if (props.detailsOnly) {
     const entry = props.mcpServers.find(item => item.name === props.selectedMcp);
     return <>
-      {entry ? <McpConfiguredServerDetails entry={entry} directoryEntry={resolveQuickConnectMatch(entry.name)} status={resolveStatus(entry)} errorInfo={readMcpErrorInfo(props.mcpStatuses[entry.name])} selected busy={props.busy} logoutBusy={logoutBusy} logoutTarget={logoutTarget} togglingMcp={togglingMcp} displayName={displayName} supportsOauth={supportsOauth} onSelect={props.setSelectedMcp} onAuthorize={props.authorizeMcp} onRequestLogout={requestLogout} onRemove={props.removeMcp} onToggleEnabled={props.setMcpEnabled} onToggleBusy={setTogglingMcp} pluginName={props.pluginName} /> : <Dialog open onOpenChange={open => { if (!open) props.setSelectedMcp(null); }}><DialogContent><DialogHeader><DialogTitle>{t("extensions.connectors_label")}</DialogTitle><DialogDescription>{t("plugin_details.unavailable")}</DialogDescription></DialogHeader><Button variant="outline" onClick={() => props.setSelectedMcp(null)}><ArrowLeft />{t("plugin_details.back", { name: props.pluginName ?? "" })}</Button></DialogContent></Dialog>}
+      {entry ? <McpConfiguredServerDetails entry={entry} directoryEntry={resolveQuickConnectMatch(entry.name)} status={resolveStatus(entry)} errorInfo={readMcpErrorInfo(props.mcpStatuses[entry.name])} selected busy={props.busy} logoutBusy={logoutBusy} logoutTarget={logoutTarget} togglingMcp={togglingMcp} displayName={displayName} supportsOauth={supportsOauth} onSelect={props.setSelectedMcp} onAuthorize={props.authorizeMcp} onConfigure={props.connectMcp} onCancelSetup={props.cancelPendingMcpAuth} onRequestLogout={requestLogout} onRemove={props.removeMcp} onToggleEnabled={props.setMcpEnabled} onToggleBusy={setTogglingMcp} pluginName={props.pluginName} /> : <Dialog open onOpenChange={open => { if (!open) props.setSelectedMcp(null); }}><DialogContent><DialogHeader><DialogTitle>{t("extensions.connectors_label")}</DialogTitle><DialogDescription>{t("plugin_details.unavailable")}</DialogDescription></DialogHeader><Button variant="outline" onClick={() => props.setSelectedMcp(null)}><ArrowLeft />{t("plugin_details.back", { name: props.pluginName ?? "" })}</Button></DialogContent></Dialog>}
       {logoutConfirmation}
     </>;
   }
@@ -487,6 +490,8 @@ export function McpView(props: McpViewProps) {
         supportsOauth={supportsOauth}
         onSelect={props.setSelectedMcp}
         onAuthorize={props.authorizeMcp}
+        onConfigure={props.connectMcp}
+        onCancelSetup={props.cancelPendingMcpAuth}
         onRequestLogout={requestLogout}
         onRemove={(name) => {
           setRemoveTarget(name);
@@ -1007,6 +1012,8 @@ function McpConfiguredServersSection(props: {
   supportsOauth: (entry: McpServerEntry) => boolean;
   onSelect: (name: string | null) => void;
   onAuthorize: (entry: McpServerEntry) => void;
+  onConfigure: McpViewProps["connectMcp"];
+  onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
@@ -1061,6 +1068,8 @@ function McpConfiguredServersSection(props: {
                   supportsOauth={props.supportsOauth}
                   onSelect={props.onSelect}
                   onAuthorize={props.onAuthorize}
+                  onConfigure={props.onConfigure}
+                  onCancelSetup={props.onCancelSetup}
                   onRequestLogout={props.onRequestLogout}
                   onRemove={props.onRemove}
                   onToggleEnabled={props.onToggleEnabled}
@@ -1106,6 +1115,8 @@ function McpConfiguredServerRow(props: {
   supportsOauth: (entry: McpServerEntry) => boolean;
   onSelect: (name: string | null) => void;
   onAuthorize: (entry: McpServerEntry) => void;
+  onConfigure: McpViewProps["connectMcp"];
+  onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
@@ -1137,13 +1148,14 @@ function McpConnectorStatus(props: Parameters<typeof McpConfiguredServerRow>[0])
   return <ConnectorStatus state={props.status} />;
 }
 
-function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0] & { onSetup?: () => void }) {
   if (!props.onToggleEnabled || props.entry.source === "config.global") return null;
   return <Switch
     checked={props.entry.config.enabled !== false}
     disabled={props.busy || props.togglingMcp !== null}
     aria-label={`${t(props.entry.config.enabled === false ? "mcp.enable_app" : "mcp.disable_app")} ${props.displayName(props.entry.name)}`}
     onCheckedChange={enabled => {
+      if (enabled && connectorNeedsSetup(props.entry.config)) { props.onSetup?.(); return; }
       if (props.togglingMcp) return;
       props.onToggleBusy(props.entry.name);
       void Promise.resolve(props.onToggleEnabled?.(props.entry.name, enabled)).finally(() => props.onToggleBusy(null));
@@ -1153,6 +1165,9 @@ function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0])
 
 function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServerRow>[0]) {
   const [signingIn, setSigningIn] = useState(false);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { if (!props.selected) setEditing(false); }, [props.selected]);
+  const needsSetup = connectorNeedsSetup(props.entry.config);
   const signIn = async () => {
     setSigningIn(true);
     try { await props.onAuthorize(props.entry); }
@@ -1161,28 +1176,31 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
   return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
     <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
       <DialogHeader className="pe-6">
-        {props.pluginName ? <Button variant="ghost" size="sm" className="-ml-2 mb-2 w-fit max-w-full" onClick={() => props.onSelect(null)}><ArrowLeft className="size-4 shrink-0" /><span className="truncate">{t("plugin_details.back", { name: props.pluginName })}</span></Button> : null}
+        {editing || props.pluginName ? <Button variant="ghost" size="sm" className="-ml-2 mb-2 w-fit max-w-full" onClick={() => editing ? setEditing(false) : props.onSelect(null)}><ArrowLeft className="size-4 shrink-0" /><span className="truncate">{editing ? t("common.back") : t("plugin_details.back", { name: props.pluginName ?? "" })}</span></Button> : null}
         <div className="mb-1 flex items-center gap-3"><McpConfiguredServerIcon {...props} /><DialogTitle>{props.displayName(props.entry.name)}</DialogTitle></div>
-        <DialogDescription>{props.directoryEntry?.description ?? t("integrations.connector_details")}</DialogDescription>
+        <DialogDescription>{editing ? t("connector_setup.required_hint") : props.directoryEntry?.description ?? t("integrations.connector_details")}</DialogDescription>
       </DialogHeader>
+      {editing ? <McpConfigurationForm key={props.entry.name} entry={props.entry} onBack={() => setEditing(false)} onConnect={props.onConfigure} onCancel={props.onCancelSetup} /> : <>
       <div className="divide-y divide-border">
         <div className="flex items-center justify-between gap-4 pb-5">
           <div className="space-y-2"><h3 className="text-sm font-medium">{t("integrations.connector_chat_access")}</h3><McpConnectorStatus {...props} /></div>
-          <McpConnectorToggle {...props} />
+          {needsSetup && props.entry.source === "config.remote" && props.onToggleEnabled ? <Button size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("connector_setup.action")}</Button> : <McpConnectorToggle {...props} onSetup={() => setEditing(true)} />}
         </div>
-        {props.supportsOauth(props.entry) ? <div className="flex items-center justify-between gap-4 py-5">
+        {props.supportsOauth(props.entry) && !needsSetup ? <div className="flex items-center justify-between gap-4 py-5">
           <div className="min-w-0 space-y-1"><h3 className="text-sm font-medium">{t("integrations.connector_account_access")}</h3><p className="text-xs leading-5 text-muted-foreground">{t(props.entry.config.enabled === false && props.onToggleEnabled ? "integrations.connector_enable_signin_hint" : "integrations.connector_account_hint")}</p></div>
           {props.status === "connected" ? <Button variant="outline" size="sm" disabled={props.busy || props.logoutBusy} onClick={() => props.onRequestLogout(props.entry.name)}>{t(props.logoutBusy && props.logoutTarget === props.entry.name ? "mcp.logout_working" : "mcp.logout_action")}</Button> : <Button size="sm" disabled={props.busy || signingIn || props.togglingMcp !== null} onClick={() => void signIn()}>{signingIn ? <Loader2 className="animate-spin" /> : null}{t("mcp.login_action")}</Button>}
         </div> : null}
+        {props.entry.source === "config.remote" && props.onToggleEnabled && !needsSetup ? <div className="flex items-center justify-between gap-4 py-4"><span className="text-sm font-medium">{t("connector_setup.settings")}</span><Button variant="outline" size="sm" disabled={props.busy} onClick={() => setEditing(true)}>{t("common.edit")}</Button></div> : null}
         <details className="group pt-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><Code2 className="size-3.5" />{t("mcp.technical_details")}<ChevronDown className="ms-auto size-3.5 transition-transform group-open:rotate-180" /></summary>
           <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground"><p>{t(props.entry.config.type === "remote" ? "integrations.connector_remote" : "integrations.connector_local")}</p><p className="break-all font-mono">{props.entry.config.type === "remote" ? props.entry.config.url : props.entry.config.command?.join(" ")}</p></div>
         </details>
       </div>
-      {props.errorInfo ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
+      {props.errorInfo && !needsSetup ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
       {props.entry.source !== "config.global" && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
         <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
       </DialogFooter> : null}
+      </>}
     </DialogContent>
   </Dialog>;
 }
