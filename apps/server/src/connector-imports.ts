@@ -87,6 +87,21 @@ export function normalizeImportedConnector(original: Record<string, unknown>, wa
     };
   }
   if (original.oauth === undefined && Object.keys(headers).some(isCredentialHeader)) config.oauth = false;
+  // Context7 normalizes OAuth callbacks to localhost during authorization and
+  // token exchange. Use the same host when its automatic client is registered.
+  // https://upstash.com/blog/mcp-oauth-implementation
+  if (typeof config.url === "string" && config.oauth !== false) {
+    const oauth = record(config.oauth) ? config.oauth : {};
+    if (!oauth.clientId && !oauth.redirectUri) {
+      try {
+        const url = new URL(config.url);
+        if (url.hostname === "mcp.context7.com" && /^\/mcp(?:\/oauth)?\/?$/.test(url.pathname)) {
+          const port = typeof oauth.callbackPort === "number" ? oauth.callbackPort : 19876;
+          config.oauth = { ...oauth, redirectUri: `http://localhost:${port}/mcp/oauth/callback` };
+        }
+      } catch { /* Unresolved URL templates are handled by connector setup. */ }
+    }
+  }
   if (typeof original.timeout !== "number" && typeof original.startup_timeout_sec === "number") config.timeout = original.startup_timeout_sec * 1000;
   if (original.http_headers_helper) config.headersHelper = original.http_headers_helper;
   if (original.auth === "chatgpt") warnings.push("ChatGPT-only authentication is not supported for this connector.");

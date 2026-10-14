@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { discoverConnectorImports } from "./connector-imports.js";
+import { discoverConnectorImports, normalizeImportedConnector } from "./connector-imports.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports } from "./plugin-imports.js";
 import { installPluginImport } from "./plugin-import-install.js";
 import { removeCloudPlugin } from "./cloud-plugins.js";
@@ -17,6 +17,19 @@ async function write(path: string, config: unknown) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, typeof config === "string" ? config : JSON.stringify(config));
 }
+
+test("Context7 automatic OAuth keeps one canonical callback host while preserving supplied setup", () => {
+  const url = "https://mcp.context7.com/mcp?client=claude-code-plugin";
+  expect(normalizeImportedConnector({ url }, [])).toEqual({ url, oauth: { redirectUri: "http://localhost:19876/mcp/oauth/callback" } });
+  expect(normalizeImportedConnector({ url, oauth: { callback_port: 3210, scope: "profile" } }, []).oauth).toEqual({ callbackPort: 3210, scope: "profile", redirectUri: "http://localhost:3210/mcp/oauth/callback" });
+  expect(normalizeImportedConnector({ url: "https://mcp.context7.com/mcp/oauth" }, []).oauth).toEqual({ redirectUri: "http://localhost:19876/mcp/oauth/callback" });
+  expect(normalizeImportedConnector({ url, oauth: { clientId: "registered-client" } }, []).oauth).toEqual({ clientId: "registered-client" });
+  expect(normalizeImportedConnector({ url, oauth: { callback_url: "http://127.0.0.1:4321/registered" } }, []).oauth).toEqual({ redirectUri: "http://127.0.0.1:4321/registered" });
+  expect(normalizeImportedConnector({ url, oauth: false }, []).oauth).toBe(false);
+  expect(normalizeImportedConnector({ url, headers: { Authorization: "Bearer ${TOKEN}" } }, []).oauth).toBe(false);
+  expect(normalizeImportedConnector({ url: "https://mcp.context7.com.example/mcp" }, []).oauth).toBeUndefined();
+  expect(normalizeImportedConnector({ url: "https://${HOST}/mcp" }, []).oauth).toBeUndefined();
+});
 
 test("discovers individual Claude user, local-project, project and Desktop connectors without returning credentials", async () => fixture(async home => {
   const workspace = join(home, "project");

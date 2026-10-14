@@ -31,6 +31,15 @@ async function plan(root: string, files: Record<string, string>, provider: "clau
   if (!result) throw new Error("Missing fixture plan");
   return result;
 }
+
+test("a Claude Context7 import installs the canonical OAuth callback into the engine configuration", async () => fixture(async (root, config) => {
+  const url = "https://mcp.context7.com/mcp?client=claude-code-plugin";
+  const imported = await plan(root, { ".claude-plugin/plugin.json": '{"name":"context7"}', ".mcp.json": JSON.stringify({ mcpServers: { context7: { type: "http", url } } }) });
+  await installPluginImport(config, "test", root, imported, true);
+  const entries = Object.values(await runtimeMcpMapForWorkspace(config, "test"));
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({ type: "remote", url, oauth: { redirectUri: "http://localhost:19876/mcp/oauth/callback" } });
+}));
 test("plugin runtime retains Codex headers, token requirements, callback URL and launch settings", () => fixture(async (root, config) => {
   const imported = await plan(root, {
     ".codex-plugin/plugin.json": '{"name":"runtime"}',
