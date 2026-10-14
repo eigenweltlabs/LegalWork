@@ -95,6 +95,8 @@ export type ExtensionDetailModalProps = {
   onShow?: () => void;
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
+  /** Native connectors show account settings directly, without extension metadata cards. */
+  presentation?: "default" | "connector";
   showEnablementCard?: boolean;
   size?: "default" | "wide";
 };
@@ -227,6 +229,7 @@ export function ExtensionDetailModal({
   onHide,
   onShow,
   configSlot,
+  presentation = "default",
   showEnablementCard = true,
   size = "default",
 }: ExtensionDetailModalProps) {
@@ -274,7 +277,9 @@ export function ExtensionDetailModal({
                 {brandWordmark ? name.toUpperCase() : name}
               </DialogTitle>
               <DialogDescription className="flex flex-wrap items-center gap-2">
-                <span>{kindLabel[kind]}</span>
+                <span className={presentation === "connector" && connected ? "text-green-11" : undefined}>{presentation === "connector"
+                  ? connected ? t("connectors.connected") : t("config.status_not_connected")
+                  : kindLabel[kind]}</span>
                 {preview ? (
                   <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.1)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">
                     Preview
@@ -290,7 +295,7 @@ export function ExtensionDetailModal({
           <ScrollAreaViewport className="min-h-0 flex-1 h-auto!">
             <div className="space-y-5 px-px">
             {/* Description */}
-            <div className="text-sm leading-relaxed text-card-foreground">
+            <div className={cn("text-sm leading-relaxed", presentation === "connector" ? "text-muted-foreground" : "text-card-foreground")}>
               {description}
             </div>
 
@@ -308,6 +313,7 @@ export function ExtensionDetailModal({
               </button>
             ) : null}
 
+            {presentation === "default" && <>
             {setupInstructions ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
@@ -485,6 +491,9 @@ export function ExtensionDetailModal({
               </Card>
             ) : null}
 
+            </>}
+
+            {presentation === "connector" && disabledReason && <p className="text-sm text-amber-11">{disabledReason}</p>}
             {configSlot}
             </div>
           </ScrollAreaViewport>
@@ -494,7 +503,7 @@ export function ExtensionDetailModal({
           <div className="flex flex-wrap gap-2">
             {hidden && onShow ? (
               <Button
-                variant="outline"
+                variant={presentation === "connector" ? "ghost" : "outline"}
                 size="sm"
                 onClick={() => {
                   onShow();
@@ -505,7 +514,7 @@ export function ExtensionDetailModal({
               </Button>
             ) : !hidden && onHide ? (
               <Button
-                variant="outline"
+                variant={presentation === "connector" ? "ghost" : "outline"}
                 size="sm"
                 onClick={() => {
                   onHide();

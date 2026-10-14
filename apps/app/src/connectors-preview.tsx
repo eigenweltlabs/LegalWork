@@ -11,11 +11,13 @@ import { CalendarEventDraftToolCard } from "@/components/chat/calendar-event-dra
 import { MessageListProvider } from "@/components/chat/message-list-provider";
 import { createRoot } from "react-dom/client";
 import { ConnectorConfig } from "@/react-app/domains/settings/connector-config";
+import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
+import { connectorDefinitions } from "@legalwork/types/connectors";
 import { PlatformProvider, createDefaultPlatform } from "@/react-app/kernel/platform";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
-import { initLocale } from "@/i18n";
+import { initLocale, t } from "@/i18n";
 import "./app/index.css";
 
 if (!import.meta.env.DEV) throw new Error("The connector fixture is available only in development.");
@@ -44,13 +46,21 @@ function DraftPreview() {
 
 function Preview() {
   const [provider, setProvider] = useState("gmail");
+  const [open, setOpen] = useState(true);
+  const [connected, setConnected] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const dialog = new URLSearchParams(window.location.search).has("dialog");
+  const definition = connectorDefinitions.find(item => item.id === provider);
   const platform = { ...createDefaultPlatform(), openLink: (url: string) => setAuthUrl(url) };
+  const panel = <ConnectorConfig key={provider} id={provider} legalworkServerClient={client} presentation={dialog ? "dialog" : "panel"} onExtensionConnectionChange={(id, value) => { if (id === provider) setConnected(value); }} />;
   return <PlatformProvider value={platform}><TooltipProvider>
     <main className="mx-auto min-h-dvh max-w-3xl space-y-6 px-6 py-10">
       <div><h1 className="text-xl font-semibold">Email connections</h1><p className="mt-1 text-sm text-muted-foreground">Local verification fixture · Simulated accounts · No mailbox data</p></div>
-      <div className="flex gap-2">{["gmail", "outlook", "outlook-calendar", "google-drive"].map((id) => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { setProvider(id); setAuthUrl(null); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "outlook-calendar" ? "Outlook Calendar" : "Google Drive"}</Button>)}</div>
-      <ConnectorConfig key={provider} id={provider} legalworkServerClient={client} />
+      <div className="flex gap-2">{["gmail", "outlook", "outlook-calendar", "google-drive"].map((id) => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { setProvider(id); setAuthUrl(null); setOpen(true); setConnected(false); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "outlook-calendar" ? "Outlook Calendar" : "Google Drive"}</Button>)}</div>
+      {dialog && definition ? <>
+        <Button onClick={() => setOpen(true)}>Open connector settings</Button>
+        <ExtensionDetailModal open={open} onClose={() => setOpen(false)} name={definition.name} description={t(definition.descriptionKey)} iconSlug={definition.icon} kind="extension" connected={connected} presentation="connector" configSlot={panel} />
+      </> : panel}
       {authUrl && <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm"><p>The consent browser would open here.</p><Button variant="outline" onClick={() => {
         void fetch("http://127.0.0.1:44642/fixture/authorize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: provider === "outlook-calendar" ? "outlook" : provider, authUrl }) }).then(() => setAuthUrl(null));
       }}>Complete simulated sign-in</Button></div>}

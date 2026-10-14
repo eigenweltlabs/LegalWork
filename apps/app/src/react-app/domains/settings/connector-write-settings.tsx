@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n";
@@ -20,13 +21,13 @@ export function ConnectorWriteSettings({ id, kind, client }: { id: string; kind:
     return () => { cancelled = true; };
   }, [client, id]);
   if (!client) return null;
-  return <div className="rounded-[16px] border border-dls-border bg-dls-surface p-4">
+  return <section className="space-y-3" aria-labelledby={`${id}-write-label`}>
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-1">
-        <label htmlFor={`${id}-write-access`} className="text-sm font-medium text-dls-text">{t("connectors.write_access")}</label>
-        <p className="max-w-2xl text-[13px] leading-relaxed text-dls-secondary">{t(`connectors.write_access_${kind}`)}</p>
+        <label id={`${id}-write-label`} htmlFor={`${id}-write-access`} className="text-sm font-medium text-dls-text">{t("connectors.write_access")}</label>
+        <p id={`${id}-write-description`} className="text-[13px] leading-relaxed text-dls-secondary">{t(`connectors.write_access_${kind}`)}</p>
       </div>
-      <Switch id={`${id}-write-access`} checked={enabled} disabled={!loaded || busy || readOnly} onCheckedChange={(value) => {
+      <Switch id={`${id}-write-access`} aria-describedby={`${id}-write-description`} checked={enabled} disabled={!loaded || busy || readOnly} onCheckedChange={(value) => {
         if (busy || !loaded) return;
         setBusy(true); setError(null);
         void client.setConnectorSettings(id, value).then((settings) => {
@@ -35,7 +36,12 @@ export function ConnectorWriteSettings({ id, kind, client }: { id: string; kind:
         }).catch(() => setError(t("connectors.write_settings_failed"))).finally(() => setBusy(false));
       }} />
     </div>
-    <p className="mt-2 text-xs leading-relaxed text-dls-secondary">{t("connectors.write_access_permissions")}</p>
+    <details className="group text-xs text-dls-secondary">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        {t("connectors.permissions_help")}<ChevronDown className="size-3 transition-transform group-open:rotate-180" />
+      </summary>
+      <p className="mt-2 leading-relaxed">{t("connectors.write_access_permissions")}</p>
+    </details>
     {error && <p className="mt-2 text-sm text-destructive" role="alert">{error}</p>}
-  </div>;
+  </section>;
 }

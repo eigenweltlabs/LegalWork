@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
+import { connectorDefinitions } from "@legalwork/types/connectors";
 import {
   BookOpen,
   CheckCircle2,
@@ -824,6 +825,7 @@ export function McpView(props: McpViewProps) {
           ? props.isExtensionConnected?.(detailEntry) ?? false
           : isQuickConnectConfigured(detailEntry);
         const isGoogleWorkspace = detailEntry.id === "google-workspace";
+        const isNativeConnector = connectorDefinitions.some((connector) => connector.id === detailEntry.id);
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
@@ -837,6 +839,7 @@ export function McpView(props: McpViewProps) {
             iconSrc={detailEntry.iconSrc}
             fallbackIcon={serviceIcon(detailEntry.name)}
             kind={detailEntry.kind ?? "mcp"}
+            presentation={isNativeConnector ? "connector" : "default"}
             connected={isConnected}
             connecting={props.mcpConnectingName === detailEntry.name}
             hidden={hidden}
