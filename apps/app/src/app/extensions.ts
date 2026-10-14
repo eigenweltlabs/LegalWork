@@ -157,7 +157,7 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
     name: "Actaport",
     get description() { return t("actaport.description"); },
     source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/legalwork-mark.svg" },
+    icon: { src: "/ext-actaport.svg" },
     composer: { get prompt() { return t("actaport.prompt"); } },
     resources: [{ type: "mcp", id: "actaport-mcp", mcpServerName: "actaport", command: ["legalwork-actaport-mcp"], localCommandRef: "legalwork.actaportMcp", required: true }],
     contributions: [{ type: "settings-panel", ref: "actaport", location: "settings-detail" }],
