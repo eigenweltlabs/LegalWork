@@ -46,13 +46,8 @@ import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
 } from "./updater.mjs";
-import {
-  checkComputerUsePermissions,
-  getComputerUseMcpCommand,
-  listRunningApps,
-  openComputerUseSetupApp,
-} from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
+import { createOpenComputerUseIntegration } from "./open-computer-use.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
 import { createEventStreams } from "./event-streams.mjs";
@@ -72,6 +67,7 @@ import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
+const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
 const mcpOAuthOwners = new WeakSet();
 app.on("will-quit", () => mcpOAuthCallbacks.close());
 
@@ -1833,9 +1829,6 @@ const desktopCommandHandlers = {
       }
       return ["npx", "-y", "legalwork-ui-mcp"];
   },
-  "getComputerUseMcpCommand": async (event, ...args) => {
-      return getComputerUseMcpCommand();
-  },
   "getActaportMcpCommand": async (event, ...args) => {
       // The worker's PATH already contains LegalWork's bundled Node runtime.
       return ["node", await prepareActaportMcpRuntime()];
@@ -1861,25 +1854,10 @@ const desktopCommandHandlers = {
   "actaportDisconnect": async (event, ...args) => {
       return getActaportConnection().disconnect();
   },
-  "checkComputerUsePermissions": async (event, ...args) => {
-      // Spawn --check → fresh TCC read → always accurate.
-      return checkComputerUsePermissions();
-  },
-  "listRunningApps": async (event, ...args) => {
-      // Running regular macOS apps for composer @App mentions.
-      return listRunningApps();
-  },
-  "openComputerUsePermissionSetup": async (event, ...args) => {
-      // Open the GUI app. Returns immediately — React shows "verify" CTA.
-      await openComputerUseSetupApp();
-      // Return a fresh check so the UI shows the current state.
-      return checkComputerUsePermissions();
-  },
-  "openComputerUsePermissionSettings": async (event, ...args) => {
-      // Legacy: open the setup app (same as above).
-      await openComputerUseSetupApp();
-      return checkComputerUsePermissions();
-  },
+  "getOpenComputerUseMcpConfig": async (event, ...args) => openComputerUse.mcpConfig(),
+  "checkOpenComputerUse": async (event, ...args) => openComputerUse.status(),
+  "openOpenComputerUsePermissionSetup": async (event, ...args) => openComputerUse.openPermissionSetup(),
+  "listRunningApps": async (event, ...args) => openComputerUse.listRunningApps(),
   "getLegalworkUiMcpEnvironment": async (event, ...args) => {
       return {
         LEGALWORK_UI_CONTROL_DISCOVERY: path.join(app.getPath("userData"), "legalwork-ui-control.json"),

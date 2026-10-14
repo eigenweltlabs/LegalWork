@@ -57,6 +57,16 @@ export type OpencodeExecutionEnvEntry = {
   redacted: boolean;
 };
 
+export type OpenComputerUseStatus = {
+  version: string;
+  platform: string;
+  installed: boolean;
+  ready: boolean;
+  accessibility?: boolean;
+  screenRecording?: boolean;
+  error?: string;
+};
+
 export type OpencodeExecutionSnapshot = {
   command: string;
   args: string[];
@@ -331,13 +341,6 @@ export type UiControlBridgeInfo = {
   token?: string;
 };
 
-export type ComputerUsePermissions = {
-  ok: boolean;
-  accessibility: boolean;
-  screenRecording: boolean;
-  error?: string;
-};
-
 export type RunningAppsResult = {
   ok: boolean;
   apps: string[];
@@ -494,7 +497,6 @@ export type DesktopCommandMap = {
   appBuildInfo: { args: []; result: AppBuildInfo };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
-  getComputerUseMcpCommand: { args: []; result: string[] };
   getActaportMcpCommand: { args: []; result: string[] };
   getActaportMcpEnvironment: { args: []; result: Record<string, string> };
   actaportStatus: { args: []; result: ActaportConnectionStatus };
@@ -503,13 +505,13 @@ export type DesktopCommandMap = {
   actaportSetWriteAccess: { args: [enabled: boolean]; result: ActaportConnectionStatus };
   actaportSetToolsets: { args: [toolsets: ActaportToolset[]]; result: ActaportConnectionStatus };
   actaportDisconnect: { args: []; result: ActaportConnectionStatus };
+  getOpenComputerUseMcpConfig: { args: []; result: { command: string[]; environment: Record<string, string> } };
+  checkOpenComputerUse: { args: []; result: OpenComputerUseStatus };
+  openOpenComputerUsePermissionSetup: { args: []; result: void };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use
-  checkComputerUsePermissions: { args: []; result: ComputerUsePermissions };
   listRunningApps: { args: []; result: RunningAppsResult };
-  openComputerUsePermissionSetup: { args: []; result: ComputerUsePermissions };
-  openComputerUsePermissionSettings: { args: []; result: unknown };
 
   // Bootstrap config
   getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };

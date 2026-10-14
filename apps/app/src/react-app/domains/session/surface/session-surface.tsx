@@ -1395,12 +1395,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (kind === "app") {
       void (async () => {
         try {
-          const status = (await desktopBridge.checkComputerUsePermissions()) as { ok?: boolean };
-          if (status.ok === true) return;
+          const status = await desktopBridge.checkOpenComputerUse();
+          if (status.ready) return;
           toast.warning(t("composer.computer_use_permissions_missing", { app: value }), {
             action: {
               label: t("composer.computer_use_permissions_setup"),
-              onClick: () => void desktopBridge.openComputerUsePermissionSetup(),
+              onClick: () => void desktopBridge.openOpenComputerUsePermissionSetup(),
             },
           });
         } catch {

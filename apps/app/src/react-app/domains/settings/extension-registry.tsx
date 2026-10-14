@@ -20,12 +20,12 @@ export type ExtensionConfigContext = {
     onDisconnect: () => void | Promise<void>;
     onRefresh: () => void | Promise<void>;
   };
-  computerUse?: {
+  openComputerUse?: {
+    localDesktop: boolean;
     connected: boolean;
     connecting: boolean;
-    onConnect: () => void | Promise<void>;
+    onConnect: () => Promise<boolean>;
     onRefresh: () => void | Promise<void>;
-    onPermissionsChange?: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
   };
   imageExtension: {
     busy: boolean;

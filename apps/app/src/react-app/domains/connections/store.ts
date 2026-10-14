@@ -298,18 +298,14 @@ export function createConnectionsStore(options: {
     return { next, nextStatuses, engineSync };
   };
 
-  const resolveDesktopCommand = async (commandName: "getComputerUseMcpCommand" | "getLegalworkUiMcpCommand" | "getActaportMcpCommand", fallbackOnError = true) => {
+  const resolveDesktopCommand = async (commandName: "getLegalworkUiMcpCommand" | "getActaportMcpCommand", fallbackOnError = true) => {
     try {
       const command = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.(commandName);
       if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
         return command;
       }
     } catch (error) {
-      if (!fallbackOnError) {
-        throw error instanceof Error
-          ? error
-          : new Error(t("mcp.computer_use_helper_unavailable"));
-      }
+      if (!fallbackOnError) throw error;
       // Fall through to the published package command in the manifest/catalog.
     }
     return null;
@@ -321,10 +317,6 @@ export function createConnectionsStore(options: {
       const command = await resolveDesktopCommand("getActaportMcpCommand", false);
       if (!command) throw new Error(t("actaport.desktop_required"));
       return command;
-    }
-    if (mcpResource?.localCommandRef === "legalwork.computerUseMcp") {
-      const command = await resolveDesktopCommand("getComputerUseMcpCommand", false);
-      return command ?? entry.command;
     }
     if (mcpResource?.localCommandRef === "legalwork.uiMcp" || entry.serverName === "legalwork-ui") {
       const command = await resolveDesktopCommand("getLegalworkUiMcpCommand");
@@ -542,6 +534,13 @@ export function createConnectionsStore(options: {
     const projectDir = options.projectDir().trim();
     const entryType = entry.type ?? "remote";
 
+    // This integration controls the desktop running LegalWork, so its native
+    // command must never be written into a remote worker's configuration.
+    if (entry.id === "open-computer-use" && (isRemoteWorkspace || !isDesktopRuntime())) {
+      setStateField("mcpStatus", t("open_computer_use.local_only"));
+      return false;
+    }
+
     recordPerfLog(options.developerMode(), "mcp.connect", "start", {
       name: entry.name,
       type: entryType,
@@ -656,15 +655,24 @@ export function createConnectionsStore(options: {
         }
       }
 
+      let openComputerUseEnvironment: Record<string, string> | undefined;
       if (entryType === "local") {
         if (!entry.command?.length) {
           throw new Error(t("mcp.missing_command"));
         }
-        mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
-        if (entry.cwd) mcpEntryConfig.cwd = entry.cwd;
-        const environment = await resolveLocalMcpEnvironment(entry);
-        if (environment) {
-          mcpEntryConfig["environment"] = environment;
+        if (extensionResource(entry.extensionManifest, "mcp")?.localCommandRef === "legalwork.openComputerUseMcp") {
+          const config = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getOpenComputerUseMcpConfig");
+          if (!config) throw new Error(t("open_computer_use.local_only"));
+          mcpEntryConfig["command"] = config.command;
+          mcpEntryConfig["environment"] = config.environment;
+          openComputerUseEnvironment = config.environment;
+        } else {
+          mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
+          if (entry.cwd) mcpEntryConfig.cwd = entry.cwd;
+          const environment = await resolveLocalMcpEnvironment(entry);
+          if (environment) {
+            mcpEntryConfig["environment"] = environment;
+          }
         }
       }
 
@@ -707,6 +715,7 @@ export function createConnectionsStore(options: {
                 type: "local" as const,
                 command: mcpEntryConfig.command ?? entry.command!,
                 enabled: true,
+                ...(openComputerUseEnvironment ? { environment: openComputerUseEnvironment } : {}),
               };
 
         // Registering with the running engine is what makes the server usable
