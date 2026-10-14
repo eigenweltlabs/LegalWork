@@ -1,4 +1,4 @@
-import type { McpStatus } from "@/app/types";
+import type { McpServerEntry, McpStatus } from "@/app/types";
 import { t } from "@/i18n";
 
 export type ConnectorState = McpStatus["status"] | "disconnected" | "needs_key";
@@ -15,6 +15,10 @@ export function resolveConnectorState(input: {
   if (input.status === "connected" || input.status === "failed" || input.status === "needs_client_registration") return input.status;
   if (input.status === "needs_auth" || input.needsSignIn) return "needs_auth";
   return input.status ?? "disconnected";
+}
+
+export function configuredConnectorState(entry: McpServerEntry, status?: McpStatus): ConnectorState {
+  return resolveConnectorState({ enabled: entry.config.enabled !== false, status: status?.status });
 }
 
 const messages = {
@@ -49,5 +53,17 @@ export function ConnectorStatus({ state }: { state: ConnectorState }) {
   return <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
     {dot ? <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} /> : null}
     {label}
+  </span>;
+}
+
+/** A plugin can have usable skills alongside connectors that still need setup. */
+export function PluginConnectorStatus({ states }: { states: readonly (ConnectorState | undefined)[] }) {
+  const pending = states.filter((state): state is ConnectorState => state !== undefined && state !== "connected");
+  if (!pending.length) return null;
+  const needsAttention = pending.some(state => state === "failed" || state === "disconnected");
+  const dot = pending.includes("failed") ? "bg-red-9" : pending.some(state => state !== "disconnected") ? "bg-amber-9" : "bg-gray-7";
+  return <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+    <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} />
+    {t(needsAttention ? "plugin_details.connectors_need_attention" : "plugin_details.connectors_need_setup", { count: pending.length })}
   </span>;
 }

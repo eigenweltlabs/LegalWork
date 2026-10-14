@@ -63,7 +63,7 @@ import { HubTabs, type HubTab } from "../segmented-tabs";
 import type { FirmHubItem } from "@legalwork/types/firm-hub";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { FirmConnectorLibrary, FirmConnectorRow, firmConnectorName } from "./firm-connectors";
-import { ConnectorStatus, resolveConnectorState, type ConnectorState } from "./connector-status";
+import { ConnectorStatus, configuredConnectorState, type ConnectorState } from "./connector-status";
 
 export type ReactMcpStatus = ConnectorState;
 
@@ -372,7 +372,7 @@ export function McpView(props: McpViewProps) {
     entry.config.type === "remote" && entry.config.oauth !== false;
 
   const resolveStatus = (entry: McpServerEntry): ReactMcpStatus => {
-    return resolveConnectorState({ enabled: entry.config.enabled !== false, status: props.mcpStatuses[entry.name]?.status });
+    return configuredConnectorState(entry, props.mcpStatuses[entry.name]);
   };
 
   const hiddenCount = quickConnectList.filter((entry) => isLegalWorkExtensionHidden(entry)).length +

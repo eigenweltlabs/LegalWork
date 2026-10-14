@@ -21,6 +21,7 @@ import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { SkillCard } from "@/app/types";
 import type { SkillDetailsStore } from "./skill-details-dialog";
 import type { PluginDetailsAccess } from "./plugin-details-dialog";
+import type { ConnectorState } from "./connector-status";
 import { pluginImportDestination } from "./plugin-import-presentation";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
@@ -62,6 +63,7 @@ export type ExtensionsViewProps = {
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   skillDetails?: SkillDetailsStore & { skills: () => SkillCard[]; readPackageComponent: PluginDetailsAccess["readComponent"] };
   renderPluginConnector?: PluginDetailsAccess["renderConnector"];
+  connectorState?: (name: string) => ConnectorState | undefined;
   canImportSkills?: boolean;
   canAddConnector?: boolean;
   canAddSkill?: boolean;
@@ -158,7 +160,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     setAddRequest({ kind, id: ++addSequence.current });
   };
   const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
-  const libraryLayout = { actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined };
+  const libraryLayout = { actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined, connectorState: props.connectorState };
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={libraryLayout}>

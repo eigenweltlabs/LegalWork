@@ -13,7 +13,8 @@ import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
 import { pluginImportName } from "./plugin-import-presentation";
 import { PluginDetailsDialog, type PluginDetailsAccess } from "./plugin-details-dialog";
-import { packageParts } from "./plugin-package-contents";
+import { packageParts, pluginFileInstalledName } from "./plugin-package-contents";
+import { PluginConnectorStatus } from "./connector-status";
 export { ImportedPackageContents, packageParts } from "./plugin-package-contents";
 
 /**
@@ -43,6 +44,7 @@ export function ImportedPackages(props: {
   const { extensions } = props;
   const layout = useIntegrationLibraryLayout();
   const cached = layout?.importedPackages;
+  const connectorState = layout?.connectorState;
   const [packages, setPackages] = useState<readonly ImportedPlugin[]>(cached ?? []);
   const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState("");
@@ -90,6 +92,7 @@ export function ImportedPackages(props: {
       <div className="space-y-1">
         {visiblePackages.map((plugin) => (
           <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType)) || t("extensions.import_no_components")}
+            status={connectorState ? <PluginConnectorStatus states={plugin.files.filter(file => file.objectType === "mcp").map(file => connectorState(pluginFileInstalledName(file)))} /> : undefined}
             source={props.library ? plugin.pluginId.startsWith("import:chatgpt:") ? "ChatGPT" : plugin.pluginId.startsWith("import:claude:") ? "Claude" : undefined : undefined}
             icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
             onRemove={props.canRemove === false ? undefined : () => setRemoving(plugin)} />

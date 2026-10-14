@@ -3,6 +3,8 @@ import type { SkillCard } from "@/app/types";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import { t } from "@/i18n";
 import { pluginImportConnectorName, pluginImportSkillName } from "./plugin-import-presentation";
+import { ConnectorStatus } from "./connector-status";
+import { useIntegrationLibraryLayout } from "./integration-library";
 
 const sections = [
   { type: "skill", label: "skills.package_skills", Icon: Blocks },
@@ -27,19 +29,21 @@ export function pluginComponentLabel(file: ImportedPluginFile): string {
 }
 
 export function ImportedPackageContents(props: { plugin: ImportedPlugin; skills?: readonly SkillCard[]; query?: string; onOpen?: (file: ImportedPluginFile) => void; busy?: boolean }) {
+  const connectorState = useIntegrationLibraryLayout()?.connectorState;
   const query = (props.query ?? "").trim().toLowerCase();
-  const groups = sections.map(section => ({ ...section, items: props.plugin.files.filter(file => file.objectType === section.type).map(file => ({ file, name: pluginComponentLabel(file), description: file.objectType === "skill" ? props.skills?.find(skill => skill.name === pluginFileInstalledName(file))?.description ?? "" : "" })) }));
+  const groups = sections.map(section => ({ ...section, items: props.plugin.files.filter(file => file.objectType === section.type).map(file => ({ file, name: pluginComponentLabel(file), description: file.objectType === "skill" ? props.skills?.find(skill => skill.name === pluginFileInstalledName(file))?.description ?? "" : "", state: file.objectType === "mcp" ? connectorState?.(pluginFileInstalledName(file)) : undefined })) }));
   if (!groups.some(group => group.items.length)) return <p className="text-sm text-muted-foreground">{t("extensions.import_no_components")}</p>;
   const visible = groups.map(group => ({ ...group, matches: group.items.filter(item => `${item.name} ${item.description}`.toLowerCase().includes(query)) }));
   if (!visible.some(group => group.matches.length)) return <p role="status" className="py-6 text-center text-sm text-muted-foreground">{t("plugin_details.no_matches")}</p>;
   return <div className="space-y-5">{visible.map(({ type, label, Icon, matches }) => matches.length ? <section key={type} className="space-y-1">
     <h3 className="px-3 pb-1 text-xs font-medium text-muted-foreground">{t(label, { count: matches.length })}</h3>
-    <ul>{matches.map(({ file, name, description }) => <li key={file.path}>
+    <ul>{matches.map(({ file, name, description, state }) => <li key={file.path}>
       {props.onOpen ? <button type="button" disabled={props.busy} onClick={() => props.onOpen?.(file)} aria-label={t("plugin_details.open_component", { name })} className="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-start transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border"><Icon className="size-4 text-muted-foreground" /></span>
         <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{name}</span>{description ? <span className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{description}</span> : null}</span>
+        {state !== undefined ? <ConnectorStatus state={state} /> : null}
         <ChevronRight className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-      </button> : <div className="flex items-center gap-2 px-3 py-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 break-words">{name}</span></div>}
+      </button> : <div className="flex items-center gap-2 px-3 py-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 break-words">{name}</span>{state !== undefined ? <ConnectorStatus state={state} /> : null}</div>}
     </li>)}</ul>
   </section> : null)}</div>;
 }

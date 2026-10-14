@@ -14,6 +14,7 @@ import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationLibrary
 import { HubDownloadSection } from "../src/react-app/domains/settings/pages/hub-download-section";
 import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
 import { eigenweltEntitlementsQueryKey } from "../src/react-app/domains/connections/eigenwelt-entitlements";
+import type { ConnectorState } from "../src/react-app/domains/settings/pages/connector-status";
 
 const noop = () => {};
 const ok = async () => ({ ok: true, message: "" });
@@ -114,6 +115,54 @@ test("the Plugins library separates bundles from standalone imports while the im
   expect(render(true, "all", "missing")).toContain("No matching plugins");
   expect(render(false)).toContain("Standalone drafting");
   expect(render(false)).toContain("Standalone search");
+});
+
+const connectorPlugin: ImportedPlugin = { sourceKind: "plugin", pluginId: "import:claude:research:global", marketplaceId: null, name: "research", description: "Research tools", updatedAt: null, importedAt: 1, files: [
+  { configObjectId: "owned", versionId: null, objectType: "mcp", title: "Research owner", path: "opencode.jsonc#mcp.exact-research", updatedAt: null },
+] };
+function renderPluginState(states: Record<string, ConnectorState>, plugin = connectorPlugin) {
+  return renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, importedPackages: [plugin], connectorState: name => states[name] }}><ImportedPackages extensions={extensions} busy={false} revision={0} library showEmpty /></IntegrationLibraryLayoutContext.Provider>);
+}
+
+test("plugin summaries identify affected connectors while component rows retain their exact setup state", () => {
+  const cases: { state: ConnectorState; label: string | null }[] = [
+    { state: "disabled", label: "Enable to use" }, { state: "needs_auth", label: "Sign in to use it" },
+    { state: "needs_key", label: "Add your key to use it" }, { state: "needs_client_registration", label: "Sign-in setup is incomplete" },
+    { state: "failed", label: "Issue" }, { state: "disconnected", label: "Offline" }, { state: "connected", label: null },
+  ];
+  for (const { state, label } of cases) {
+    const html = renderPluginState({ "exact-research": state });
+    if (label) {
+      expect(html).toContain(state === "failed" || state === "disconnected" ? "1 connector needs attention" : "1 connector needs setup");
+      const contents = renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, connectorState: () => state }}><ImportedPackageContents plugin={connectorPlugin} onOpen={noop} /></IntegrationLibraryLayoutContext.Provider>);
+      expect(contents).toContain(label);
+    }
+    else {
+      expect(html).not.toContain("Enable to use");
+      expect(html).not.toContain("Sign in to use it");
+      expect(html).not.toContain("Offline");
+      expect(html).not.toContain(">Ready<");
+    }
+  }
+});
+
+test("multi-connector plugins count only components needing attention, while skills and unknown states add no warning", () => {
+  const plugin: ImportedPlugin = { ...connectorPlugin, files: [...connectorPlugin.files,
+    { ...connectorPlugin.files[0], path: "opencode.jsonc#mcp.second", configObjectId: "second" },
+    { ...connectorPlugin.files[0], path: ".opencode/skills/research/SKILL.md", objectType: "skill", configObjectId: "skill" },
+  ] };
+  expect(renderPluginState({ "exact-research": "needs_auth", second: "connected" }, plugin)).toContain("1 connector needs setup");
+  expect(renderPluginState({ "exact-research": "disabled", second: "needs_auth" }, plugin)).toContain("2 connectors need setup");
+  expect(renderPluginState({ "exact-research": "failed", second: "needs_auth" }, plugin)).toContain("2 connectors need attention");
+  expect(renderPluginState({ "exact-research": "connected", second: "connected" }, plugin)).not.toContain("need setup");
+  expect(renderPluginState({}, plugin)).not.toContain("needs setup");
+  expect(renderPluginState({}, { ...plugin, files: plugin.files.filter(file => file.objectType === "skill") })).not.toContain("Offline");
+});
+
+test("plugin contents show setup states beside the exact connector that will open", () => {
+  const html = renderToStaticMarkup(<IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, connectorState: name => name === "exact-research" ? "needs_auth" : undefined }}><ImportedPackageContents plugin={connectorPlugin} onOpen={noop} /></IntegrationLibraryLayoutContext.Provider>);
+  expect(html).toContain("Sign in to use it");
+  expect(html).toContain('aria-label="Open exact-research"');
 });
 
 function renderSkillSources(source: IntegrationLibrarySource, query = "") {

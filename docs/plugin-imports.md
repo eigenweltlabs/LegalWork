@@ -59,6 +59,14 @@ Global-directory verification: app TypeScript checks and **35 focused tests acro
 
 ## Connector status consistency
 
+The Plugins library also exposes unfinished connector setup. Each plugin row counts only its owned connectors that need setup or attention, leaving usable skills available and omitting a status when all connectors are ready. Plugin contents show each connector's exact state with the same labels and colors as Connectors, and the complete row opens the existing setup controls. These states come from the live connections-store snapshot and the recorded installed connector identities, without another cache or status fetch. Before the first connector list loads, unknown entries do not manufacture an offline warning. Standalone connectors and skills retain their own tabs and import-record types.
+
+Plugin setup verification: three new rendered-library cases failed before the change. Coverage includes all connector states, counts with mixed ready/setup/error components, unknown states, skills-only packages and canonical owned identities. Native Electron verified GitHub's plugin-level “1 connector needs setup”, “Enable to use” inside its contents and the existing connector controls; no connector was enabled or signed in.
+
+![Plugin row flags the connector needing setup](images/plugin-connector-needs-setup.png)
+
+![Plugin contents show the exact connector state](images/plugin-connector-component-status.png)
+
 Personal, plugin and team connectors now use one state resolver and presenter for labels and indicators. Sign-in uses **Sign in to use it** with an amber dot; disabled entries use **Enable to use** without a dot; missing personal keys use **Add your key to use it** with an amber dot; incomplete sign-in setup uses **Sign-in setup is incomplete** with an amber dot; failed connections use **Issue** with a red dot; disconnected entries use **Offline** with a gray dot. Connected entries have no redundant Ready label. Directory sign-in prompts, connector details and team error titles use the same wording. Optional membership and missing keys take precedence, while actual failures and setup errors are preserved instead of becoming generic sign-in prompts.
 
 The mismatch came from separate presentation logic in `mcp-view.tsx` and `firm-connectors.tsx`, including different translation keys and missing team indicators. Both receive the same runtime status map. Team metadata supplies firm ownership, membership and personal-account requirements; keeping those permissions separate is necessary. The screen's remaining structural debt is the large connector component mixing directory browsing, library orchestration and detail controls. Further cleanup should split those responsibilities and adapt source metadata to shared presentation, while retaining the existing server, account and ownership APIs.

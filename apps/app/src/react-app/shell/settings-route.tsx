@@ -50,6 +50,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
+import { configuredConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
@@ -2417,6 +2418,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             mcpView={mcpView}
             skillDetails={extensionsStore}
             renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
+            connectorState={name => {
+              const entry = connectionsSnapshot.mcpServers.find(entry => entry.name === name);
+              if (entry) return configuredConnectorState(entry, connectionsSnapshot.mcpStatuses[name]);
+              return connectionsSnapshot.mcpLastUpdatedAt === null ? undefined : "disconnected";
+            }}
             skillsView={
               <SkillsView
                 workspaceName={selectedWorkspaceName}
