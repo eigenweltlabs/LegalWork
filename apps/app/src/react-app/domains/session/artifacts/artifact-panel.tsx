@@ -1,6 +1,7 @@
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
+import { executeWordCopy } from "./docx-agent-copy";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -626,8 +627,12 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
           if (!runtimeEntry) onClose();
           return { ok: true, saved: true, path: target.value, nextStep: "Edit the saved file, then use inapp_documents_open to reopen it before continuing." };
         }
-        const result = await api.executeAgentTool(toolName, toolArgs);
-        if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.`, data: result.data, saved: false };
+        const copying = target.preview === "word" && (toolName === "create_comparison_copy" || toolName === "create_clean_copy");
+        if (copying && (!client || !workspaceId)) return { ok: false, error: "The task's project is unavailable." };
+        const result = copying && client && workspaceId && (toolName === "create_comparison_copy" || toolName === "create_clean_copy")
+          ? await executeWordCopy(api, client, workspaceId, toolName, toolArgs)
+          : await api.executeAgentTool(toolName, toolArgs);
+        if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.`, data: result.data, saved: result.saved === true };
         return {
           ok: true,
           document: { name: target.name, path: target.value, trackChanges: target.preview === "word" },
@@ -636,7 +641,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         };
       },
     } : null
-  ), [documentSurface, isBinaryEditor, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose, runtimeEntry]);
+  ), [documentSurface, isBinaryEditor, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose, runtimeEntry, client, workspaceId]);
   useDocumentAgentControl(documentSurface, documentAgentControlAction, () =>
     access.status !== "checking" && Boolean(target.preview === "word" ? docxApi.current?.isReady() : officeApi.current?.isReady()), () => documentDirtyRef.current, () => snapshotRef.current?.updatedAt ?? null);
 

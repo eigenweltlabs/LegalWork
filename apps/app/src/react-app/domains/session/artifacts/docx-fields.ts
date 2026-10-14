@@ -191,20 +191,20 @@ export function updateContents(view: EditorView, layout: Layout | null, metadata
   return true;
 }
 
-export async function updateWordFields(editor: DocxEditorRef, metadata: WordMetadata) {
+export async function updateWordFields(editor: DocxEditorRef, metadata: WordMetadata, flush: <T>(update: () => T) => T = update => update()) {
   const paged = editor.getEditorRef(); const view = paged?.getView();
   if (!view || !paged) throw new Error("The document editor is still loading.");
-  updateContents(view, paged.getLayout(), metadata);
+  flush(() => updateContents(view, paged.getLayout(), metadata));
   let count = 0;
   for (let pass = 0; pass < 3; pass++) {
     paged.relayout();
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    count += updateFieldValues(view, paged.getLayout(), metadata);
+    count += flush(() => updateFieldValues(view, paged.getLayout(), metadata));
   }
   for (const [rid, story] of paged.getHfPmViews()) {
     const layout = withWordSections(view.state.doc, paged.getLayout());
     const page = layout?.pages.find((page) => headerFooterId(editor, page, layout, "header") === rid || headerFooterId(editor, page, layout, "footer") === rid);
-    count += updateFieldValues(story, layout, metadata, page, view.state.doc);
+    count += flush(() => updateFieldValues(story, layout, metadata, page, view.state.doc));
   }
   return count;
 }

@@ -1,4 +1,6 @@
-import { documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
+import { docxTemplateSchema, documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
+import { executeWordBatch } from "./docx-agent-batch";
+import { readWordDocument } from "./docx-agent-read";
 import { useDocumentVisibility } from "./document-runtime";
 import { acceptTemplateRevisions, templateRevisionIds } from "./docx-template-revisions";
 import { normalizeDocxLineBreaks } from "./docx-line-breaks";
@@ -488,6 +490,183 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
 
   useEffect(() => {
     if (!apiRef) return;
+    const executeAgentTool = async (toolName: string, args: Record<string, unknown>, persist: boolean): Promise<DocxEditorToolResult> => {
+      if ((readOnly || interactionLocked) && !isDocumentReadTool("docx", toolName)) return { success: false, error: t("docx.read_only") };
+      if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
+      checkDocument();
+      if (toolName === "edit") {
+        if (args.documentId !== documentId || args.draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+        automaticSave.setSuspended(true);
+        try { return await executeWordBatch(args, executeAgentTool); }
+        catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+        finally { automaticSave.setSuspended(readOnly || interactionLocked); }
+      }
+      const mutatesStructure = WORD_STRUCTURE_MUTATIONS.has(toolName) || ["apply_formatting", "update_fields", "set_page_numbering", "set_protection", "set_paragraph_style", "insert_break", "save_document"].includes(toolName);
+      const mutatesDocument = SDK_MUTATIONS.has(toolName) || toolName === "fill_template" || REVIEW_TOOL_NAMES.has(toolName) || mutatesStructure;
+      if (readOnly && mutatesDocument) return { success: false, error: t("docx.read_only") };
+      if ((mutatesStructure || COPY_TOOLS.has(toolName)) && (args.documentId !== documentId || args.draftRevision !== revision.current)) return { success: false, error: t("docx.read_draft_again") };
+      const editor = editorRef.current; const view = editor?.getEditorRef()?.getView(); const document = editor?.getDocument();
+      if (!editor || !view || !document) return { success: false, error: t("docx.editor_not_ready") };
+      const structure = () => {
+        const current = editor.getDocument() ?? document;
+        const hfViews = editor.getEditorRef()?.getHfPmViews();
+        const stories = new Map([...current.package.headers ?? [], ...current.package.footers ?? []]);
+        return { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...readWordStructure(view.state.doc, current, editor.getEditorRef()?.getLayout() ?? null, metadataRef.current), headerFooterFields: Array.from(stories).flatMap(([rid, story]) => readWordStructure(hfViews?.get(rid)?.state.doc ?? headerFooterToProseDoc(story.content, { styles: current.package.styles }), current, null, metadataRef.current, rid, view.state.doc, false).fields) };
+      };
+      if (toolName === "read_document") {
+        try {
+          const read = readWordDocument(view.state.doc, document, editor.getEditorRef()?.getLayout() ?? null, metadataRef.current, args, new Map(Array.from(editor.getEditorRef()?.getHfPmViews() ?? []).map(([rid, view]) => [rid, view.state.doc])));
+          const { textArgs, ...native } = read;
+          const text = read.view === "all" || read.view === "text" ? executeToolCall("read_document", textArgs) : undefined;
+          if (text && !text.success) return text;
+          return { success: true, data: { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...native, nextIndex: native.coverage.nextIndex,
+            text: text?.data, comments: read.view === "all" ? editor.getComments() : undefined, changes: read.view === "all" ? executeToolCall("read_changes", {}).data : undefined } };
+        } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+      }
+      if (toolName === "read_structure") return { success: true, data: structure() };
+      if (toolName === "read_formatting") {
+        try { return { success: true, data: { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...readWordFormatting(view.state.doc, document, args) } }; }
+        catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+      }
+      if (toolName === "save_document") {
+        try { const saved = await save(); return saved && !dirty.current ? { success: true, saved: true, data: { documentId, draftRevision: revision.current } } : { success: false, saved: false, error: t("docx.changed_not_saved") }; }
+        catch (cause) { return { success: false, saved: false, error: `${t("docx.changed_not_saved")} ${cause instanceof Error ? cause.message : String(cause)}` }; }
+      }
+      if (toolName === "inspect_document") {
+        const draftRevision = revision.current; const buffer = await getBuffer();
+        if (!buffer || draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+        return { success: true, data: { documentId, draftRevision, findings: await inspectWordPackage(buffer) } };
+      }
+      if (COPY_TOOLS.has(toolName)) {
+        try {
+          const draftRevision = revision.current; const buffer = await getBuffer();
+          if (!buffer || draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+          let copy: ArrayBuffer;
+          if (toolName === "create_clean_copy") {
+            const categories = args.categories;
+            const selected: InspectionKind[] = [];
+            if (!Array.isArray(categories) || !categories.length) throw new Error("Select inspection categories explicitly.");
+            for (const kind of categories) {
+              if (kind !== "properties" && kind !== "hiddenText" && kind !== "customXml" && kind !== "comments" && kind !== "revisions") throw new Error("Unsupported inspection category.");
+              selected.push(kind);
+            }
+            const clean = selected.includes("revisions") || selected.includes("comments") ? await createCleanDocx(buffer, { acceptChanges: selected.includes("revisions"), removeComments: selected.includes("comments") }) : buffer;
+            copy = await removeWordPrivateData(clean, selected);
+            if ((await inspectWordPackage(copy)).some((finding) => selected.includes(finding.kind))) throw new Error(t("docx.word.inspection_incomplete"));
+          } else {
+            if (!Array.isArray(args.versions) || !args.versions.length || args.versions.length > 8) throw new Error("Provide between one and eight returned drafts.");
+            const versions = args.versions.map((version: unknown) => {
+              if (!version || typeof version !== "object" || !("base64" in version) || typeof version.base64 !== "string" || version.base64.length > 40_000_000 || !("author" in version) || typeof version.author !== "string") throw new Error("Invalid returned draft.");
+              return { buffer: Uint8Array.from(atob(version.base64), (char) => char.charCodeAt(0)).buffer, author: version.author };
+            });
+            copy = versions.length === 1 ? await compareWordDocuments(buffer, versions[0].buffer, versions[0].author) : await combineWordDocuments(buffer, versions);
+          }
+          if (draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+          const reviewer = await DocxReviewer.fromBuffer(copy);
+          return { success: true, data: { bufferBase64: encodeWordCopy(copy), changes: reviewer.getChanges(), findings: await inspectWordPackage(copy), sourceChanged: false } };
+        } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+      }
+      const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
+      if (isReviewDecision && metadataRef.current.protection.mode === "trackedChanges") return { success: false, error: t("docx.word.edit_blocked") };
+      const before = view.state.doc;
+      const beforeMetadata = metadataRef.current;
+      let result: DocxEditorToolResult;
+      try {
+        if (toolName === "fill_template" && (args.controlId !== undefined || args.tag !== undefined)) {
+          const fill = docxTemplateSchema.parse(args);
+          if (fill.documentId !== documentId || fill.draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+          const controls = readWordStructure(view.state.doc, document, null, metadataRef.current).controls.filter(control => fill.controlId !== undefined ? control.id === fill.controlId : control.tag === fill.tag);
+          if (controls.length !== 1) return { success: false, error: "The control ID/tag must identify exactly one native text control." };
+          result = flushEditorUpdate(() => executeWordStructureTool({ view, document, layout: editor.getEditorRef()?.getLayout() ?? null, metadata: metadataRef.current, loadDocument: next => editor.loadDocument(next) }, "fill_content_control", { controlId: controls[0].id, text: fill.value }));
+        } else if (toolName === "fill_template") {
+          if (typeof args.paraId !== "string" || typeof args.placeholder !== "string" || !/^(?:\{\{[^{}]+\}\}|\[\[[^\[\]]+\]\]|\[[^\[\]]+\])$/.test(args.placeholder) || typeof args.value !== "string") {
+            return { success: false, error: "Use an exact template placeholder, its paragraph ID and the replacement value." };
+          }
+          const view = editorRef.current?.getEditorRef()?.getView();
+          if (!view) return { success: false, error: t("docx.editor_not_ready") };
+          const existing = templateRevisionIds(view.state);
+          result = flushEditorUpdate(() => executeToolCall("suggest_change", { paraId: args.paraId, search: args.placeholder, replaceWith: args.value }));
+          if (result.success) {
+            const normalized = normalizeDocxLineBreaks(view.state);
+            if (normalized) flushEditorUpdate(() => view.dispatch(normalized));
+            const accepted = flushEditorUpdate(() => acceptTemplateRevisions(view, existing));
+            if (!accepted) return { success: false, error: "The replacement could not be finalized. Read the current draft before continuing." };
+            result = { success: true, data: { placeholder: args.placeholder, value: args.value } };
+          }
+        } else if (toolName === "reply_comment") {
+          if (!Number.isInteger(args.commentId) || typeof args.commentId !== "number" || args.commentId < 0 || typeof args.text !== "string" || !args.text.trim()) {
+            return { success: false, error: "A valid comment ID and reply text are required." };
+          }
+          // Replies live in the editor's React comment state. Flush that update
+          // before serializing, otherwise the save can omit the new reply.
+          const commentId = args.commentId;
+          const text = args.text;
+          const id = flushEditorUpdate(() => editorRef.current?.replyToComment(commentId, text, "LegalWork AI"));
+          result = id === null || id === undefined ? { success: false, error: "The comment no longer exists. Read the comments again." } : { success: true, data: { commentId: id, parentId: args.commentId } };
+        } else if (WORD_STRUCTURE_MUTATIONS.has(toolName)) {
+          result = flushEditorUpdate(() => executeWordStructureTool({ view, document, layout: editor.getEditorRef()?.getLayout() ?? null, metadata: metadataRef.current, loadDocument: (document) => editor.loadDocument(document) }, toolName, args));
+        } else if (toolName === "apply_formatting") {
+          result = flushEditorUpdate(() => applyWordFormatting({ view, document, layout: editor.getEditorRef()?.getLayout() ?? null, metadata: metadataRef.current, loadDocument: (document) => editor.loadDocument(document) }, args));
+        } else if (toolName === "update_fields") {
+          result = { success: true, data: { updated: await updateWordFields(editor, metadataRef.current, flushEditorUpdate) } };
+        } else if (toolName === "set_protection") {
+          const mode = args.mode;
+          if (metadataRef.current.protection.password || mode !== "none" && mode !== "forms" && mode !== "trackedChanges") return { success: false, error: "Password protection cannot be changed by this tool, or the mode is unsupported." };
+          flushEditorUpdate(() => changeProtection({ mode, password: false }));
+          result = { success: true, data: { protection: metadataRef.current.protection } };
+        } else if (toolName === "set_page_numbering") {
+          if (metadataRef.current.protection.mode !== "none") return { success: false, error: t("docx.word.edit_blocked") };
+          const index = args.sectionIndex; const format = args.format; const start = args.start;
+          if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= metadataRef.current.pages.length || typeof format !== "string" || !["decimal", "decimalZero", "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"].includes(format) || start !== undefined && start !== null && (typeof start !== "number" || !Number.isInteger(start) || start < 1 || start > 32767)) return { success: false, error: "Invalid section index, page format or restart number." };
+          const metadata = { ...metadataRef.current, pages: metadataRef.current.pages.map((rule, i) => i === index ? { format, ...(typeof start === "number" ? { start } : {}) } : rule) };
+          metadataRef.current = metadata; setWordMetadata(metadata);
+          await updateWordFields(editor, metadata, flushEditorUpdate);
+          result = { success: true, data: { sections: metadata.pages, tracked: false } };
+        } else if (isReviewDecision) {
+          const changeIds = requestedChangeIds(args);
+          if (!changeIds) {
+            return { success: false, error: t("docx.change_ids_required") };
+          }
+          result = flushEditorUpdate(() => decideTrackedChanges(
+            editorRef.current,
+            toolName === "accept_changes" ? "accept" : "reject",
+            changeIds,
+          ));
+        } else {
+          if (["set_paragraph_style", "insert_break"].includes(toolName) && metadataRef.current.protection.mode !== "none") return { success: false, error: t("docx.word.edit_blocked") };
+          result = isDocumentReadTool("docx", toolName) ? executeToolCall(toolName, args) : flushEditorUpdate(() => executeToolCall(toolName, args));
+          if (result.success && toolName === "insert_break" && args.type !== "page") {
+            let target = -1; let section = 0;
+            before.descendants((node, pos) => { if (node.attrs.paraId === args.paraId) target = pos; });
+            before.descendants((node, pos) => { if (pos < target && node.attrs.sectionBreakType) section++; });
+            const pages = [...metadataRef.current.pages];
+            pages.splice(section + 1, 0, { format: pages[section]?.format ?? "decimal" });
+            const metadata = { ...metadataRef.current, pages }; metadataRef.current = metadata; setWordMetadata(metadata);
+          }
+        }
+      } catch (cause) {
+        const applied = before !== editorRef.current?.getEditorRef()?.getView()?.state.doc || beforeMetadata !== metadataRef.current;
+        if (applied) { markDirty(); checkDocument(); }
+        return { success: false, data: { applied, documentId, draftRevision: revision.current }, error: cause instanceof Error ? cause.message : String(cause) };
+      }
+      if (!result.success) return result;
+      if ((toolName === "suggest_change" || ["set_paragraph_style", "insert_break"].includes(toolName) || isReviewDecision) && before === editorRef.current?.getEditorRef()?.getView()?.state.doc) return { success: false, error: t("docx.word.edit_blocked") };
+
+      if (!mutatesDocument) return result;
+      if (result.data && typeof result.data === "object" && Reflect.get(result.data, "applied") === false) return { ...result, saved: !dirty.current, data: { result: result.data, documentId, draftRevision: revision.current } };
+      const currentView = editorRef.current?.getEditorRef()?.getView();
+      const normalized = currentView && normalizeDocxLineBreaks(currentView.state);
+      if (normalized) flushEditorUpdate(() => currentView.dispatch(normalized));
+      markDirty();
+      checkDocument();
+      if (!persist) return { ...result, data: { result: result.data, documentId, draftRevision: revision.current } };
+      let saved: boolean;
+      try { saved = await save(); }
+      catch (cause) { return { success: false, saved: false, data: { applied: true, documentId, draftRevision: revision.current }, error: `${t("docx.changed_not_saved")} ${cause instanceof Error ? cause.message : String(cause)}` }; }
+      if (!saved || dirty.current) return { success: false, saved: false, data: { applied: true, documentId, draftRevision: revision.current }, error: t("docx.changed_not_saved") };
+      return { ...result, data: { result: result.data, documentId, draftRevision: revision.current }, saved: true };
+
+    };
     apiRef.current = { navigate: async (rawTarget) => {
       const target = documentNavigationTargetSchema.parse(rawTarget);
       if (target.kind !== "page") throw new Error("Word navigation requires a page number.");
@@ -510,150 +689,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         try { await pendingSave.current; } finally { await checkpointWork.current; await drainDocxRecovery(); }
       },
       isReady: () => ready.current,
-      executeAgentTool: async (toolName, args) => {
-        if ((readOnly || interactionLocked) && !isDocumentReadTool("docx", toolName)) return { success: false, error: t("docx.read_only") };
-        if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
-        checkDocument();
-        const mutatesStructure = WORD_STRUCTURE_MUTATIONS.has(toolName) || ["apply_formatting", "update_fields", "set_page_numbering", "set_protection", "set_paragraph_style", "insert_break", "save_document"].includes(toolName);
-        const mutatesDocument = SDK_MUTATIONS.has(toolName) || toolName === "fill_template" || REVIEW_TOOL_NAMES.has(toolName) || mutatesStructure;
-        if (readOnly && mutatesDocument) return { success: false, error: t("docx.read_only") };
-        if ((mutatesStructure || COPY_TOOLS.has(toolName)) && (args.documentId !== documentId || args.draftRevision !== revision.current)) return { success: false, error: t("docx.read_draft_again") };
-        const editor = editorRef.current; const view = editor?.getEditorRef()?.getView(); const document = editor?.getDocument();
-        if (!editor || !view || !document) return { success: false, error: t("docx.editor_not_ready") };
-        const structure = () => {
-          const current = editor.getDocument() ?? document;
-          const hfViews = editor.getEditorRef()?.getHfPmViews();
-          const stories = new Map([...current.package.headers ?? [], ...current.package.footers ?? []]);
-          return { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...readWordStructure(view.state.doc, current, editor.getEditorRef()?.getLayout() ?? null, metadataRef.current), headerFooterFields: Array.from(stories).flatMap(([rid, story]) => readWordStructure(hfViews?.get(rid)?.state.doc ?? headerFooterToProseDoc(story.content, { styles: current.package.styles }), current, null, metadataRef.current, rid, view.state.doc, false).fields) };
-        };
-        if (toolName === "read_structure") return { success: true, data: structure() };
-        if (toolName === "read_formatting") {
-          try { return { success: true, data: { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...readWordFormatting(view.state.doc, document, args) } }; }
-          catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
-        }
-        if (toolName === "save_document") {
-          try { const saved = await save(); return saved && !dirty.current ? { success: true, saved: true, data: { documentId, draftRevision: revision.current } } : { success: false, saved: false, error: t("docx.changed_not_saved") }; }
-          catch (cause) { return { success: false, saved: false, error: `${t("docx.changed_not_saved")} ${cause instanceof Error ? cause.message : String(cause)}` }; }
-        }
-        if (toolName === "inspect_document") {
-          const draftRevision = revision.current; const buffer = await getBuffer();
-          if (!buffer || draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
-          return { success: true, data: { documentId, draftRevision, findings: await inspectWordPackage(buffer) } };
-        }
-        if (COPY_TOOLS.has(toolName)) {
-          try {
-            const draftRevision = revision.current; const buffer = await getBuffer();
-            if (!buffer || draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
-            let copy: ArrayBuffer;
-            if (toolName === "create_clean_copy") {
-              const categories = args.categories;
-              const selected: InspectionKind[] = [];
-              if (!Array.isArray(categories) || !categories.length) throw new Error("Select inspection categories explicitly.");
-              for (const kind of categories) {
-                if (kind !== "properties" && kind !== "hiddenText" && kind !== "customXml" && kind !== "comments" && kind !== "revisions") throw new Error("Unsupported inspection category.");
-                selected.push(kind);
-              }
-              const clean = selected.includes("revisions") || selected.includes("comments") ? await createCleanDocx(buffer, { acceptChanges: selected.includes("revisions"), removeComments: selected.includes("comments") }) : buffer;
-              copy = await removeWordPrivateData(clean, selected);
-              if ((await inspectWordPackage(copy)).some((finding) => selected.includes(finding.kind))) throw new Error(t("docx.word.inspection_incomplete"));
-            } else {
-              if (!Array.isArray(args.versions) || !args.versions.length || args.versions.length > 8) throw new Error("Provide between one and eight returned drafts.");
-              const versions = args.versions.map((version: unknown) => {
-                if (!version || typeof version !== "object" || !("base64" in version) || typeof version.base64 !== "string" || version.base64.length > 40_000_000 || !("author" in version) || typeof version.author !== "string") throw new Error("Invalid returned draft.");
-                return { buffer: Uint8Array.from(atob(version.base64), (char) => char.charCodeAt(0)).buffer, author: version.author };
-              });
-              copy = versions.length === 1 ? await compareWordDocuments(buffer, versions[0].buffer, versions[0].author) : await combineWordDocuments(buffer, versions);
-            }
-            if (draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
-            const reviewer = await DocxReviewer.fromBuffer(copy);
-            return { success: true, data: { bufferBase64: encodeWordCopy(copy), changes: reviewer.getChanges(), findings: await inspectWordPackage(copy), sourceChanged: false } };
-          } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
-        }
-        const isReviewDecision = REVIEW_TOOL_NAMES.has(toolName);
-        if (isReviewDecision && metadataRef.current.protection.mode === "trackedChanges") return { success: false, error: t("docx.word.edit_blocked") };
-        const before = view.state.doc;
-        let result: DocxEditorToolResult;
-        try {
-          if (toolName === "fill_template") {
-            if (typeof args.paraId !== "string" || typeof args.placeholder !== "string" || !/^(?:\{\{[^{}]+\}\}|\[\[[^\[\]]+\]\]|\[[^\[\]]+\])$/.test(args.placeholder) || typeof args.value !== "string") {
-              return { success: false, error: "Use an exact template placeholder, its paragraph ID and the replacement value." };
-            }
-            const view = editorRef.current?.getEditorRef()?.getView();
-            if (!view) return { success: false, error: t("docx.editor_not_ready") };
-            const existing = templateRevisionIds(view.state);
-            result = flushEditorUpdate(() => executeToolCall("suggest_change", { paraId: args.paraId, search: args.placeholder, replaceWith: args.value }));
-            if (result.success) {
-              const normalized = normalizeDocxLineBreaks(view.state);
-              if (normalized) flushEditorUpdate(() => view.dispatch(normalized));
-              const accepted = flushEditorUpdate(() => acceptTemplateRevisions(view, existing));
-              if (!accepted) return { success: false, error: "The replacement could not be finalized. Read the current draft before continuing." };
-              result = { success: true, data: { placeholder: args.placeholder, value: args.value } };
-            }
-          } else if (toolName === "reply_comment") {
-            if (!Number.isInteger(args.commentId) || typeof args.commentId !== "number" || args.commentId < 0 || typeof args.text !== "string" || !args.text.trim()) {
-              return { success: false, error: "A valid comment ID and reply text are required." };
-            }
-            // Replies live in the editor's React comment state. Flush that update
-            // before serializing, otherwise the save can omit the new reply.
-            const commentId = args.commentId;
-            const text = args.text;
-            const id = flushEditorUpdate(() => editorRef.current?.replyToComment(commentId, text, "LegalWork AI"));
-            result = id === null || id === undefined ? { success: false, error: "The comment no longer exists. Read the comments again." } : { success: true, data: { commentId: id, parentId: args.commentId } };
-          } else if (WORD_STRUCTURE_MUTATIONS.has(toolName)) {
-            result = flushEditorUpdate(() => executeWordStructureTool({ view, document, layout: editor.getEditorRef()?.getLayout() ?? null, metadata: metadataRef.current, loadDocument: (document) => editor.loadDocument(document) }, toolName, args));
-          } else if (toolName === "apply_formatting") {
-            result = flushEditorUpdate(() => applyWordFormatting({ view, document, layout: editor.getEditorRef()?.getLayout() ?? null, metadata: metadataRef.current, loadDocument: (document) => editor.loadDocument(document) }, args));
-          } else if (toolName === "update_fields") {
-            result = { success: true, data: { updated: await updateWordFields(editor, metadataRef.current) } };
-          } else if (toolName === "set_protection") {
-            const mode = args.mode;
-            if (metadataRef.current.protection.password || mode !== "none" && mode !== "forms" && mode !== "trackedChanges") return { success: false, error: "Password protection cannot be changed by this tool, or the mode is unsupported." };
-            flushEditorUpdate(() => changeProtection({ mode, password: false }));
-            result = { success: true, data: { protection: metadataRef.current.protection } };
-          } else if (toolName === "set_page_numbering") {
-            if (metadataRef.current.protection.mode !== "none") return { success: false, error: t("docx.word.edit_blocked") };
-            const index = args.sectionIndex; const format = args.format; const start = args.start;
-            if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= metadataRef.current.pages.length || typeof format !== "string" || !["decimal", "decimalZero", "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"].includes(format) || start !== undefined && start !== null && (typeof start !== "number" || !Number.isInteger(start) || start < 1 || start > 32767)) return { success: false, error: "Invalid section index, page format or restart number." };
-            const metadata = { ...metadataRef.current, pages: metadataRef.current.pages.map((rule, i) => i === index ? { format, ...(typeof start === "number" ? { start } : {}) } : rule) };
-            metadataRef.current = metadata; setWordMetadata(metadata);
-            await updateWordFields(editor, metadata);
-            result = { success: true, data: { sections: metadata.pages, tracked: false } };
-          } else if (isReviewDecision) {
-            const changeIds = requestedChangeIds(args);
-            if (!changeIds) {
-              return { success: false, error: t("docx.change_ids_required") };
-            }
-            result = flushEditorUpdate(() => decideTrackedChanges(
-              editorRef.current,
-              toolName === "accept_changes" ? "accept" : "reject",
-              changeIds,
-            ));
-          } else {
-            result = isDocumentReadTool("docx", toolName) ? executeToolCall(toolName, args) : flushEditorUpdate(() => executeToolCall(toolName, args));
-            if (result.success && toolName === "insert_break" && args.type !== "page") {
-              let target = -1; let section = 0;
-              before.descendants((node, pos) => { if (node.attrs.paraId === args.paraId) target = pos; });
-              before.descendants((node, pos) => { if (pos < target && node.attrs.sectionBreakType) section++; });
-              const pages = [...metadataRef.current.pages];
-              pages.splice(section + 1, 0, { format: pages[section]?.format ?? "decimal" });
-              const metadata = { ...metadataRef.current, pages }; metadataRef.current = metadata; setWordMetadata(metadata);
-            }
-          }
-        } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
-        if (!result.success) return result;
-        if ((toolName === "suggest_change" || ["set_paragraph_style", "insert_break"].includes(toolName) || isReviewDecision) && before === editorRef.current?.getEditorRef()?.getView()?.state.doc) return { success: false, error: t("docx.word.edit_blocked") };
-        if (toolName === "read_document") return { ...result, data: { text: result.data, structure: structure(), formatting: readWordFormatting(view.state.doc, document, { fromIndex: args.fromIndex, limit: typeof args.toIndex === "number" ? Math.min(50, Math.max(1, args.toIndex - Number(args.fromIndex ?? 0) + 1)) : 20 }), comments: editor.getComments(), changes: executeToolCall("read_changes", {}).data } };
-        if (!mutatesDocument) return result;
-        const currentView = editorRef.current?.getEditorRef()?.getView();
-        const normalized = currentView && normalizeDocxLineBreaks(currentView.state);
-        if (normalized) flushEditorUpdate(() => currentView.dispatch(normalized));
-        markDirty();
-        let saved: boolean;
-        try { saved = await save(); }
-        catch (cause) { return { success: false, saved: false, data: { applied: true, documentId, draftRevision: revision.current }, error: `${t("docx.changed_not_saved")} ${cause instanceof Error ? cause.message : String(cause)}` }; }
-        if (!saved || dirty.current) return { success: false, saved: false, data: { applied: true, documentId, draftRevision: revision.current }, error: t("docx.changed_not_saved") };
-        return { ...result, data: { result: result.data, documentId, draftRevision: revision.current }, saved: true };
-      },
+      executeAgentTool: (toolName, args) => executeAgentTool(toolName, args, true),
     discardRecovery: async () => {
       await checkpointWork.current;
       if (recoveryKey) await removeDocxRecovery(recoveryKey);
@@ -661,7 +697,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       onDirtyChange?.(false);
     } };
     return () => { apiRef.current = null; };
-  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly, interactionLocked, documentId, checkDocument]);
+  }, [apiRef, save, getBuffer, onDirtyChange, recoveryKey, executeToolCall, markDirty, readOnly, interactionLocked, documentId, checkDocument, automaticSave]);
 
   useControlActions([
     {

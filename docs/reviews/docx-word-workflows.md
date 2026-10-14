@@ -145,42 +145,72 @@ new agent tool schemas; running workers retain their previously registered tools
 Word cross-reference semantics were checked against [Microsoft's documentation](https://support.microsoft.com/en-us/word/create-a-cross-reference).
 
 
-## Consolidated agent interface — 13 October 2026
+## Agent tool surface after merging dev — 14 October 2026
 
-The public in-app Word API is now **one tool**, `inapp_docx`, accepting
-`{operation, args}`. The former 25 registered Word tools are no longer advertised.
-Their native operations use a shared dispatcher and retain validation, live-draft
-identity checks, protection and save/copy behavior. Reads return text, native
-structure, comments and revisions together.
+Merged `origin/dev` (`8255eba9`) into `feat/word-editor-agent` first, in merge
+commit `d88842cc`. Preserved dev's task/project document routing, persistent
+background editors, per-document queues, editing ownership, autosave and safe
+file handoffs. Combined both branches' pinned SDK patches rather than replacing
+one set of fixes. Fixed instructions remain in the system prompt; current document
+state stays in dev's conversation reminders.
 
-The agent discovers syntax as needed:
+The public API retains dev's twelve tools and adds **three** tools:
 
-```json
-{"operation":"read_document"}
-{"operation":"help"}
-{"operation":"help","args":{"operation":"insert_cross_reference"}}
-```
+| Tool | Responsibility |
+| --- | --- |
+| `inapp_docx_read_document` | Bounded live text, structure and formatting reads; `view`, `paraId`, `fromIndex`, `limit`, `includeStyles`; explicit coverage and `nextIndex`. |
+| `inapp_docx_fill_template` | Existing clean placeholder replacement plus native text controls by ID or unique tag, with lock/protection checks. |
+| `inapp_docx_edit` | Typed sequential native edit batches, one final save; formatting/styles, bookmarks/references, notes, breaks, numbering, protection and field refresh. `action: "save"` retries persistence without repeating edits. |
+| `inapp_docx_compare_documents` | Compare/combine saved returned project drafts with the live draft into a separate native redline copy. |
+| `inapp_docx_inspect_document` | Inspect privacy findings, optionally create an outgoing copy with explicit removal categories. |
 
-Help lists the API methods or returns the requested method's argument schema.
-Help requires no open document and does not dispatch an editor action. The model's
-initial tool schema contains only operation and args; per-feature argument schemas
-are loaded on demand. The canonical skill, command and Word fallback instructions
-use the same API. Running workers require a restart to load the new registration.
+The existing selection/search, suggestions, comments/replies, targeted change
+review and explicit file handoff tools remain separate. There are **15 public
+in-app Word tools in total**. No generic `inapp_docx` tool or dynamic help API is
+registered. Shared schemas validate the entire native batch before editing. A
+semantic failure stops subsequent operations, saves any earlier edits and reports
+`appliedOperations`, `failedIndex` and persistence errors. Batches are sequential,
+not atomic; the agent must re-read rather than replay applied edits. Autosave is
+suspended while a native batch runs.
 
-Validation for the consolidation: 30 bridge/Word-routing tests and 51 editor tests
-passed, including a regression that verifies exactly one Word tool is registered,
-on-demand syntax discovery, native reference routing/validation, targeted review
-and copy exports. App/server type checks and production builds passed. Native
-editing behavior remains covered by the Electron checks above; this consolidation
-changes the public dispatch surface.
+Comparison and outgoing copies use the originating project's existing file API,
+including remote project servers and their permission/approval checks. Binary
+writes support `createOnly`, checked inside the file lock; racing creators and
+existing destinations cannot overwrite another copy. Read/copy operations do not
+require editing ownership of the source; new copies still require project write
+access. Raw DOCX/base64 is removed from the public result.
+
+Native Electron computer-use checks against the production editor and synthetic
+contract passed:
+
+- A single batch creates a bookmark and linked REF field, then changes title
+  font/emphasis/size, alignment, spacing, indent and keep flags; readback and
+  save/reopen retain the native field and formatting.
+- A deliberately failing second operation retains/saves the first and does not
+  apply the third. The result reports partial success accurately.
+- A simulated save failure preserves applied edits and recovery; save-only retry
+  persists the draft without repeating operations.
+- Native control filling under form protection, boilerplate/stale-edit rejection,
+  reference retargeting, note editing/insertion, backlink preservation, Roman
+  numbering and field refresh all survive save/reopen.
+- Clean copies remove the selected comments/revisions, comparison changes keep
+  their reviewer author, and the source remains unchanged.
+- Read-only mode permits formatting reads and rejects native edit batches.
+
+Validation: 100 editor/runtime tests, 52 server/routing/file tests, app/server
+TypeScript checks, app/server production builds, and the shipped en/de i18n audit.
+Electron screenshots: [native save/reopen](word-tools-dev-merge/native-reopen.png)
+and [read-only formatting checks](word-tools-dev-merge/read-only.png).
+
+The existing Word fidelity limits documented above still apply; this change does
+not claim full Word parity. The user's original demo document stays unchanged.
 
 ## Agent formatting — 13 October 2026
 
-Formatting was only partially wired: the SDK could apply character marks, but the
-consolidated public API did not expose that operation and document reads omitted
-run and paragraph properties. The same single `inapp_docx` tool now supports
-`read_formatting` and `apply_formatting`; no additional public tool is registered.
-`read_document` includes the first requested formatting page, and structure reads
+Formatting reads and native edits are now exposed through
+`inapp_docx_read_document` (`view: "formatting"`) and typed `apply_formatting`
+operations in `inapp_docx_edit`. Default reads include a bounded formatting window,
+and structure reads
 include paragraph/style handles and formatting capabilities. Focused/paginated
 reads expose run marks, fonts/sizes, emphasis, colors, character styles, paragraph
 alignment, spacing/indents and pagination flags. Optional style definitions include
@@ -199,7 +229,8 @@ values. Formatting edits now update the preserved paragraph properties and saves
 write explicit negative run overrides where styles would otherwise restore them.
 The save correction keeps the SDK's injected reply anchors and review markup.
 Electron testing also caught React publishing a new document handle during the
-save; the formatting operation waits for that render before saving.
+save; native updates now flush synchronously through dev’s React save integration
+before serialization.
 
 Verified through native computer use in the isolated Electron 43.7.5 development
 app against the production editor and synthetic Word fixture: Arial/bold title to

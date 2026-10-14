@@ -27,13 +27,27 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
   const [savedReport, setSavedReport] = useState("");
   const [agentReport, setAgentReport] = useState("");
   const agentRead = async () => {
-    const result = await api.current?.executeAgentTool("read_structure", {});
-    if (!result?.success || !record(result.data)) throw new Error(result?.error || "Agent structure read failed");
-    return result.data;
+    const combined: Record<string, unknown> = {};
+    let next: number | null = 0;
+    while (next !== null) {
+      const result = await api.current?.executeAgentTool("read_document", { view: "structure", fromIndex: next, limit: 50 });
+      if (!result?.success || !record(result.data) || !record(result.data.structure)) throw new Error(result?.error || "Agent structure read failed");
+      const data = result.data;
+      if (combined.documentId && (combined.documentId !== data.documentId || combined.draftRevision !== data.draftRevision)) throw new Error("Draft changed during paginated reads");
+      for (const [key, value] of Object.entries(data.structure)) combined[key] = Array.isArray(value) ? [...records(combined[key]), ...value] : value;
+      combined.documentId = data.documentId; combined.draftRevision = data.draftRevision;
+      next = typeof data.nextIndex === "number" ? data.nextIndex : null;
+    }
+    for (const key of ["notes", "controls"]) combined[key] = [...new Map(records(combined[key]).map(item => [`${item.type}:${item.id}`, item])).values()];
+    return combined;
   };
   const agentRun = async (tool: string, args: Record<string, unknown>, snapshot?: Record<string, unknown>) => {
     const structure = snapshot ?? await agentRead();
-    const result = await api.current?.executeAgentTool(tool, { documentId: structure.documentId, draftRevision: structure.draftRevision, ...args });
+    const identity = { documentId: structure.documentId, draftRevision: structure.draftRevision };
+    const result = tool === "save_document" ? await api.current?.executeAgentTool("edit", { ...identity, action: "save" })
+      : tool === "fill_content_control" ? await api.current?.executeAgentTool("fill_template", { ...identity, controlId: args.controlId, value: args.text })
+      : ["create_clean_copy", "create_comparison_copy"].includes(tool) ? await api.current?.executeAgentTool(tool, { ...identity, ...args })
+      : await api.current?.executeAgentTool("edit", { ...identity, operations: [{ operation: tool, ...args }] });
     if (!result?.success) throw new Error(`${tool}: ${result?.error}`);
     return result;
   };
@@ -46,7 +60,7 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       const target = records(structure.bookmarks).find((mark) => mark.name === "Rueckbau");
       if (!source || !target) throw new Error("Complex Word fixture is required.");
       await agentRun("insert_cross_reference", { paraId: source.paraId, targetParaId: target.paraId, kind: "number", search: "" }, structure);
-      const stale = await api.current?.executeAgentTool("insert_cross_reference", { documentId: structure.documentId, draftRevision: structure.draftRevision, paraId: source.paraId, bookmark: "Rueckbau", kind: "number", search: "" });
+      const stale = await api.current?.executeAgentTool("edit", { documentId: structure.documentId, draftRevision: structure.draftRevision, operations: [{ operation: "insert_cross_reference", paraId: source.paraId, bookmark: "Rueckbau", kind: "number", search: "" }] });
       if (stale?.success) throw new Error("Stale revision unexpectedly permitted");
       let fresh = await agentRead();
       const created = records(fresh.fields).filter((field) => field.paraId === source.paraId).at(-1);
@@ -57,7 +71,7 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       await agentRun("set_protection", { mode: "forms" });
       await agentRun("fill_content_control", { controlId: control.id, text: "Agent Word Demo" });
       fresh = await agentRead();
-      const protectedEdit = await api.current?.executeAgentTool("create_bookmark", { documentId: fresh.documentId, draftRevision: fresh.draftRevision, paraId: source.paraId, bookmark: "BlockedAgentBookmark" });
+      const protectedEdit = await api.current?.executeAgentTool("edit", { documentId: fresh.documentId, draftRevision: fresh.draftRevision, operations: [{ operation: "create_bookmark", paraId: source.paraId, bookmark: "BlockedAgentBookmark" }] });
       if (protectedEdit?.success) throw new Error("Protected boilerplate edit unexpectedly permitted");
       await agentRun("set_protection", { mode: "none" });
       await agentRun("edit_note", { noteType: "footnote", noteId: 1, search: "Musterwerte", replaceWith: "Agent geprüfte Demowerte" });
@@ -106,9 +120,10 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
   const readAgentFormatting = async () => {
     const structure = await agentRead(); const title = records(structure.paragraphs).find((item) => item.styleId === "Title");
     if (!title) throw new Error("Complex Word fixture required");
-    const result = await api.current?.executeAgentTool("read_formatting", { paraId: title.paraId });
+    const result = await api.current?.executeAgentTool("read_document", { view: "formatting", paraId: title.paraId });
     if (!result?.success || !record(result.data)) throw new Error(result?.error || "Formatting read failed");
-    const paragraph = records(result.data.paragraphs)[0]; const run = records(paragraph?.runs)[0];
+    if (!record(result.data.formatting)) throw new Error("Formatting is missing");
+    const paragraph = records(result.data.formatting.paragraphs)[0]; const run = records(paragraph?.runs)[0];
     if (!paragraph || !run || !record(run.formatting) || !record(paragraph.formatting)) throw new Error("Formatting missing from agent read");
     return { structure, paragraph, run, marks: run.formatting, properties: paragraph.formatting };
   };
@@ -118,12 +133,12 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       const before = await readAgentFormatting();
       const args = { paraId: before.paragraph.paraId, marks: { bold: false, italic: true, fontSize: 18, fontFamily: { ascii: "Times New Roman" }, color: { rgb: "223344" } }, paragraph: { alignment: "right", spaceAfter: 12, indentLeft: 24, keepNext: false, keepLines: true } };
       if (readOnly) {
-        const blocked = await api.current?.executeAgentTool("apply_formatting", { documentId: before.structure.documentId, draftRevision: before.structure.draftRevision, ...args });
+        const blocked = await api.current?.executeAgentTool("edit", { documentId: before.structure.documentId, draftRevision: before.structure.draftRevision, operations: [{ operation: "apply_formatting", ...args }] });
         if (blocked?.success) throw new Error("Read-only formatting unexpectedly permitted");
         setAgentReport(JSON.stringify({ formattingReadOnlyPassed: true, formattingReadable: true, formattingBlocked: true, error: blocked?.error }, null, 2)); return;
       }
       await agentRun("apply_formatting", args, before.structure);
-      const stale = await api.current?.executeAgentTool("apply_formatting", { documentId: before.structure.documentId, draftRevision: before.structure.draftRevision, ...args });
+      const stale = await api.current?.executeAgentTool("edit", { documentId: before.structure.documentId, draftRevision: before.structure.draftRevision, operations: [{ operation: "apply_formatting", ...args }] });
       if (stale?.success) throw new Error("Stale formatting edit unexpectedly permitted");
       await agentRun("apply_formatting", args); // Repeating an already-applied value is an idempotent success.
       const after = await readAgentFormatting();
@@ -138,11 +153,49 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       setAgentReport(JSON.stringify({ reopenedFormattingPassed: true, inheritedBoldRemoved: true, font: after.marks.fontFamily.ascii, points: after.marks.fontSize, alignment: after.properties.alignment, spacingPoints: after.properties.spaceAfter, indentPoints: after.properties.indentLeft, keepNext: after.properties.keepNext, keepLines: after.properties.keepLines }, null, 2));
     } catch (cause) { setAgentReport(String(cause)); }
   };
+  const testNativeBatch = async () => {
+    try {
+      const first = await agentRead(); const source = records(first.fields).find(field => field.type === "REF");
+      const target = records(first.bookmarks).find(mark => mark.name === "Rueckbau");
+      const title = records(first.paragraphs).find(item => item.styleId === "Title");
+      if (!source || !target || !title) throw new Error("Complex fixture required");
+      const bookmark = `BatchTarget${Date.now()}`;
+      const result = await api.current?.executeAgentTool("edit", { documentId: first.documentId, draftRevision: first.draftRevision, operations: [
+        { operation: "create_bookmark", paraId: target.paraId, bookmark },
+        { operation: "insert_cross_reference", paraId: source.paraId, bookmark, kind: "number", search: "" },
+        { operation: "apply_formatting", paraId: title.paraId, marks: { bold: false, italic: true, fontSize: 18, fontFamily: { ascii: "Times New Roman" } }, paragraph: { alignment: "right", spaceAfter: 12, indentLeft: 24, keepNext: false, keepLines: true } },
+      ] });
+      const after = await agentRead(); const field = records(after.fields).find(field => field.target === bookmark);
+      if (readOnly) { if (result?.success) throw new Error("Read-only batch was allowed"); setAgentReport(JSON.stringify({ batchReadOnlyPassed: true, error: result?.error })); return; }
+      if (!field || field.resolvedText !== "8") throw new Error(`Batch reference missing: ${JSON.stringify(result)}`);
+      if (failSave) { if (result?.success || result?.saved || !record(result?.data) || records(result.data.operations).length !== 3) throw new Error("Applied edits not reported after save failure"); }
+      else if (!result?.success || !result.saved) throw new Error(`Batch failed: ${JSON.stringify(result)}`);
+      setAgentReport(JSON.stringify({ nativeBatchPassed: true, saveFailurePassed: failSave, reference: field, result }, null, 2));
+    } catch (cause) { setAgentReport(String(cause)); }
+  };
+  const testPartialBatch = async () => {
+    try {
+      const first = await agentRead(); const target = records(first.bookmarks).find(mark => mark.name === "Rueckbau");
+      if (!target) throw new Error("Complex fixture required");
+      const bookmark = `Partial${Date.now()}`;
+      const result = await api.current?.executeAgentTool("edit", { documentId: first.documentId, draftRevision: first.draftRevision, operations: [
+        { operation: "create_bookmark", paraId: target.paraId, bookmark },
+        { operation: "insert_cross_reference", paraId: target.paraId, bookmark: "MissingBookmark", kind: "text", search: "" },
+        { operation: "set_protection", mode: "forms" },
+      ] });
+      if (result?.success || !result?.saved || !record(result.data) || result.data.failedIndex !== 1) throw new Error(`Partial result incorrect: ${JSON.stringify(result)}`);
+      const after = await agentRead();
+      if (!records(after.bookmarks).some(mark => mark.name === bookmark) || !record(after.protection) || after.protection.mode !== "none") throw new Error("Partial batch did not stop at its failed operation");
+      setAgentReport(JSON.stringify({ partialBatchPassed: true, firstEditSaved: true, thirdEditNotApplied: true, result }, null, 2));
+    } catch (cause) { setAgentReport(String(cause)); }
+  };
   return <TooltipProvider><div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#fff" }}>
     <div style={{ padding: 10, display: "flex", gap: 16, flexWrap: "wrap", borderBottom: "1px solid #ddd" }}>
       <button onClick={async () => { try { const ok = await api.current?.save(); setStatus(ok ? "Saved to workspace" : "Save failed"); } catch { setStatus("Save failed; draft retained"); } }}>Save to workspace</button>
       <button onClick={() => { setContent(saved.slice(0)); setGeneration((value) => value + 1); setDirty(false); setStatus("Reopened saved copy"); }}>Reopen saved copy</button>
       <button onClick={() => setNarrow(!narrow)}>{narrow ? "Full width" : "Narrow panel"}</button>
+      <button onClick={() => void testNativeBatch()}>Test typed native batch</button>
+      <button onClick={() => void testPartialBatch()}>Test partial batch</button>
       <button onClick={() => void runAgentWorkflow()}>Test agent Word workflow</button>
       <button onClick={() => void agentRead().then((structure) => setAgentReport(JSON.stringify(structure, null, 2))).catch((cause) => setAgentReport(String(cause)))}>Read agent Word structure</button>
       <button onClick={() => void verifyAgentData()}>Verify reopened agent data</button>

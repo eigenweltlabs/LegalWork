@@ -9,7 +9,7 @@ import type { WordMetadata } from "./docx-word-package";
 
 type View = { state: EditorState; dispatch: (transaction: Transaction) => void };
 type WordField = { id: string; paraId: string; ordinal: number; type: string; instruction: string; target?: string; displayText: string; resolvedText?: string; status: string; locked: boolean; tracked: boolean };
-type WordControl = { id: string; tag: string; alias: string; type: string; text: string; lock: string; editable: boolean };
+type WordControl = { paraIds: string[]; id: string; tag: string; alias: string; type: string; text: string; lock: string; editable: boolean };
 type WordNote = { id: number; type: string; text: string; references: { id: number; type: string; paraId: string }[]; editable: boolean; fields: WordField[]; controls: WordControl[] };
 export type WordToolContext = { view: View; document: Document; layout: Layout | null; metadata: WordMetadata; loadDocument: (document: Document) => void };
 export const WORD_STRUCTURE_MUTATIONS = new Set(["create_bookmark", "insert_cross_reference", "edit_cross_reference", "fill_content_control", "edit_note", "insert_note"]);
@@ -53,10 +53,11 @@ export function readWordStructure(doc: Node, document: Document, layout: Layout 
       for (const mark of node.marks) if (mark.type.name === "footnoteRef") noteReferences.push({ id: Number(mark.attrs.id), type: String(mark.attrs.noteType), paraId: item.paraId });
     });
   }
-  doc.descendants((node) => {
+  doc.descendants((node, pos) => {
     if (!["sdt", "blockSdt"].includes(node.type.name)) return;
     const lock = String(node.attrs.lock ?? "");
-    controls.push({ id: String(node.attrs.id), tag: String(node.attrs.tag ?? ""), alias: String(node.attrs.alias ?? ""), type: String(node.attrs.sdtType ?? "text"), text: text(node), lock, editable: !["contentLocked", "sdtContentLocked"].includes(lock) && !node.attrs.dataBinding && !["readOnly", "comments"].includes(metadata.protection.mode) });
+    const paraIds = items.filter(item => item.pos <= pos && pos < item.pos + item.node.nodeSize || pos <= item.pos && item.pos < pos + node.nodeSize).map(item => item.paraId);
+    controls.push({ paraIds, id: String(node.attrs.id), tag: String(node.attrs.tag ?? ""), alias: String(node.attrs.alias ?? ""), type: String(node.attrs.sdtType ?? "text"), text: text(node), lock, editable: !["contentLocked", "sdtContentLocked"].includes(lock) && !node.attrs.dataBinding && ["none", "forms"].includes(metadata.protection.mode) });
   });
   const notes: WordNote[] = includeNotes ? [...(document.package.footnotes ?? []), ...(document.package.endnotes ?? [])].map((note): WordNote => {
     const doc = footnoteToProseDoc(note.content);
@@ -69,7 +70,7 @@ export function readWordStructure(doc: Node, document: Document, layout: Layout 
     sections: metadata.pages.map((rule, index) => ({ index, ...rule })), protection: metadata.protection, contents: { levels: metadata.tocLevels },
     paragraphs: items.map((item, index) => ({ paraId: item.paraId, index, styleId: item.node.attrs.styleId ?? null })),
     styles: document.package.styles?.styles.map((style) => ({ id: style.styleId, name: style.name, type: style.type, basedOn: style.basedOn })) ?? [],
-    capabilities: { bookmarkScope: "whole_paragraph", crossReferenceKinds: ["number", "text", "page"], editableFieldStories: ["body"], structuralEditsTracked: false, noteEditsTracked: false, noteInsertion: true, formattingReadOperation: "read_formatting", formattingEditOperation: "apply_formatting", formattingEditsTracked: false, editableFormattingStories: ["body"] },
+    capabilities: { bookmarkScope: "whole_paragraph", crossReferenceKinds: ["number", "text", "page"], editableFieldStories: ["body"], structuralEditsTracked: false, noteEditsTracked: false, noteInsertion: true, formattingReadTool: "inapp_docx_read_document", formattingReadView: "formatting", formattingEditTool: "inapp_docx_edit", formattingEditOperation: "apply_formatting", formattingEditsTracked: false, editableFormattingStories: ["body"] },
   };
 }
 
