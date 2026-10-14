@@ -42,6 +42,7 @@ export function registerConnectorRoutes(options: {
   add("GET", "/connectors/:connectorId/settings", async (ctx) => jsonResponse(await connectorWriteSetting(config, ctx.params.connectorId)));
   add("PUT", "/connectors/:connectorId/settings", async (ctx) => jsonResponse(await saveConnectorWriteSetting(config, ctx.params.connectorId, await readOptionalJsonBody(ctx.request))));
   add("GET", "/connectors", async () => jsonResponse(await connectorStatus(config)));
+  add("GET", "/connectors/:connectorId", async (ctx) => jsonResponse(await connectorStatus(config, ctx.params.connectorId, new URL(ctx.request.url).searchParams.get("refresh") === "true")));
   add("PUT", "/connectors/:connectorId/activation", async (ctx) => {
     const input = z.object({ connectionId: z.string().min(1).max(500), active: z.boolean() }).strict().safeParse(await readOptionalJsonBody(ctx.request));
     if (!input.success) throw new ApiError(400, "invalid_payload", "Choose the connected account and whether this connector should be active.");

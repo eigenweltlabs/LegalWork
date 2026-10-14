@@ -40,9 +40,9 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
     for (const connector of parsed.connectors) connectionChange.current?.(connector.id, connectorIsConnected(connector));
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (forceRefresh = false) => {
     if (!client) return;
-    const [value, details] = await Promise.all([client.connectorStatus(), client.connectorOAuthClient(id)]);
+    const [value, details] = await Promise.all([client.connectorStatus(id, forceRefresh), client.connectorOAuthClient(id)]);
     if (!mounted.current) return;
     update(value); setOAuthClient(details); setClientId(details.clientId); setTenantId(details.tenantId); setClientSecret("");
   }, [client, id, update]);
@@ -195,7 +195,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
           {status && connections.length === 0 && <Button disabled={Boolean(busy) || !client || (method === "custom" ? !oauthClient?.configured || dirty : !connector?.configured || status?.requiresSignIn)} onClick={() => void run("connect", () => connect())}>
             {busy === "connect" && <Loader2 className="size-4 animate-spin" />}{t("connectors.connect", { name: definition.name })}
           </Button>}
-          <Button variant="outline" disabled={Boolean(busy) || !client} onClick={() => void run("refresh", refresh)}>{t("connectors.refresh")}</Button>
+          <Button variant="outline" disabled={Boolean(busy) || !client} onClick={() => void run("refresh", () => refresh(true))}>{t("connectors.refresh")}</Button>
           {busy === "connect" && <Button variant="ghost" onClick={() => {
             const pending = active.current;
             if (pending) { pending.cancelled = true; if (pending.flowId) void client?.connectorCancelFlow(pending.flowId).catch(() => undefined); }

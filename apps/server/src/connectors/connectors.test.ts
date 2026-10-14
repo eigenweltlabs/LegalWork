@@ -1,5 +1,5 @@
 import { saveConnectorWriteSetting } from "./settings.js";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -332,6 +332,60 @@ test("only connected providers refresh and Outlook email/calendar share one look
   requests.length = 0;
   await connectorStatus(config, "google-drive");
   expect(requests.map((item) => item.url.pathname)).toEqual(["/api/connectors"]);
+});
+
+test("repeated and concurrent settings reads share one status lookup per saved provider", async () => {
+  const results = await Promise.all([listConnectorConnections(config, "outlook"), listConnectorConnections({ ...config }, "outlook-calendar")]);
+  expect(results.every(items => items.length === 1)).toBe(true);
+  for (let i = 0; i < 8; i++) await connectorStatus(config);
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(2);
+});
+
+test("a failed status lookup is not cached as successful", async () => {
+  const previous = response;
+  let fail = true;
+  response = (url, init) => fail && url.pathname.endsWith("/connection/status") ? Response.json({}, { status: 429 }) : previous(url, init);
+  await expect(listConnectorConnections(config, "gmail")).rejects.toMatchObject({ code: "connector_rate_limited" });
+  fail = false;
+  expect(await listConnectorConnections(config, "gmail")).toHaveLength(1);
+});
+
+test("a connector modal reads only its selected provider through the owner API", async () => {
+  const previous = response;
+  response = (url, init) => url.pathname === "/api/connectors" ? Response.json({ configured: true, providers: connectorDefinitions.map(({ id }) => ({ id })) }) : previous(url, init);
+  const server = await startServer(config); stops.push(() => server.stop());
+  const endpoint = `http://127.0.0.1:${server.port}/connectors/outlook-calendar`;
+  expect((await nativeFetch(endpoint)).status).toBe(401);
+  const result = await nativeFetch(endpoint, { headers: { Authorization: `Bearer ${config.token}`, "X-LegalWork-Host-Token": config.hostToken } });
+  expect(result.status).toBe(200);
+  const status = await result.json();
+  expect(status.connectors.map((item: { id: string }) => item.id)).toEqual(["outlook-calendar"]);
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status")).map(item => item.url.pathname)).toEqual(["/api/connectors/outlook-calendar/connection/status"]);
+  requests.length = 0;
+  expect((await nativeFetch(endpoint, { headers: { Authorization: `Bearer ${config.token}`, "X-LegalWork-Host-Token": config.hostToken } })).status).toBe(200);
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(0);
+  expect((await nativeFetch(`${endpoint}?refresh=true`, { headers: { Authorization: `Bearer ${config.token}`, "X-LegalWork-Host-Token": config.hostToken } })).status).toBe(200);
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(1);
+});
+
+test("status metadata expires and changed saved accounts bypass the cache", async () => {
+  await listConnectorConnections(config, "gmail");
+  const now = Date.now(); const clock = spyOn(Date, "now").mockReturnValue(now + 30_001);
+  try { await listConnectorConnections(config, "gmail"); }
+  finally { clock.mockRestore(); }
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(2);
+  await writeConnectorConnections(config, localOwner, "gmail", [{ ...connection, id: "replacement-account" }]);
+  connections = [{ ...connection, id: "replacement-account" }];
+  expect((await listConnectorConnections(config, "gmail"))[0]?.id).toBe("replacement-account");
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(3);
+});
+
+test("metadata cache is scoped to the current Eigenwelt owner", async () => {
+  await listConnectorConnections(config, "gmail");
+  await writeEigenweltConnection(config, { account: { userId: "bob", userName: null, userEmail: null, orgId: "firm", orgName: "Firm" } });
+  await writeConnectorConnections(config, JSON.stringify(["https://broker.test", "firm", "bob"]), "gmail", [connection]);
+  await listConnectorConnections(config, "gmail");
+  expect(requests.filter(item => item.url.pathname.endsWith("/connection/status"))).toHaveLength(2);
 });
 
 test("opening settings after another firm signs in never discovers that firm's accounts", async () => {

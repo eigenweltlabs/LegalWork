@@ -81,6 +81,8 @@ Nango requests occur when the user explicitly starts Connect/Reconnect (integrat
 
 Users with no connected Nango accounts generate no Nango requests. Own-app OAuth also works while signed out, with no connector requests to Nango or the Eigenwelt platform. LegalWork can still call its local server and the Eigenwelt API for configuration, authentication and other product features. Nango connected-account requests send authentication credentials and connection ownership metadata (user/firm/integration/connection IDs), never emails, calendar contents, documents or attachments.
 
+Connector dialogs load only their selected provider. Recent status metadata is shared in memory for 30 seconds across settings reads, workspaces and the two Outlook connectors; concurrent checks share one request. Changed saved accounts or Eigenwelt ownership use a separate cache entry. The dialog's Refresh button bypasses the completed cache, and sign-in completion verifies the account again. Access-token retrieval always checks ownership through the broker and does not use this metadata cache. The platform counts POST status requests as reads; POST keeps private connection identifiers out of URLs and access logs.
+
 The account created by the research test has no LegalWork ownership tags and is deliberately not imported automatically. Connect once through LegalWork to associate it with the correct user and firm.
 
 ## Actions

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { oauthVaultPath } from "../file-storage/oauth/vault.js";
 import { z } from "zod";
 import {
   connectorConnectionSchema, connectorDefinitions, connectorTokenSchema, type ConnectorConnection,
@@ -74,8 +75,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return result.data;
 }
 
-async function refreshConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection) {
-  if (connection.needsReconnect) return connection;
+async function checkConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection) {
   try {
     const status = parse(statusSchema, await brokerRequest(config, "POST", `/${encodeURIComponent(id)}/connection/status`, { connectionId: connection.nangoConnectionId }, owner)).connection;
     if (status.id !== connection.nangoConnectionId) throw new ApiError(502, "connector_broker_invalid", "The connection service returned an invalid account.");
@@ -87,7 +87,31 @@ async function refreshConnection(config: ServerConfig, owner: string, id: string
   }
 }
 
-export async function listConnectorConnections(config: ServerConfig, id: string) {
+// Only status metadata is cached. Credential retrieval still verifies current
+// ownership for every request. Share checks across modals, workspaces and the
+// two Outlook connectors, with saved state in the key to invalidate changes.
+const statusChecks = new Map<string, { until: number; result: Promise<StoredConnectorConnection | null> }>();
+const STATUS_CACHE_MS = 30_000;
+
+async function refreshConnection(config: ServerConfig, owner: string, id: string, connection: StoredConnectorConnection, forceRefresh = false) {
+  if (connection.needsReconnect) return connection;
+  const key = JSON.stringify([oauthVaultPath(config), owner, connectionProvider(id), connection]);
+  let entry = statusChecks.get(key);
+  if (!entry || (entry.until !== 0 && (forceRefresh || entry.until <= Date.now()))) {
+    if (statusChecks.size >= 256) {
+      const oldest = statusChecks.keys().next().value;
+      if (oldest !== undefined) statusChecks.delete(oldest);
+    }
+    const next = { until: 0, result: checkConnection(config, owner, id, connection) };
+    statusChecks.set(key, next);
+    next.result.then(() => { next.until = Date.now() + STATUS_CACHE_MS; }, () => { if (statusChecks.get(key) === next) statusChecks.delete(key); });
+    entry = next;
+  }
+  const value = await entry.result;
+  return value ? { ...value } : null;
+}
+
+export async function listConnectorConnections(config: ServerConfig, id: string, forceRefresh = false) {
   connectorDefinition(id);
   const local = await localOAuthConnections(config, id);
   const platform = await readEigenweltConnection(config);
@@ -98,7 +122,7 @@ export async function listConnectorConnections(config: ServerConfig, id: string)
   const savedState = await readConnectorState(config, owner, provider);
   let connections = savedState.connections;
   if (connections.some((connection) => !connection.needsReconnect)) {
-    const refreshed = await Promise.all(connections.map((connection) => refreshConnection(config, owner, id, connection)));
+    const refreshed = await Promise.all(connections.map((connection) => refreshConnection(config, owner, id, connection, forceRefresh)));
     connections = refreshed.filter((connection) => connection !== null);
     if (savedState.snapshot !== null && !await writeConnectorConnections(config, owner, provider, connections, savedState.snapshot)) {
       connections = await readConnectorConnections(config, owner, provider);
@@ -116,7 +140,7 @@ export async function savedConnectorConnections(config: ServerConfig, id: string
   return [...managed.map((connection) => connectorConnectionSchema.parse(connection)), ...local];
 }
 
-export async function connectorStatus(config: ServerConfig, connectorId?: string) {
+export async function connectorStatus(config: ServerConfig, connectorId?: string, forceRefresh = false) {
   const definitions = connectorId ? [connectorDefinition(connectorId)] : connectorDefinitions;
   const connection = await readEigenweltConnection(config);
   if ((!connection.platformToken && !connection.refreshToken) || !connection.account) {
@@ -135,7 +159,7 @@ export async function connectorStatus(config: ServerConfig, connectorId?: string
       const configured = catalog.configured && catalog.providers.some((provider) => provider.id === id);
       const provider = connectionProvider(id);
       let list = lists.get(provider);
-      if (configured && !list) { list = listConnectorConnections(config, id); lists.set(provider, list); }
+      if (configured && !list) { list = listConnectorConnections(config, id, forceRefresh); lists.set(provider, list); }
       const customConfigured = (await localOAuthClient(config, id)).configured;
       const connections = list ? await list : await localOAuthConnections(config, id);
       return { id, name, configured, customConfigured, connections, active: await connectorActiveStatus(config, id, connections) };
@@ -227,7 +251,7 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
       const existing = saved.find((entry) => entry.nangoConnectionId === nangoId);
       if (flow.connectionId && existing?.id !== flow.connectionId) throw new ApiError(502, "connector_broker_invalid", "The sign-in returned a different account.");
       const candidate = { id: existing?.id ?? randomUUID(), createdAt: existing?.createdAt ?? null, needsReconnect: false, nangoConnectionId: nangoId };
-      const connection = await refreshConnection(config, flow.owner, flow.id, candidate);
+      const connection = await refreshConnection(config, flow.owner, flow.id, candidate, true);
       if (flows.get(flowId) !== flow) throw new ApiError(404, "connector_flow_not_found", "Connection flow not found. Start again.");
       if (!connection || connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", "Reconnect this account to restore access.");
       const current = await readConnectorState(config, flow.owner, provider);

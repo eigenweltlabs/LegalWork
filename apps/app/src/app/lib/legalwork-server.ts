@@ -1774,7 +1774,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     connectorSettings: (id: string) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, timeoutMs: timeouts.config }),
     setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),
-    connectorStatus: () => requestJson<ConnectorStatus>(baseUrl, "/connectors", { token, hostToken, timeoutMs: 120_000 }),
+    connectorStatus: (id?: string, forceRefresh = false) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}${forceRefresh ? "?refresh=true" : ""}` : "/connectors", { token, hostToken, timeoutMs: 120_000 }),
     connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),
     connectorConnect: (id: string, connectionId?: string, method: "nango" | "custom" = "nango") => requestJson<ConnectorConnect>(baseUrl, `/connectors/${encodeURIComponent(id)}/connect`, { token, hostToken, method: "POST", body: { method, ...(connectionId ? { connectionId } : {}) }, timeoutMs: 60_000 }),
     connectorOAuthClient: (id: string) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, timeoutMs: timeouts.status }),
