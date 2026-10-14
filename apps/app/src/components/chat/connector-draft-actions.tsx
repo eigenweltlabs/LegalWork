@@ -11,7 +11,7 @@ export function connectorDraftTool(part: ToolUIPart | DynamicToolUIPart, kind: "
   if (!input || typeof input !== "object" || !("extensionId" in input) || !("action" in input)) return false;
   return kind === "email"
     ? ["gmail", "outlook"].includes(String(input.extensionId)) && ["create_draft", "send_draft"].includes(String(input.action))
-    : ["google-calendar", "outlook-calendar"].includes(String(input.extensionId)) && input.action === "create_event";
+    : ["google-calendar", "outlook-calendar"].includes(String(input.extensionId)) && ["create_event", "update_event"].includes(String(input.action));
 }
 
 export function draftToolPayload(output: unknown) {
@@ -26,9 +26,10 @@ export function ConnectorDraftActions({ draft, disabled, onSave, onSend, onOpen 
   const provider = connectorDefinitions.find(item => item.id === draft.connectorTarget?.connectorId);
   if (!provider) return null;
   const uncertain = ["saving", "sending", "uncertain"].includes(draft.delivery?.state ?? "");
+  const updatingEvent = "googleCalendar" in draft && Boolean(draft.googleCalendar?.update);
   return <div className="ml-auto flex flex-wrap items-center gap-2">
     {uncertain && <span role="alert" className="text-xs text-destructive">Check {provider.name} before retrying this request.</span>}
-    {!draft.delivery && <Button size="sm" variant={onSend ? "outline" : "default"} disabled={disabled} onClick={onSave}>{onSend ? `Save draft in ${provider.name}` : `Add to ${provider.name}`}</Button>}
+    {!draft.delivery && <Button size="sm" variant={onSend ? "outline" : "default"} disabled={disabled} onClick={onSave}>{onSend ? `Save draft in ${provider.name}` : updatingEvent ? `Update in ${provider.name}` : `Add to ${provider.name}`}</Button>}
     {draft.delivery && <Button size="sm" variant="outline" disabled={disabled} onClick={onOpen}>Open in {provider.name}<ArrowUpRight className="size-3.5" /></Button>}
     {onSend && draft.delivery?.state !== "sent" && !uncertain && <Button size="sm" disabled={disabled} onClick={onSend}><Send className="size-3.5" />Send</Button>}
   </div>;

@@ -25,7 +25,7 @@ const de = {
   "connectors.permissions_help": "Hinweise zu Schreibberechtigungen",
   "connectors.single_account_cleanup": "Pro Konnektor wird nur ein Konto unterstützt. Trennen Sie die zusätzlichen Konten, um fortzufahren.",
   "connectors.write_access_mail": "Das Erstellen von E-Mail-Entwürfen und das Senden von E-Mails erlauben.",
-  "connectors.write_access_calendar": "Das Erstellen von Kalendereinträgen erlauben.",
+  "connectors.write_access_calendar": "Das Erstellen von Terminen und das Bearbeiten von Google-Kalender-Terminen erlauben.",
   "connectors.write_access_files": "Das Hochladen und Ersetzen von Dateien sowie das Erstellen von Ordnern erlauben.",
   "connectors.write_access": "Schreibzugriff erlauben",
   "connectors.write_access_permissions": "Verbinden Sie das Konto erneut, wenn es nur Leseberechtigungen hat. Ausschalten blockiert LegalWork-Aktionen, ohne bereits erteilte Berechtigungen beim Anbieter zu widerrufen.",

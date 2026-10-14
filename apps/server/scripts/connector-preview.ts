@@ -9,12 +9,13 @@ import type { ServerConfig } from "../src/types.js";
 import { writeConnectorConnections } from "../src/connectors/store.js";
 import { connectorDefinitions } from "../src/connectors/schema.js";
 import { recordConnectorActivation, saveConnectorWriteSetting } from "../src/connectors/settings.js";
-import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft } from "../src/connectors/drafts.js";
+import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate } from "../src/connectors/drafts.js";
 
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
 const editedDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_EDITED_DRAFTS === "1";
 const draftMime = new Map<string, string>();
+const calendarEvents = new Map<string, Record<string, unknown>>([["fixture-existing-event", { id: "fixture-existing-event", etag: '"fixture-v1"', summary: "Contract review meeting", description: "Review the revised agreement.", location: "Office", start: { dateTime: "2026-10-15T14:00:00+02:00", timeZone: "Europe/Berlin" }, end: { dateTime: "2026-10-15T15:00:00+02:00", timeZone: "Europe/Berlin" }, attendees: [{ email: "client@example.com", responseStatus: "accepted" }], organizer: { email: "fixture@example.com" }, htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" }]]);
 const mailboxMime = (provider: string) => (draftMime.get(provider) ?? "").replace(/^Subject:.*$/m, editedDrafts ? "Subject: Reloaded mailbox subject\r" : "$&");
 process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
 process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
@@ -59,8 +60,20 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
     return Response.json({ message: { id: editedDrafts ? "fixture-gmail-reloaded-message" : "fixture-gmail-message", raw: Buffer.from(mailboxMime("gmail")).toString("base64url") } });
   }
   if (showDrafts && url.hostname === "www.googleapis.com") {
-    const data = JSON.parse(String(init?.body ?? "{}"));
-    return Response.json({ id: "fixture-google-event", summary: data.summary, start: data.start, end: data.end, htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" });
+    if (url.pathname.includes("/calendarList/")) return Response.json({ accessRole: "owner", timeZone: "Europe/Berlin", conferenceProperties: { allowedConferenceSolutionTypes: ["hangoutsMeet"] } });
+    const id = url.pathname.split("/").at(-1) ?? "";
+    const current = calendarEvents.get(id);
+    if ((init?.method ?? "GET") === "GET") {
+      if (!current) return new Response(null, { status: 404 });
+      if (current.conferenceData) current.conferenceData = { createRequest: { status: { statusCode: "success" } }, conferenceSolution: { key: { type: "hangoutsMeet" } }, entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/fixture-meet-link" }] };
+      return Response.json(current);
+    }
+    if (init?.method === "PATCH" && (!current || new Headers(init.headers).get("If-Match") !== current.etag)) return new Response(null, { status: 412 });
+    const data = z.record(z.string(), z.unknown()).parse(JSON.parse(String(init?.body ?? "{}")));
+    const savedId = init?.method === "PATCH" ? id : `fixture-google-event-${calendarEvents.size}`;
+    const saved = { ...current, ...data, id: savedId, etag: '"fixture-v2"', ...(data.conferenceData ? { conferenceData: { createRequest: { status: { statusCode: "pending" } } } } : {}), htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" };
+    calendarEvents.set(savedId, saved);
+    return Response.json(saved);
   }
   if (showDrafts && url.hostname === "graph.microsoft.com") {
     if (url.pathname.endsWith("/send")) return new Response(null, { status: 202 });
@@ -105,6 +118,7 @@ const fixtureDrafts = showDrafts ? await (async () => {
   return { workspaceId: "fixture-project", gmail: (await prepareConnectorEmailDraft(config, "gmail", email, { directory: root })).draft,
     outlook: (await prepareConnectorEmailDraft(config, "outlook", email, { directory: root })).draft,
     "google-calendar": (await prepareConnectorCalendarDraft(config, "google-calendar", event, { directory: root })).draft,
+    "google-calendar-update": (await prepareConnectorCalendarUpdate(config, { eventId: "fixture-existing-event", location: "Meeting room", googleMeet: true }, { directory: root })).draft,
     "outlook-calendar": (await prepareConnectorCalendarDraft(config, "outlook-calendar", event, { directory: root })).draft };
 })() : null;
 const authorization = Bun.serve({ hostname: "127.0.0.1", port: 44642, async fetch(request) {

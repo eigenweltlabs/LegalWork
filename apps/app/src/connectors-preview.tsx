@@ -25,20 +25,20 @@ initLocale();
 const base = "http://127.0.0.1:44641";
 const client = createLegalworkServerClient({ baseUrl: base, token: "fixture-client", hostToken: "fixture-host" });
 const queryClient = new QueryClient();
-const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraftSchema, outlook: EmailDraftSchema, "google-calendar": CalendarEventDraftSchema, "outlook-calendar": CalendarEventDraftSchema });
+const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraftSchema, outlook: EmailDraftSchema, "google-calendar": CalendarEventDraftSchema, "outlook-calendar": CalendarEventDraftSchema, "google-calendar-update": CalendarEventDraftSchema });
 const noop = () => {};
 
 function DraftPreview() {
   const [data, setData] = useState<z.infer<typeof fixtureDraftsSchema> | null>(null);
-  const [provider, setProvider] = useState<"gmail" | "outlook" | "google-calendar" | "outlook-calendar">("gmail");
+  const [provider, setProvider] = useState<"gmail" | "outlook" | "google-calendar" | "outlook-calendar" | "google-calendar-update">("gmail");
   useEffect(() => { void fetch("http://127.0.0.1:44642/fixture/drafts").then(response => response.json()).then(value => setData(fixtureDraftsSchema.parse(value))); }, []);
   if (!data) return <p>Loading simulated connector drafts…</p>;
-  const calendar = provider === "google-calendar" || provider === "outlook-calendar";
-  const part: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_extension_call", toolCallId: `fixture-${provider}`, state: "output-available", input: { extensionId: provider, action: calendar ? "create_event" : "create_draft" }, output: { ok: true, result: { draft: data[provider] } } };
+  const calendar = provider === "google-calendar" || provider === "outlook-calendar" || provider === "google-calendar-update";
+  const part: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_extension_call", toolCallId: `fixture-${provider}`, state: "output-available", input: { extensionId: provider === "google-calendar-update" ? "google-calendar" : provider, action: provider === "google-calendar-update" ? "update_event" : calendar ? "create_event" : "create_draft" }, output: { ok: true, result: { draft: data[provider] } } };
   return <QueryClientProvider client={queryClient}><TooltipProvider><MessageListProvider legalworkClient={client} workspaceId={data.workspaceId} sessionId="fixture-session" showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
     <main className="mx-auto min-h-dvh max-w-3xl space-y-6 px-6 py-10">
       <div><h1 className="text-xl font-semibold">Connected draft cards</h1><p className="mt-1 text-sm text-muted-foreground">Isolated fixture · Simulated providers · No real email or calendar writes</p></div>
-      <div className="flex flex-wrap gap-2">{["gmail", "outlook", "google-calendar", "outlook-calendar"].map(id => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { if (id === "gmail" || id === "outlook" || id === "google-calendar" || id === "outlook-calendar") setProvider(id); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "google-calendar" ? "Google Calendar" : "Outlook Calendar"}</Button>)}</div>
+      <div className="flex flex-wrap gap-2">{["gmail", "outlook", "google-calendar", "outlook-calendar", "google-calendar-update"].map(id => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { if (id === "gmail" || id === "outlook" || id === "google-calendar" || id === "outlook-calendar" || id === "google-calendar-update") setProvider(id); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "google-calendar" ? "Google Calendar" : id === "google-calendar-update" ? "Google Calendar update" : "Outlook Calendar"}</Button>)}</div>
       {calendar ? <CalendarEventDraftToolCard key={provider} part={part} /> : <EmailDraftToolCard key={provider} part={part} />}
     </main>
   </MessageListProvider></TooltipProvider></QueryClientProvider>;

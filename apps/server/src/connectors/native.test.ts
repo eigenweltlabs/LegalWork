@@ -24,6 +24,29 @@ test("Google Calendar expands recurring occurrences and preserves DST offsets an
   expect(result.nextPageToken).toBe("opaque-next");
 });
 
+test("Google event reads expose conference status, attendees and provider versions without loading conference icons", async () => {
+  const paths: string[] = [];
+  const result = await googleCalendarAdapter.get(async path => {
+    paths.push(path);
+    return { id: "event", etag: '"version"', attendees: [{ email: "guest@example.com", responseStatus: "accepted" }], organizer: { email: "owner@example.com" }, recurringEventId: "series", conferenceData: { createRequest: { status: { statusCode: "success" } }, conferenceSolution: { key: { type: "hangoutsMeet" }, iconUri: "https://remote-icon.example/icon.png" }, entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/aaa-bbbb-ccc" }] } };
+  }, { eventId: "event", calendarId: "primary" });
+  expect(paths).toEqual(["/calendar/v3/calendars/primary/events/event"]);
+  expect(result.etag).toBe('"version"');
+  expect(result.recurringEventId).toBe("series");
+  expect(result.attendees[0].responseStatus).toBe("accepted");
+  expect(result.conference).toEqual({ status: "success", type: "hangoutsMeet", url: "https://meet.google.com/aaa-bbbb-ccc" });
+  expect(JSON.stringify(result)).not.toContain("remote-icon");
+});
+
+test("Google-only edit and Meet capabilities do not advertise unsupported Outlook actions", () => {
+  const google = CONNECTOR_EXTENSION_ACTIONS.filter(item => item.extensionId === "google-calendar");
+  const outlook = CONNECTOR_EXTENSION_ACTIONS.filter(item => item.extensionId === "outlook-calendar");
+  expect(google.find(item => item.action === "update_event")?.writes).toBe(true);
+  expect(JSON.stringify(google.find(item => item.action === "create_event")?.inputSchema)).toContain("googleMeet");
+  expect(outlook.some(item => item.action === "update_event")).toBe(false);
+  expect(JSON.stringify(outlook.find(item => item.action === "create_event")?.inputSchema)).not.toContain("googleMeet");
+});
+
 test("calendar creation validates dates and never adds invitees", async () => {
   const invalid = [
     { start: "2026-10-13T09:00:00", end: "2026-10-13T10:00:00" },

@@ -63,7 +63,7 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);
       if (response.status === 404) throw new ApiError(404, "connector_item_not_found", "The requested item was not found.");
       if (response.status === 409) throw new ApiError(409, "connector_item_conflict", "An item with that name already exists. Choose another name.");
-      if (response.status === 412) throw new ApiError(409, "connector_file_changed", "This file changed since you read it. Read its details again before replacing it.");
+      if (response.status === 412) throw new ApiError(409, definition.kind === "calendar" ? "connector_calendar_changed" : "connector_file_changed", definition.kind === "calendar" ? "This event changed in Google Calendar. Prepare a new update card to review the latest version." : "This file changed since you read it. Read its details again before replacing it.");
       if (response.status === 429) throw new ApiError(429, "connector_api_rate_limited", `${definition.name} is receiving too many requests. Try again shortly.`);
       throw new ApiError(502, "connector_api_failed", `${definition.name} could not complete this request.`);
     }

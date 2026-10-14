@@ -10,14 +10,15 @@ import { startServer } from "../server.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { writeConnectorConnections } from "./store.js";
 import { recordConnectorActivation, saveConnectorWriteSetting } from "./settings.js";
-import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, deliverConnectorEmailDraft, deliverConnectorCalendarDraft, reloadConnectorEmailDraft } from "./drafts.js";
+import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate, deliverConnectorEmailDraft, deliverConnectorCalendarDraft, refreshConnectorCalendarDraft, reloadConnectorEmailDraft } from "./drafts.js";
 import { readDraft, saveEmailDraft, readEmailDraftMime } from "../email-drafts/store.js";
 import { callConnectorExtensionAction } from "./index.js";
 
 const nativeFetch = globalThis.fetch;
 const prior = new Map(["EIGENWELT_PLATFORM_URL", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE"].map(key => [key, process.env[key]]));
 let root: string, config: ServerConfig;
-let requests: { url: URL; method: string; body: string }[];
+let requests: { url: URL; method: string; body: string; headers: Headers }[];
+let googleEvent: Record<string, unknown>, meetAllowed: boolean, calendarRole: string;
 let changed = false, failSend = false, failReload = false, editDuringReload = false, gmailMime = "", outlookMime = "";
 const stops: (() => Promise<unknown> | unknown)[] = [];
 const owner = JSON.stringify(["https://draft-broker.test", "firm", "user"]);
@@ -38,12 +39,14 @@ beforeEach(async () => {
   for (const id of ["gmail", "outlook", "google-calendar", "outlook-calendar"]) await saveConnectorWriteSetting(config, id, { writeAccess: true });
   for (const id of ["outlook", "outlook-calendar"]) await recordConnectorActivation(config, id, "outlook-account", true);
   requests = []; changed = false; failSend = false; failReload = false; editDuringReload = false; gmailMime = ""; outlookMime = "";
+  meetAllowed = true; calendarRole = "owner";
+  googleEvent = { id: "existing-event", etag: '"original-version"', summary: "Original meeting", description: "Original description", location: "Original room", start: { dateTime: "2026-10-14T16:00:00+02:00", timeZone: "Europe/Berlin" }, end: { dateTime: "2026-10-14T17:00:00+02:00", timeZone: "Europe/Berlin" }, attendees: [{ email: "guest@example.com", responseStatus: "accepted" }], organizer: { email: "fixture@example.com" }, reminders: { useDefault: true }, extendedProperties: { private: { fixture: "preserve" } }, htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" };
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "127.0.0.1") return nativeFetch(input, init);
     const body = init?.body instanceof Blob ? await init.body.text() : String(init?.body ?? "");
     const method = init?.method ?? "GET";
-    requests.push({ url, body, method });
+    requests.push({ url, body, method, headers: new Headers(init?.headers) });
     if (url.hostname === "draft-broker.test") {
       if (url.pathname.endsWith("/token")) return Response.json({ accessToken: "fixture-access", expiresAt: null });
       if (url.pathname.endsWith("/connection/status")) {
@@ -63,8 +66,14 @@ beforeEach(async () => {
       return Response.json({ id: "gmail-draft", message: { id: "gmail-message", threadId: "gmail-thread" } });
     }
     if (url.hostname === "www.googleapis.com") {
-      const event = z.object({ summary: z.string(), start: z.object({ dateTime: z.string().optional(), date: z.string().optional() }), end: z.object({ dateTime: z.string().optional(), date: z.string().optional() }) }).parse(JSON.parse(body));
-      return Response.json({ ...event, id: "google-event", htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" });
+      if (url.pathname.includes("/calendarList/")) return Response.json({ accessRole: calendarRole, timeZone: "Europe/Berlin", conferenceProperties: { allowedConferenceSolutionTypes: meetAllowed ? ["hangoutsMeet"] : [] } });
+      if (method === "GET") return Response.json(googleEvent);
+      if (method === "PATCH" && (changed || new Headers(init?.headers).get("If-Match") !== googleEvent.etag)) return new Response(null, { status: 412 });
+      if (failSend) return new Response(null, { status: 500 });
+      const event = z.record(z.string(), z.unknown()).parse(JSON.parse(body));
+      for (const field of ["start", "end"]) if (event[field]) event[field] = Object.fromEntries(Object.entries(z.record(z.string(), z.unknown()).parse(event[field])).filter(([, value]) => value !== null));
+      googleEvent = { ...(method === "PATCH" ? googleEvent : {}), ...event, id: method === "PATCH" ? googleEvent.id : "google-event", etag: '"saved-version"', htmlLink: "https://calendar.google.com/calendar/event?eid=fixture", ...(event.conferenceData ? { conferenceData: { createRequest: { status: { statusCode: "pending" } } } } : {}) };
+      return Response.json(googleEvent);
     }
     if (url.hostname === "graph.microsoft.com") {
       if (url.pathname.endsWith("/send")) return failSend ? new Response(null, { status: 500 }) : new Response(null, { status: 202 });
@@ -297,6 +306,151 @@ test("calendar delivery preserves date, time zone, reminders and selected calend
     expect(post.body).toContain(id === "google-calendar" ? '"minutes":30' : '"reminderMinutesBeforeStart":30');
     if (id === "outlook-calendar") expect(post.body).toContain('"timeZone":"Europe/Berlin"');
   }
+});
+
+test("Google updates review the existing occurrence and PATCH only selected fields without creating or inviting", async () => {
+  googleEvent.recurringEventId = "series";
+  const result = await callConnectorExtensionAction(config, "google-calendar", "update_event", { eventId: "existing-event", calendarId: "chosen-calendar", location: "New room" }, { directory: root });
+  const draft = CalendarEventDraftSchema.parse(z.object({ draft: z.unknown() }).parse(result.result).draft);
+  expect(draft.googleCalendar?.update?.recurringEventId).toBe("series");
+  expect(draft.attendees).toBe("guest@example.com");
+  expect(draft.googleCalendar?.update?.original.location).toBe("Original room");
+  expect(requests.filter(item => item.url.hostname === "www.googleapis.com").every(item => item.method === "GET")).toBe(true);
+  const saved = await deliverConnectorCalendarDraft(config, workspace(), draft.id, draft.revision);
+  const writes = requests.filter(item => item.url.hostname === "www.googleapis.com" && item.method !== "GET");
+  expect(writes).toHaveLength(1);
+  expect(writes[0].method).toBe("PATCH");
+  expect(writes[0].url.pathname).toBe("/calendar/v3/calendars/chosen-calendar/events/existing-event");
+  expect(writes[0].url.searchParams.get("sendUpdates")).toBe("none");
+  expect(writes[0].url.searchParams.get("conferenceDataVersion")).toBe("1");
+  expect(writes[0].headers.get("If-Match")).toBe('"original-version"');
+  expect(JSON.parse(writes[0].body)).toEqual({ location: "New room" });
+  expect(googleEvent.attendees).toEqual([{ email: "guest@example.com", responseStatus: "accepted" }]);
+  expect(googleEvent.extendedProperties).toEqual({ private: { fixture: "preserve" } });
+  await deliverConnectorCalendarDraft(config, workspace(), draft.id, saved.draft.revision);
+  expect(requests.filter(item => item.url.hostname === "www.googleapis.com" && item.method !== "GET")).toHaveLength(1);
+  expect(requests.filter(item => item.url.hostname === "draft-broker.test").every(item => !item.body.includes("Original description") && !item.body.includes("guest@example.com") && !item.body.includes("New room"))).toBe(true);
+  expect(requests.some(item => item.url.hostname === "graph.microsoft.com" || item.url.hostname === "gmail.googleapis.com")).toBe(false);
+});
+
+test("stale Google event versions reject the edit and do not retry or create an event", async () => {
+  const { draft } = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", title: "New title" }, { directory: root });
+  changed = true;
+  await expect(deliverConnectorCalendarDraft(config, workspace(), draft.id, draft.revision)).rejects.toMatchObject({ code: "connector_calendar_changed" });
+  const stored = CalendarEventDraftSchema.parse(await readDraft(root, draft.id, "calendar"));
+  expect(stored.delivery).toBeUndefined();
+  expect(stored.googleCalendar?.update?.etag).toBe('"original-version"');
+  expect(requests.filter(item => item.url.hostname === "www.googleapis.com" && item.method !== "GET").map(item => item.method)).toEqual(["PATCH"]);
+});
+
+test("Google rejects series edits, read-only calendars, unsupported Meet, and Outlook-only update attempts", async () => {
+  googleEvent.recurrence = ["RRULE:FREQ=WEEKLY"];
+  await expect(prepareConnectorCalendarUpdate(config, { eventId: "existing-event", title: "New title" }, { directory: root })).rejects.toMatchObject({ code: "connector_calendar_series" });
+  delete googleEvent.recurrence;
+  calendarRole = "reader";
+  await expect(prepareConnectorCalendarUpdate(config, { eventId: "existing-event", title: "New title" }, { directory: root })).rejects.toMatchObject({ code: "connector_calendar_read_only" });
+  calendarRole = "owner"; meetAllowed = false;
+  await expect(prepareConnectorCalendarUpdate(config, { eventId: "existing-event", googleMeet: true }, { directory: root })).rejects.toMatchObject({ code: "connector_meet_unavailable" });
+  await expect(prepareConnectorCalendarDraft(config, "google-calendar", { title: "Meet", start: "2026-10-14", end: "2026-10-15", allDay: true, googleMeet: true }, { directory: root })).rejects.toMatchObject({ code: "connector_meet_unavailable" });
+  await expect(callConnectorExtensionAction(config, "outlook-calendar", "update_event", { eventId: "existing-event" }, { directory: root })).rejects.toMatchObject({ code: "connector_action_not_found" });
+  expect(requests.filter(item => item.url.hostname === "www.googleapis.com" && item.method !== "GET")).toHaveLength(0);
+});
+
+test("updates preserve existing Meet links and add a new Meet once with pending, success and failure status", async () => {
+  googleEvent.hangoutLink = "https://meet.google.com/aaa-bbbb-ccc";
+  const existing = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", description: "New note" }, { directory: root });
+  expect(existing.draft.googleCalendar?.conference.url).toBe("https://meet.google.com/aaa-bbbb-ccc");
+  const retained = await deliverConnectorCalendarDraft(config, workspace(), existing.draft.id, existing.draft.revision);
+  expect(retained.draft.googleCalendar?.conference.url).toBe("https://meet.google.com/aaa-bbbb-ccc");
+  expect(JSON.parse(requests.find(item => item.method === "PATCH")?.body ?? "{}")).toEqual({ description: "New note" });
+  delete googleEvent.hangoutLink;
+  const { draft } = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", googleMeet: true }, { directory: root });
+  const pending = await deliverConnectorCalendarDraft(config, workspace(), draft.id, draft.revision);
+  expect(pending.draft.delivery?.state).toBe("saved");
+  expect(pending.draft.googleCalendar?.conference.status).toBe("pending");
+  const meetWrite = requests.filter(item => item.method === "PATCH").at(-1);
+  expect(JSON.parse(meetWrite?.body ?? "{}")).toEqual({ conferenceData: { createRequest: { requestId: draft.googleCalendar?.requestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } });
+  const writeCount = requests.filter(item => item.method === "PATCH").length;
+  await deliverConnectorCalendarDraft(config, workspace(), draft.id, pending.draft.revision);
+  const stillPending = await refreshConnectorCalendarDraft(config, workspace(), draft.id, pending.draft.revision);
+  expect(stillPending.draft.googleCalendar?.conference.status).toBe("pending");
+  googleEvent.conferenceData = { createRequest: { status: { statusCode: "success" } }, conferenceSolution: { key: { type: "hangoutsMeet" } }, entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/new-meet-url" }] };
+  const success = await refreshConnectorCalendarDraft(config, workspace(), draft.id, stillPending.draft.revision);
+  expect(success.draft.googleCalendar?.conference.url).toBe("https://meet.google.com/new-meet-url");
+  googleEvent.conferenceData = { createRequest: { status: { statusCode: "failure" } } };
+  const failure = await refreshConnectorCalendarDraft(config, workspace(), draft.id, success.draft.revision);
+  expect(failure.draft.googleCalendar?.conference.status).toBe("failure");
+  expect(failure.draft.delivery?.state).toBe("saved");
+  expect(requests.filter(item => item.method === "PATCH")).toHaveLength(writeCount);
+});
+
+test("new Meet creation uses a unique persisted request ID and ambiguous writes cannot repeat", async () => {
+  const input = { title: "Meet", start: "2026-10-14T10:00:00+02:00", end: "2026-10-14T11:00:00+02:00", googleMeet: true };
+  const first = await prepareConnectorCalendarDraft(config, "google-calendar", input, { directory: root });
+  const second = await prepareConnectorCalendarDraft(config, "google-calendar", input, { directory: root });
+  expect(first.draft.googleCalendar?.requestId).not.toBe(second.draft.googleCalendar?.requestId);
+  const saved = await deliverConnectorCalendarDraft(config, workspace(), first.draft.id, first.draft.revision);
+  expect(saved.draft.googleCalendar?.conference.status).toBe("pending");
+  const post = requests.find(item => item.url.hostname === "www.googleapis.com" && item.method === "POST");
+  expect(JSON.parse(post?.body ?? "{}").conferenceData.createRequest.requestId).toBe(first.draft.googleCalendar?.requestId);
+  failSend = true;
+  await expect(deliverConnectorCalendarDraft(config, workspace(), second.draft.id, second.draft.revision)).rejects.toMatchObject({ code: "connector_api_failed" });
+  const uncertain = CalendarEventDraftSchema.parse(await readDraft(root, second.draft.id, "calendar"));
+  expect(uncertain.delivery?.state).toBe("uncertain");
+  const count = requests.length;
+  await expect(deliverConnectorCalendarDraft(config, workspace(), second.draft.id, uncertain.revision)).rejects.toMatchObject({ code: "connector_delivery_uncertain" });
+  expect(requests).toHaveLength(count);
+});
+
+test("update schedules respect offsets and clear old timed fields when converting to all-day", async () => {
+  const timed = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", start: "2026-10-14T16:00:00-04:00", end: "2026-10-14T17:00:00-04:00", timeZone: "America/New_York" }, { directory: root });
+  await deliverConnectorCalendarDraft(config, workspace(), timed.draft.id, timed.draft.revision);
+  const patch = JSON.parse(requests.find(item => item.method === "PATCH")?.body ?? "{}");
+  expect(patch.start).toEqual({ date: null, dateTime: "2026-10-14T20:00:00.000Z", timeZone: "America/New_York" });
+  const allDay = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", start: "2026-10-14", end: "2026-10-15", allDay: true }, { directory: root });
+  await deliverConnectorCalendarDraft(config, workspace(), allDay.draft.id, allDay.draft.revision);
+  const allDayPatch = JSON.parse(requests.filter(item => item.method === "PATCH").at(-1)?.body ?? "{}");
+  expect(allDayPatch.start).toEqual({ date: "2026-10-14", dateTime: null, timeZone: null });
+  expect(allDayPatch.end).toEqual({ date: "2026-10-15", dateTime: null, timeZone: null });
+});
+
+test("Calendar update and Meet refresh recheck write settings, account ownership and local revision", async () => {
+  const { draft } = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", googleMeet: true }, { directory: root });
+  requests.length = 0;
+  await saveConnectorWriteSetting(config, "google-calendar", { writeAccess: false });
+  await expect(deliverConnectorCalendarDraft(config, workspace(), draft.id, draft.revision)).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  await expect(prepareConnectorCalendarUpdate(config, { eventId: "existing-event" }, { directory: root })).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  expect(requests).toHaveLength(0);
+  await saveConnectorWriteSetting(config, "google-calendar", { writeAccess: true });
+  const saved = await deliverConnectorCalendarDraft(config, workspace(), draft.id, draft.revision);
+  requests.length = 0;
+  await expect(refreshConnectorCalendarDraft(config, workspace(), draft.id, draft.revision)).rejects.toMatchObject({ code: "draft_conflict" });
+  config.readOnly = true;
+  await expect(refreshConnectorCalendarDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "read_only" });
+  config.readOnly = false;
+  await writeConnectorConnections(config, owner, "google-calendar", [{ id: "replacement", nangoConnectionId: "replacement-private", createdAt: null, needsReconnect: false }]);
+  await expect(refreshConnectorCalendarDraft(config, workspace(), draft.id, saved.draft.revision)).rejects.toMatchObject({ code: "connector_connection_not_found" });
+  expect(requests).toHaveLength(0);
+});
+
+test("Calendar review saves keep trusted update metadata and refresh routes require the host owner", async () => {
+  const { draft } = await prepareConnectorCalendarUpdate(config, { eventId: "existing-event", googleMeet: true }, { directory: root });
+  const server = await startServer(config); stops.push(() => server.stop());
+  const base = `http://127.0.0.1:${server.port}/workspace/project`;
+  const headers = { "Content-Type": "application/json", "X-LegalWork-Host-Token": "host" };
+  const local = await nativeFetch(`${base}/calendar-drafts/${draft.id}`, { method: "PUT", headers: { ...headers, Authorization: "Bearer client" }, body: JSON.stringify({ ...draft, location: "Human edit", googleCalendar: { ...draft.googleCalendar, update: { eventId: "other-event", etag: "untrusted" } } }) });
+  expect(local.status).toBe(200);
+  const reviewed = z.object({ draft: CalendarEventDraftSchema }).parse(await local.json()).draft;
+  expect(reviewed.googleCalendar).toEqual(draft.googleCalendar);
+  const saved = await deliverConnectorCalendarDraft(config, workspace(), draft.id, reviewed.revision);
+  const body = JSON.stringify({ revision: saved.draft.revision });
+  const path = `${base}/connector-drafts/calendar/${draft.id}/refresh`;
+  requests.length = 0;
+  expect((await nativeFetch(path, { method: "POST", body })).status).toBe(401);
+  expect((await nativeFetch(path, { method: "POST", body, headers: { "Content-Type": "application/json", Authorization: "Bearer client" } })).status).toBe(401);
+  expect(requests).toHaveLength(0);
+  expect((await nativeFetch(path, { method: "POST", body, headers })).status).toBe(200);
+  expect(requests.filter(item => item.url.hostname === "www.googleapis.com").every(item => item.method === "GET")).toBe(true);
 });
 
 test("delivery routes require host ownership, validate revisions and workspace, and honor read-only mode", async () => {

@@ -15,7 +15,7 @@ export default {
   "connectors.permissions_help": "About write permissions",
   "connectors.single_account_cleanup": "Only one account is supported per connector. Disconnect the extra accounts to continue.",
   "connectors.write_access_mail": "Allow creating email drafts and sending emails.",
-  "connectors.write_access_calendar": "Allow creating calendar events.",
+  "connectors.write_access_calendar": "Allow creating calendar events and updating Google Calendar events.",
   "connectors.write_access_files": "Allow uploads, file replacement and folder creation.",
   "connectors.write_access": "Allow write access",
   "connectors.write_access_permissions": "Reconnect if this account only has read permissions. Turning this off blocks LegalWork actions without revoking permissions already granted to the provider.",

@@ -61,11 +61,13 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
   }, [dirty]);
   if (!draft) return <Surface className="my-3 w-full max-w-2xl p-5"><p role={query.isError || !available ? "alert" : "status"}>{query.isError || !available ? "Connect to this project to load the event draft." : "Loading event draft…"}</p></Surface>;
   const current = draft;
+  const update = current.googleCalendar?.update;
+  const conference = current.googleCalendar?.conference;
   const actionable = available && !query.isError && !busy;
   const editable = actionable && !draft.delivery;
   const change = (patch: Partial<CalendarEventDraft>) => { setDraft({ ...current, ...patch }); setError(null); };
   const added = !dirty && calendarQuery.data?.savedRevision === current.revision;
-  const run = async (action: "save" | "legalwork" | "system" | "download" | "google" | "outlook" | "provider-save" | "provider-open") => {
+  const run = async (action: "save" | "legalwork" | "system" | "download" | "google" | "outlook" | "provider-save" | "provider-open" | "provider-refresh") => {
     if (!client || !actionable || busyRef.current) return;
     const popup = (action === "google" || action === "outlook" || action === "provider-open") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
     if (popup) popup.opener = null;
@@ -75,6 +77,9 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
       setDraft(saved); setBaseline(saved); cache.setQueryData(key, { draft: saved });
       if (action === "provider-save") {
         const result = await client.deliverCalendarEventDraft(workspaceId, saved);
+        setDraft(result.draft); setBaseline(result.draft); cache.setQueryData(key, result);
+      } else if (action === "provider-refresh") {
+        const result = await client.refreshCalendarEventDraft(workspaceId, saved);
         setDraft(result.draft); setBaseline(result.draft); cache.setQueryData(key, result);
       } else if (action === "provider-open") {
         const link = saved.delivery?.webUrl ?? (saved.connectorTarget?.connectorId === "google-calendar" ? "https://calendar.google.com" : "https://outlook.office.com/calendar");
@@ -120,12 +125,13 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
   return <Surface className="my-3 w-full max-w-2xl overflow-hidden rounded-2xl shadow-[0_2px_12px_-5px_rgb(0_0_0/0.12)]">
     <div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-5 py-3">
       <CalendarDays className="size-3.5 text-muted-foreground" />
-      <h3 className="flex-1 text-xs font-medium text-muted-foreground">{current.connectorTarget?.connectorId === "google-calendar" ? "Google Calendar draft" : current.connectorTarget ? "Outlook Calendar draft" : "Event draft"}</h3>
+      <h3 className="flex-1 text-xs font-medium text-muted-foreground">{update ? "Google Calendar update" : current.connectorTarget?.connectorId === "google-calendar" ? "Google Calendar draft" : current.connectorTarget ? "Outlook Calendar draft" : "Event draft"}</h3>
       <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
-        {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />{current.delivery?.state === "saved" ? "Added to calendar" : current.delivery ? "Check calendar" : "Saved locally"}</>}
+        {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />{current.delivery?.state === "saved" ? update ? "Updated in calendar" : "Added to calendar" : current.delivery ? "Check calendar" : "Saved locally"}</>}
       </span>
       <Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Event options" title="Guests, reminders and event details" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>
     </div>
+    {update && <div className="border-b border-border/60 px-5 py-3 text-xs text-muted-foreground"><p>{update.recurringEventId ? "Update this occurrence only." : "Update this existing event."} Guests stay unchanged. Calendar notifications are disabled.</p>{!current.delivery && <p className="mt-1">Currently: {update.original.title} · {calendarDraftLocalValue(update.original.start, update.original.timeZone).replace("T", " ")} to {calendarDraftLocalValue(update.original.end, update.original.timeZone).replace("T", " ")}</p>}</div>}
     <fieldset disabled={!editable} className={`min-w-0 px-5 pb-5 pt-5 sm:px-6 ${current.delivery ? "[&_input:disabled]:opacity-100 [&_textarea:disabled]:opacity-100 [&_button:disabled]:opacity-100" : ""}`}>
       <label htmlFor={`${fieldId}-title`} className="sr-only">Title</label>
       <Textarea id={`${fieldId}-title`} value={current.title} onChange={event => change({ title: event.target.value })} placeholder="Event title" rows={1} className="mb-5 min-h-0 rounded-sm border-transparent bg-transparent p-0 text-lg font-medium leading-snug tracking-tight shadow-none hover:enabled:border-transparent focus-visible:ring-0 md:text-lg" />
@@ -147,11 +153,14 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
         <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2"><label htmlFor={`${fieldId}-reminder`} className="flex items-center gap-1.5 text-xs text-muted-foreground"><Clock3 className="size-3" />Reminder</label><Input id={`${fieldId}-reminder`} type="number" min={0} value={current.reminders[0] ?? ""} className="h-8 text-xs" placeholder="Minutes before" onChange={event => change({ reminders: event.target.value ? [Number(event.target.value)] : [] })} /></div>
       </div>}
     </fieldset>
+    {current.connectorTarget?.connectorId === "google-calendar" && <div className="mx-5 mb-4 rounded-xl border border-border/60 p-3 text-xs">
+      {conference?.url ? <a href={conference.url} target="_blank" rel="noopener noreferrer" className="text-primary underline">{conference.type === "hangoutsMeet" ? "Open Google Meet" : "Open conference"}</a> : conference?.status === "pending" ? <div className="flex items-center justify-between gap-2"><p role="status">{current.delivery ? "Event saved. " : ""}Google Meet is being created.</p>{current.delivery?.state === "saved" && <Button size="xs" variant="outline" disabled={!actionable} onClick={() => void run("provider-refresh")}>Refresh Meet status</Button>}</div> : conference?.status === "failure" ? <p role="alert">{current.delivery ? "Event saved. " : ""}Google Meet could not be created. Open Google Calendar to add a meeting link.</p> : conference?.status === "success" ? <p>This event already has a conference. Manage it in Google Calendar.</p> : current.googleCalendar?.canAddMeet === false ? <p className="text-muted-foreground">Google Meet is unavailable for this calendar.</p> : <label className="flex items-center justify-between gap-2">Add Google Meet<Switch checked={current.googleMeet} disabled={!editable} onCheckedChange={checked => change({ googleMeet: checked })} /></label>}
+    </div>}
     {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setAllDay(result.data.draft.start.length === 10); setError(null); } })}>Discard edits and reload</Button></div>}
     <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-3">
       {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
-      <Button size="sm" variant="ghost" disabled={!actionable || calendarQuery.isPending || added} className="gap-2" onClick={() => void run("legalwork")}>{added ? <Check className="size-3.5" /> : <CalendarDays className="size-3.5" />}{added ? "Added to LegalWork calendar" : calendarQuery.data?.item ? "Update LegalWork calendar" : "Add to LegalWork calendar"}</Button>
-      {current.connectorTarget && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .ics" title="Download .ics" onClick={() => void run("download")}><Download className="size-4" /></Button>}
+      {!update && <Button size="sm" variant="ghost" disabled={!actionable || calendarQuery.isPending || added} className="gap-2" onClick={() => void run("legalwork")}>{added ? <Check className="size-3.5" /> : <CalendarDays className="size-3.5" />}{added ? "Added to LegalWork calendar" : calendarQuery.data?.item ? "Update LegalWork calendar" : "Add to LegalWork calendar"}</Button>}
+      {current.connectorTarget && !update && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .ics" title="Download .ics" onClick={() => void run("download")}><Download className="size-4" /></Button>}
       {current.connectorTarget ? <ConnectorDraftActions draft={current} disabled={!actionable} onSave={() => void run("provider-save")} onOpen={() => void run("provider-open")} /> : <div className="ml-auto flex items-center gap-0">
         <Button size="sm" disabled={!editable} className="gap-2 rounded-l-lg rounded-r-none border-r-0 bg-clip-border px-3.5 motion-safe:active:not-aria-[haspopup]:translate-y-0" onClick={() => void run("system")}>Open in Calendar<ArrowUpRight className="size-3.5" /></Button>
         <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" className="rounded-l-none rounded-r-lg border-l-background/20 bg-clip-border" disabled={!editable} aria-label="Open event in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">

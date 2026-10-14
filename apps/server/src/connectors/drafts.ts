@@ -14,7 +14,7 @@ import { requireConnectorConnectSlot } from "./single-connection.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
 import { requireLocalOAuthSendAccess } from "./local-oauth.js";
 import { createConnectorRequest } from "./request.js";
-import { calendarCreateInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
+import { calendarCreateInput, calendarEventInput, googleCalendarUpdateInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
 import { mailDraftInput } from "./mail.js";
 import { parseNative } from "./native.js";
 
@@ -23,6 +23,7 @@ export const connectorEmailDraftInput = mailDraftInput.extend({
   attachments: EmailDraftInputSchema.shape.attachments,
 });
 export const connectorCalendarDraftInput = calendarCreateInput.safeExtend({ timeZone: CalendarEventDraftInputSchema.shape.timeZone, reminders: CalendarEventDraftInputSchema.shape.reminders });
+export const connectorGoogleCalendarDraftInput = connectorCalendarDraftInput.safeExtend({ googleMeet: z.boolean().default(false) });
 export const connectorSendDraftInput = z.object({ draftId: z.uuid(), revision: z.uuid() }).strict();
 
 async function connectedAccount(config: ServerConfig, id: string, requested?: string) {
@@ -63,14 +64,38 @@ export async function prepareConnectorEmailDraft(config: ServerConfig, id: strin
 
 export async function prepareConnectorCalendarDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "google-calendar" && id !== "outlook-calendar") throw new ApiError(400, "connector_draft_provider", "Choose a calendar connector.");
-  const input = connectorCalendarDraftInput.parse(args);
+  const input = (id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput).parse(args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorDraftWorkspace(config, context);
   const event = CalendarEventDraftInputSchema.parse(input);
+  const wantsMeet = "googleMeet" in input && input.googleMeet;
+  const capabilities = wantsMeet ? await googleCalendarAdapter.capabilities(await createConnectorRequest(config, id, connectionId), input) : undefined;
+  if (wantsMeet && !capabilities?.canAddMeet) throw new ApiError(400, "connector_meet_unavailable", "Google Meet is not available for this calendar.");
   const draft = CalendarEventDraftSchema.parse(await saveDraftFiles(workspace.path, workspace.id, "calendar", async (draftId) => ({
-    input: { ...event, ...eventDraftTimes(event), sequence: 0, connectorTarget: { connectorId: id, connectionId, calendarId: input.calendarId } }, content: renderEventDraft(event, draftId, 0),
+    input: { ...event, ...eventDraftTimes(event), sequence: 0, connectorTarget: { connectorId: id, connectionId, calendarId: input.calendarId }, ...(id === "google-calendar" ? { googleCalendar: { requestId: randomUUID(), ...(capabilities ? { canAddMeet: capabilities.canAddMeet } : {}), conference: { status: "none" } } } : {}) }, content: renderEventDraft(event, draftId, 0),
   })));
   return { draft, instruction: "This is an editable local preview. No calendar entry or invitation was created. The user adds it to the connected calendar from the card." };
+}
+
+export async function prepareConnectorCalendarUpdate(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>) {
+  const input = googleCalendarUpdateInput.parse(args);
+  const connectionId = await connectedAccount(config, "google-calendar", input.connectionId);
+  const workspace = await connectorDraftWorkspace(config, context);
+  const request = await createConnectorRequest(config, "google-calendar", connectionId);
+  const current = await googleCalendarAdapter.get(request, input);
+  if (!current.etag || !current.start || !current.end || current.status === "cancelled") throw new ApiError(409, "connector_calendar_version", "This event cannot be edited. Read its current details again.");
+  if (current.recurrence.length) throw new ApiError(400, "connector_calendar_series", "Choose a specific occurrence from list_events. Editing an entire recurring series is not supported.");
+  if (current.eventType !== "default") throw new ApiError(400, "connector_calendar_event_type", "Edit this special event in Google Calendar.");
+  const capabilities = await googleCalendarAdapter.capabilities(request, input);
+  if (input.googleMeet && !capabilities.canAddMeet && current.conference.status === "none") throw new ApiError(400, "connector_meet_unavailable", "Google Meet is not available for this calendar.");
+  if (input.googleMeet && current.conference.type && current.conference.type !== "hangoutsMeet") throw new ApiError(400, "connector_calendar_conference", "This event already has a conference. Open Google Calendar to change it.");
+  const original = CalendarEventDraftInputSchema.parse({ title: current.title || "Untitled event", description: current.description, location: current.location, start: current.start, end: current.end, timeZone: current.timeZone ?? capabilities.timeZone, reminders: current.reminders?.overrides?.filter(reminder => reminder.method === "popup").map(reminder => reminder.minutes) ?? [], attendees: current.attendees.flatMap(guest => guest.email ? [guest.email] : []).join(", "), organizer: current.organizer?.email ?? "" });
+  const event = CalendarEventDraftInputSchema.parse({ ...original, ...Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== undefined && ["title", "description", "location", "start", "end", "timeZone", "reminders", "googleMeet"].includes(key))) });
+  if (input.allDay !== undefined && input.allDay !== (event.start.length === 10)) throw new ApiError(400, "connector_calendar_dates", "Use dates for all-day events and timestamps for timed events.");
+  const draft = CalendarEventDraftSchema.parse(await saveDraftFiles(workspace.path, workspace.id, "calendar", async (draftId) => ({
+    input: { ...event, ...eventDraftTimes(event), sequence: 0, connectorTarget: { connectorId: "google-calendar", connectionId, calendarId: input.calendarId }, googleCalendar: { requestId: randomUUID(), canAddMeet: capabilities.canAddMeet, conference: current.conference, update: { eventId: current.id, etag: current.etag, original, ...(current.recurringEventId ? { recurringEventId: current.recurringEventId } : {}), ...(current.webUrl ? { webUrl: providerLink(current.webUrl, ["calendar.google.com", "www.google.com"], "https://calendar.google.com") } : {}) } } }, content: renderEventDraft(event, draftId, 0),
+  })));
+  return { draft, instruction: "This card reviews changes to the existing event, or this recurring occurrence only. No provider change has been made. The user applies the update from the card; guests are preserved and notifications are disabled." };
 }
 
 function providerLink(value: string | undefined, hosts: string[], fallback: string) {
@@ -190,13 +215,49 @@ export async function deliverConnectorCalendarDraft(config: ServerConfig, worksp
     if (!target) throw new ApiError(400, "connector_draft_provider", "This draft does not use a connected calendar.");
     await connectedAccount(config, target.connectorId, target.connectionId);
     if (draft.delivery?.state === "saved") return draft;
-    if (draft.attendees.trim() || draft.organizer.trim()) throw new ApiError(400, "connector_calendar_guests", "Connected calendar entries currently do not send invitations. Add guests in the calendar app after saving.");
+    const update = draft.googleCalendar?.update;
+    if ((update && (draft.attendees !== update.original.attendees || draft.organizer !== update.original.organizer)) || (!update && (draft.attendees.trim() || draft.organizer.trim()))) throw new ApiError(400, "connector_calendar_guests", "Guests and organizer cannot be changed here. Edit them in the calendar app.");
+    if (target.connectorId !== "google-calendar" && (draft.googleMeet || draft.googleCalendar)) throw new ApiError(400, "connector_meet_unavailable", "Google Meet is only available with Google Calendar.");
     const times = eventDraftTimes(draft);
     const input = calendarCreateInput.parse({ title: draft.title, location: draft.location, calendarId: target.calendarId, connectionId: target.connectionId, start: draft.start.length === 10 ? draft.start : times.startInstant, end: draft.end.length === 10 ? draft.end : times.endInstant, allDay: draft.start.length === 10, timeZone: draft.timeZone, reminders: draft.reminders, description: [draft.description, draft.url].filter(Boolean).join("\n\n") });
     const request = await createConnectorRequest(config, target.connectorId, target.connectionId);
+    const addMeet = draft.googleMeet && draft.googleCalendar?.conference.status === "none";
+    if (addMeet) {
+      const capabilities = await googleCalendarAdapter.capabilities(request, input);
+      if (!capabilities.canAddMeet) throw new ApiError(400, "connector_meet_unavailable", "Google Meet is not available for this calendar.");
+    }
+    if (draft.googleMeet && !draft.googleCalendar) throw new ApiError(409, "connector_calendar_version", "Prepare a new review card to add Google Meet.");
     return attempt(draft, "saving", persist, async () => {
-      const result = await (target.connectorId === "google-calendar" ? googleCalendarAdapter : outlookCalendarAdapter).create(request, input);
-      return { ...draft, revision: randomUUID(), delivery: { state: "saved", id: result.id, webUrl: providerLink(result.webUrl ?? undefined, target.connectorId === "google-calendar" ? ["calendar.google.com", "www.google.com"] : ["outlook.office.com", "outlook.office365.com", "outlook.live.com"], target.connectorId === "google-calendar" ? "https://calendar.google.com" : "https://outlook.office.com/calendar") } };
+      const changes: Record<string, unknown> = {};
+      if (update) {
+        const originalTimes = eventDraftTimes(update.original);
+        if (draft.title !== update.original.title) changes.summary = draft.title;
+        if (draft.description !== update.original.description || draft.url !== update.original.url) changes.description = input.description;
+        if (draft.location !== update.original.location) changes.location = draft.location;
+        const modeChanged = (draft.start.length === 10) !== (update.original.start.length === 10);
+        const zoneChanged = draft.timeZone !== update.original.timeZone;
+        if (modeChanged || zoneChanged || times.startInstant !== originalTimes.startInstant) changes.start = input.allDay ? { date: input.start, dateTime: null, timeZone: null } : { date: null, dateTime: input.start, timeZone: input.timeZone };
+        if (modeChanged || zoneChanged || times.endInstant !== originalTimes.endInstant) changes.end = input.allDay ? { date: input.end, dateTime: null, timeZone: null } : { date: null, dateTime: input.end, timeZone: input.timeZone };
+        if (JSON.stringify(draft.reminders) !== JSON.stringify(update.original.reminders)) changes.reminders = { useDefault: false, overrides: draft.reminders.map(minutes => ({ method: "popup", minutes })) };
+        if (!Object.keys(changes).length && !addMeet) throw new ApiError(400, "connector_calendar_no_changes", "Make a change before updating this event.");
+      }
+      const result = target.connectorId === "google-calendar"
+        ? update ? await googleCalendarAdapter.update(request, calendarEventInput.parse({ calendarId: target.calendarId, connectionId: target.connectionId, eventId: update.eventId }), update.etag, changes, addMeet ? draft.googleCalendar?.requestId : undefined)
+          : await googleCalendarAdapter.create(request, input, addMeet ? draft.googleCalendar?.requestId : undefined)
+        : await outlookCalendarAdapter.create(request, input);
+      return CalendarEventDraftSchema.parse({ ...draft, revision: randomUUID(), ...(draft.googleCalendar && "conference" in result ? { googleCalendar: { ...draft.googleCalendar, conference: { ...result.conference, status: addMeet && result.conference.status === "none" ? "pending" : result.conference.status } } } : {}), delivery: { state: "saved", id: result.id, webUrl: providerLink(result.webUrl ?? undefined, target.connectorId === "google-calendar" ? ["calendar.google.com", "www.google.com"] : ["outlook.office.com", "outlook.office365.com", "outlook.live.com"], target.connectorId === "google-calendar" ? "https://calendar.google.com" : "https://outlook.office.com/calendar") } });
     });
+  });
+}
+
+export async function refreshConnectorCalendarDraft(config: ServerConfig, workspace: WorkspaceInfo, id: string, revision: string) {
+  return draftOperation(workspace, id, revision, "calendar", CalendarEventDraftSchema, async (draft, persist) => {
+    const target = draft.connectorTarget;
+    if (target?.connectorId !== "google-calendar" || draft.delivery?.state !== "saved" || !draft.delivery.id || !draft.googleCalendar) throw new ApiError(400, "connector_calendar_not_saved", "Only a saved Google Calendar event can be refreshed.");
+    await connectedAccount(config, target.connectorId, target.connectionId);
+    const current = await googleCalendarAdapter.get(await createConnectorRequest(config, target.connectorId, target.connectionId), calendarEventInput.parse({ calendarId: target.calendarId, connectionId: target.connectionId, eventId: draft.delivery.id }));
+    const refreshed = CalendarEventDraftSchema.parse({ ...draft, revision: randomUUID(), googleCalendar: { ...draft.googleCalendar, conference: { ...current.conference, status: draft.googleMeet && current.conference.status === "none" ? "pending" : current.conference.status } } });
+    await persist(refreshed);
+    return refreshed;
   });
 }

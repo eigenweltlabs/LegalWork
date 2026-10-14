@@ -9,7 +9,7 @@ import { connectorOAuthClientInputSchema } from "../connectors/schema.js";
 import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient } from "../connectors/local-oauth.js";
 
 import { connectorSettings, connectorWriteSetting, saveConnectorWriteSetting } from "../connectors/settings.js";
-import { deliverConnectorEmailDraft, deliverConnectorCalendarDraft, reloadConnectorEmailDraft } from "../connectors/drafts.js";
+import { deliverConnectorEmailDraft, deliverConnectorCalendarDraft, refreshConnectorCalendarDraft, reloadConnectorEmailDraft } from "../connectors/drafts.js";
 import { recordAudit } from "../audit.js";
 
 const connectionInput = z.object({ connectionId: z.string().min(1).max(500).optional(), method: z.enum(["nango", "custom"]).default("nango") }).strict();
@@ -29,6 +29,11 @@ export function registerConnectorRoutes(options: {
     return handler(ctx);
   });
   add("GET", "/connectors/settings", async () => jsonResponse(await connectorSettings(config)));
+  add("POST", "/workspace/:workspaceId/connector-drafts/calendar/:draftId/refresh", async (ctx) => {
+    const input = z.object({ revision: z.uuid() }).strict().safeParse(await readOptionalJsonBody(ctx.request));
+    if (!input.success) throw new ApiError(400, "invalid_payload", "Choose a valid draft revision to refresh.");
+    return jsonResponse(await refreshConnectorCalendarDraft(config, await options.resolveWorkspace(config, ctx.params.workspaceId), ctx.params.draftId, input.data.revision));
+  });
   add("POST", "/workspace/:workspaceId/connector-drafts/email/:draftId/reload", async (ctx) => {
     const input = z.object({ revision: z.uuid() }).strict().safeParse(await readOptionalJsonBody(ctx.request));
     if (!input.success) throw new ApiError(400, "invalid_payload", "Choose a valid draft revision to reload.");

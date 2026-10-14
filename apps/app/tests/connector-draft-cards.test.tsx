@@ -18,6 +18,7 @@ test("native connector tool outputs render the existing email and calendar cards
   expect(isEmailDraftTool(part("outlook", "send_draft", mail))).toBe(true);
   expect(isCalendarEventDraftTool(part("outlook-calendar", "create_event", calendar))).toBe(true);
   expect(isCalendarEventDraftTool(part("google-calendar", "create_event", calendar))).toBe(true);
+  expect(isCalendarEventDraftTool(part("google-calendar", "update_event", calendar))).toBe(true);
   expect(isEmailDraftTool(part("google-drive", "create_folder", mail))).toBe(false);
   expect(isCalendarEventDraftTool(part("gmail", "create_draft", mail))).toBe(false);
   expect(parseEmailDraftCard(part("gmail", "create_draft", mail).output)).toEqual(mail);
@@ -37,4 +38,7 @@ test("provider actions separate Save, Send and Open and remove sending after suc
   }
   const event = renderToStaticMarkup(<ConnectorDraftActions draft={calendar} disabled={false} onSave={noop} onOpen={noop} />);
   expect(event).toContain("Add to Outlook Calendar"); expect(event).not.toContain(">Send<");
+  const update = CalendarEventDraftSchema.parse({ ...calendar, connectorTarget: { connectorId: "google-calendar", connectionId: "local-account", calendarId: "primary" }, googleCalendar: { requestId: metadata.id, conference: { status: "none" }, update: { eventId: "existing-event", etag: '"version"', original: calendar } } });
+  const editing = renderToStaticMarkup(<ConnectorDraftActions draft={update} disabled={false} onSave={noop} onOpen={noop} />);
+  expect(editing).toContain("Update in Google Calendar"); expect(editing).not.toContain("Add to Google Calendar");
 });

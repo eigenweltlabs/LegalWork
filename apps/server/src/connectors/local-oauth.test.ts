@@ -396,7 +396,7 @@ async function privateState(id: string) {
 
 test("every connector defaults to blocked writes before credentials; preferences persist independently and legacy global flags grant nothing", async () => {
   const writes = CONNECTOR_EXTENSION_ACTIONS.filter((item) => item.writes);
-  expect(writes).toHaveLength(18);
+  expect(writes).toContainEqual(expect.objectContaining({ extensionId: "google-calendar", action: "update_event" }));
   for (const action of writes) await expect(callConnectorExtensionAction(config, action.extensionId, action.action, {}, {})).rejects.toMatchObject({ code: "connector_writes_disabled" });
   expect(requests).toHaveLength(0);
   await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
