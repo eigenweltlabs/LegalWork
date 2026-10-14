@@ -117,11 +117,13 @@ describe("Markdown wiki store", () => {
     expect((await store.snapshot(wiki.id)).folders).toContain("Research/Empty");
     const source = "---\nowner: Test\n---\n# Untouched\n";
     await store.write(wiki.id, "Research/Note.md", source, "");
+    await store.write(wiki.id, "Research/Nested/Details.md", "# Details\n", "");
     const bytes = Buffer.from([0, 255, 12, 89]);
     await store.writeAsset(wiki.id, "Research/scan.png", bytes, "");
     const entry = await store.entry(wiki.id, "Research");
     await store.changeEntry(wiki.id, { action: "copy", path: entry.path, destination: "Research copy", baseRevision: entry.revision });
     expect((await store.read(wiki.id, "Research copy/Note.md")).content).toBe(source);
+    expect((await store.read(wiki.id, "Research copy/Nested/Details.md")).content).toBe("# Details\n");
     expect(await store.readAsset(wiki.id, "Research copy/scan.png")).toEqual(bytes);
     expect((await store.snapshot(wiki.id)).folders).toContain("Research copy/Empty");
     await store.changeEntry(wiki.id, { action: "move", path: entry.path, destination: "Archive/Research", baseRevision: entry.revision });
@@ -130,6 +132,11 @@ describe("Markdown wiki store", () => {
     expect(snapshot.pages.some((page) => page.path === "Research/Note.md")).toBe(false);
     expect((await store.read(wiki.id, "Archive/Research/Note.md")).content).toBe(source);
     expect(await store.readAsset(wiki.id, "Archive/Research/scan.png")).toEqual(bytes);
+    const file = await store.entry(wiki.id, "Archive/Research/Note.md");
+    await store.changeEntry(wiki.id, { action: "copy", path: file.path, destination: "Note copy.md", baseRevision: file.revision });
+    expect((await store.read(wiki.id, "Note copy.md")).content).toBe(source);
+    await expect(store.changeEntry(wiki.id, { action: "copy", path: file.path, destination: "Note copy.md", baseRevision: file.revision })).rejects.toMatchObject({ code: "wiki_entry_exists" });
+    expect((await store.read(wiki.id, "Note copy.md")).content).toBe(source);
   });
 
   test("folder actions reject stale revisions and occupied destinations without changing originals", async () => {
@@ -140,6 +147,8 @@ describe("Markdown wiki store", () => {
     await expect(store.changeEntry(wiki.id, { action: "trash", path: original.path, baseRevision: original.revision })).rejects.toMatchObject({ code: "wiki_revision_conflict" });
     await store.changeEntry(wiki.id, { action: "create-folder", path: "Occupied" });
     const fresh = await store.entry(wiki.id, "Work");
+    await expect(store.changeEntry(wiki.id, { action: "copy", path: fresh.path, destination: "Occupied", baseRevision: fresh.revision })).rejects.toMatchObject({ status: 409, code: "wiki_entry_exists" });
+    expect((await store.snapshot(wiki.id)).folders).toContain("Occupied");
     await expect(store.changeEntry(wiki.id, { action: "move", path: fresh.path, destination: "Occupied", baseRevision: fresh.revision })).rejects.toMatchObject({ status: 409, code: "wiki_entry_exists" });
     await expect(store.changeEntry(wiki.id, { action: "copy", path: fresh.path, destination: "Work/Nested", baseRevision: fresh.revision })).rejects.toMatchObject({ code: "invalid_wiki_destination" });
     expect((await store.read(wiki.id, page.path)).content).toBe("# Newer\n");

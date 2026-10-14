@@ -637,7 +637,14 @@ export class WikiStore {
       else {
         // Reserving the destination prevents copies from merging into existing folders.
         if (entry.kind === "folder") await mkdir(destination);
-        try { await cp(source, destination, { recursive: true, errorOnExist: true, force: false }); }
+        try {
+          if (entry.kind === "folder") {
+            // Copy children into our reservation; Bun rejects copying onto an existing root.
+            for (const name of await readdir(source)) {
+              await cp(join(source, name), join(destination, name), { recursive: true, errorOnExist: true, force: false });
+            }
+          } else await cp(source, destination, { errorOnExist: true, force: false });
+        }
         catch (error) { if (entry.kind === "folder") await rm(destination, { recursive: true, force: true }); throw error; }
       }
     }).catch(entryError);
