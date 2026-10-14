@@ -1,7 +1,8 @@
+import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { isAbsolute, relative, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
-import { ViewSaveInputSchema, ViewInputSchema } from "../views/schema.js";
+import { ViewSaveInputSchema } from "../views/schema.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
@@ -72,15 +73,21 @@ export function registerViewRoutes(options: {
     const { workspace, repository } = await select(ctx, true);
     const parsed = ViewSaveInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the report title, program and data.");
+    const source = viewSaveSource(ctx.request);
     await authorize(ctx, workspace, parsed.data.mode === "report" ? "Reports" : "Dashboards");
-    return options.jsonResponse(await repository.create(ViewInputSchema.strip().parse(parsed.data), parsed.data.savedFrom), 201);
+    const result = await repository.create(parsed.data);
+    await recordViewSaveSource(options.config, result, source);
+    return options.jsonResponse(result, 201);
   });
   addRoute(options.routes, "PUT", "/workspace/:id/ui-views/:viewId", "client", async ctx => {
     if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const { workspace, repository } = await select(ctx, true);
     const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewSaveInputSchema }).strict().safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the report before editing its definition.");
+    const source = viewSaveSource(ctx.request);
     await authorize(ctx, workspace, await repository.location(ctx.params.viewId));
-    return options.jsonResponse(await repository.update(ctx.params.viewId, ViewInputSchema.strip().parse(parsed.data.input), parsed.data.baseRevision, parsed.data.input.savedFrom));
+    const result = await repository.update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
+    await recordViewSaveSource(options.config, result, source);
+    return options.jsonResponse(result);
   });
 }

@@ -1,5 +1,5 @@
-import { createContext, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { createLibrary, defineComponent, Renderer } from "@openuidev/react-lang";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createLibrary, defineComponent, Renderer, useIsQueryLoading } from "@openuidev/react-lang";
 import { Card } from "@openuidev/react-ui/Card";
 import { CardHeader } from "@openuidev/react-ui/CardHeader";
 import { TextContent } from "@openuidev/react-ui/TextContent";
@@ -102,7 +102,14 @@ function Chart({ kind, rows, category, series, title }: { kind: "bar" | "line" |
 // Query references are null until the renderer resolves them, despite the catalog's
 // final-value schema. Do not mount a data component into a permanent error boundary.
 function RowsReady({ rows, children }: { rows: Row[] | null | undefined; children: ReactNode }) {
-  return rows == null ? <p className="lw-view-query-status" role="status">Loading data…</p> : children;
+  const loading = useIsQueryLoading();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const { streaming } = useContext(Host);
+  if (rows != null) return children;
+  // Queries start after the first commit; keep that initial frame recoverable.
+  if (!mounted || loading || streaming) return <p className="lw-view-query-status" role="status">Loading data…</p>;
+  return <p className="lw-view-board-error" role="alert">This view's data is unavailable. Check the dataset name and rows binding.</p>;
 }
 
 export const openUILibrary = createLibrary({ id: "legalwork-1", components: [

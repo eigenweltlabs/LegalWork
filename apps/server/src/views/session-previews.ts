@@ -1,3 +1,4 @@
+import { withViewSaveSources, type SavedSessionView } from "./save-source.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ViewPreview, ViewRecord, SessionViewPreview, SessionViewReview } from "@legalwork/types/views";
@@ -41,12 +42,12 @@ export function savedViewMatchesPreview(view: ViewRecord, preview: ViewPreview):
   const datasets = Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, dataset]) => [name, { ...dataset, sourceOwner: dataset.sourceOwner ?? preview.owner }]));
   return Object.keys(view.queries).length === 0 && canonical(view.datasets ?? {}) === canonical(datasets);
 }
-export function reviewSessionViews(items: SessionViewPreview[], saved: ViewRecord[], workspaceId: string, sessionId: string): SessionViewReview {
+export function reviewSessionViews(items: SessionViewPreview[], saved: SavedSessionView[], workspaceId: string, sessionId: string): SessionViewReview {
   const pending = items.filter(item => !saved.some(view => view.savedFrom?.workspaceId === workspaceId && view.savedFrom.sessionId === (item.sessionId ?? sessionId) && view.savedFrom.callId === item.callId || item.preview && savedViewMatchesPreview(view, item.preview)));
   return { items: pending, reviewToken: createHash("sha256").update(JSON.stringify(pending)).digest("hex") };
 }
 /** Read actual saved files; browser caches and receipts cannot hide removed copies. */
-export async function savedSessionViews(config: ServerConfig): Promise<ViewRecord[]> {
+export async function savedSessionViews(config: ServerConfig): Promise<SavedSessionView[]> {
   const store = new WikiStore(config);
   try {
     const wikis = await store.list();
@@ -59,6 +60,6 @@ export async function savedSessionViews(config: ServerConfig): Promise<ViewRecor
       // An inaccessible destination is not proof that a copy survives deletion.
       records.push(...await repository.readAll().catch(() => []));
     }
-    return records;
+    return await withViewSaveSources(config, records);
   } finally { await store.close(); }
 }

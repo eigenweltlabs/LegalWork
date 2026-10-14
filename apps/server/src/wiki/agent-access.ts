@@ -1,4 +1,4 @@
-import { revokeWikiProjectAccess } from "./project-access.js";
+import { forgetWikiProjectAccess, revokeWikiProjectAccess } from "./project-access.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
@@ -98,6 +98,7 @@ export function revokeWikiAgentSession(config: ServerConfig, sessionId: string):
   access.sessions.delete(sessionId);
   access.revoked.add(sessionId);
   revokeProjectTree(config, sessionId);
+  forgetWikiProjectAccess(config, sessionId);
 }
 
 /** Inherit live scope, never a cached owner grant, from an engine-verified ancestor. */

@@ -32,7 +32,7 @@ async function fixture() {
   cleanup.push(() => { engine.stop(true); });
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{ id: "project", name: "Project", path: root, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}` }], authorizedRoots: [root], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanup.push(() => server.stop());
-  const request = (path: string, method = "GET", body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, { method, headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const request = (path: string, method = "GET", body?: unknown, source?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}${source ? `?source=${encodeURIComponent(JSON.stringify(source))}` : ""}`, { method, headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   return { root, state, request, preview, config };
 }
 const reviewSchema = z.object({ items: z.array(z.object({ callId: z.string() })), reviewToken: z.string() });
@@ -51,7 +51,7 @@ test("deletion requires a reviewed discard and invalidates stale confirmations",
 });
 test("saved copies survive chat deletion; removing a copy restores the warning", async () => {
   const { root, state, request, preview } = await fixture();
-  const response = await request("/workspace/project/ui-views", "POST", { ...preview.input, savedFrom: { workspaceId: "project", sessionId: "chat", callId: "call1" } });
+  const response = await request("/workspace/project/ui-views", "POST", preview.input, { workspaceId: "project", sessionId: "chat", callId: "call1" });
   expect(response.status).toBe(201);
   const view = ViewRecordSchema.parse(await response.json());
   expect(reviewSchema.parse(await (await request(`${endpoint}/views`)).json()).items).toHaveLength(0);
@@ -82,7 +82,7 @@ test("parent deletion also protects dashboards and running generation in child c
   state.childBusy = true;
   expect((await request(`${endpoint}?discardReview=${childReview.reviewToken}`, "DELETE")).status).toBe(409);
   state.childBusy = false;
-  expect((await request("/workspace/project/ui-views", "POST", { ...preview.input, savedFrom: { workspaceId: "project", sessionId: "child", callId: "child-call" } })).status).toBe(201);
+  expect((await request("/workspace/project/ui-views", "POST", preview.input, { workspaceId: "project", sessionId: "child", callId: "child-call" })).status).toBe(201);
   expect((await request(endpoint, "DELETE")).status).toBe(200);
   expect(state.deleted).toBe(1);
 });

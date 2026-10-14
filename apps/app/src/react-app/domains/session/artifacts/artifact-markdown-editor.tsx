@@ -98,7 +98,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     init(realm) {
       if (suppressHtmlProcessing) realm.pub(addSyntaxExtension$, literalHtmlSyntax);
       syncSource.current = (value, previous) => {
-        if (requiresMarkdownSource(value, suppressHtmlProcessing)) realm.pub(viewMode$, "source");
+        if (mode.current === "rich-text" && requiresMarkdownSource(value, suppressHtmlProcessing)) realm.pub(viewMode$, "source");
         if (mode.current !== "rich-text") {
           // Source edits update the visible CodeMirror document independently of
           // markdown$. Advance that cell through the previous raw value so an
@@ -130,7 +130,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       });
       realm.sub(markdownProcessingError$, error => {
         if (!error) return;
-        realm.pub(viewMode$, "source");
+        if (mode.current !== "diff") realm.pub(viewMode$, "source");
         realm.pub(markdown$, lastValue.current);
       });
     },

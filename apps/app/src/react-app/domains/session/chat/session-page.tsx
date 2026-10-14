@@ -1,4 +1,5 @@
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
+import { sessionDeleteError } from "../../views/session-view-delete";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
@@ -984,11 +985,13 @@ export function SessionPage(props: SessionPageProps) {
 
   const confirmDelete = async () => {
     const sessionId = sessionActionId;
-    if (!sessionId || !props.onDeleteSession) return;
+    if (!sessionId || !props.onDeleteSession || deleteBusy) return;
     setDeleteBusy(true);
     try {
       await props.onDeleteSession(sessionId);
       setDeleteOpen(false);
+    } catch (error) {
+      toast.error(t("session.delete_failed"), { description: sessionDeleteError(error) });
     } finally {
       setDeleteBusy(false);
     }
@@ -1105,9 +1108,10 @@ export function SessionPage(props: SessionPageProps) {
       size="icon-sm"
       className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", filesRailActive && "text-foreground")}
       onClick={openFilesRailPane}
-      title={t("session.workspace_files")}
-      aria-label={t("session.workspace_files")}
-      aria-pressed={filesRailActive}
+      title={t(wikiWorkspace && props.selectedSessionId ? "wiki.project_files" : "session.workspace_files")}
+      aria-label={t(wikiWorkspace && props.selectedSessionId ? "wiki.project_files" : "session.workspace_files")}
+      aria-pressed={wikiWorkspace && props.selectedSessionId ? undefined : filesRailActive}
+      aria-haspopup={wikiWorkspace && props.selectedSessionId ? "dialog" : undefined}
       disabled={!props.legalworkServerClient || !props.runtimeWorkspaceId}
     >
       <Folder size={17} />

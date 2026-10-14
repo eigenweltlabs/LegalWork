@@ -1,11 +1,11 @@
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, ShieldCheck } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useProjectFiles } from "../workspace/project-file-context";
 
@@ -14,7 +14,7 @@ export function WikiProjectFilesDialog({ open, onOpenChange, client, wikiId, wor
 }) {
   const files = useProjectFiles(), cache = useQueryClient();
   const [projectId, setProjectId] = useState<string | null>(null), [path, setPath] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pendingProjects, setPendingProjects] = useState<string[]>([]);
   const wikis = useQuery({ queryKey: ["wikis", client.baseUrl], queryFn: () => client.listWikis(), enabled: open });
   const projects = files?.projects.filter(item => !item.isWiki && item.workspaceId !== workspaceId && (item.client.baseUrl !== client.baseUrl || wikis.data && !wikis.data.items.some(wiki => wiki.workspaceId === item.workspaceId))) ?? [];
   const selected = projects.find(item => item.projectId === projectId);
@@ -24,16 +24,20 @@ export function WikiProjectFilesDialog({ open, onOpenChange, client, wikiId, wor
   const listing = useQuery({ queryKey: ["wiki-project-picker", selected?.client.baseUrl, selected?.workspaceId, path],
     queryFn: () => selected!.client.listWorkspaceDirectory(selected!.workspaceId, path), enabled: open && Boolean(selected) });
   const grant = access.data?.items.find(item => item.id === selected?.workspaceId && selected.client.baseUrl === client.baseUrl);
+  const busy = Boolean(grant && pendingProjects.includes(grant.id));
   const changeAccess = async () => {
-    if (!wikiId || !grant) return;
-    setBusy(true);
+    if (!wikiId || !grant || busy) return;
+    setPendingProjects(values => [...values, grant.id]);
     if (!grant.granted) { onOpenChange(false); toast.info(t("wiki.project_approval_pending")); }
     try {
       if (grant.granted) await client.revokeWikiProjectAccess(wikiId, sessionId, grant.id);
       else await client.requestWikiProjectAccess(wikiId, sessionId, grant.id);
       await cache.invalidateQueries({ queryKey });
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("project_files.failed")); }
-    finally { setBusy(false); }
+    } catch (error) {
+      if (error instanceof LegalworkServerError && error.code === "wiki_project_access_denied") toast.info(t("wiki.project_access_not_granted"));
+      else toast.error(error instanceof Error ? error.message : t("project_files.failed"));
+    }
+    finally { setPendingProjects(values => values.filter(id => id !== grant.id)); }
   };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-xl gap-4">
     <DialogHeader><DialogTitle>{t("wiki.project_files")}</DialogTitle><DialogDescription>{t("wiki.project_attachment_hint")}</DialogDescription></DialogHeader>
@@ -42,7 +46,7 @@ export function WikiProjectFilesDialog({ open, onOpenChange, client, wikiId, wor
     {sandbox.data && (!sandbox.data.enabled || !sandbox.data.supported) && <p className="text-xs text-muted-foreground">{t("wiki.project_sandbox_off")}</p>}
     {selected ? <>
       <div className="flex items-center gap-2"><Button variant="ghost" size="icon-sm" aria-label={t("wiki.project_back")} onClick={() => path ? setPath(path.replace(/\/?[^/]+\/?$/, "")) : setProjectId(null)}><ArrowLeft className="size-4" /></Button><span className="min-w-0 truncate text-sm font-medium">{selected.name}{path ? ` / ${path}` : ""}</span></div>
-      {grant && <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-xs"><span className="flex items-center gap-2">{grant.granted && <ShieldCheck className="size-4" />}{grant.granted ? t("wiki.project_read_only") : t("wiki.project_allow")}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => void changeAccess()}>{grant.granted ? t("wiki.project_revoke") : t("wiki.project_allow")}</Button></div>}
+      {grant && <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-xs"><span className="flex items-center gap-2" role={busy ? "status" : undefined}>{busy ? <Loader2 className="size-4 shrink-0 animate-spin" /> : grant.granted && <ShieldCheck className="size-4" />}{busy ? t(grant.granted ? "common.loading" : "wiki.project_waiting_approval") : grant.granted ? t("wiki.project_read_only") : t("wiki.project_allow")}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => void changeAccess()}>{grant.granted ? t("wiki.project_revoke") : t("wiki.project_allow")}</Button></div>}
       {access.error && <p role="alert" className="text-xs text-destructive">{access.error.message}<Button variant="ghost" size="sm" onClick={() => void access.refetch()}>{t("wiki.retry")}</Button></p>}
       <div className="max-h-72 overflow-auto" aria-busy={listing.isPending}>
         {listing.isPending && <p role="status" className="p-3 text-sm text-muted-foreground">{t("wiki.loading")}</p>}

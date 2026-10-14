@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { lineChanges, type LineChanges } from "@legalwork/types/line-diff";
 import { t } from "@/i18n";
 
@@ -20,6 +20,10 @@ export function WikiDiff({ before, after, beforeLabel, afterLabel }: { before: s
 }
 
 export function WikiContentStats({ before, after }: { before: string; after: string }) {
-  const changes = useMemo(() => lineChanges(before, after), [before, after]);
+  const [changes, setChanges] = useState(() => lineChanges(before, after));
+  useEffect(() => {
+    const timer = window.setTimeout(() => setChanges(lineChanges(before, after)), 250);
+    return () => window.clearTimeout(timer);
+  }, [before, after]);
   return <WikiDiffStats changes={changes} />;
 }

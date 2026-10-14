@@ -12,7 +12,8 @@ export async function captureWikiViews(content: string, owner: ViewOwner, files:
   const result: WikiViewSnapshots = {};
   const repository = new ViewRepository(owner, files);
   let indexed: WikiPage[] | undefined, records: ViewRecord[] | undefined, bytes = 0;
-  for (const [key, reference] of [...references].slice(0, 20)) {
+  const localReferences = [...references].filter(([, reference]) => reference?.owner.kind === owner.kind && reference.owner.id === owner.id);
+  for (const [key, reference] of localReferences.slice(0, 20)) {
     // Cross-owner embeds must not copy another project's private data into wiki history.
     if (!reference || reference.owner.kind !== owner.kind || reference.owner.id !== owner.id) continue;
     try {
@@ -27,8 +28,9 @@ export async function captureWikiViews(content: string, owner: ViewOwner, files:
       }
       if (Object.keys(input.queries).some(name => !input.datasets?.[name])) continue;
       input.queries = {};
-      bytes += Buffer.byteLength(JSON.stringify(input));
-      if (bytes > 8 * 1024 * 1024) break;
+      const size = Buffer.byteLength(JSON.stringify(input));
+      if (bytes + size > 8 * 1024 * 1024) continue;
+      bytes += size;
       result[key] = input;
     } catch { /* Missing/corrupt embeds remain explicitly unavailable in the historical renderer. */ }
   }

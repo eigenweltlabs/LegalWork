@@ -75,3 +75,31 @@ test("scope changes and deleted chats revoke grants; revoke while approval is pe
   revokeWikiAgentSession(f.config, "chat");
   expect((await f.agent(`${f.base}/matter/read?path=note.txt`)).status).toBe(403);
 });
+
+
+test("project reads reject missing, invalid and non-file paths without blocking on FIFOs", async () => {
+  const f = await fixture(); expect((await f.requestAccess("allow")).status).toBe(200);
+  expect((await f.agent(`${f.base}/matter/files?path=note.txt`)).status).toBe(404);
+  expect((await f.agent(`${f.base}/matter/read?path=missing.txt`)).status).toBe(404);
+  for (const path of ["%00", "%FF", "%E0%A4"])
+    expect((await f.agent(`${f.base}/matter/read?path=${path}`)).status).toBe(400);
+  expect((await f.agent(`${f.base}/matter/read?path=`)).status).toBe(400);
+  if (process.platform !== "win32") {
+    const fifo = join(f.project, "pipe");
+    expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+    const response = await fetch(`${f.url}${f.base}/matter/read?path=pipe`, { headers: { "x-legalwork-host-token": f.config.hostToken }, signal: AbortSignal.timeout(2000) });
+    expect(response.status).toBe(400);
+    const listing = z.object({ items: z.array(z.object({ name: z.string() })) }).parse(await (await f.agent(`${f.base}/matter/files`)).json());
+    expect(listing.items.some(item => item.name === "pipe")).toBe(false);
+  }
+});
+
+
+test("unregistering a project cancels its pending approval before any grant is issued", async () => {
+  const f = await fixture();
+  const pending = f.agent(`${f.base}/matter/access`, "POST");
+  await waitForApprovals(f.url, f.config.hostToken);
+  expect((await f.host("/workspaces/matter", "DELETE")).status).toBe(200);
+  expect((await pending).status).toBe(403);
+  expect(f.config.workspaces.some(item => item.id === "matter")).toBe(false);
+});

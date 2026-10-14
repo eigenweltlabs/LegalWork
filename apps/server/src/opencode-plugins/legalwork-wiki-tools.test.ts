@@ -356,3 +356,38 @@ test("requested project contributions stage files and never call the direct wiki
   }
   expect(requests.filter(item => item.method !== "GET").every(item => item.path === "/workspace/project-1/wiki-suggestions")).toBe(true);
 });
+
+
+test("wiki guard covers unmanaged bash and custom tools that read host files", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: wikiRoot });
+  await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "wiki-chat" }, { args: { command: "cat ../project/secret.txt" } }))
+    .rejects.toMatchObject({ code: "wiki_sandbox_required" });
+  await expect(plugin["shell.env"]({ sessionID: "wiki-chat" })).rejects.toMatchObject({ code: "wiki_sandbox_required" });
+  for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"]]) {
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: [join(projectRoot, "secret.txt")] } }))
+      .rejects.toMatchObject({ code: "wiki_native_project_access" });
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: ["wiki-note.md"] } })).resolves.toBeUndefined();
+  }
+  await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "wiki-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
+  const project = await LegalWorkWikiTools({ directory: projectRoot });
+  await expect(project["tool.execute.before"]({ tool: "bash", sessionID: "project-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
+  await expect(project["shell.env"]({ sessionID: "project-chat" })).resolves.toBeUndefined();
+});
+
+
+test("native project tools classify once per turn and don't depend on repeated server calls", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: projectRoot });
+  await plugin["tool.execute.before"]({ tool: "read", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
+  expect(requests.filter(item => item.path === "/workspaces")).toHaveLength(1);
+  malformed = true;
+  await plugin["tool.execute.before"]({ tool: "write", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
+});
+
+test("unregistered directories do not fail workspace discovery or retain a negative wiki classification", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: otherRoot });
+  await plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: "notes.md" } });
+  wikis.push(vault("new-wiki", otherRoot, false));
+  await expect(plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: join(projectRoot, "private.md") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+});

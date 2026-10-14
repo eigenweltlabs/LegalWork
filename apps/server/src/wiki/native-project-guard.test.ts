@@ -15,6 +15,17 @@ test("wiki native file tools stay inside wiki even with symlinks or multi-file e
         await expect(assertWikiNativeFileAccess(wiki, tool, { path })).rejects.toMatchObject({ code: "wiki_native_project_access" });
     for (const pattern of ["../project/*", join(project, "*")]) await expect(assertWikiNativeFileAccess(wiki, "glob", { pattern })).rejects.toThrow();
     for (const tool of ["patch", "apply_patch", "multiedit"]) await expect(assertWikiNativeFileAccess(wiki, tool, {})).rejects.toThrow();
+    await expect(assertWikiNativeFileAccess(wiki, "bash", { command: "cat ../project/secret.txt" })).rejects.toMatchObject({ code: "wiki_sandbox_required" });
+    for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"]]) {
+      for (const path of [join(project, "secret.txt"), "../project/secret.txt", "alias/secret.txt"])
+        await expect(assertWikiNativeFileAccess(wiki, tool, { [key]: ["note.md", path] })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+      await expect(assertWikiNativeFileAccess(wiki, tool, { [key]: ["note.md"] })).resolves.toBeUndefined();
+      await expect(assertWikiNativeFileAccess(wiki, tool, { [key]: "../project/secret.txt" })).rejects.toThrow();
+    }
+    await expect(assertWikiNativeFileAccess(wiki, "benchmark_create_task", {})).resolves.toBeUndefined();
+    for (const tool of ["write", "edit"]) for (const filePath of ["Dashboards/test.view.json", "test.VIEW.JSON", "test.view.conflict-123456789abc.json"])
+      await expect(assertWikiNativeFileAccess(wiki, tool, { filePath })).rejects.toMatchObject({ code: "human_save_required" });
+    await expect(assertWikiNativeFileAccess(wiki, "read", { filePath: "test.view.json" })).resolves.toBeUndefined();
     await expect(assertWikiNativeFileAccess(wiki, "write", { filePath: "new.md" })).resolves.toBeUndefined();
     await expect(assertWikiNativeFileAccess(wiki, "glob", {})).resolves.toBeUndefined();
   } finally { await rm(root, { recursive: true, force: true }); }

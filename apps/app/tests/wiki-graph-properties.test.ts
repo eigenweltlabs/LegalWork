@@ -65,6 +65,14 @@ describe("Wiki graph property conditions", () => {
     const changed = applyWikiGraphResponse(graph, { kind: "delta", baseRevision: "1", revision: "2", nodes: [{ ...graph.nodes[0], properties: { ...a, amount: 50 } }], edges: [], removedEdges: [], removedNodes: [] });
     expect(filterWikiGraph(indexWikiGraph(changed), { ...defaultGraphFilter, conditions }, null).nodes).toEqual([]);
   });
+  test("unfinished conditions are ignored without cancelling valid all/any filters", () => {
+    const index = indexWikiGraph(graph);
+    const unfinished = condition("stage", "text", "eq");
+    for (const conditionMode of ["all", "any"] satisfies Array<"all" | "any">) {
+      expect(filterWikiGraph(index, { ...defaultGraphFilter, conditionMode, conditions: [unfinished] }, null).nodes).toEqual(graph.nodes);
+      expect(filterWikiGraph(index, { ...defaultGraphFilter, conditionMode, conditions: [unfinished, condition("stage", "text", "eq", "open")] }, null).nodes.map(node => node.id)).toEqual(["a"]);
+    }
+  });
   test("persists conditions and safely upgrades older graph preferences", () => {
     const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
     let stored = JSON.stringify({ filter: { query: "old", type: "matter" } });

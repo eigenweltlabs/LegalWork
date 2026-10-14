@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ViewRecordSchema, ViewPreviewSchema, type ViewRecord, type ViewSummary, type ViewPreview } from "@legalwork/types/views";
 import type { ViewPanelTab } from "./view-reference";
+import { t } from "@/i18n";
 
 export type ViewDraftTab = { id: string; type: "view-draft"; serverUrl: string; generationId: string; label: string };
 export type ViewGeneration = { serverUrl: string; workspaceId: string; sessionId: string; toolCallId: string; title: string; program: string; status: "streaming" | "failed" | "preview" | "saved"; error?: string; preview?: ViewPreview; saved?: ViewRecord | ViewSummary };
@@ -18,13 +19,13 @@ export function viewToolOutcome(output: unknown): { view: ViewRecord } | { previ
     // Runtime reminders are appended after tool JSON, including in saved history.
     // Strip only that trailing envelope; malformed or incomplete JSON must still fail.
     const json = output.replace(/(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/u, "");
-    try { value = JSON.parse(json); } catch { return { error: "The agent did not return a saved view." }; }
+    try { value = JSON.parse(json); } catch { return { error: t("views.preview_missing") }; }
   }
-  if (record(value) && value.ok === false) return { error: typeof value.error === "string" ? value.error : record(value.error) && typeof value.error.message === "string" ? value.error.message : "The view could not be saved." };
+  if (record(value) && value.ok === false) return { error: typeof value.error === "string" ? value.error : record(value.error) && typeof value.error.message === "string" ? value.error.message : t("views.generation_failed") };
   const preview = ViewPreviewSchema.safeParse(value);
   if (preview.success) return { preview: preview.data };
   const parsed = ViewRecordSchema.strip().safeParse(record(value) && value.view ? value.view : value);
-  return parsed.success ? { view: parsed.data } : { error: "The agent did not return a saved view." };
+  return parsed.success ? { view: parsed.data } : { error: t("views.preview_missing") };
 }
 const savedSummarySchema = ViewRecordSchema.pick({ id: true, title: true, mode: true, updatedAt: true, revision: true, owner: true }).strip();
 type GenerationState = {

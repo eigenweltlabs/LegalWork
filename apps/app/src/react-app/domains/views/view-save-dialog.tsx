@@ -7,9 +7,10 @@ import { BookOpen, Check, Loader2 } from "lucide-react";
 import type { ViewSaveSource, ViewPreview, ViewRecord } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
-import { sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
+import { isViewSaveConflict, preferredSavedView, sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
 
 export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, onClose, onSaved }: { savedFrom?: ViewSaveSource; fromChat?: boolean; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
   const cache = useQueryClient();
@@ -17,28 +18,37 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
   const [saved, setSaved] = useState<ViewRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [conflict, setConflict] = useState(false);
   const destinations = useViewSaveDestinations(client);
   const groups = viewSaveDestinationGroups(destinations.data);
   const targets = destinations.data?.filter(item => selected.includes(viewOwnerKey(item.owner))) ?? [];
   const unsavedTargets = targets.filter(item => !saved.some(view => sameViewOwner(view.owner, item.owner)));
-  const finish = () => { if (saved[0]) onSaved(saved[0]); else onClose(); };
-  const save = async () => {
+  const finish = () => { const view = preferredSavedView(saved, preview.owner); if (view) onSaved(view); else onClose(); };
+  const save = async (saveCopy = false) => {
     setBusy(true); setError("");
     const completed = [...saved];
     try {
       for (const { owner } of targets) {
         if (completed.some(view => sameViewOwner(view.owner, owner))) continue;
-        const input = { ...viewInputForDestination(preview.input, preview.owner, owner), savedFrom };
-        const result = preview.target && sameViewOwner(preview.owner, owner)
-          ? await client.updateView(owner, preview.target.viewId, { baseRevision: preview.target.baseRevision, input })
-          : await client.createView(owner, input);
+        const input = viewInputForDestination(preview.input, preview.owner, owner);
+        const result = preview.target && sameViewOwner(preview.owner, owner) && !saveCopy
+          ? await client.updateView(owner, preview.target.viewId, { baseRevision: preview.target.baseRevision, input }, savedFrom)
+          : await client.createView(owner, !fromChat || saveCopy ? { ...input, title: t("views.copy_title", { title: input.title }).slice(0, 200) } : input, savedFrom);
         completed.push(result); setSaved([...completed]);
         void cache.invalidateQueries({ queryKey: ["ui-views", client.baseUrl, owner.kind, owner.id] });
         void cache.invalidateQueries({ queryKey: ["ui-view", client.baseUrl, owner.kind, owner.id] });
         if (owner.kind === "wiki") void cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, owner.id] });
       }
-      if (completed[0]) onSaved(completed[0]);
-    } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+      const view = preferredSavedView(completed, preview.owner);
+      if (view) {
+        toast.success(t("views.saved_notice", { title: view.title, destinations: completed.map(view => destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title).join(", ") }));
+        onSaved(view);
+      }
+    } catch (error) {
+      const revisionConflict = isViewSaveConflict(error);
+      setConflict(value => value || revisionConflict);
+      setError(revisionConflict ? t("views.save_conflict") : error instanceof Error ? error.message : String(error));
+    }
     finally { setBusy(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent showCloseButton={!busy}>
@@ -52,13 +62,13 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
         {group.items.map(({ owner, name }) => { const key = viewOwnerKey(owner), done = saved.some(view => sameViewOwner(view.owner, owner)); return <label key={key} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-accent has-[:checked]:border-ring/50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
         <Checkbox checked={done || selected.includes(key)} disabled={busy || done} onCheckedChange={checked => setSelected(values => checked ? [...values, key] : values.filter(value => value !== key))} />
         {owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0" /> : <FolderIcon className="size-4 shrink-0" />}
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm" title={name}>{name}</span>{preview.target && sameViewOwner(owner, preview.owner) && <span className="text-xs text-muted-foreground">{t("views.update_saved")}</span>}</span>{done && <Check className="size-4 text-success" />}
+        <span className="min-w-0 flex-1"><span className="block truncate text-sm" title={name}>{name}</span>{preview.target && sameViewOwner(owner, preview.owner) && <span className="text-xs text-muted-foreground">{t(conflict ? "views.save_copy_instead" : "views.update_saved")}</span>}</span>{done && <Check className="size-4 text-success" />}
       </label>; })}</fieldset>)}
     </div>
     {targets.some(item => !sameViewOwner(item.owner, preview.owner)) && Object.keys(preview.input.queries).length > 0 && <p className="text-xs text-muted-foreground">{t("views.copy_snapshot_hint")}</p>}
     {targets.some(item => item.owner.kind === "wiki") && <p className="text-xs text-muted-foreground">{t("views.wiki_save_hint")}</p>}
     {saved.length > 0 && <p role="status" className="text-xs text-muted-foreground">{t("views.saved_destinations", { destinations: saved.map(view => destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title).join(", ") })}</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <DialogFooter><Button variant="ghost" disabled={busy} onClick={finish}>{t(saved.length ? "common.close" : "common.cancel")}</Button><Button disabled={busy || !unsavedTargets.length || destinations.isFetching || Boolean(destinations.error)} onClick={() => void save()}>{busy && <Loader2 className="size-4 animate-spin" />}{t(fromChat ? "common.save" : "views.save_copy")}</Button></DialogFooter>
+    <DialogFooter><Button variant="ghost" disabled={busy} onClick={finish}>{t(saved.length ? "common.close" : "common.cancel")}</Button><Button disabled={busy || !unsavedTargets.length || destinations.isFetching || Boolean(destinations.error)} onClick={() => void save(conflict)}>{busy && <Loader2 className="size-4 animate-spin" />}{t(!fromChat || conflict ? "views.save_copy" : "common.save")}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }

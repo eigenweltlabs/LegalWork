@@ -35,9 +35,9 @@ export const ViewInputSchema = z.object({
 }).strict();
 export const ViewSaveSourceSchema = z.object({ workspaceId: z.string().min(1).max(200), sessionId: z.string().min(1).max(200), callId: z.string().min(1).max(200) }).strict();
 export type ViewSaveSource = z.infer<typeof ViewSaveSourceSchema>;
-export const ViewSaveInputSchema = ViewInputSchema.extend({ savedFrom: ViewSaveSourceSchema.optional() });
+export const ViewSaveInputSchema = ViewInputSchema;
 /** Owner is supplied by the authorized repository, never trusted from saved bytes. */
-export const StoredViewSchema = ViewInputSchema.extend({ id: z.string().uuid(), updatedAt: z.number().nonnegative(), savedFrom: ViewSaveSourceSchema.optional() });
+export const StoredViewSchema = ViewInputSchema.extend({ id: z.string().uuid(), updatedAt: z.number().nonnegative() });
 export const ViewRecordSchema = StoredViewSchema.extend({ owner: ViewOwnerSchema, revision: z.string().min(1).max(200) });
 export const WikiFieldsSchema = z.object({ fields: z.array(z.object({
   id: field, name: z.string(), type: z.enum(["string", "number", "boolean", "date", "array", "object", "mixed"]),

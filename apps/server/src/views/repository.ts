@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ViewInput, ViewSaveSource, ViewOwner, ViewRecord, ViewSummary, ViewIssue } from "@legalwork/types/views";
+import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue } from "@legalwork/types/views";
 import { StoredViewSchema, ViewInputSchema, isLocalOpenUIProgram } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
@@ -37,7 +37,10 @@ export class ViewRepository {
         if (bytes.length > MAX_BYTES) throw new Error("Record exceeds 2 MB");
         const raw: unknown = JSON.parse(bytes.toString("utf8"));
         id = z.object({ id: z.string().uuid() }).safeParse(raw).data?.id ?? id;
-        const parsed = StoredViewSchema.parse(raw);
+        // Early preview builds wrote local receipt metadata into shared files.
+        // Accept those files, but never expose or perpetuate that metadata.
+        const { savedFrom: _legacySource, ...stored } = z.object({ savedFrom: z.unknown().optional() }).passthrough().parse(raw);
+        const parsed = StoredViewSchema.parse(stored);
         if (!isLocalOpenUIProgram(parsed.program)) throw new Error("Unsupported program");
         if (ids.has(parsed.id)) issues.push({ path, id: parsed.id, code: "view_revision_conflict", message: "Competing copies of this view need reconciliation. Both copies have been preserved." });
         ids.add(parsed.id);
@@ -79,23 +82,23 @@ export class ViewRepository {
     if (input.mode === "report" && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new ApiError(400, "report_snapshot_missing", "Frozen reports must retain their query datasets.");
     return parsed.data;
   }
-  async create(input: ViewInput, savedFrom?: ViewSaveSource): Promise<ViewRecord> {
+  async create(input: ViewInput): Promise<ViewRecord> {
     const data = this.validate(input), id = randomUUID(), updatedAt = Date.now();
-    const bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt, ...(savedFrom ? { savedFrom } : {}) }, null, 2) + "\n");
+    const bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt }, null, 2) + "\n");
     if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
     const folder = data.mode === "report" ? "Reports" : await this.files.dashboardFolder?.() ?? "Views";
     await this.files.write(`${folder}/${id}.view.json`, bytes, "");
-    return { ...data, id, updatedAt, ...(savedFrom ? { savedFrom } : {}), owner: this.owner, revision: hash(bytes) };
+    return { ...data, id, updatedAt, owner: this.owner, revision: hash(bytes) };
   }
-  async update(id: string, input: ViewInput, baseRevision: string, savedFrom?: ViewSaveSource): Promise<ViewRecord> {
+  async update(id: string, input: ViewInput, baseRevision: string): Promise<ViewRecord> {
     const item = await this.find(id);
     if (!item) throw new ApiError(404, "view_not_found", "This saved view is unavailable.");
     if (item.record.revision !== baseRevision) throw new ApiError(409, "view_revision_conflict", "This view changed. Read its current revision before editing.");
     const data = this.validate(input);
-    const updatedAt = Date.now(), bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt, ...(savedFrom ? { savedFrom } : {}) }, null, 2) + "\n");
+    const updatedAt = Date.now(), bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt }, null, 2) + "\n");
     if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
     await this.files.write(item.path, bytes, baseRevision);
-    return { ...data, id, updatedAt, ...(savedFrom ? { savedFrom } : {}), owner: this.owner, revision: hash(bytes) };
+    return { ...data, id, updatedAt, owner: this.owner, revision: hash(bytes) };
   }
 }
 
