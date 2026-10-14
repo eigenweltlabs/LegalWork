@@ -14,6 +14,7 @@ type ProviderLike = {
 };
 
 type SettingsExtensionControllerInput = {
+  isRemoteWorkspace: boolean;
   legalworkServerClient: LegalworkServerClient | null;
   hostLegalworkServerClient: LegalworkServerClient | null;
   enablementContext: EnablementContext;
@@ -23,7 +24,7 @@ type SettingsExtensionControllerInput = {
   googleWorkspaceConnected: boolean;
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
-  connectMcp: (entry: McpDirectoryInfo) => void | Promise<void>;
+  connectMcp: (entry: McpDirectoryInfo) => Promise<boolean>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
   providerConnectedIds: string[];
@@ -64,13 +65,20 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     computerUse: {
       connected: input.mcpServers.some((server) => server.name === "computer-use"),
       connecting: input.mcpConnectingName === entry.name,
-      onConnect: () => input.connectMcp(entry),
+      onConnect: async () => { await input.connectMcp(entry); },
       onRefresh: input.refreshMcpServers,
       onPermissionsChange: input.onComputerUsePermissionsChange,
     },
     imageExtension: {
       ...input.imageExtension,
       envKeyDetected: hasOpenAiEnv(input),
+    },
+    openComputerUse: {
+      localDesktop: !input.isRemoteWorkspace,
+      connected: input.enablementContext.mcpStatuses?.["open-computer-use"]?.status === "connected",
+      connecting: input.mcpConnectingName === entry.name,
+      onConnect: () => input.connectMcp(entry),
+      onRefresh: input.refreshMcpServers,
     },
     localProvider: input.localProvider,
   }), [input]);

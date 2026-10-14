@@ -47,6 +47,16 @@ export type OpencodeExecutionEnvEntry = {
   redacted: boolean;
 };
 
+export type OpenComputerUseStatus = {
+  version: string;
+  platform: string;
+  installed: boolean;
+  ready: boolean;
+  accessibility?: boolean;
+  screenRecording?: boolean;
+  error?: string;
+};
+
 export type OpencodeExecutionSnapshot = {
   command: string;
   args: string[];
@@ -473,6 +483,9 @@ export type DesktopCommandMap = {
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
   getComputerUseMcpCommand: { args: []; result: string[] };
+  getOpenComputerUseMcpConfig: { args: []; result: { command: string[]; environment: Record<string, string> } };
+  checkOpenComputerUse: { args: []; result: OpenComputerUseStatus };
+  openOpenComputerUsePermissionSetup: { args: []; result: void };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use

@@ -852,6 +852,7 @@ export function McpView(props: McpViewProps) {
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
+            configSlotFirst={detailEntry.id === "open-computer-use"}
             showEnablementCard={!isGoogleWorkspace}
             onConnect={disabledReason || detailEntry.requestAccessUrl ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
               setLegalWorkExtensionEnabled(detailEntry, true);

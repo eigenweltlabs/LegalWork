@@ -52,6 +52,7 @@ import {
   openComputerUseSetupApp,
 } from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
+import { createOpenComputerUseIntegration } from "./open-computer-use.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
 import { createEventStreams } from "./event-streams.mjs";
@@ -70,6 +71,7 @@ import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
+const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
 const mcpOAuthOwners = new WeakSet();
 app.on("will-quit", () => mcpOAuthCallbacks.close());
 
@@ -1816,6 +1818,9 @@ const desktopCommandHandlers = {
   "getComputerUseMcpCommand": async (event, ...args) => {
       return getComputerUseMcpCommand();
   },
+  "getOpenComputerUseMcpConfig": async (event, ...args) => openComputerUse.mcpConfig(),
+  "checkOpenComputerUse": async (event, ...args) => openComputerUse.status(),
+  "openOpenComputerUsePermissionSetup": async (event, ...args) => openComputerUse.openPermissionSetup(),
   "checkComputerUsePermissions": async (event, ...args) => {
       // Spawn --check → fresh TCC read → always accurate.
       return checkComputerUsePermissions();

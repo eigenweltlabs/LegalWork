@@ -1,0 +1,67 @@
+# Open Computer Use integration
+
+LegalWork's Integrations catalog includes **Open Computer Use** for Mac and
+Windows. It connects the upstream [Open Computer Use runtime](https://github.com/iFurySt/open-codex-computer-use)
+to OpenCode as a local stdio MCP named `open-computer-use`.
+
+The existing `computer-use` integration and bundled LegalWork helper are separate
+and retain their current installation, permissions and configuration.
+
+## Setup
+
+1. Open a local project in LegalWork Desktop, then **Settings → Integrations**.
+2. Open **Open Computer Use** and choose **Install and connect**.
+3. On Mac, grant **Open Computer Use** Accessibility and Screen Recording in
+   System Settings. Return to LegalWork, check setup and connect.
+4. Start a chat and ask the agent to inspect an open desktop app. OpenCode receives
+   the upstream tools, including app discovery, accessibility state, screenshots,
+   clicking, typing, keyboard shortcuts, scrolling and dragging.
+
+Mac requires macOS 14 or later. Windows support is upstream's experimental
+runtime, so the catalog marks this integration as Preview. Run it in a signed-in
+desktop session and open target apps first. Background control depends on what
+the application exposes through accessibility; the runtime can recover hidden
+Mac windows by bringing them forward.
+
+## Installation and updates
+
+LegalWork downloads the native **v1.1.0** GitHub release: the universal signed Mac
+app or the matching Windows x64/ARM64 executable. Each archive must match its
+pinned SHA-256 digest before extraction. Installation uses a temporary directory
+and publishes the complete runtime by renaming it into LegalWork's user-data
+`integrations/open-computer-use` directory. Connect stores an absolute executable
+path and a private agent socket namespace in the LegalWork server's MCP config
+and hot-adds the same configuration to OpenCode.
+
+No global Node, pnpm, npm or Python installation is required. Installation and
+desktop control are unavailable for remote projects. Disconnecting removes the
+new MCP configuration through the existing connector flow; it does not change the
+old computer-use integration or remove the downloaded runtime.
+
+To update the runtime, update the pinned version, asset names and digests in
+`apps/desktop/electron/open-computer-use.mjs`, update the manifest's package
+version, and verify the release on both platforms. The new version uses its own
+installation directory and agent namespace.
+
+## Verification
+
+```sh
+node --test apps/desktop/electron/open-computer-use.test.mjs
+pnpm --filter @legalwork/app exec bun test tests/extension-items.test.ts tests/mcp-connect-state.test.ts
+pnpm --filter @legalwork/app test:i18n
+pnpm --filter @legalwork/app typecheck
+pnpm --filter @legalwork/desktop typecheck:electron
+node apps/desktop/scripts/open-computer-use-smoke.mjs --opencode /absolute/path/to/opencode
+```
+
+The smoke test downloads and verifies both Windows archives, verifies the signed
+Mac app on Mac, enumerates the native MCP tools and connects the host runtime to
+an isolated OpenCode instance. It does not run a model or perform desktop actions.
+Actual Mac actions require granting this helper its own permissions. Windows
+actions must be verified on a Windows desktop.
+
+Setup screenshots use the production components with simulated IPC status, not
+real Windows desktop automation:
+
+- [Mac setup preview](verification/open-computer-use/mac-setup.jpg)
+- [Windows connected preview](verification/open-computer-use/windows-connected.jpg)

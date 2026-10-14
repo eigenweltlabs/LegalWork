@@ -95,6 +95,8 @@ export type ExtensionDetailModalProps = {
   onShow?: () => void;
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
+  /** Put setup controls before the informational cards. Defaults to false. */
+  configSlotFirst?: boolean;
   showEnablementCard?: boolean;
   size?: "default" | "wide";
 };
@@ -227,6 +229,7 @@ export function ExtensionDetailModal({
   onHide,
   onShow,
   configSlot,
+  configSlotFirst = false,
   showEnablementCard = true,
   size = "default",
 }: ExtensionDetailModalProps) {
@@ -300,6 +303,8 @@ export function ExtensionDetailModal({
             <div className="text-sm leading-relaxed text-card-foreground">
               {description}
             </div>
+
+            {configSlotFirst ? configSlot : null}
 
             {setupNote ? (
               <div className="text-sm leading-relaxed text-muted-foreground">{setupNote}</div>
@@ -492,7 +497,7 @@ export function ExtensionDetailModal({
               </Card>
             ) : null}
 
-            {configSlot}
+            {configSlotFirst ? null : configSlot}
             </div>
           </ScrollAreaViewport>
         </ScrollArea>

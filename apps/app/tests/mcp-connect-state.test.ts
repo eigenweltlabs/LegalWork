@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../src/app/mcp-connect-state";
-import type { McpDirectoryInfo } from "../src/app/constants";
+import { MCP_QUICK_CONNECT, type McpDirectoryInfo } from "../src/app/constants";
 import type { McpStatusMap, ReloadReason, ReloadTrigger } from "../src/app/types";
 import { createClient } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -69,10 +69,22 @@ let restoreAnalytics = () => {};
 let selectedWorkspaceId = "local";
 let remoteSaveWait: Promise<void> | undefined;
 let remoteSaveStarted: (() => void) | undefined;
+let openComputerUseError = "";
+let openComputerUseCalls = 0;
+let engineAdds: unknown[] = [];
+const openComputerUseConfig = {
+  command: ["/installed/Open Computer Use.app/Contents/MacOS/OpenComputerUse", "mcp"],
+  environment: { OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE: "test-legalwork-ocu" },
+};
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
+      if (command === "getOpenComputerUseMcpConfig") {
+        openComputerUseCalls += 1;
+        if (openComputerUseError) throw new Error(openComputerUseError);
+        return openComputerUseConfig;
+      }
       if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: true, content: config };
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
@@ -132,6 +144,9 @@ describe("connection store success reporting", () => {
     selectedWorkspaceId = "local";
     remoteSaveWait = undefined;
     remoteSaveStarted = undefined;
+    openComputerUseError = "";
+    openComputerUseCalls = 0;
+    engineAdds = [];
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -147,9 +162,10 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
-          return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }] });
+          return Response.json({ items: Object.keys(status).map((name) => ({ name, config: { type: "remote", url: entry.url }, source: "config.remote" })) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
+        if (request.method === "POST") engineAdds.push(await request.json());
         return Response.json(status);
       },
     });
@@ -229,6 +245,39 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(true);
     expect(store.getSnapshot().mcpAuthNeedsReload).toBe(false);
     expect(connectedEvents()).toHaveLength(0);
+  });
+
+  test("connects the new native runtime to OpenCode with its own identity and environment", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    status = { "open-computer-use": { status: "connected" } };
+    const store = makeStore();
+    expect(await store.connectMcp(integration)).toBe(true);
+    const config = { type: "local", enabled: true, ...openComputerUseConfig };
+    expect(serverAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(engineAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(openComputerUseCalls).toBe(1);
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+  });
+
+  test("a failed runtime install cannot save a broken command or fall back to the old helper", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    openComputerUseError = "Download failed its integrity check";
+    const store = makeStore();
+    expect(await store.connectMcp(integration)).toBe(false);
+    expect(serverAdds).toHaveLength(0);
+    expect(engineAdds).toHaveLength(0);
+    expect(store.getSnapshot().mcpStatus).toContain(openComputerUseError);
+  });
+
+  test("remote workers cannot install or receive the local desktop command", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    expect(await makeStore(true).connectMcp(integration)).toBe(false);
+    expect(openComputerUseCalls).toBe(0);
+    expect(serverAdds).toHaveLength(0);
+    expect(engineAdds).toHaveLength(0);
   });
 
   test("explicitly disabled OAuth stays disabled in persisted config even when old client settings exist", async () => {

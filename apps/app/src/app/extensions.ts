@@ -44,7 +44,7 @@ export type LegalWorkExtensionResource = {
   packageName?: string;
   providerId?: string;
   mcpServerName?: string;
-  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.uiMcp";
+  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.openComputerUseMcp" | "legalwork.uiMcp";
   required?: boolean;
 };
 
@@ -226,6 +226,38 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
     ],
     lifecycle: { reload: ["mcp"], detection: ["mcp:computer-use"] },
     platform: ["darwin"],
+  },
+  {
+    schemaVersion: 1,
+    id: "open-computer-use",
+    name: "Open Computer Use",
+    get description() { return t("open_computer_use.description"); },
+    preview: true,
+    source: {
+      format: "legalwork-builtin", origin: "builtin", trusted: true,
+      reference: "https://github.com/iFurySt/open-codex-computer-use",
+    },
+    icon: { src: "/ext-open-computer-use.svg" },
+    setup: { get instructions() { return t("open_computer_use.instructions"); } },
+    resources: [
+      {
+        type: "mcp", id: "open-computer-use-mcp", mcpServerName: "open-computer-use",
+        command: ["open-computer-use", "mcp"], localCommandRef: "legalwork.openComputerUseMcp", required: true,
+        get label() { return t("open_computer_use.tools_label"); },
+      },
+      {
+        type: "native-binary", id: "open-computer-use-runtime", packageName: "open-computer-use@1.1.0", required: true,
+        get label() { return t("open_computer_use.runtime_label"); },
+      },
+    ],
+    contributions: [
+      { type: "settings-panel", ref: "legalwork.openComputerUse.settings", location: "settings-detail" },
+    ],
+    enablement: [
+      { type: "mcp-connected", ref: "open-computer-use", get label() { return t("ext.cu_mcp_connected"); } },
+    ],
+    lifecycle: { reload: ["mcp"], detection: ["mcp:open-computer-use"] },
+    platform: ["darwin", "windows"],
   },
   {
     schemaVersion: 1,

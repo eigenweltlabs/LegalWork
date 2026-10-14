@@ -547,6 +547,13 @@ export function createConnectionsStore(options: {
     const projectDir = options.projectDir().trim();
     const entryType = entry.type ?? "remote";
 
+    // This integration controls the desktop running LegalWork, so its native
+    // command must never be written into a remote worker's configuration.
+    if (entry.id === "open-computer-use" && (isRemoteWorkspace || !isDesktopRuntime())) {
+      setStateField("mcpStatus", t("open_computer_use.local_only"));
+      return false;
+    }
+
     recordPerfLog(options.developerMode(), "mcp.connect", "start", {
       name: entry.name,
       type: entryType,
@@ -658,14 +665,23 @@ export function createConnectionsStore(options: {
         }
       }
 
+      let openComputerUseEnvironment: Record<string, string> | undefined;
       if (entryType === "local") {
         if (!entry.command?.length) {
           throw new Error(t("mcp.missing_command"));
         }
-        mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
-        const environment = await resolveLocalMcpEnvironment(entry);
-        if (environment) {
-          mcpEntryConfig["environment"] = environment;
+        if (extensionResource(entry.extensionManifest, "mcp")?.localCommandRef === "legalwork.openComputerUseMcp") {
+          const config = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getOpenComputerUseMcpConfig");
+          if (!config) throw new Error(t("open_computer_use.local_only"));
+          mcpEntryConfig["command"] = config.command;
+          mcpEntryConfig["environment"] = config.environment;
+          openComputerUseEnvironment = config.environment;
+        } else {
+          mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
+          const environment = await resolveLocalMcpEnvironment(entry);
+          if (environment) {
+            mcpEntryConfig["environment"] = environment;
+          }
         }
       }
 
@@ -705,6 +721,7 @@ export function createConnectionsStore(options: {
                 type: "local" as const,
                 command: (mcpEntryConfig["command"] as string[]) ?? entry.command!,
                 enabled: true,
+                ...(openComputerUseEnvironment ? { environment: openComputerUseEnvironment } : {}),
               };
 
         // Registering with the running engine is what makes the server usable
