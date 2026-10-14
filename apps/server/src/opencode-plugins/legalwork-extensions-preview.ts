@@ -1,6 +1,8 @@
+import { nativeFileEdits } from "./native-file-edits.js";
+import { compactBrowserResult } from "./browser-snapshot.js";
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
-import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, protectedDocumentSurfaces, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
+import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
@@ -119,19 +121,19 @@ Answer only from the returned transcript. If multiple sessions match, ask a shor
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
 
 ## Document work is independent of the user's screen
-Document tools prepare and edit task-scoped drafts in the background. They work while the user is in another chat, project, or settings page. Never navigate, focus, select visible tabs, or open your chat as a prerequisite for document work, even after an error. Use inapp_documents_open to prepare the working file; inapp_documents_select changes only this task's document selection. The user's visible selection is independent. If a document cannot load, report that failure without taking over the UI.
+Document tools prepare and edit task-scoped drafts in the background. They work while the user is in another chat, project, or settings page. Never navigate, focus, select visible tabs, or open your chat as a prerequisite for document work, even after an error. Use inapp_documents_open to prepare the working file; inapp_documents_select changes only this task's document selection. The user's visible selection is independent. If a document cannot load, report that failure without taking over the UI. Working mini tabs are temporary and close automatically when this run finishes unless the user promoted them. Do not promise that working tabs will remain open after completion; link the saved output instead.
 Inspect reference documents with file-reading tools, or use the task's live document tools to include unsaved edits.
 For a new Markdown deliverable, use inapp_markdown_create incrementally: start with its heading and first section (append=false, complete=false), then append a few paragraphs per call (append=true). Set complete=true on the last chunk to save. The user can follow the read-only preview while you compose the rest. Always finish or report an incomplete draft. Do not use shell/Python for new Markdown files unless the user explicitly requests it.
 
 Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For any attached input under .legalwork/attachments, preserve the snapshot and supply copy_to with a visible output filename before editing. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
 Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit the task draft. For several source documents, read their saved files in the background and keep the working output selected for this task. Read the live draft when inspecting a file with unsaved changes. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
-Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. For unsupported Word structure/layout such as inserting tables or changing page breaks, call inapp_docx_prepare_file_edit with the exact path first. For PowerPoint use inapp_pptx_prepare_file_edit. These tools save and release the live editor; proceed only when the returned result has ok=true and saved=true. Then edit the saved file, preserve unrelated content and revisions, and reopen with inapp_documents_open to load and verify the new version. Selecting another document is not a file-edit handoff. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
-When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and negotiated text edits are tracked changes. To populate placeholders in a new template copy, use inapp_docx_fill_template for clean output; it preserves pre-existing revisions. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
+Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. For unsupported Word structure/layout or other file operations, use legalwork_shell with write=true. LegalWork automatically saves and releases open project drafts before execution and reloads them afterwards, without changing visible tabs. No manual prepare/reopen step is required. Use write=false or omit it for reads. Preserve unrelated content and revisions. The explicit prepare_file_edit tools remain available for multi-step manual handoffs, but selecting another document is not a handoff. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
+When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and negotiated text edits are tracked changes. To populate placeholders in a new template copy, use inapp_docx_fill_template for clean output; it preserves pre-existing revisions. Use native tools for text edits. For file-based operations, legalwork_shell with write=true automatically saves and releases live project editors, executes the command, and reloads them in the background. Read-only commands (write=false or omitted) do not need a handoff. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Presentation visual review
 Prefer the native inapp_pptx_preview for visual verification. When a file-based render is necessary and permitted, use a fresh writable LibreOffice profile, a correctly URL-encoded absolute file URI (Python pathlib.Path.resolve().as_uri()), and a separate writable output directory. Never retry the same crashing invocation or change permissions to bypass a blocked renderer. A failed PDF conversion is not a successful visual check: use native previews or explicitly report what remains unverified. Keep slide content concise, use readable type and consistent margins, and move detailed analysis into speaker notes or a linked report.
 Start with inapp_pptx_read_presentation to read all slides, notes, table rows and chart data in one call. Do not loop over slides just to read the deck. Use inapp_pptx_read with slideIndex only for a targeted follow-up. Neither read tool navigates the viewer. Whole-deck reads omit repeated text-run styles and geometry; request a slideIndex for those details.
-To add slides, use inapp_pptx_add_slide: choose an existing templateSlideIndex, set insertIndex, and fill its text boxes with replacements in the same call. This copies the template's design and leaves the original intact. Read the returned new element IDs for any further edits. Use the named inapp_pptx_* tools directly, not legalwork_ui_execute_action with invented Office actions. For an unsupported operation or an explicit request to edit through code, call inapp_pptx_prepare_file_edit first: it saves and closes the live draft, allowing file/code editing without a stale editor overwriting it. Then edit the returned file and reopen with inapp_documents_open. If saving fails, keep the draft open and do not edit the file. Do not claim slides cannot be edited or probe internal app bundles / guess action names.
+To add slides, use inapp_pptx_add_slide: choose an existing templateSlideIndex, set insertIndex, and fill its text boxes with replacements in the same call. This copies the template's design and leaves the original intact. Read the returned new element IDs for any further edits. Use the named inapp_pptx_* tools directly, not legalwork_ui_execute_action with invented Office actions. For an unsupported operation or an explicit request to edit through code, use legalwork_shell with write=true for the automatic save, release and reload. If saving fails, keep the draft intact and report the actual save failure. Do not claim slides cannot be edited or probe internal app bundles / guess action names.
 Finish all planned text and layout edits for a slide, then call inapp_pptx_preview once to inspect the rendered slide before moving to the next slide. Reads return live text and structured slide data without navigating or changing the selection. Edit calls return potential overlap/overflow warnings without images. Do not request a preview after every read or individual edit. If the finished-slide preview reveals unintended overlapping text, clipping or unreadable text, make the necessary corrections with shorter wording or inapp_pptx_update_layout, then request one new preview after those corrections are complete. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
 
 ## Built-in Browser (external websites)
@@ -251,13 +253,6 @@ async function callInAppDocxTool(
   return JSON.stringify(payload, null, 2);
 }
 
-function inAppDocxCallTargetsSurface(tool: string, args: Record<string, unknown>, surface: InAppDocumentSurface) {
-  if (tool !== "bash" && tool !== "legalwork_shell" && tool !== "task") return false;
-  const text = JSON.stringify(args).toLowerCase();
-  const normalizedPath = surface.path.replace(/\\/g, "/").toLowerCase();
-  const name = normalizedPath.split("/").pop() ?? surface.name.toLowerCase();
-  return text.includes(normalizedPath) || Boolean(name && text.includes(name));
-}
 
 function addContext(payload: unknown, context: OpenCodeContext): object {
   if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
@@ -341,6 +336,7 @@ Unqualified requests about this workbook/presentation refer to this file. Use ${
 
 export const LegalWorkExtensionsPreview = async (input: SavedConversations = {}) => {
   const sidebar = appStateReminders("sidebar", readSidebarState, "No files are open in this session's sidebar any more. Earlier sidebar reminders no longer apply.", input);
+  const fileEdits = nativeFileEdits(input.directory);
   return ({
   // Fixed text only: what is open arrives as reminders (see app-state-reminders.ts).
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
@@ -349,24 +345,12 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     output.system.push(APP_STATE_INSTRUCTION);
   },
   "chat.message": sidebar.userMessage,
-  "tool.execute.after": sidebar.toolResult,
-  event: sidebar.event,
-  "tool.execute.before": async (
-    input: { tool: string; sessionID: string; callID: string },
-    output: { args: Record<string, unknown> },
-  ) => {
-    if (input.tool !== "bash" && input.tool !== "legalwork_shell" && input.tool !== "task") return;
-    if (!/\.(docx|xlsx|pptx)/i.test(JSON.stringify(output.args))) return;
-    // Read-only inspection must remain available even when a viewer cannot load.
-    // The managed shell still enforces its independent execution permissions.
-    if (input.tool === "legalwork_shell" && output.args.write === false) return;
-    const snapshot = await taskDocumentSnapshot(input.sessionID);
-    const surface = protectedDocumentSurfaces(snapshot, input.sessionID).find(surface => surface.editable && inAppDocxCallTargetsSurface(input.tool, output.args, surface));
-    if (!surface) return;
-    throw new Error(
-      `The target document ${surface.name} is open in LegalWork's in-app editor. Use inapp_${surface.format}_* tools so edits appear live and save safely.${surface.format === "docx" || surface.format === "pptx" ? ` For an unsupported operation or an explicit code-edit request, call inapp_${surface.format}_prepare_file_edit with its path to save and release the draft, then use the file pipeline and reopen the result.` : " The file/Bash Office path is disabled while this document is open."}`,
-    );
+  "tool.execute.before": fileEdits.before,
+  "tool.execute.after": async (input: { sessionID: string; callID?: string }, output: { output?: unknown; content?: unknown }) => {
+    if (input.callID) await fileEdits.after(input.sessionID, input.callID);
+    await sidebar.toolResult(input, output);
   },
+  event: async (input: Parameters<typeof sidebar.event>[0]) => { await fileEdits.event(input); sidebar.event(input); },
   tool: {
     inapp_markdown_create: {
       description: "Compose a NEW Markdown file incrementally without navigating or focusing the UI. Start with a heading/first section, append=false, complete=false. Append a few paragraphs per call with append=true; the read-only preview grows while you write. Set complete=true on the last chunk to save and unlock the file. Refuses existing files. Content is appended exactly, so include separating newlines.",
@@ -630,7 +614,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
           method: "POST",
           body: { actionId, args: { ...args, ...browserContext }, callerSessionId: context.sessionID },
         });
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(actionId === "browser.open_url" ? compactBrowserResult(result) : result);
       },
     },
     ...legalworkBrowserTools,
@@ -648,7 +632,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
           },
           timeoutMs: 45000,
         });
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(compactBrowserResult(result));
       },
     },
     legalwork_browser_set_proxy: {

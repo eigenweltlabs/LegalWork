@@ -1,3 +1,4 @@
+import { withFileEditorHandoff } from "../opencode-plugins/file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -124,7 +125,7 @@ export class AgentSandboxService {
         }
         const cwd = command.workdir || workspace.path;
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
-        return { ...await runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }), sandbox: "host" };
+        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
@@ -156,12 +157,12 @@ export class AgentSandboxService {
       const safeMounts = await validateMounts(mounts, [runtimeStorageDir(this.config)]);
       const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
+      const result = await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork,
-      });
+      }); });
       return { ...result, sandbox: "virtual-machine" };
     });
   }

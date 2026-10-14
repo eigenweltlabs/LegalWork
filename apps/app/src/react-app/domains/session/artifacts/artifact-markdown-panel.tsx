@@ -1,5 +1,5 @@
 import { useMarkdownStreams } from "./markdown-stream";
-import { useDocumentAgentControl } from "./document-runtime";
+import { useDocumentAgentControl, useDocumentRuntimeEntry } from "./document-runtime";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import { keepHandoffCopy } from "./document-handoff-copy";
@@ -54,6 +54,7 @@ type Props = {
 };
 
 export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly: sourceReadOnly = false, saveActions, onClose }: Props) {
+  const runtimeEntry = useDocumentRuntimeEntry();
   const streams = useMarkdownStreams(state => state.items);
   const stream = Object.values(streams).findLast(item => item.workspaceId === workspaceId && item.path === target.value);
   const writing = stream?.status === "writing";
@@ -75,7 +76,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     setDraft(draftRef.current);
   }, []);
   const query = useQuery({
-    queryKey: ["markdown-editor", workspaceId, target.value, client.baseUrl],
+    queryKey: ["markdown-editor", workspaceId, target.value, client.baseUrl, runtimeEntry?.generation],
     queryFn: () => client.readWorkspaceFile(workspaceId, target.value),
     enabled: !writing,
     retry: stream ? false : undefined,
@@ -255,8 +256,14 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       const tool = Reflect.get(args, "toolName");
       if (tool === "read") return { ok: true, data: { markdown: current.content, unsavedChanges: current.content !== current.baseline } };
       if (localReadOnly || !access.editable) return { ok: false, error: t("storage.read_only") };
+      if (tool === "prepare_file_edit") {
+        if (pendingSave.current && !await pendingSave.current) return { ok: false, saved: false };
+        const current = draftRef.current;
+        const saved = current !== null && (current.content === current.baseline || await save());
+        return { ok: saved, saved };
+      }
       if (savingRef.current) return { ok: false, error: t("markdown.save_in_progress") };
-      if (tool === "save") return { ok: await save() };
+      if (tool === "save") { const saved = await save(); return { ok: saved, saved }; }
       const values: unknown = Reflect.get(args, "args");
       if (tool !== "replace_text" || !values || typeof values !== "object") return { ok: false, error: t("markdown.unknown_tool") };
       const search: unknown = Reflect.get(values, "search");

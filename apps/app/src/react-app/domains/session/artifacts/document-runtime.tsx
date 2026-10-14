@@ -5,7 +5,7 @@ import { resolveDocumentProject } from "./document-project";
 import { createDocumentRuntime, documentKey, stringArg, type Entry, type DocumentProject } from "./document-runtime-store";
 import { useLocation, useNavigate } from "react-router-dom";
 import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { ControlActionScope, useControlAction, useControlScope, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
 import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ArtifactPanelContent, type ArtifactPanelProps } from "./artifact-panel";
@@ -28,7 +28,7 @@ export function useDocumentVisibility() { return use(DocumentVisibilityContext);
 
 
 export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
-  const [runtime] = useState(() => createDocumentRuntime(undefined, resolveDocumentProject));
+  const [runtime] = useState(() => createDocumentRuntime(undefined, resolveDocumentProject, flushSync));
   const navigate = useNavigate();
   const location = useLocation();
   useControlAction({ id: "session.open", label: "Open a session", background: true, requiresArgs: true, args: [{ name: "sessionId", type: "string", required: true }], execute: async (args, { callerSessionId }) => {
@@ -88,6 +88,8 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   useControlAction({ id: "markdown.create", label: "Create a Markdown document", background: true, execute: runtime.createMarkdown });
   useControlAction({ id: "documents.open", label: "Prepare a document for a task", background: true, execute: runtime.open });
   useControlAction({ id: "documents.select_open", label: "Select a task document", background: true, execute: runtime.select });
+  useControlAction({ id: "documents.begin_file_edit", label: "Save editors before file editing", background: true, execute: runtime.beginFileEdit });
+  useControlAction({ id: "documents.end_file_edit", label: "Reload editors after file editing", background: true, execute: runtime.endFileEdit });
   useControlAction({ id: "documents.list", label: "List task documents", background: true, execute: runtime.list });
   useControlAction({ id: "document.agent_tool", label: "Work on a Word document", background: true, execute: args => runtime.execute("document.agent_tool", args) });
   useControlAction({ id: "office.agent_tool", label: "Work on an Office document", background: true, execute: args => runtime.execute("office.agent_tool", args) });
@@ -103,7 +105,12 @@ function RuntimeDocument({ entry, runtime, parking }: { entry: Entry; runtime: R
   const destination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
   const active = destination ? entry.destinations.get(destination) === true : false;
   useLayoutEffect(() => {
-    const parent = destination ?? [...entry.previews].find(node => node.isConnected) ?? parking;
+    // A returning route's destination may still be detached during render.
+    // Resolve it after React commits, otherwise the editor stays parked until
+    // an unrelated runtime update happens to render this component again.
+    const committedDestination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
+    const parent = committedDestination ?? [...entry.previews].find(node => node.isConnected) ?? parking;
+    if (committedDestination !== destination) runtime.changed();
     if (!parent || entry.host.parentElement === parent) return;
     if (entry.host.isConnected && parent.isConnected && "moveBefore" in parent && typeof parent.moveBefore === "function") parent.moveBefore(entry.host, null);
     else parent.appendChild(entry.host);

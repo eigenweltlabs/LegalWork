@@ -17,8 +17,9 @@ function userAppDataDir(): string {
 }
 
 function uiControlDiscoveryPaths(): string[] {
+  const explicit = process.env.LEGALWORK_UI_CONTROL_DISCOVERY?.trim();
+  if (explicit) return [explicit];
   return [
-    process.env.LEGALWORK_UI_CONTROL_DISCOVERY?.trim(),
     join(userAppDataDir(), "com.eigenweltlabs.legalwork", "legalwork-ui-control.json"),
     join(userAppDataDir(), "com.eigenweltlabs.legalwork.dev", "legalwork-ui-control.json"),
   ].filter((p): p is string => Boolean(p));

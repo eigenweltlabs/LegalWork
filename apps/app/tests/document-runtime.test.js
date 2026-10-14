@@ -245,3 +245,63 @@ test("reopening a changed file refreshes a clean editor but preserves an unsaved
     expect(entry.registration.updatedAt()).toBe(2);
   } finally { stop(); }
 });
+
+test("automatic file edits preserve selection, queue other tasks, and reload without promotion", async () => {
+  const { runtime, document, clients } = fixture();
+  const entry = document("a", "one.docx", async args => args.toolName === "prepare_file_edit" ? { ok: true, saved: true } : "old");
+  const unrelated = document("a", "other.docx"), privateFile = document("b", "private.docx");
+  await runtime.select({ sessionId: "left", path: "one.docx" });
+  await runtime.select({ sessionId: "right", path: "one.docx" });
+  const original = entry.registration, originalGeneration = entry.generation;
+  const stop = runtime.subscribe(() => {
+    if (!entry.fileEditing && entry.generation !== originalGeneration) entry.registration = { ...original, action: { id: "document.agent_tool", execute: async () => "fresh" } };
+  });
+  try {
+    await runtime.beginFileEdit({ sessionId: "left", operationId: "edit", paths: ["one.docx"] });
+    expect(entry.fileEditing).toBe(true);
+    expect(unrelated.fileEditing).toBe(false); expect(privateFile.fileEditing).toBe(false);
+    let readFinished = false;
+    const read = runtime.execute("document.agent_tool", { sessionId: "right", toolName: "read_document" }).then(result => { readFinished = true; return result; });
+    await Promise.resolve(); expect(readFinished).toBe(false);
+    expect(entry.destinations.size).toBe(0);
+    await runtime.endFileEdit({ sessionId: "left", operationId: "edit" });
+    expect(await read).toBe("fresh");
+    expect(entry.fileEditing).toBe(false);
+    expect(entry.destinations.size).toBe(0);
+  } finally { stop(); }
+});
+
+test("partial handoff failure restores saved editors and preserves the failing draft", async () => {
+  const { runtime, document } = fixture();
+  const first = document("a", "first.docx", async () => ({ ok: true, saved: true }));
+  const second = document("a", "second.docx", async () => ({ ok: false, saved: false }));
+  const original = first.registration, generation = first.generation;
+  const stop = runtime.subscribe(() => { if (!first.fileEditing && first.generation !== generation) first.registration = original; });
+  try {
+    await expect(runtime.beginFileEdit({ sessionId: "left", operationId: "edit" })).rejects.toThrow("Could not save second.docx");
+    expect(first.fileEditing).toBe(false); expect(second.fileEditing).toBe(false);
+    expect(second.registration).not.toBeNull();
+  } finally { stop(); }
+});
+
+test("unknown write destinations save all editable formats and defer newly opened editors", async () => {
+  const { runtime, document, clients } = fixture();
+  const saved = [];
+  const entries = ["word", "sheet", "slides", "markdown"].map((preview, i) => {
+    const entry = document("a", `file-${i}`, async () => { saved.push(preview); return { ok: true, saved: true }; });
+    entry.props.tab.preview = preview;
+    return { entry, registration: entry.registration, generation: entry.generation };
+  });
+  const stop = runtime.subscribe(() => { for (const { entry, registration, generation } of entries) if (!entry.fileEditing && entry.generation !== generation) entry.registration = registration; });
+  try {
+    await runtime.beginFileEdit({ sessionId: "left", operationId: "script" });
+    expect(saved).toEqual(["word", "sheet", "slides", "markdown"]);
+    const late = runtime.ensure({ client: clients.a, workspaceId: "a", sessionId: "workspace:a", tab: { id: "file:new.docx", type: "artifact", value: "new.docx", label: "new.docx", preview: "word" } });
+    expect(late.fileEditing).toBe(true);
+    const other = document("b", "unrelated.docx");
+    expect(other.fileEditing).toBe(false);
+    await runtime.endFileEdit({ sessionId: "left", operationId: "script" });
+    expect(late.fileEditing).toBe(false);
+    expect(entries.every(({entry}) => !entry.fileEditing)).toBe(true);
+  } finally { stop(); }
+});

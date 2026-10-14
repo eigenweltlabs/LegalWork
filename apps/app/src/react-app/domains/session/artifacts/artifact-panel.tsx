@@ -605,10 +605,12 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
         if (!api) return { ok: false, error: "The in-app editor is still loading." };
-        if (toolName === "prepare_file_edit" && (target.preview === "word" || /\.pptx$/i.test(target.value))) {
+        if (toolName === "prepare_file_edit") {
           if (!isEditableDocument) return { ok: false, error: "This document is read-only. Open an editable workspace copy first." };
           await api.drain();
-          if (!await api.save() || documentDirtyRef.current) return { ok: false, error: "The document still has unsaved changes. File editing is not ready; the draft remains open." };
+          const saved = target.preview === "word" ? await docxApi.current?.flushSave()
+            : !documentDirtyRef.current || await api.save();
+          if (!saved || documentDirtyRef.current) return { ok: false, error: "The document still has unsaved changes. File editing is not ready; the draft remains open." };
           // Release the live editor before a file pipeline writes, so a stale
           // draft can never overwrite those changes. Opening again refetches it.
           if (!runtimeEntry) onClose();

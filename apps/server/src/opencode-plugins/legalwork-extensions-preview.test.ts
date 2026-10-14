@@ -191,17 +191,17 @@ describe("in-app Word document routing", () => {
     expect((await modelContext(plugin, "ses_open")).reminder).toBe("");
   });
 
-  test("blocks Bash from reading the document that is open in the editor", async () => {
+  test("allows reads of documents open in the editor", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
 
     await expect(plugin["tool.execute.before"](
       { tool: "bash", sessionID: "ses_open", callID: "call_1" },
       { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).rejects.toThrow(/use inapp_docx_\* tools/i);
+    )).resolves.toBeUndefined();
   });
 
-  test("guards inactive drafts even when another document is selected", async () => {
+  test("leaves shell write coordination to the execution service", async () => {
     await withBridge({
       ...activeDocumentSnapshot,
       activeSurface: { ...activeDocumentSnapshot.activeSurface, format: "xlsx", name: "Data.xlsx", path: "Data.xlsx" },
@@ -211,7 +211,7 @@ describe("in-app Word document routing", () => {
     await expect(plugin["tool.execute.before"](
       { tool: "legalwork_shell", sessionID: "ses_open", callID: "write" },
       { args: { command: 'python format.py "compensation-memo.docx"', write: true } },
-    )).rejects.toThrow("inapp_docx_prepare_file_edit");
+    )).resolves.toBeUndefined();
     await plugin["tool.execute.before"](
       { tool: "legalwork_shell", sessionID: "ses_open", callID: "read" },
       { args: { command: 'python inspect.py "compensation-memo.docx"', write: false } },
@@ -349,10 +349,10 @@ describe("in-app Office sidebar routing", () => {
       { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "save", args: { path: surface.path } } },
     ]);
   });
-  test("blocks file rewrites of the live Office draft but allows unrelated work", async () => {
+  test("does not reject shell commands based on an open Office filename", async () => {
     await withBridge(snapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
+    await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).resolves.toBeUndefined();
     await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
     await plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "3" }, { args: { command: "inspect matter/Budget.xlsx", write: false } });
   });
