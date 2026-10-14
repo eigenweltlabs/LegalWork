@@ -14,11 +14,12 @@ function cache() {
   value.setQueryData(["storage-oauth-providers", "workspace"], { providers: [{ id: "box", name: "Box", rootHint: "" }, { id: "dropbox", name: "Dropbox", rootHint: "" }] });
   return value;
 }
-test("File Storage owns native cloud setup and shows a connected account once without legacy connection controls", () => {
+test("File Storage shows a native account once and keeps unconnected providers in the Add picker", () => {
   const queryClient = cache();
   const html = renderToStaticMarkup(<QueryClientProvider client={queryClient}><FileStorageView client={client} workspaceId="workspace" /></QueryClientProvider>);
-  for (const name of ["Google Drive", "OneDrive", "OneDrive Personal", "SharePoint", "Box", "Dropbox", "Network share", "WebDAV", "S3-compatible", "Azure Blob", "Google Cloud Storage", "SFTP", "FTP"]) expect(html).toContain(name);
-  expect(html.match(/>Google Drive</g)).toHaveLength(1); expect(html).toContain("Add a folder or library");
+  expect(html.match(/>Google Drive</g)).toHaveLength(1);
+  expect(html).toContain("/ext-googledrive.svg");
+  for (const name of ["OneDrive", "SharePoint", "Box", "Dropbox", "WebDAV", "SFTP", "FTP"]) expect(html).not.toContain(`>${name}<`);
   expect(html).not.toContain("Edit Google Drive"); expect(html).not.toContain("Disconnect Google Drive"); expect(html).not.toMatch(/<img[^>]+src="https?:/);
   queryClient.clear();
 });

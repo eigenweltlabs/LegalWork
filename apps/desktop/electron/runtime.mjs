@@ -645,6 +645,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  const pluginDiscoveryHome = app.getPath("home");
   const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
@@ -942,6 +943,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,
+      // Import sources belong to the OS user, even when dev isolates OpenCode's HOME.
+      LEGALWORK_PLUGIN_DISCOVERY_HOME: pluginDiscoveryHome,
     };
     const pathKey =
       Object.prototype.hasOwnProperty.call(env, "PATH") ||

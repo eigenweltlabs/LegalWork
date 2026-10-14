@@ -102,7 +102,7 @@ import {
   resolveModelDisplayName,
   safeStringify,
 } from "@/app/utils";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -145,7 +145,7 @@ import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
-import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+import { useProjectTemplateCatalog } from "@/react-app/domains/workspace/project-template-catalog";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -215,8 +215,9 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
+import { composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
+import { loadPluginSelectionContext } from "@/react-app/domains/session/surface/composer/plugin-selection";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
   countConnectedProviders,
@@ -330,6 +331,10 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
     }
     if (part.type === "skill") {
       parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
+      continue;
+    }
+    if (part.type === "plugin") {
+      parts.push({ type: "text", text: `[plugin ${JSON.stringify(part.label)}]` });
       continue;
     }
     if (part.type === "app") {
@@ -487,6 +492,7 @@ export function SessionRoute() {
     onHostInfo: setLegalworkServerHostInfoState,
   });
   // Projects synced with the firm arrive, leave and get renamed in the background.
+  useProjectTemplateCatalog(client);
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
     for (const id of workspaceIds) {
@@ -1297,7 +1303,8 @@ export function SessionRoute() {
   }, [opencodeBaseUrl, opencodeClient, selectedWorkspaceRoot]);
 
   const modelLabel = local.prefs.defaultModel
-    ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
+    ? providerCatalog[local.prefs.defaultModel.providerID]?.[local.prefs.defaultModel.modelID]?.name
+      ?? resolveModelDisplayName(local.prefs.defaultModel.modelID)
     : t("session.default_model");
 
   const listSlashCommands = useCallback(async (): Promise<SlashCommandOption[]> => {
@@ -1408,8 +1415,10 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: usableProviderCount,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      onOpenSettingsSection: (section: ComposerSettingsSection) => {
+        const path = composerSettingsPath(section);
+        if (section === "workflows") navigate(path);
+        else handleOpenSettings(path);
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
         const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
@@ -1467,12 +1476,18 @@ export function SessionRoute() {
           return;
         }
 
+        const pluginContext = await loadPluginSelectionContext({
+          parts: draft.parts,
+          client,
+          workspaceId: selectedWorkspaceId,
+          readStatuses: async () => unwrap(await opencodeClient.mcp.status({ directory: selectedWorkspaceRoot || undefined })),
+        });
         const parts = await draftToParts(draft, selectedWorkspaceRoot);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
-        const turnSystemContext = [envSystemContext, draft.modelContext]
+        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
@@ -2105,7 +2120,7 @@ export function SessionRoute() {
       let createdOnServer = false;
       if (client) {
         list = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, templateLanguage: currentLocale() })
           .then((serverList) => {
             createdOnServer = true;
             return serverList;
@@ -2170,7 +2185,7 @@ export function SessionRoute() {
     setCreateWorkspaceBusy(true);
     setCreateWorkspaceError(null);
     try {
-      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const id = resolveWorkspaceListSelectedId(list);
       if (!id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
@@ -2250,7 +2265,7 @@ export function SessionRoute() {
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
         const name = displayText.trim().split(/\r?\n/)[0].slice(0, 80) || t("home.new_project");
-        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
+        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", templateLanguage: currentLocale() });
         const createdId = resolveWorkspaceListSelectedId(list);
         const created = list.workspaces.find((item) => item.id === createdId);
         if (!created) throw new Error(t("session_route.create_server_unavailable"));
@@ -2330,7 +2345,7 @@ export function SessionRoute() {
     }
   };
 
-  const workflowLibraryView = <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId}
+  const workflowLibraryView = <SettingsSurface embedded singleView active={showWorkflows} initialPath="workflows" workspaceId={selectedWorkspaceId}
     onClose={() => { navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
 
   return (

@@ -1,6 +1,7 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
+import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -21,6 +22,7 @@ import type {
   ProjectContentKind,
   ProjectDetails,
   ProjectField,
+  ProjectTemplateCatalog,
   ProjectSyncOverview,
   ProjectSyncSettings,
   ProjectSyncStatus,
@@ -1864,10 +1866,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference, page?: number) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}${page === undefined ? "" : `&page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewRecognitionPage: (workspaceId: string, reviewId: string, documentId: string, page?: number) => requestJson<ReviewRecognitionPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/recognition/${encodeURIComponent(documentId)}${page === undefined ? "" : `?page=${encodeURIComponent(page)}`}`, { token, hostToken }),
     reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
+    getProjectTemplates: () => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken }),
+    saveProjectTemplates: (catalog: ProjectTemplateCatalog) => requestJson<ProjectTemplateCatalog>(baseUrl, "/workspaces/project-templates", { token, hostToken, method: "PUT", body: catalog }),
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -2306,6 +2310,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
+      requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
+    pluginCreateOptions: (workspaceId: string) =>
+      requestJson<PluginCreateOptions>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins/options`, { token, hostToken, timeoutMs: timeouts.config }),
+    createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>
+      requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
+    discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+    previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
+      requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
+    installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>
+      requestJson<LegalworkCloudPluginInstallResult & { preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/install`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     previewClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
       requestJson<{ preview: LegalworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
         token,
@@ -3079,7 +3095,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // caller asks for one workspace's own entry.
     addMcp: (
       workspaceId: string,
-      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace" },
+      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace"; preserveScope?: boolean },
     ) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,
