@@ -14,6 +14,14 @@ Project agent credentials cannot call either review action or write pages, prope
 
 Suggestions require an explicit user request. An explicitly added weekly review schedule authorizes suggestions for that review; ordinary project activity does not.
 
+## Choosing worthwhile contributions
+
+The agent must identify a concrete future question or decision the information helps, check what it adds to existing knowledge, and choose the smallest useful contribution. Useful organization and relationship facts should remain specific when the destination audience is authorized. General lessons may need anonymization; that is not a reason to replace entity facts with a generic checklist.
+
+Processes merit a page when they capture a non-obvious dependency, decision, handoff, exception or organization-specific practice. Repetition alone does not justify documenting an obvious checking step. Prefer an update to an existing subject over several thin pages. Both requested captures and weekly reviews may correctly produce no suggestions. An explicit request for a specific record or checklist takes precedence.
+
+The same default selection guidance reaches project agents through the wiki tool instructions and new firm/blank wikis through their editable structure. Capture procedures and the weekly starter follow it. Existing wiki files, drafts, customized workflows and saved schedules are not rewritten.
+
 ## Weekly review
 
 Scheduled tasks offers **Weekly wiki knowledge review** as one of its four starter cards. It preselects all-project access and a weekly Friday schedule. The user chooses the project that will hold the drafts, adjusts the instructions or schedule, and saves the task. Merely displaying the card creates nothing.
@@ -44,3 +52,18 @@ Verification used an isolated project and two fixture wikis. In the production r
 
 ![Review with properties and folder selection](wiki-evidence/wiki-suggestion-review-new.png)
 ![Saved page replacing the draft in the same tab](wiki-evidence/wiki-suggestion-saved-in-place.png)
+
+## Selection follow-up (14 October 2026)
+
+Four fresh calls to the app's configured `openai/gpt-6.1-sol-fast` model used the updated wiki tool instructions, capture procedure, synthetic source evidence and a supplied custom studio-wiki snapshot. Tools were disabled. The calls evaluated selection and proposed prose, not discovery or publication. Disposable test sessions were removed afterward.
+
+| Evidence and existing knowledge | Observed selection |
+| --- | --- |
+| Desk supplier and separate mail-service company, supported prices and notice terms, an existing partner page, plus routine contract-review notes | One update to the partner page retaining the specific facts. No generic process page. |
+| Routine quotation checks, a typo correction and a changed meeting time, with no substantive finding | No draft. |
+| Three incidents establish invoice duplication during credential rotation, with an adopted pause/reconcile/resume procedure and an escalation condition | One focused process page preserving the hidden dependency, sequence and exception. |
+| A reread confirms facts already fully recorded in the partner page | No draft. |
+
+All four selections matched the expected judgment. These examples are a behavioral smoke check, not a guarantee of future editorial quality. No user wiki content or pending suggestion was changed.
+
+Validation: `pnpm --dir apps/server exec bun test src/wiki/templates.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts` passed 28 tests. App typechecking, server build and the six scheduled-template tests passed. The bundled workflow was regenerated from its canonical source; all 12 global-skill tests passed, including a check that installed defaults match that source.

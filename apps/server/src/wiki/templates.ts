@@ -34,6 +34,8 @@ Copy and adapt these conventions. Templates are suggestions and can be edited he
 
 ## Process page
 
+Use this for a non-obvious workflow, dependency, decision or exception worth learning. A routine review does not need a generic checklist page. Include only supported sections.
+
 \`\`\`markdown
 ---
 type: process
@@ -105,10 +107,10 @@ type: skill
 ---
 # Capture reusable knowledge
 
-Use this only when the user explicitly asks to capture knowledge, including an explicitly added scheduled knowledge review. Do not initiate contributions from ordinary project work. General research, a consequential correction, or a reusable lesson can qualify. Routine answers and unfinished speculation do not automatically deserve a page. Adapt these criteria for this wiki.
+Use this only when the user explicitly asks to capture knowledge, including an explicitly added scheduled knowledge review. Do not initiate contributions from ordinary project work. Apply the selection guidance in Structure.md: preserve useful facts and substantive findings, not a generic lesson from every task. Adapt these criteria for this wiki. No worthwhile addition means no draft.
 
 1. Read this wiki's entry guidance and [[Structure.md]]. Search related pages and inspect the evidence. Prefer improving an existing page. Follow this wiki's actual destinations; do not create a folder just because another wiki uses it.
-2. Extract the useful general finding, preserving its scope, evidence, uncertainty and exceptions. A single matter does not establish a firm standard. For legal research, retain jurisdiction, relevant dates and primary sources where available.
+2. Select the information a colleague would need later, such as an organization's relevant facts, a decision, a substantive finding or a non-obvious process. Explain its concrete future use in chat. Prefer one focused update over several thin pages, and skip obvious checking steps even if they recur. Preserve scope, evidence, uncertainty and exceptions. A single matter does not establish a firm standard. For legal research, retain jurisdiction, relevant dates and primary sources where available.
 3. Prepare the complete proposed change using [[Skills/Anonymize.md]]. ${WIKI_SOURCE_COPY_RULE} Check the body, properties, source labels, filenames and links before submission. Use public authority where it supports the general finding; keep sensitive matter provenance in its authorized source context. If suitability is unclear, keep the draft in the current project and resolve that uncertainty first.
 4. In a project session, use wiki_suggest to stage the complete proposed page in that project's .legalwork/tmp folder with a wiki destination and the current page revision (null for a new page). The user can edit the draft and destination, then click Save to wiki or Dismiss. Never publish it yourself, write a pending draft into the wiki, bypass review with file tools, or repeat a dismissed suggestion unless asked. wiki_suggestions lists earlier proposals; use it to avoid duplicates.
 5. Inside this wiki's own session, carry out the authorized capture or editing task directly using its files or wiki tools. Do not add a separate contribution approval step. Contribute to another wiki from a project using staged suggestions. Preserve human edits; on revision conflict reread and combine deliberately.
@@ -137,7 +139,7 @@ type: skill
 Use this before saving matter-derived material into a wiki with a broader audience.
 
 1. Establish which people can access the destination and what source information may be reused. Wiki Markdown cannot grant access.
-2. Remove or generalize client and person names, case identifiers, addresses, exact dates, unusual amounts, and details that could identify a matter indirectly. Preserve the reusable lesson.
+2. For a general lesson shared beyond the source audience, remove or generalize client and person names, case identifiers, addresses, exact dates, unusual amounts, and identifying combinations. For an entity profile or relationship record whose audience is authorized, retain the identities and specific facts that make it useful. Do not anonymize away the subject or replace its facts with generic advice.
 3. Inspect frontmatter, source labels, links, filenames, attachment names and reusable template contents as well as the body text. ${WIKI_SOURCE_COPY_RULE} A confidential reference can reveal the identity of an anonymized example.
 4. Keep a useful source reference only when suitable for the destination audience. Otherwise use an agreed neutral reference and explain that authorized readers must consult the original source system.
 5. If suitability is uncertain, keep the proposed text in the current authorized work context and ask the user before saving it into the broader wiki. Shared wiki saves sync automatically; there is no separate publication step.
@@ -180,6 +182,8 @@ template_for: process
 status: draft
 ---
 # Process title
+
+Use only for a supported, non-obvious workflow, dependency, decision or exception. Omit routine checking advice and empty headings.
 
 ## When to use this
 

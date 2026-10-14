@@ -96,6 +96,7 @@ test("wiki launcher discovers wiki-owned procedures and preserves firm edits", a
     expect((await listSkills(workspace, false)).find(item => item.name === name)).toMatchObject({ kind: "workflow", workflowType: "assistant", scope: "global" });
   }
   const file = join(globalSkillsDir(), name, "SKILL.md");
+  expect(await readFile(file, "utf8")).toBe(await readFile(new URL("../resources/core-opencode/skills/workflow-firm-knowledge/SKILL.md", import.meta.url), "utf8"));
   expect(await readFile(file, "utf8")).toContain("wiki_guidance");
   expect(await readFile(file, "utf8")).not.toContain("Skills/Build firm wiki.md");
   await writeFile(file, "Firm's own knowledge procedure.\n");
