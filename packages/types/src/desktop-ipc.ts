@@ -331,13 +331,6 @@ export type UiControlBridgeInfo = {
   token?: string;
 };
 
-export type ComputerUsePermissions = {
-  ok: boolean;
-  accessibility: boolean;
-  screenRecording: boolean;
-  error?: string;
-};
-
 export type RunningAppsResult = {
   ok: boolean;
   apps: string[];
@@ -482,17 +475,13 @@ export type DesktopCommandMap = {
   appBuildInfo: { args: []; result: AppBuildInfo };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
-  getComputerUseMcpCommand: { args: []; result: string[] };
   getOpenComputerUseMcpConfig: { args: []; result: { command: string[]; environment: Record<string, string> } };
   checkOpenComputerUse: { args: []; result: OpenComputerUseStatus };
   openOpenComputerUsePermissionSetup: { args: []; result: void };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use
-  checkComputerUsePermissions: { args: []; result: ComputerUsePermissions };
   listRunningApps: { args: []; result: RunningAppsResult };
-  openComputerUsePermissionSetup: { args: []; result: ComputerUsePermissions };
-  openComputerUsePermissionSettings: { args: []; result: unknown };
 
   // Bootstrap config
   getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };

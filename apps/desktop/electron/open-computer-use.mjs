@@ -62,6 +62,21 @@ async function readDoctor(binary, environment) {
   return JSON.parse(String(stdout));
 }
 
+async function readRunningApps(binary, environment) {
+  const { stdout } = await run(binary, ["list-apps"], {
+    env: { ...process.env, ...environment }, timeout: 10_000, maxBuffer: 1024 * 1024,
+  });
+  return parseOpenComputerUseRunningApps(String(stdout));
+}
+
+/** Upstream also lists recently used apps. The composer offers running apps. */
+export function parseOpenComputerUseRunningApps(output) {
+  return [...new Set(output.split("\n").flatMap((line) => {
+    const match = line.match(/^(.+) — .+ \[([^\]]*)\]$/);
+    return match && match[2].split(", ").includes("running") ? [match[1]] : [];
+  }))];
+}
+
 /**
  * @param {{
  *   getDataDir: () => string,
@@ -69,7 +84,8 @@ async function readDoctor(binary, environment) {
  *   arch?: string,
  *   download?: (url: string) => Promise<Uint8Array>,
  *   extract?: (archive: string, destination: string, platform: string) => Promise<void>,
- *   doctor?: (binary: string, environment: Record<string, string>) => Promise<unknown>
+ *   doctor?: (binary: string, environment: Record<string, string>) => Promise<unknown>,
+ *   runningApps?: (binary: string, environment: Record<string, string>) => Promise<string[]>
  * }} options
  */
 export function createOpenComputerUseIntegration({
@@ -79,6 +95,7 @@ export function createOpenComputerUseIntegration({
   download = fetchRelease,
   extract = extractOpenComputerUseRelease,
   doctor = readDoctor,
+  runningApps = readRunningApps,
 }) {
   /** @type {Promise<string> | undefined} */
   let installing;
@@ -91,8 +108,7 @@ export function createOpenComputerUseIntegration({
   }
 
   function environment() {
-    // Keep the upstream macOS agent separate from other MCP clients and from
-    // LegalWork's existing computer-use helper, including dev installations.
+    // Keep the upstream macOS agent separate from other MCP clients and dev installations.
     const namespace = createHash("sha256").update(getDataDir()).digest("hex").slice(0, 12);
     return { OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE: `legalwork-${namespace}-ocu-${OPEN_COMPUTER_USE_VERSION}` };
   }
@@ -165,6 +181,16 @@ export function createOpenComputerUseIntegration({
   return {
     status,
     openPermissionSetup,
+    async listRunningApps() {
+      if (platform !== "darwin") return { ok: false, apps: [] };
+      const { binary } = runtimePaths();
+      if (!existsSync(binary)) return { ok: false, apps: [] };
+      try {
+        return { ok: true, apps: await runningApps(binary, environment()) };
+      } catch {
+        return { ok: false, apps: [] };
+      }
+    },
     async mcpConfig() {
       return { command: [await ensureInstalled(), "mcp"], environment: environment() };
     },

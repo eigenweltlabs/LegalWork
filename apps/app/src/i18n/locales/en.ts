@@ -4928,8 +4928,6 @@ export default {
   "mcp.api_token": "API token",
   "mcp.api_token_placeholder": "Paste your access token",
   "mcp.config_read_failed": "LegalWork server cannot read MCP config for this workspace.",
-  "mcp.computer_use_helper_unavailable":
-    "Computer Use helper app is unavailable. Restart LegalWork or reinstall the app.",
   "mcp.load_servers_failed": "Failed to load MCP servers",
   "mcp.missing_url": "Missing MCP URL. Is the LegalWork desktop app running?",
   "mcp.missing_command": "Missing MCP command.",
@@ -4939,15 +4937,6 @@ export default {
   "template_workflow.session_title": "Generate workflows from firm templates",
   "template_workflow.task_failed": "The generation task could not be started.",
   "template_workflow.start_failed": "Workflow generation could not be started.",
-  "computer_use.unreadable_response": "Unreadable response.",
-  "computer_use.mac_only": "Computer Use is Mac only and requires the LegalWork desktop app on macOS.",
-  "computer_use.setup_title": "Computer Use setup (Mac only)",
-  "computer_use.step1_title": "1. Connect Computer Use MCP",
-  "computer_use.step1_desc":
-    "Adds the local Computer Use server to this workspace so Composer can use the computer-control tools.",
-  "computer_use.step2_title": "2. Grant macOS permissions",
-  "computer_use.step2_desc":
-    "Opens the LegalWork Computer Use helper. Grant both permissions there, then click Verify below.",
   "updater.bridge_unavailable": "Electron updater bridge is unavailable.",
   "updater.downloads_electron_only":
     "Electron updater downloads are available only in the Electron desktop app.",
@@ -5093,8 +5082,6 @@ export default {
     "Use a Google Cloud OAuth desktop client. LegalWork already includes the desktop client ID; paste the matching client secret here.",
   "google_workspace.secret_saved_locally":
     "The secret is saved locally in LegalWork environment settings and applied after the local server restarts.",
-  "computer_use.intro":
-    "Computer Use only works on Mac. Connect the local MCP server and grant the macOS permissions it needs to control apps.",
   "skills.new_skill_desc":
     "Describe when the agent should use this skill and what to do. Saved to your workspace as a SKILL.md.",
   "skills.add_workflow": "Add workflow",
@@ -5402,16 +5389,6 @@ export default {
   "open_computer_use.desktop_hint": "Use this integration in a local project while signed in to your desktop. On Windows, open the apps you want the agent to control first.",
   "open_computer_use.local_only": "Open Computer Use requires LegalWork Desktop and a local project on this computer.",
   "open_computer_use.connection_failed": "OpenCode could not connect to Open Computer Use. Check setup and try again.",
-  "ext.cu_desc":
-    "Mac only: control Mac apps through semantic accessibility refs, screenshots, background-safe clicks, keyboard input, and strict mode.",
-  "ext.cu_instructions":
-    "Computer Use is Mac only. It runs as a local MCP server backed by the macOS accessibility runtime. Grant Accessibility and Screen Recording permissions when macOS asks, then connect the MCP server in this workspace.",
-  "ext.cu_primary_cta": "Connect Computer Use MCP",
-  "ext.cu_secondary_cta": "Check macOS permissions",
-  "ext.cu_mcp_label": "Computer Use MCP",
-  "ext.cu_runtime_label": "macOS accessibility runtime",
-  "ext.cu_permissions_label": "Accessibility and Screen Recording",
-  "ext.cu_verify_label": "Verify Computer Use MCP",
   "ext.cu_mcp_connected": "MCP server connected",
   "ext.cu_ax_permission": "Accessibility permission",
   "ext.cu_screen_permission": "Screen Recording permission",
@@ -5838,12 +5815,6 @@ export default {
   "debug.reset_onboarding_desc": "Reset onboarding state. Restart the app to see changes.",
   "command_palette.add_to_group": "Add the selected chat to an existing group",
   "command_palette.no_groups": "No groups",
-  "computer_use.accessibility": "Accessibility",
-  "computer_use.screen_recording": "Screen Recording",
-  "computer_use.reopen_helper": "Reopen helper",
-  "computer_use.grant_permissions": "Grant permissions",
-  "computer_use.verified": "Permissions verified. Try a Composer prompt that uses Computer Use.",
-  "computer_use.after_granting": "After granting permissions in the helper, click Verify.",
   "hub_share.review_item": "Review this item and remove client data or credentials before publishing.",
   "hub_share.review_items":
     "Shared skills can contain instructions and plugins can execute code. Review the selected items and remove client data or credentials before publishing.",

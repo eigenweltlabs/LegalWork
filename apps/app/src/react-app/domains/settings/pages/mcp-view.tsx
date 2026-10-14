@@ -300,7 +300,6 @@ export function McpView(props: McpViewProps) {
   const [detailPlugin, setDetailPlugin] = useState<ImportedPlugin | null>(null);
   const [legalworkUiMcpCommand, setLegalworkUiMcpCommand] = useState<string[] | null>(null);
   const [legalworkUiMcpEnvironment, setLegalworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
-  const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
   // Local | Team toggle (see skills-view). Only meaningful with a Team view.
@@ -380,14 +379,9 @@ export function McpView(props: McpViewProps) {
             ),
           ));
         }
-        const computerUseCommand = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
-        if (Array.isArray(computerUseCommand) && computerUseCommand.every((part) => typeof part === "string")) {
-          setComputerUseMcpCommand(computerUseCommand);
-        }
       } catch {
         setLegalworkUiMcpCommand(null);
         setLegalworkUiMcpEnvironment(null);
-        setComputerUseMcpCommand(null);
       }
     })();
   }, []);
@@ -481,7 +475,6 @@ export function McpView(props: McpViewProps) {
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
     if (entry.serverName === "legalwork-ui") return legalworkUiMcpCommand ?? undefined;
-    if (entry.serverName === "computer-use") return computerUseMcpCommand ?? entry.command;
     return entry.command;
   };
 

@@ -10,6 +10,7 @@ import {
   extractOpenComputerUseRelease,
   OPEN_COMPUTER_USE_VERSION,
   openComputerUseRelease,
+  parseOpenComputerUseRunningApps,
 } from "./open-computer-use.mjs";
 
 const directories = [];
@@ -81,7 +82,7 @@ describe("Open Computer Use desktop runtime", () => {
     assert.deepEqual(await runtime.status(), { version: OPEN_COMPUTER_USE_VERSION, platform: "win32", installed: true, ready: true });
   });
 
-  it("uses this Mac helper's own permission report, separate from the old integration", async () => {
+  it("uses the Open Computer Use Mac helper's permission report", async () => {
     const directory = await temporaryDirectory();
     const binary = await installedBinary(directory, "darwin");
     const runtime = createOpenComputerUseIntegration({
@@ -111,6 +112,36 @@ describe("Open Computer Use desktop runtime", () => {
     const a = createOpenComputerUseIntegration({ getDataDir: () => first, platform: "darwin", arch: "x64" });
     const b = createOpenComputerUseIntegration({ getDataDir: () => second, platform: "darwin", arch: "x64" });
     assert.notDeepEqual((await a.mcpConfig()).environment, (await b.mcpConfig()).environment);
+  });
+
+  it("lists apps with the replacement runtime and never installs it from a mention query", async () => {
+    const directory = await temporaryDirectory();
+    let queried = 0;
+    const runtime = createOpenComputerUseIntegration({
+      getDataDir: () => directory, platform: "darwin", arch: "x64",
+      download: async () => { throw new Error("A mention query must not install"); },
+      runningApps: async (binary, env) => {
+        queried += 1;
+        assert.equal(binary, await installedBinary(directory, "darwin"));
+        assert.match(env.OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE, /^legalwork-/);
+        return ["Music", "TextEdit"];
+      },
+    });
+    assert.deepEqual(await runtime.listRunningApps(), { ok: false, apps: [] });
+    assert.equal(queried, 0);
+    await installedBinary(directory, "darwin");
+    assert.deepEqual(await runtime.listRunningApps(), { ok: true, apps: ["Music", "TextEdit"] });
+    assert.equal(queried, 1);
+  });
+
+  it("offers running app names, excluding recently used apps and duplicates", () => {
+    assert.deepEqual(parseOpenComputerUseRunningApps([
+      "Visual Studio Code — com.microsoft.VSCode [frontmost, running, uses=20]",
+      "Music — com.apple.Music [running]",
+      "Music — com.apple.Music [running]",
+      "Preview — com.apple.Preview [last-used=2026-10-14, uses=10]",
+      "unrecognized output",
+    ].join("\n")), ["Visual Studio Code", "Music"]);
   });
 });
 

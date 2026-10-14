@@ -70,7 +70,6 @@ import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion
 import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
-import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/open-computer-use-config";
 import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
@@ -171,14 +170,6 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
-
-function normalizeComputerUsePermissions(value: unknown) {
-  if (typeof value !== "object" || value === null) return null;
-  return {
-    accessibility: "accessibility" in value && value.accessibility === true,
-    screenRecording: "screenRecording" in value && value.screenRecording === true,
-  };
-}
 
 function reconcileSelectedWorkspaceId(
   currentId: string,
@@ -474,7 +465,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
-  const [computerUsePermissions, setComputerUsePermissions] = useState<{ accessibility: boolean; screenRecording: boolean } | null>(null);
   const [extensionStateVersion, setExtensionStateVersion] = useState(0);
   const [imageGenerationBusy, setImageGenerationBusy] = useState(false);
   const [imageGenerationStatus, setImageGenerationStatus] = useState<string | null>(null);
@@ -992,21 +982,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return () => {
       window.removeEventListener(LEGALWORK_EXTENSION_STATE_CHANGED, refresh);
       window.removeEventListener("storage", refresh);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isDesktopRuntime() || !isMacPlatform()) return;
-    let cancelled = false;
-    void desktopBridge.checkComputerUsePermissions()
-      .then((result) => {
-        if (cancelled) return;
-        const permissions = normalizeComputerUsePermissions(result);
-        if (permissions) setComputerUsePermissions(permissions);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -1734,7 +1709,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       loadedPlugins,
       connectedProviders,
       configuredEnvKeys,
-      permissions: computerUsePermissions ?? undefined,
       // Toggle state reader for extensions with defaultEnabled / explicit toggle.
       isToggleEnabled: (ref: string) => {
         const catalog = connectionsStore.quickConnect;
@@ -1742,11 +1716,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return match ? isLegalWorkExtensionEnabled(match) : false;
       },
     };
-  }, [computerUsePermissions, connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
+  }, [connectionsSnapshot, extensionStateVersion, providerConnectedIds, userEnvKeys]);
   // Built-in extensions the firm's policy switched off.
   const firmBuiltIn = useOrgPolicy("extensions.builtIn")?.value;
   const builtInExtensionDisabled = useCallback(
-    (entry: { id?: string }) => Object.entries(firmBuiltIn ?? {}).some(([id, enabled]) => enabled === false && id === entry.id),
+    (entry: { id?: string }) => entry.id === "open-computer-use"
+      ? (firmBuiltIn?.["open-computer-use"] ?? firmBuiltIn?.["computer-use"]) === false
+      : Object.entries(firmBuiltIn ?? {}).some(([id, enabled]) => enabled === false && id === entry.id),
     [firmBuiltIn],
   );
   const restartExtensionLocalServer = useCallback(async () => {
@@ -1770,7 +1746,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     enablementContext,
     mcpServers: connectionsSnapshot.mcpServers,
     mcpConnectingName: connectionsSnapshot.mcpConnectingName,
-    onComputerUsePermissionsChange: setComputerUsePermissions,
     googleWorkspaceConnected,
     setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,

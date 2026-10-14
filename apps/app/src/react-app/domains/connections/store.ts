@@ -325,18 +325,13 @@ export function createConnectionsStore(options: {
     return { next, nextStatuses, engineSync };
   };
 
-  const resolveDesktopCommand = async (commandName: "getComputerUseMcpCommand" | "getLegalworkUiMcpCommand", fallbackOnError = true) => {
+  const resolveDesktopCommand = async (commandName: "getLegalworkUiMcpCommand") => {
     try {
       const command = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.(commandName);
       if (Array.isArray(command) && command.every((part) => typeof part === "string") && command.length > 0) {
         return command;
       }
-    } catch (error) {
-      if (!fallbackOnError) {
-        throw error instanceof Error
-          ? error
-          : new Error(t("mcp.computer_use_helper_unavailable"));
-      }
+    } catch {
       // Fall through to the published package command in the manifest/catalog.
     }
     return null;
@@ -344,10 +339,6 @@ export function createConnectionsStore(options: {
 
   const resolveLocalMcpCommand = async (entry: McpDirectoryInfo) => {
     const mcpResource = extensionResource(entry.extensionManifest, "mcp");
-    if (mcpResource?.localCommandRef === "legalwork.computerUseMcp") {
-      const command = await resolveDesktopCommand("getComputerUseMcpCommand", false);
-      return command ?? entry.command;
-    }
     if (mcpResource?.localCommandRef === "legalwork.uiMcp" || entry.serverName === "legalwork-ui") {
       const command = await resolveDesktopCommand("getLegalworkUiMcpCommand");
       return command ?? entry.command;

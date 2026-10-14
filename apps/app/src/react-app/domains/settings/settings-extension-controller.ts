@@ -20,7 +20,6 @@ type SettingsExtensionControllerInput = {
   enablementContext: EnablementContext;
   mcpServers: McpServerEntry[];
   mcpConnectingName: string | null;
-  onComputerUsePermissionsChange: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
   googleWorkspaceConnected: boolean;
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
@@ -61,13 +60,6 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     },
     onExtensionConnectionChange: (extensionId, connected) => {
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
-    },
-    computerUse: {
-      connected: input.mcpServers.some((server) => server.name === "computer-use"),
-      connecting: input.mcpConnectingName === entry.name,
-      onConnect: async () => { await input.connectMcp(entry); },
-      onRefresh: input.refreshMcpServers,
-      onPermissionsChange: input.onComputerUsePermissionsChange,
     },
     imageExtension: {
       ...input.imageExtension,

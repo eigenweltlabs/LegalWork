@@ -683,8 +683,6 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
-  packages/handsfree: {}
-
   packages/legalwork-ui-mcp:
     dependencies:
       '@modelcontextprotocol/sdk':

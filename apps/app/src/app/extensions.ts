@@ -44,7 +44,7 @@ export type LegalWorkExtensionResource = {
   packageName?: string;
   providerId?: string;
   mcpServerName?: string;
-  localCommandRef?: "legalwork.computerUseMcp" | "legalwork.openComputerUseMcp" | "legalwork.uiMcp";
+  localCommandRef?: "legalwork.openComputerUseMcp" | "legalwork.uiMcp";
   required?: boolean;
 };
 
@@ -182,53 +182,6 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
   },
   {
     schemaVersion: 1,
-    id: "computer-use",
-    name: "Computer Use",
-    get description() { return t("ext.cu_desc"); },
-    preview: true,
-    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
-    icon: { src: "/legalwork-mark.svg" },
-    composer: { prompt: t("ext.composer_computer_use") },
-    setup: {
-      get instructions() { return t("ext.cu_instructions"); },
-      get primaryCta() { return t("ext.cu_primary_cta"); },
-      get secondaryCta() { return t("ext.cu_secondary_cta"); },
-      testActionRef: "legalwork.computerUse.healthCheck",
-    },
-    resources: [
-      {
-        type: "mcp",
-        id: "computer-use-mcp",
-        get label() { return t("ext.cu_mcp_label"); },
-        mcpServerName: "computer-use",
-        command: ["npx", "-y", "@legalwork/handsfree", "mcp"],
-        localCommandRef: "legalwork.computerUseMcp",
-        required: true,
-      },
-      {
-        type: "native-binary",
-        id: "computer-use-native",
-        get label() { return t("ext.cu_runtime_label"); },
-        packageName: "@legalwork/handsfree",
-        required: true,
-      },
-    ],
-    contributions: [
-      { type: "setup-instructions", ref: "legalwork.computerUse.setup", location: "settings-detail" },
-      { type: "native-capability", ref: "legalwork.computerUse.axPermissions", get label() { return t("ext.cu_permissions_label"); } },
-      { type: "test-action", ref: "legalwork.computerUse.healthCheck", get label() { return t("ext.cu_verify_label"); } },
-      { type: "composer-prompt", prompt: t("ext.composer_computer_use"), location: "composer" },
-    ],
-    enablement: [
-      { type: "mcp-connected", ref: "computer-use", get label() { return t("ext.cu_mcp_connected"); } },
-      { type: "permission-granted", ref: "accessibility", get label() { return t("ext.cu_ax_permission"); } },
-      { type: "permission-granted", ref: "screenRecording", get label() { return t("ext.cu_screen_permission"); } },
-    ],
-    lifecycle: { reload: ["mcp"], detection: ["mcp:computer-use"] },
-    platform: ["darwin"],
-  },
-  {
-    schemaVersion: 1,
     id: "open-computer-use",
     name: "Open Computer Use",
     get description() { return t("open_computer_use.description"); },
@@ -238,6 +191,7 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
       reference: "https://github.com/iFurySt/open-codex-computer-use",
     },
     icon: { src: "/ext-open-computer-use.svg" },
+    composer: { prompt: t("ext.composer_computer_use") },
     setup: { get instructions() { return t("open_computer_use.instructions"); } },
     resources: [
       {
@@ -252,6 +206,7 @@ export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[
     ],
     contributions: [
       { type: "settings-panel", ref: "legalwork.openComputerUse.settings", location: "settings-detail" },
+      { type: "composer-prompt", prompt: t("ext.composer_computer_use"), location: "composer" },
     ],
     enablement: [
       { type: "mcp-connected", ref: "open-computer-use", get label() { return t("ext.cu_mcp_connected"); } },

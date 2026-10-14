@@ -14,13 +14,6 @@ export type ExtensionConfigContext = {
   extensionConnections?: Record<string, boolean>;
   onExtensionConnectionChange?: (extensionId: string, connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
-  computerUse?: {
-    connected: boolean;
-    connecting: boolean;
-    onConnect: () => void | Promise<void>;
-    onRefresh: () => void | Promise<void>;
-    onPermissionsChange?: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
-  };
   openComputerUse?: {
     localDesktop: boolean;
     connected: boolean;

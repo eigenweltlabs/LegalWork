@@ -5265,8 +5265,6 @@ const de = {
   "mcp.api_token_placeholder": "Fügen Sie Ihr Zugangstoken ein",
   "mcp.config_read_failed":
     "Der LegalWork-Server kann die MCP-Konfiguration für diesen Workspace nicht lesen.",
-  "mcp.computer_use_helper_unavailable":
-    "Die Computer-Use-Hilfsanwendung ist nicht verfügbar. Starten Sie LegalWork neu oder installieren Sie die App erneut.",
   "mcp.load_servers_failed": "Die MCP-Server konnten nicht geladen werden",
   "mcp.missing_url": "Die MCP-URL fehlt. Läuft die LegalWork-Desktop-App?",
   "mcp.missing_command": "Der MCP-Befehl fehlt.",
@@ -5276,16 +5274,6 @@ const de = {
   "template_workflow.session_title": "Workflows aus Kanzleivorlagen erzeugen",
   "template_workflow.task_failed": "Die Erzeugungsaufgabe konnte nicht gestartet werden.",
   "template_workflow.start_failed": "Die Workflow-Erzeugung konnte nicht gestartet werden.",
-  "computer_use.unreadable_response": "Unlesbare Antwort.",
-  "computer_use.mac_only":
-    "Computer Use gibt es nur für Mac und erfordert die LegalWork-Desktop-App unter macOS.",
-  "computer_use.setup_title": "Computer-Use-Einrichtung (nur Mac)",
-  "computer_use.step1_title": "1. Computer-Use-MCP verbinden",
-  "computer_use.step1_desc":
-    "Fügt diesem Workspace den lokalen Computer-Use-Server hinzu, damit der Composer die Steuerungswerkzeuge nutzen kann.",
-  "computer_use.step2_title": "2. macOS-Berechtigungen erteilen",
-  "computer_use.step2_desc":
-    "Öffnet die LegalWork-Computer-Use-Hilfsanwendung. Erteilen Sie dort beide Berechtigungen und klicken Sie anschließend unten auf „Prüfen“.",
   "updater.bridge_unavailable": "Die Electron-Updater-Brücke ist nicht verfügbar.",
   "updater.downloads_electron_only":
     "Electron-Updater-Downloads sind nur in der Electron-Desktop-App verfügbar.",
@@ -5440,8 +5428,6 @@ const de = {
     "Verwenden Sie einen Google-Cloud-OAuth-Desktop-Client. Die Client-ID ist in LegalWork bereits hinterlegt, fügen Sie hier das passende Client-Secret ein.",
   "google_workspace.secret_saved_locally":
     "Das Secret wird lokal in den LegalWork-Umgebungseinstellungen gespeichert und nach dem Neustart des lokalen Servers wirksam.",
-  "computer_use.intro":
-    "Computer Use funktioniert nur auf dem Mac. Verbinden Sie den lokalen MCP-Server und erteilen Sie die macOS-Berechtigungen, die er zur Steuerung von Apps braucht.",
   "skills.new_skill_desc":
     "Beschreiben Sie, wann der Agent diesen Skill einsetzen soll und was zu tun ist. Wird als SKILL.md in Ihrem Workspace gespeichert.",
   "skills.add_workflow": "Workflow hinzufügen",
@@ -5759,16 +5745,6 @@ const de = {
   "open_computer_use.desktop_hint": "Verwenden Sie die Integration in einem lokalen Projekt, während Sie an Ihrem Desktop angemeldet sind. Öffnen Sie unter Windows zuerst die Apps, die der Agent steuern soll.",
   "open_computer_use.local_only": "Open Computer Use benötigt LegalWork Desktop und ein lokales Projekt auf diesem Computer.",
   "open_computer_use.connection_failed": "OpenCode konnte keine Verbindung zu Open Computer Use herstellen. Prüfen Sie die Einrichtung und versuchen Sie es erneut.",
-  "ext.cu_desc":
-    "Nur für Mac: Mac-Apps über semantische Bedienhilfen-Referenzen, Screenshots, hintergrundsichere Klicks, Tastatureingaben und den Strict-Modus steuern.",
-  "ext.cu_instructions":
-    "Computer Use gibt es nur für Mac. Es läuft als lokaler MCP-Server auf Basis der macOS-Bedienhilfen. Erteilen Sie die Berechtigungen für Bedienhilfen und Bildschirmaufnahme, wenn macOS danach fragt, und verbinden Sie dann den MCP-Server in diesem Workspace.",
-  "ext.cu_primary_cta": "Computer-Use-MCP verbinden",
-  "ext.cu_secondary_cta": "macOS-Berechtigungen prüfen",
-  "ext.cu_mcp_label": "Computer-Use-MCP",
-  "ext.cu_runtime_label": "macOS-Bedienhilfen-Laufzeit",
-  "ext.cu_permissions_label": "Bedienhilfen und Bildschirmaufnahme",
-  "ext.cu_verify_label": "Computer-Use-MCP prüfen",
   "ext.cu_mcp_connected": "MCP-Server verbunden",
   "ext.cu_ax_permission": "Berechtigung für Bedienhilfen",
   "ext.cu_screen_permission": "Berechtigung für Bildschirmaufnahme",
@@ -6214,13 +6190,6 @@ const de = {
     "Setzt den Onboarding-Status zurück. Starten Sie die App neu, um die Änderungen zu sehen.",
   "command_palette.add_to_group": "Den ausgewählten Chat einer bestehenden Gruppe hinzufügen",
   "command_palette.no_groups": "Keine Gruppen",
-  "computer_use.accessibility": "Bedienungshilfen",
-  "computer_use.screen_recording": "Bildschirmaufnahme",
-  "computer_use.reopen_helper": "Hilfsprogramm erneut öffnen",
-  "computer_use.grant_permissions": "Berechtigungen erteilen",
-  "computer_use.verified": "Berechtigungen bestätigt. Testen Sie eine Eingabe, die Computer Use verwendet.",
-  "computer_use.after_granting":
-    "Klicken Sie auf Prüfen, nachdem Sie die Berechtigungen im Hilfsprogramm erteilt haben.",
   "hub_share.review_item":
     "Prüfen Sie dieses Element und entfernen Sie Mandantendaten oder Zugangsdaten vor der Veröffentlichung.",
   "hub_share.review_items":

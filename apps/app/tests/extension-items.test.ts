@@ -39,7 +39,7 @@ const availableBuiltIn: McpDirectoryInfo = {
 };
 
 describe("extension item projection", () => {
-  test("offers Open Computer Use on Mac and Windows alongside the existing Mac helper", () => {
+  test("offers only Open Computer Use on Mac and Windows", () => {
     const platforms: ExtensionItemBuildInput["platform"][] = ["darwin", "windows", "linux", "web"];
     for (const platform of platforms) {
       const result = buildExtensionItems({
@@ -49,7 +49,7 @@ describe("extension item projection", () => {
       });
       const openComputerUse = result.builtInItems.find((item) => item.builtInEntry?.id === "open-computer-use");
       expect(Boolean(openComputerUse)).toBe(platform === "darwin" || platform === "windows");
-      expect(result.builtInItems.some((item) => item.builtInEntry?.id === "computer-use")).toBe(platform === "darwin");
+      expect(result.builtInItems.some((item) => item.builtInEntry?.id === "computer-use")).toBe(false);
       if (openComputerUse) expect(openComputerUse.active).toBe(false);
     }
   });

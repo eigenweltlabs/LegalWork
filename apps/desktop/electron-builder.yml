@@ -113,7 +113,6 @@ mac:
     - from: resources/helpers
       to: helpers
       filter:
-        - "LegalWork Computer Use.app/**"
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
   target:

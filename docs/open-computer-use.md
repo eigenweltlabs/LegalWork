@@ -4,8 +4,10 @@ LegalWork's Integrations catalog includes **Open Computer Use** for Mac and
 Windows. It connects the upstream [Open Computer Use runtime](https://github.com/iFurySt/open-codex-computer-use)
 to OpenCode as a local stdio MCP named `open-computer-use`.
 
-The existing `computer-use` integration and bundled LegalWork helper are separate
-and retain their current installation, permissions and configuration.
+This replaces the former Mac-only `computer-use` integration and bundled
+LegalWork helper. On startup, LegalWork removes saved connections that launch
+that retired helper. Other custom MCPs are preserved. Connect Open Computer Use
+and grant its own Mac permissions to use the replacement.
 
 ## Setup
 
@@ -35,8 +37,8 @@ and hot-adds the same configuration to OpenCode.
 
 No global Node, pnpm, npm or Python installation is required. Installation and
 desktop control are unavailable for remote projects. Disconnecting removes the
-new MCP configuration through the existing connector flow; it does not change the
-old computer-use integration or remove the downloaded runtime.
+MCP configuration through the existing connector flow; it leaves the downloaded
+runtime available for reconnection.
 
 To update the runtime, update the pinned version, asset names and digests in
 `apps/desktop/electron/open-computer-use.mjs`, update the manifest's package
@@ -65,3 +67,7 @@ real Windows desktop automation:
 
 - [Mac setup preview](verification/open-computer-use/mac-setup.jpg)
 - [Windows connected preview](verification/open-computer-use/windows-connected.jpg)
+
+The live Mac Electron catalog after replacement contains only Open Computer Use:
+
+- [Live Mac catalog](verification/open-computer-use/mac-catalog.png)
