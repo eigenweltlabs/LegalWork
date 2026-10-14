@@ -1,4 +1,5 @@
 import { writeMarkdownChunk } from "./markdown-stream";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { LegalworkControlAction, LegalworkControlSurface } from "../../../shell/control/control-provider";
 import type { ArtifactPanelProps } from "./artifact-panel";
@@ -120,14 +121,14 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const copyTo = stringArg(args, "copyTo");
       if (!validPath(path)) throw new Error("Use a relative file path within the workspace or connection.");
       if (copyTo) {
-        if (!validPath(copyTo) || copyTo.split(".").at(-1)?.toLowerCase() !== path.split(".").at(-1)?.toLowerCase()) throw new Error("Use a new workspace-relative filename with the same file extension as the template.");
+        if (!validPath(copyTo) || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase()) throw new Error("Use a new workspace-relative filename with the same file extension as the template.");
         if (connectionId) {
           const copy = await project.client.checkoutStorageFile(project.workspaceId, connectionId, path);
           await project.client.keepStorageLocalCopy(project.workspaceId, connectionId, copy.localPath, copyTo);
         } else await project.client.copyWorkspaceFile(project.workspaceId, path, copyTo);
         path = copyTo; connectionId = "";
       }
-      const name = path.split("/").at(-1)!;
+      const name = connectionId ? path.split("/").at(-1)! : attachmentFilename(path);
       const preview = classifyOpenTarget(name, "file");
       if (preview === "external" || preview === "browser") throw new Error("This file type has no in-app document editor. Use the tools for its saved file.");
       const file = connectionId ? null : await project.client.statWorkspaceFile(project.workspaceId, path);
