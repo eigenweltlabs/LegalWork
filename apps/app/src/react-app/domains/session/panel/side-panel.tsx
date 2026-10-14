@@ -1,4 +1,4 @@
-import { LayoutDashboard } from "lucide-react";
+import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import type { PanelTabDestination } from "./panel-tab-request";
 import { ViewHostProvider } from "../../views/view-host";
 import { documentControlTarget } from "./document-control-target";
@@ -425,7 +425,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
-          ) : (tab.type === "view" || tab.type === "view-draft") ? <LayoutDashboard /> : tab.type === "wiki" ? (
+          ) : (tab.type === "view" || tab.type === "view-draft") ? <DashboardIcon /> : tab.type === "wiki" ? (
             tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
@@ -1039,7 +1039,7 @@ function SidePanelContent({
               const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
               if (existing) store.selectTab(sessionId, existing.id);
               else store.openTab(sessionId, tab, pane.id);
-            }}>{view === "dashboards" ? <LayoutDashboard /> : view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
+            }}>{view === "dashboards" ? <DashboardIcon /> : view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
             <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1160,5 +1160,5 @@ function PanelEmpty({ onNewChat, onOpenFile, onOpenBrowser }: {
 }
 
 function ProjectViewIcon({ view }: { view: ProjectView }) {
-  return view === "dashboards" ? <LayoutDashboard /> : view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
+  return view === "dashboards" ? <DashboardIcon /> : view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
 }

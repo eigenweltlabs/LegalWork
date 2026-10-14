@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { lineChanges } from "@legalwork/types/line-diff";
-import { wikiFolderEmpty, wikiTree } from "../src/react-app/domains/wiki/wiki-tree";
 
 test("line counts cover additions, removals, replacement, duplicates and final newline", () => {
   expect(lineChanges("", "a\nb\n")).toEqual({ added: 2, removed: 0 });
@@ -14,9 +13,4 @@ test("line counts cover additions, removals, replacement, duplicates and final n
 test("large rewrites are bounded while small changes in long pages are counted", () => {
   expect(lineChanges("a\n".repeat(3000), "b\n".repeat(3000))).toBeNull();
   expect(lineChanges("a\n".repeat(3000), "a\n".repeat(3000) + "b\n")).toEqual({ added: 1, removed: 0 });
-});
-test("folders with only empty descendants are empty, including after adding a page", () => {
-  const tree = wikiTree(["Populated/Nested/Page.md"], ["Empty/Nested", "Populated/Nested"]);
-  expect(wikiFolderEmpty(tree.find(node => node.path === "Empty")!)).toBe(true);
-  expect(wikiFolderEmpty(tree.find(node => node.path === "Populated")!)).toBe(false);
 });

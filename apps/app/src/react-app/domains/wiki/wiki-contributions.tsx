@@ -15,7 +15,7 @@ export function WikiContributions({ client, wikiId, workspaceId }: { client: Leg
   const query = useQuery({ queryKey: ["wiki-contributions", client.baseUrl, wikiId], queryFn: () => client.wikiContributions(wikiId), refetchInterval: 10_000 });
   const title = t("wiki.pending_contributions");
   return <>
-    <button className="wiki-nav-row" onClick={() => setOpen(true)}><Inbox size={15} /><span>{title} · {query.error ? "!" : query.data?.items.length ?? "…"}</span></button>
+    <button className="wiki-nav-row" title={title} onClick={() => setOpen(true)}><Inbox size={15} /><span>{title}</span><span className="wiki-contributions-count">{query.error ? "!" : query.data?.items.length ?? "…"}</span></button>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-xl">
       <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{t("wiki.contributions_hint")}</DialogDescription></DialogHeader>
       <div className="max-h-[60vh] space-y-3 overflow-y-auto">

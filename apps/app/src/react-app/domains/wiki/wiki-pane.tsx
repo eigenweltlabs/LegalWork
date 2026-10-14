@@ -366,8 +366,10 @@ function WikiContentPane(props: WikiPaneProps) {
         {navigationOnly || (!tabOnly && navigationOpen) ? <aside className="wiki-sidebar" aria-label={t("wiki.navigation")}>
           <div className="wiki-sidebar-header">
             {props.onManageWikis ? <button className="wiki-nav-row" onClick={props.onManageWikis}><BookOpen size={15} /><span>{t("wiki.manage_all")}</span></button> : null}
-            <button className="wiki-nav-row" onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
-            {wiki && props.client ? <WikiContributions client={props.client} wikiId={wiki.id} workspaceId={props.workspaceId} /> : null}
+            <div className="wiki-sidebar-actions">
+              {wiki && props.client ? <WikiContributions client={props.client} wikiId={wiki.id} workspaceId={props.workspaceId} /> : null}
+              <button className="wiki-nav-row" title={t("wiki.history")} onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
+            </div>
             <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>
           <WikiExplorer key={wikiId} stateKey={`${props.serverUrl}:${wikiId}`} files={files} pageTitles={pageTitles} viewFiles={viewFiles} folders={folders} searchFiles={searchFiles} active={surface === "page" ? path : ""} writable={writable} busy={busy} revealable={isDesktopRuntime() && isLoopbackLegalworkServerUrl(props.serverUrl)} search={search} searching={Boolean(debouncedSearch.trim())} onSearch={setSearch} onOpen={(path) => { if (/\.md$/i.test(path)) openPage(path); else void run(() => openAsset(path)); }} onNewPage={(folder) => setNewPage(folder ? `${folder}/` : "")} onNewFolder={(folder) => setFileDialog({ action: "create-folder", path: folder ? `${folder}/` : "" })} onGraph={openGraph} onAction={entryAction} onImport={importFiles} onDragFile={(data, path) => { if (!wiki) return; writeWikiFileDrag(data, { serverUrl: props.serverUrl, wikiId: wiki.id, workspaceId: wiki.workspaceId, path, name: path.split("/").at(-1) ?? path }); data.setData(FILE_SIDEBAR_DRAG_TYPE, ""); }}>

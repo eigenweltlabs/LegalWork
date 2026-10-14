@@ -137,3 +137,33 @@ test("a saved destination is remembered when the preview transcript replays afte
   expect(useViewGenerationStore.getState().entries[id].saved?.id).toBe(saved.id);
   expect(opened).toHaveLength(1);
 });
+
+test("a completed unsaved preview is rebuilt from chat history after all window state is lost", async () => {
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  const preview = { status: "preview", owner, input: { version, title, mode, catalog, program, queries, datasets: { overview: { rows: [{ name: "Retained result" }], total: 1, revision: "snapshot", asOf: 1, truncated: false } } } };
+  const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "completed", input: {}, output: JSON.stringify(preview), title, metadata: {}, time: { start: 1, end: 2 } } });
+  if (!part) throw new Error("Expected a completed transcript tool part");
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, part, open);
+  useViewGenerationStore.setState({ entries: {}, savedResults: {} });
+  usePanelTabStore.setState({ sessions: {} });
+  opened.length = 0;
+
+  await reconcileViewGenerations(context, [part]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "preview", program, preview });
+  expect(useViewGenerationStore.getState().savedResults).toEqual({});
+  expect(opened).toHaveLength(0);
+  const restored = useViewGenerationStore.getState().entries[id];
+  open({ id, type: "view-draft", generationId: id, serverUrl: context.serverUrl, label: restored.title });
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs[0].type).toBe("view-draft");
+});
+
+test("large preview data is recovered from persisted tool metadata even if tool text is shortened", async () => {
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  const preview = { status: "preview", owner, input: { version, title, mode, catalog, program, queries, datasets: { large: { rows: [{ value: "x".repeat(60_000) }], total: 1, revision: "snapshot", asOf: 1, truncated: false } } } };
+  const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "completed", input: {}, output: "Preview ready", title, metadata: { legalworkViewPreview: preview }, time: { start: 1, end: 2 } } });
+  if (!part) throw new Error("Expected a completed transcript tool part");
+  await reconcileViewGenerations(context, [part]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "preview", preview });
+  expect(opened).toHaveLength(0);
+});

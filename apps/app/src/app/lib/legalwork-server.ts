@@ -945,6 +945,8 @@ export type LegalworkWorkspaceFileStat = {
 };
 
 export type LegalworkWorkspaceDirectoryEntry = {
+  /** Only present when the server could inspect the directory. */
+  empty?: boolean;
   name: string;
   path: string;
   kind: "file" | "dir";

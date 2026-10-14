@@ -1,7 +1,6 @@
 import { ViewSaveDialog } from "./view-save-dialog";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
-import { ViewLocation } from "./view-location";
 import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { OpenUIView } from "@legalwork/openui";
@@ -96,7 +95,6 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
     {view.data && <div className="lw-saved-view-toolbar">{!inline && <span>{view.data.mode === "report" ? "Report snapshot" : Object.keys(view.data.queries).length ? "Live dashboard" : "Dashboard"}</span>}<Button size="icon-xs" variant="ghost" aria-label="Refresh view" onClick={() => { void view.refetch(); setRefreshKey(value => value + 1); }}><RefreshCw className={view.isFetching ? "animate-spin" : ""} /></Button></div>}
     {view.data && !readOnly && <div className="flex justify-end px-4"><Button size="sm" variant="ghost" onClick={() => setSaving(true)}>{t("views.save_copy")}</Button></div>}
     {saving && view.data && <SavedViewCopy client={client} view={view.data} onClose={() => setSaving(false)} />}
-    {view.data && <ViewLocation client={client} reference={reference} />}
     {view.error ? <div role="alert" className="lw-saved-view-error">{view.error.message}<Button size="sm" variant="ghost" onClick={() => void view.refetch()}>Retry</Button></div> : !view.data ? <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />Loading view…</div> : <ResolvedView client={client} view={view.data} refreshKey={refreshKey} openSource={openSource} readOnly={readOnly} />}
   </div>;
 }

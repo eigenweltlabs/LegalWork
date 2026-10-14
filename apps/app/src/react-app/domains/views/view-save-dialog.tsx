@@ -1,6 +1,7 @@
+import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Check, LayoutDashboard, Loader2 } from "lucide-react";
+import { BookOpen, Check, Loader2 } from "lucide-react";
 import type { ViewOwner, ViewPreview, ViewRecord } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { t } from "@/i18n";
 import { sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
 
-export function ViewSaveDialog({ client, preview, onClose, onSaved }: { client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
+export function ViewSaveDialog({ client, preview, fromChat = false, onClose, onSaved }: { fromChat?: boolean; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
   const cache = useQueryClient();
   const [selected, setSelected] = useState<string[]>([viewOwnerKey(preview.owner)]);
   const [saved, setSaved] = useState<ViewRecord[]>([]);
@@ -42,13 +43,13 @@ export function ViewSaveDialog({ client, preview, onClose, onSaved }: { client: 
     finally { setBusy(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent>
-    <DialogHeader><DialogTitle>{t("views.save_title")}</DialogTitle><DialogDescription>{t("views.save_hint")}</DialogDescription></DialogHeader>
+    <DialogHeader><DialogTitle>{t("views.save_title")}</DialogTitle><DialogDescription>{t(fromChat ? "views.preview_save_hint" : "views.save_hint")}</DialogDescription></DialogHeader>
     <div className="max-h-[45vh] space-y-2 overflow-y-auto">
       {destinations.isPending && <Loader2 className="size-5 animate-spin" />}
       {destinations.error && <p role="alert" className="text-sm text-destructive">{destinations.error.message}<Button size="sm" variant="ghost" onClick={() => void destinations.refetch()}>{t("wiki.retry")}</Button></p>}
       {destinations.data?.map(({ owner, name }) => { const key = viewOwnerKey(owner), done = saved.some(view => sameViewOwner(view.owner, owner)); return <label key={key} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-accent">
         <input type="checkbox" checked={done || selected.includes(key)} disabled={busy || done} onChange={event => setSelected(values => event.target.checked ? [...values, key] : values.filter(value => value !== key))} />
-        {owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0" /> : <LayoutDashboard className="size-4 shrink-0" />}
+        {owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0" /> : <DashboardIcon className="size-4 shrink-0" />}
         <span className="min-w-0 flex-1"><span className="block truncate text-sm">{name}</span><span className="text-xs text-muted-foreground">{t(owner.kind === "wiki" ? "wiki.title" : "views.project_dashboards")}{preview.target && sameViewOwner(owner, preview.owner) ? ` · ${t("views.update_saved")}` : ""}</span></span>{done && <Check className="size-4 text-success" />}
       </label>; })}
     </div>

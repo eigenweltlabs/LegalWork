@@ -43,7 +43,7 @@ export function wikiCopyPath(path: string, existing: string[]): string {
   return candidate;
 }
 
-/** A folder with only empty descendants has no content yet. */
+/** A folder is empty only when it contains neither files nor subfolders. */
 export function wikiFolderEmpty(node: WikiTreeNode): boolean {
-  return node.kind === "folder" && node.children.every(wikiFolderEmpty);
+  return node.kind === "folder" && node.children.length === 0;
 }

@@ -1,7 +1,8 @@
+import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { t } from "@/i18n";
 import { useMemo } from "react";
 import type { DynamicToolUIPart } from "ai";
-import { LayoutDashboard, ArrowUpRight, Loader2 } from "lucide-react";
+import { ArrowUpRight, Loader2 } from "lucide-react";
 import { useMessageList } from "@/components/chat/message-list-provider";
 import { Button } from "@/components/ui/button";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
@@ -32,5 +33,5 @@ export function ViewToolCard({ part }: { part: DynamicToolUIPart }) {
       if (entry) request(viewDraftTab(generationId, entry), { besideChat: true });
     }
   };
-  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex items-center gap-3 p-4"><LayoutDashboard className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? `Not saved. ${failure}` : pending ? "Building in its own tab…" : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? "Live dashboard" : "Dashboard" : view ? "Report snapshot" : "The agent did not return a saved view."}</p></div>{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={open}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}Open<ArrowUpRight /></Button> : null}</div></div>;
+  return <div className="my-3 overflow-hidden rounded-xl border bg-card"><div className="flex items-center gap-3 p-4"><DashboardIcon className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{view?.title ?? generation?.title ?? input.title}</p><p className="text-xs text-muted-foreground">{failure ? `Not saved. ${failure}` : pending ? "Building in its own tab…" : preview && !view ? t("views.preview_unsaved") : view?.mode === "dashboard" ? "queries" in view && Object.keys(view.queries).length ? "Live dashboard" : "Dashboard" : view ? "Report snapshot" : "The agent did not return a saved view."}</p></div>{legalworkClient && (view || preview || pending) ? <Button size="sm" variant="outline" onClick={open}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}Open<ArrowUpRight /></Button> : null}</div></div>;
 }
