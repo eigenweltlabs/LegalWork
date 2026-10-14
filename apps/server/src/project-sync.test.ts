@@ -58,7 +58,8 @@ const ALL = { documents: true, notes: true, tasks: true, recordings: false, meta
  * project's documents with their sha256 as version.
  */
 function fakeFirm() {
-  let clock = Date.parse("2026-09-25T08:00:00.000Z");
+  // Synthetic server revisions must precede real local edit timestamps on every runner.
+  let clock = Date.now() - 60 * 60 * 1000;
   const tick = () => new Date((clock += 1000)).toISOString();
   type Stored = {
     record: Omit<RemoteProject, "role">;
