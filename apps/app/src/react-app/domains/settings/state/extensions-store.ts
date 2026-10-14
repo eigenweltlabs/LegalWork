@@ -1,4 +1,4 @@
-import type { PluginCreateRequest, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateRequest, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
@@ -200,7 +200,7 @@ export function createExtensionsStore(options: {
   setError: (value: string | null) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
   /** Publish saved connectors before an import or bundle creation is shown as complete. */
-  refreshConnectors?: () => Promise<void>;
+  refreshConnectors?: (names: readonly string[]) => Promise<void>;
 }) {
   const listeners = new Set<() => void>();
 
@@ -211,6 +211,7 @@ export function createExtensionsStore(options: {
   let snapshot: ExtensionsStoreSnapshot;
 
   let refreshSkillsInFlight = false;
+  let refreshSkillsPromise: Promise<void> | null = null;
   let refreshPluginsInFlight = false;
   let refreshHubSkillsInFlight = false;
   let refreshSkillsAborted = false;
@@ -581,7 +582,7 @@ export function createExtensionsStore(options: {
   async function createWorkflowPlugin(input: PluginCreateRequest) {
     const target = await pluginImportTarget();
     const result = await target.client.createWorkflowPlugin(target.id, input);
-    if (input.connectors.length) await options.refreshConnectors?.();
+    await options.refreshConnectors?.(result.item.files.filter(file => file.objectType === "mcp").map(file => file.path.slice(OPENCODE_MCP_IMPORT_PATH_PREFIX.length)));
     await refreshSkills({ force: true });
     return result.item;
   }
@@ -596,9 +597,15 @@ export function createExtensionsStore(options: {
   async function installPluginImport(request: PluginImportRequest) {
     const target = await pluginImportTarget();
     const result = await target.client.installPluginImport(target.id, request);
-    if (result.preview.components.some(component => component.type === "mcp")) await options.refreshConnectors?.();
-    await refreshSkills({ force: true });
     return result.preview;
+  }
+  async function refreshPluginImport(preview: PluginImportPreview) {
+    await options.refreshConnectors?.(preview.components.filter(component => component.type === "mcp").map(component => component.installedName));
+    const skills = preview.components.filter(component => component.type === "skill");
+    if (skills.length) {
+      await refreshSkills({ force: true });
+      if (!skills.every(component => state.skills.some(skill => skill.name === component.installedName))) throw new Error(t("extensions.import_library_failed"));
+    }
   }
 
   async function previewClaudePlugin(url: string): Promise<LegalworkClaudePluginPreview> {
@@ -619,7 +626,7 @@ export function createExtensionsStore(options: {
         throw new Error(t("extensions.server_unavailable_github_plugins"));
       }
       const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url });
-      if (result.item.files.some(file => file.objectType === "mcp")) await options.refreshConnectors?.();
+      await options.refreshConnectors?.(result.item.files.filter(file => file.objectType === "mcp").map(file => file.path.slice(OPENCODE_MCP_IMPORT_PATH_PREFIX.length)));
       await refreshSkills({ force: true });
       return {
         ok: true,
@@ -825,6 +832,20 @@ export function createExtensionsStore(options: {
   }
 
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
+    if (disposed) return;
+    // A forced post-import read must run after any pre-import read. Returning
+    // early here would close the import while its skills still aren't listed.
+    while (refreshSkillsPromise) {
+      await refreshSkillsPromise;
+      if (disposed || !optionsOverride?.force) return;
+    }
+    const promise = refreshSkillsOnce(optionsOverride);
+    refreshSkillsPromise = promise;
+    try { await promise; }
+    finally { if (refreshSkillsPromise === promise) refreshSkillsPromise = null; }
+  }
+
+  async function refreshSkillsOnce(optionsOverride?: { force?: boolean }) {
     const root = options.selectedWorkspaceRoot().trim();
     const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
@@ -2258,6 +2279,7 @@ export function createExtensionsStore(options: {
     createWorkflowPlugin,
     previewPluginImports,
     installPluginImport,
+    refreshPluginImport,
     previewClaudePlugin,
     installClaudePlugin,
     importedPackages,

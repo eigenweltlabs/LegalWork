@@ -18,7 +18,15 @@ Importing one standalone connector switches to Connectors and opens its details 
 
 ### Imported connector availability
 
-Connector configuration now appears as soon as the server's list returns, independently of a slower engine status check. Each refresh is tied to the current selected workspace and a request generation; stale responses and disposed stores cannot overwrite a newer list. The import, GitHub plugin install and plugin-creation paths await a configuration-only connector refresh before reporting completion. Engine status continues to refresh through the existing flows.
+Connector configuration appears as soon as the server's list returns, independently of a slower engine status check. Each refresh is tied to the current selected workspace and a request generation; stale responses and disposed stores cannot overwrite a newer list. The connector store uses the same active server connection as the importer, including before its own startup health check finishes. The import, GitHub plugin install and plugin-creation paths check that their connector names reached the configuration list before reporting completion. Engine status continues to refresh through the existing flows.
+
+The import modal stays in a loading state through installation, connector/skill publication and package-list loading. It closes and reports success only when those steps finish. A forced skills refresh waits for an older scan and then reads again, so pre-import results cannot silently satisfy completion. If updating the library fails after installation, Try again resumes the library update without reinstalling the package. Post-import navigation no longer starts a second unawaited refresh.
+
+October 14 follow-up verification: the startup-connection regression failed before the fix; delayed connector reads, overlapping skill scans and completion failure/retry are covered by store tests. Native Electron re-imported the Claude GitHub bundle and opened its connector controls immediately without refreshing. A browser preview with a deliberately delayed library response verified the loading state and disabled dismissal/actions, then a failed update and retry with one import write. The full app suite passed **988 tests across 148 files**; after adding the missing-skill failure case, the focused completion/connection suite passed **30 tests across 2 files**. App TypeScript checks and the production build passed.
+
+![Loading while the library updates (deliberately delayed test response)](images/plugin-import-loading.png)
+
+![Native GitHub connector controls opened immediately after import, without refresh](images/plugin-import-ready-without-refresh.png)
 
 Previously, an older refresh could replace a newly imported connector with an empty list, producing a false "This item is no longer available" in plugin details. A whole plugin containing just one connector was also mistaken for a standalone connector import. The import review and post-import navigation now share a format-based decision: a whole Claude/Codex/portable plugin remains a plugin, with its component count; a standalone connector retains direct setup.
 

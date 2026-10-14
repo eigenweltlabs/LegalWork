@@ -207,13 +207,18 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             <PluginsView extensions={props.extensions} busy={props.busy} selectedWorkspaceRoot={props.selectedWorkspaceRoot} canEditPlugins={props.canEditPlugins} canUseGlobalScope={props.canUseGlobalScope} accessHint={props.accessHint} suggestedPlugins={props.suggestedPlugins} />
           </DialogContent>
         </Dialog> : null}
-        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={preview => {
+        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={async preview => {
+          if (props.skillTools) {
+            const items = await props.skillTools.importedPackages();
+            if (!items.some(item => item.pluginId === preview.id)) throw new Error(t("extensions.import_library_failed"));
+            if (currentPackageTarget.current !== packageTarget) throw new Error(t("extensions.import_library_failed"));
+            setPackageLibrary({ target: packageTarget, items });
+          }
           const destination = pluginImportDestination(preview);
           setImportVersion(value => value + 1);
           setSource("all");
           selectTab(destination.tab);
           setConnectorToOpen(destination.connectorName);
-          props.onRefresh();
         }}
           returnFocus={importButton}
           canImportPlugins={canImportPlugins && !props.busy}

@@ -76,6 +76,8 @@ let serverEnables: unknown[] = [];
 let engineStatusWait: Promise<void> | undefined;
 let engineStatusStarted: (() => void) | undefined;
 let engineStatusRequests = 0;
+let serverListReads = 0;
+let emptyServerReads = 0;
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
@@ -90,7 +92,7 @@ Object.assign(browserWindow, {
   },
 });
 
-function makeStore(remote = false, fileFallback = false) {
+function makeStore(remote = false, fileFallback = false, routeConnection = false) {
   const legalworkServer = createLegalworkServerStore({
     startupPreference: () => "local",
     documentVisible: () => true,
@@ -120,6 +122,7 @@ function makeStore(remote = false, fileFallback = false) {
     selectedWorkspaceRoot: () => "/tmp/workspace",
     workspaceType: () => remote ? "remote" : "local",
     legalworkServer: fileFallback ? legalworkServer : connectedServer,
+    ...(routeConnection ? { legalworkServerConnection: () => connectedServer.getSnapshot() } : {}),
     runtimeWorkspaceId: () => remote ? "remote" : null,
     developerMode: () => false,
     markReloadRequired: (reason, trigger) => { reloads.push({ reason, trigger }); },
@@ -146,6 +149,8 @@ describe("connection store success reporting", () => {
     engineStatusWait = undefined;
     engineStatusStarted = undefined;
     engineStatusRequests = 0;
+    serverListReads = 0;
+    emptyServerReads = 0;
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -168,7 +173,8 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
-          return Response.json({ items: emptyServerList ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
+          serverListReads += 1;
+          return Response.json({ items: emptyServerList || serverListReads <= emptyServerReads ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
         const engineStatus = status;
@@ -203,6 +209,26 @@ describe("connection store success reporting", () => {
     const store = makeStore();
     try {
       await store.refreshMcpServers({ includeStatus: false });
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(engineStatusRequests).toBe(0);
+    } finally { store.dispose(); }
+  });
+
+  test("the connected route supplies imported connectors before the store's first health check", async () => {
+    const store = makeStore(false, true, true);
+    try {
+      await store.refreshMcpServers({ includeStatus: false });
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(serverListReads).toBe(1);
+    } finally { store.dispose(); }
+  });
+
+  test("import completion waits for its saved connector to reach the library", async () => {
+    emptyServerReads = 1;
+    const store = makeStore();
+    try {
+      await store.refreshImportedConnectors(["test-server"]);
+      expect(serverListReads).toBe(2);
       expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
       expect(engineStatusRequests).toBe(0);
     } finally { store.dispose(); }

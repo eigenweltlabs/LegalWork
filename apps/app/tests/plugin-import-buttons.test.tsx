@@ -5,7 +5,7 @@ import { ExtensionsView, type ExtensionsViewProps } from "../src/react-app/domai
 const noop = () => {};
 const props: ExtensionsViewProps = {
   busy: false, developerMode: false, selectedWorkspaceRoot: "/project", isRemoteWorkspace: false, canEditPlugins: true, canUseGlobalScope: true, suggestedPlugins: [], mcpConnectedAppsCount: 0, mcpView: <p>Connectors</p>, skillsView: <p>Skills</p>, onRefresh: noop,
-  pluginImports: { discoverPluginImports: async () => [], previewPluginImports: async () => [], installPluginImport: async () => { throw new Error("not invoked"); } },
+  pluginImports: { discoverPluginImports: async () => [], previewPluginImports: async () => [], installPluginImport: async () => { throw new Error("not invoked"); }, refreshPluginImport: async () => {} },
   extensions: { pluginScope: "project", setPluginScope: noop, refreshPlugins: noop, pluginConfigPath: () => null, pluginConfig: () => null, pluginList: () => [], pluginInput: () => "", setPluginInput: noop, pluginStatus: () => null, addPlugin: noop, removePlugin: noop, isPluginInstalledByName: () => false, activePluginGuide: () => null, setActivePluginGuide: noop },
 };
 test("plugin imports are available on Extensions without enabling developer mode", () => {

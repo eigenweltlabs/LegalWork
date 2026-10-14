@@ -72,6 +72,7 @@ export function createConnectionsStore(options: {
   selectedWorkspaceRoot: () => string;
   workspaceType: () => "local" | "remote";
   legalworkServer: LegalworkServerStore;
+  legalworkServerConnection?: () => Pick<ReturnType<LegalworkServerStore["getSnapshot"]>, "legalworkServerClient" | "legalworkServerStatus" | "legalworkServerCapabilities">;
   runtimeWorkspaceId: () => string | null;
   ensureRuntimeWorkspaceId?: () => Promise<string | null | undefined>;
   setProjectDir?: (value: string) => void;
@@ -152,7 +153,11 @@ export function createConnectionsStore(options: {
     pendingMcpAuthGeneration += 1;
   }
 
-  const getLegalworkSnapshot = () => options.legalworkServer.getSnapshot();
+  const getLegalworkSnapshot = () => {
+    const snapshot = options.legalworkServer.getSnapshot();
+    const connection = options.legalworkServerConnection?.();
+    return connection?.legalworkServerClient ? { ...snapshot, ...connection } : snapshot;
+  };
 
   const resolveLegalworkWorkspaceId = async () => {
     const current = options.runtimeWorkspaceId()?.trim();
@@ -1081,6 +1086,21 @@ export function createConnectionsStore(options: {
     setStateField("mcpStatus", t("mcp.connected"));
   }
 
+  /** Import completion means its saved connectors are available to open, not just a finished request. */
+  async function refreshImportedConnectors(names: readonly string[]) {
+    if (!names.length) return;
+    const workspaceKey = getMcpAuthWorkspaceKey();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) break;
+      await refreshMcpServers({ includeStatus: false });
+      if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) break;
+      if (names.every(name => state.mcpServers.some(entry => entry.name === name))) return;
+      if (state.mcpStatus) throw new Error(state.mcpStatus);
+      if (attempt < 9) await new Promise<void>(resolve => setTimeout(resolve, 200));
+    }
+    throw new Error(t("extensions.import_library_failed"));
+  }
+
   const syncFromOptions = () => {
     const workspaceContextKey = getWorkspaceContextKey();
     const projectDir = options.projectDir().trim();
@@ -1157,6 +1177,7 @@ export function createConnectionsStore(options: {
     },
     quickConnect: MCP_QUICK_CONNECT,
     refreshMcpServers,
+    refreshImportedConnectors,
     connectMcp,
     probeMcp,
     registerMcpClient,

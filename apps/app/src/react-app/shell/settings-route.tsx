@@ -670,6 +670,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         selectedWorkspaceRoot: () => routeStateRef.current.selectedWorkspaceRoot,
         workspaceType: () => routeStateRef.current.selectedWorkspaceType,
         legalworkServer: legalworkServerStore,
+        legalworkServerConnection: () => ({
+          legalworkServerClient: routeStateRef.current.legalworkServerClient,
+          legalworkServerStatus: routeStateRef.current.legalworkServerStatus,
+          legalworkServerCapabilities: routeStateRef.current.legalworkServerCapabilities,
+        }),
         runtimeWorkspaceId: () => routeStateRef.current.runtimeWorkspaceId,
         ensureRuntimeWorkspaceId: async () =>
           routeStateRef.current.runtimeWorkspaceId?.trim() ||
@@ -743,7 +748,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           }
         },
         markReloadRequired: reloadCoordinator.markReloadRequired,
-        refreshConnectors: () => connectionsStore.refreshMcpServers({ includeStatus: false }),
+        refreshConnectors: names => connectionsStore.refreshImportedConnectors(names),
       }),
     [legalworkServerStore, connectionsStore, reloadCoordinator.markReloadRequired],
   );
