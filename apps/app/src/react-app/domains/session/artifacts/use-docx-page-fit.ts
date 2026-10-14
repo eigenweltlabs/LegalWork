@@ -3,6 +3,7 @@ import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
 
 const PAGE_GUTTERS = 48;
 const REVIEW_RAIL = 352;
+const OUTLINE_RAIL = 256;
 
 /** Fit on layout changes; the native zoom controls remain usable between resizes. */
 export function useDocxPageFit(
@@ -17,7 +18,8 @@ export function useDocxPageFit(
     const viewport = host?.querySelector<HTMLElement>(".docx-editor__scroll-container");
     if (!host || !editor || !page || !viewport || !page.offsetWidth) return;
     const rail = viewport.clientWidth >= 900 && host.querySelector(".docx-unified-sidebar") ? REVIEW_RAIL : 0;
-    const available = viewport.clientWidth - PAGE_GUTTERS - rail;
+    const outline = host.querySelector(".docx-outline-nav") ? OUTLINE_RAIL : 0;
+    const available = viewport.clientWidth - PAGE_GUTTERS - rail - outline;
     const zoom = Math.max(0.25, Math.min(1, available / page.offsetWidth));
     if (Math.abs(editor.getZoom() - zoom) > 0.005) editor.setZoom(zoom);
   }, [containerRef, editorRef, commentsOpen]);
@@ -30,6 +32,7 @@ export function useDocxPageFit(
     let viewport: HTMLElement | null = null;
     let zoomLayer: HTMLElement | null = null;
     let sidebar: Element | null = null;
+    let outline: Element | null = null;
     let lastHostWidth = 0;
     let lastViewportWidth = 0;
     let lastPageWidth = 0;
@@ -47,7 +50,7 @@ export function useDocxPageFit(
         const rail = host.clientWidth >= 900 && sidebar ? REVIEW_RAIL : 0;
         const width = page?.offsetWidth ?? 0;
         if (host.style.getPropertyValue("--docx-zoom") !== String(zoom)) host.style.setProperty("--docx-zoom", String(zoom));
-        const minWidth = `${width * zoom + PAGE_GUTTERS + rail}px`;
+        const minWidth = `${width * zoom + PAGE_GUTTERS + rail + (outline ? OUTLINE_RAIL : 0)}px`;
         if (width && host.style.getPropertyValue("--docx-layout-width") !== minWidth) host.style.setProperty("--docx-layout-width", minWidth);
       });
     };
@@ -72,21 +75,23 @@ export function useDocxPageFit(
       const nextViewport = host.querySelector<HTMLElement>(".docx-editor__scroll-container");
       const nextZoomLayer = host.querySelector(".paged-editor__pages")?.parentElement ?? null;
       const nextSidebar = host.querySelector(".docx-unified-sidebar");
-      if (nextPage === page && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar) return;
-      if (nextSidebar !== sidebar) needsFit = true;
+      const nextOutline = host.querySelector(".docx-outline-nav");
+      if (nextPage === page && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar && nextOutline === outline) return;
+      if (nextSidebar !== sidebar || nextOutline !== outline) needsFit = true;
       if (page) resize.unobserve(page);
       if (viewport) resize.unobserve(viewport);
       page = nextPage;
       viewport = nextViewport;
       zoomLayer = nextZoomLayer;
       sidebar = nextSidebar;
+      outline = nextOutline;
       if (page) resize.observe(page);
       if (viewport) resize.observe(viewport);
       // Observe only the layout ancestors. Paragraph/text mutations and caret
       // styles never schedule geometry work on the typing path.
       structure.disconnect();
       structure.observe(host, { childList: true, subtree: !page });
-      for (const element of [page, viewport, zoomLayer, sidebar]) {
+      for (const element of [page, viewport, zoomLayer, sidebar, outline]) {
         for (let parent = element?.parentElement; parent && parent !== host; parent = parent.parentElement) {
           structure.observe(parent, { childList: true });
         }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -119,8 +119,8 @@ describe("in-app Word document routing", () => {
 
     const system = output.system.join("\n");
     expect(system).toContain("compensation-memo.docx");
-    expect(system).toContain("inapp_docx_suggest_change");
-    expect(system).toContain("inapp_docx_reject_changes");
+    expect(system).toContain("operation suggest_change");
+    expect(system).toContain("operation reject_changes");
     expect(system).toContain("save automatically");
     expect(system).toContain("Do not search LegalMemory merely");
   });
@@ -142,7 +142,7 @@ describe("in-app Word document routing", () => {
     await expect(plugin["tool.execute.before"](
       { tool: "bash", sessionID: "ses_open", callID: "call_1" },
       { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).rejects.toThrow("use inapp_docx_* tools");
+    )).rejects.toThrow("use inapp_docx");
   });
 
   test("routes in-app document tools to the matching session-scoped editor action", async () => {
@@ -157,8 +157,7 @@ describe("in-app Word document routing", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
 
-    const raw = await plugin.tool.inapp_docx_read_document.execute(
-      { fromIndex: 0, toIndex: 5 },
+    const raw = await plugin.tool.inapp_docx.execute({ operation: "read_document", args: { fromIndex: 0, toIndex: 5 } },
       { sessionID: "ses_open" },
     );
 
@@ -181,8 +180,7 @@ describe("in-app Word document routing", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
 
-    await plugin.tool.inapp_docx_reject_changes.execute(
-      { changeIds: [11, 12] },
+    await plugin.tool.inapp_docx.execute({ operation: "reject_changes", args: { changeIds: [11, 12] } },
       { sessionID: "ses_open" },
     );
 
@@ -351,5 +349,85 @@ describe("PowerPoint visual feedback", () => {
     expect(JSON.parse(result)).toMatchObject({ result: { saved: true, data: { preview: { available: false } } } });
     const wrongSession = await plugin.tool.inapp_pptx_preview.execute({ path: "Deck.pptx" }, { sessionID: "ses_other" });
     expect(typeof wrongSession === "string" && JSON.parse(wrongSession).ok).toBe(false);
+  });
+});
+
+describe("native Word structure agent tools", () => {
+  test("advertises one Word tool and discovers operation syntax without opening a document", async () => {
+    let dispatches = 0;
+    await withBridge({}, () => { dispatches++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    expect(Object.keys(plugin.tool).filter((name) => name.startsWith("inapp_docx"))).toEqual(["inapp_docx"]);
+    expect(Object.keys(plugin.tool.inapp_docx.args)).toEqual(["operation", "args"]);
+    const list = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help" }, {}));
+    expect(list).toMatchObject({ tool: "inapp_docx", operations: expect.arrayContaining([{ operation: "insert_cross_reference", description: expect.any(String) }, { operation: "create_comparison_copy", description: expect.any(String) }]) });
+    expect(list).not.toHaveProperty("argsSchema");
+    const help = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "insert_cross_reference" } }, {}));
+    expect(help).toMatchObject({ operation: "insert_cross_reference", argsSchema: { type: "object", required: expect.arrayContaining(["documentId", "draftRevision", "paraId", "search", "kind"]), properties: { kind: { enum: ["number", "text", "page"] } } } });
+    expect(dispatches).toBe(0);
+    await expect(plugin.tool.inapp_docx.execute({ operation: "unknown_method" }, {})).rejects.toThrow("Use operation help");
+    await expect(plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "unknown_method" } }, {})).rejects.toThrow("Use operation help");
+  });
+
+  test("routes native reference creation with identity and preserves stale/protection errors", async () => {
+    let call: unknown;
+    await withBridge({}, (body) => { call = body; return { ok: true, result: { ok: false, error: "Read the draft again" } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { documentId: "doc-1", draftRevision: 3, paraId: "P1", targetParaId: "P8", kind: "number", search: "8" };
+    const raw = await plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: args }, { sessionID: "ses_word" });
+    expect(call).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "insert_cross_reference", args } });
+    expect(JSON.parse(raw).result).toEqual({ ok: false, error: "Read the draft again" });
+    await expect(plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: { ...args, draftRevision: -1 } }, { sessionID: "ses_word" })).rejects.toThrow();
+    await expect(plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: { paraId: "P1", kind: "number", search: "8" } }, { sessionID: "ses_word" })).rejects.toThrow();
+  });
+
+  test("discovers and routes formatting inside the single Word tool with validated units and fresh identity", async () => {
+    const calls: unknown[] = [];
+    await withBridge({}, (body) => { calls.push(body); return { ok: true, result: { ok: true, saved: true } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const help = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "apply_formatting" } }, {}));
+    expect(help.argsSchema.required).toEqual(expect.arrayContaining(["documentId", "draftRevision", "paraId"]));
+    expect(help.argsSchema.properties.marks.properties.fontSize.description).toContain("Points");
+    const args = { documentId: "doc-1", draftRevision: 3, paraId: "P1", search: "Clause", marks: { bold: false, fontSize: 10.5 }, paragraph: { alignment: "both", spaceAfter: 6 } };
+    await plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args }, { sessionID: "ses_word" });
+    await plugin.tool.inapp_docx.execute({ operation: "read_formatting", args: { paraId: "P1", includeStyles: true } }, { sessionID: "ses_word" });
+    expect(calls).toEqual([
+      { actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "apply_formatting", args } },
+      { actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "read_formatting", args: { paraId: "P1", includeStyles: true } } },
+    ]);
+    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { ...args, marks: { fontSize: -1 } } }, {})).rejects.toThrow();
+    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { ...args, paragraph: { typo: true } } }, {})).rejects.toThrow();
+    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { paraId: "P1", marks: { bold: true } } }, {})).rejects.toThrow();
+    await expect(plugin.tool.inapp_docx.execute({ operation: "read_formatting", args: { limit: 500 } }, {})).rejects.toThrow();
+    expect(calls.length).toBe(2);
+  });
+
+  test("clean-copy tools write only a new workspace file and hide the binary payload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "word-agent-copy-")); roots.push(root);
+    const bytes = Buffer.from("detached native DOCX test bytes");
+    await withBridge({}, () => ({ ok: true, result: { ok: true, data: { bufferBase64: bytes.toString("base64"), findings: [], sourceChanged: false } } }));
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { documentId: "doc-1", draftRevision: 4, fileName: "Outgoing.docx", categories: ["comments"] };
+    const raw = await plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: args }, { sessionID: "ses_word", directory: root });
+    expect(await readFile(join(root, "Outgoing.docx"))).toEqual(bytes);
+    expect(JSON.parse(raw).result.data).toEqual({ findings: [], sourceChanged: false, path: join(await realpath(root), "Outgoing.docx") });
+    expect(raw).not.toContain("bufferBase64");
+    await expect(plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: args }, { sessionID: "ses_word", directory: root })).rejects.toThrow("EEXIST");
+    await expect(plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: { ...args, fileName: "../Outside.docx" } }, { sessionID: "ses_word", directory: root })).rejects.toThrow();
+  });
+
+  test("comparison tools read returned workspace drafts and reject symlink escapes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "word-agent-compare-")); roots.push(root);
+    const outside = await mkdtemp(join(tmpdir(), "word-agent-outside-")); roots.push(outside);
+    await writeFile(join(root, "Returned.docx"), "returned document bytes");
+    await writeFile(join(outside, "Secret.docx"), "outside");
+    await symlink(join(outside, "Secret.docx"), join(root, "Escape.docx"));
+    let request: unknown;
+    await withBridge({}, (body) => { request = body; return { ok: true, result: { ok: true, data: { bufferBase64: Buffer.from("comparison bytes").toString("base64"), changes: [{ author: "Counsel" }] } } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { documentId: "doc-1", draftRevision: 2, fileName: "Comparison.docx", versions: [{ path: "Returned.docx", author: "Counsel" }] };
+    await plugin.tool.inapp_docx.execute({ operation: "create_comparison_copy", args: args }, { sessionID: "ses_word", directory: root });
+    expect(request).toMatchObject({ actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "create_comparison_copy", args: { versions: [{ base64: Buffer.from("returned document bytes").toString("base64"), author: "Counsel" }] } } });
+    await expect(plugin.tool.inapp_docx.execute({ operation: "create_comparison_copy", args: { ...args, fileName: "EscapeComparison.docx", versions: [{ path: "Escape.docx", author: "Counsel" }] } }, { sessionID: "ses_word", directory: root })).rejects.toThrow("inside the active workspace");
   });
 });

@@ -423,7 +423,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
     documentSurface ? {
       id: target.preview === "word" ? "document.agent_tool" : "office.agent_tool",
       label: `Work on ${target.name}`,
-      description: `Read or edit ${target.value} in the live editor. Edits save automatically.${target.preview === "word" ? " Text edits are tracked changes." : " Office edits are direct edits, without tracked changes."}`,
+      description: `Read or edit ${target.value} in the live editor. Edits save automatically.${target.preview === "word" ? " Body text proposals are tracked changes; native structure tools report direct edits." : " Office edits are direct edits, without tracked changes."}`,
       sideEffect: "mutation",
       requiresArgs: true,
       args: [
@@ -443,7 +443,7 @@ export function ArtifactPanelView({ localReadOnly = false, saveActions, sessionI
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
         if (!api) return { ok: false, error: "The in-app editor is still loading." };
         const result = await api.executeAgentTool(toolName, toolArgs);
-        if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.` };
+        if (!result.success) return { ok: false, error: result.error || `Could not run ${toolName}.`, data: result.data, saved: false };
         return {
           ok: true,
           document: { name: target.name, path: target.value, trackChanges: target.preview === "word" },
