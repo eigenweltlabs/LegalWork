@@ -1,6 +1,7 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { CloudAssistantSettings } from "./cloud-assistant-settings";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DEFAULT_ASSISTANT_PROFILE, type AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -51,6 +52,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
   busy: boolean;
   client?: LegalworkServerClient;
 }) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState({ ...profile, name: profile.name ?? t("assistant.title") });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +84,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
           <fieldset disabled={saving} className="space-y-5 pb-5">
             <AssistantAppearanceFields compact profile={draft} onChange={value => setDraft({ ...value, name: value.name ?? "" })} />
           </fieldset>
-          {client && <CloudAssistantSettings client={client} />}
+          {client && <CloudAssistantSettings client={client} profile={draft} onSignIn={() => { onClose(); navigate("/settings/account"); }} />}
           <Collapsible defaultOpen={modelSettings?.modelPickerOpen} className="group/advanced border-t border-border">
             <CollapsibleTrigger type="button" className="flex w-full items-center justify-between rounded-sm py-4 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
               {t("settings.tab_advanced")}<ChevronDown className="size-4 -rotate-90 transition-transform group-data-[open]/advanced:rotate-0" />
