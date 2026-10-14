@@ -60,3 +60,19 @@ git diff --check
 ```
 
 The real sandbox VM and native Electron drag gesture were not exercised. Earlier broad-suite graph-watcher and Lexical baseline failures remain recorded in the PR; this pass does not claim a green full repository suite.
+
+## Restart follow-up: pending dashboard data
+
+The final Electron restart exposed a separate runtime failure in an existing dashboard: OpenUI query references are temporarily `null` before resolving, but Table/Chart/Board assumed rows were already arrays. Their render error could remain in the component error boundary even after data arrived.
+
+A regression first reproduced the `rows.slice` exception. Data components now wait for rows before mounting; an actually empty array still renders the ordinary empty state. A browser fixture with a deliberately deferred query showed loading first, then a populated table, bar chart and board after resolution, with no console errors. No user data was changed.
+
+![Dashboard renders after its delayed query resolves](wiki-ux-polish/query-recovery.png)
+
+```sh
+pnpm --filter @legalwork/openui exec bun test src/catalog.test.tsx src/law-firm-demo.test.tsx
+# 11 passed, 0 failed, 75 assertions
+
+pnpm --filter @legalwork/app typecheck
+# Passed
+```
