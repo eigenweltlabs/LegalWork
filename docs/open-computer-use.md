@@ -70,4 +70,4 @@ real Windows desktop automation:
 
 The live Mac Electron catalog after replacement contains only Open Computer Use:
 
-- [Live Mac catalog](verification/open-computer-use/mac-catalog.png)
+- [Live Mac catalog](verification/open-computer-use/mac-catalog.jpg)
