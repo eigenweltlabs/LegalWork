@@ -1,5 +1,5 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
-import { useEffect, useMemo, useRef, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   MDXEditor, type MDXEditorMethods,
@@ -36,6 +36,7 @@ type Props = {
   LinkDialog?: () => ReactElement;
   /** Place page options beside an external title instead of above the editor body. */
   toolbarTarget?: HTMLElement | null;
+  toolbarMenuItems?: ReactNode;
   onOpenLink?: (url: string) => void;
   suppressHtmlProcessing?: boolean;
   allowDiff?: boolean;
@@ -45,7 +46,7 @@ type Props = {
   serializeRichText?: (previous: string, body: string) => string;
 };
 
-function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml }: { rawMarkdown: () => string; showLink?: boolean; allowDiff: boolean; literalHtml: boolean }) {
+function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml, menuItems }: { rawMarkdown: () => string; showLink?: boolean; allowDiff: boolean; literalHtml: boolean; menuItems?: ReactNode }) {
   const mode = useCellValue(viewMode$);
   const readOnly = useCellValue(readOnly$);
   const editLink = usePublisher(openLinkEditDialog$);
@@ -67,15 +68,16 @@ function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml 
         <DropdownMenuItem disabled={sourceRequired} onClick={() => selectMode("rich-text")}><FileText />{t("markdown.toolbar.richText")}</DropdownMenuItem>
         <DropdownMenuItem onClick={() => selectMode("source")}><Code />{t("markdown.toolbar.source")}</DropdownMenuItem>
         {allowDiff && <DropdownMenuItem onClick={() => selectMode("diff")}><GitCompareArrows />{t("markdown.toolbar.diffMode")}</DropdownMenuItem>}
+        {menuItems}
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
-  const initialMode = useRef<ViewMode>(requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
+  const initialMode = useRef<ViewMode>(viewModeRequest?.mode === "diff" ? "diff" : requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
   const lastValue = useRef(value);
   const syncSource = useRef<((value: string, previous: string) => void) | null>(null);
   const lastViewRequest = useRef(viewModeRequest);
@@ -151,9 +153,9 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     markdownShortcutPlugin(),
     markdownBlocksPlugin(),
     toolbarPlugin({ toolbarContents: () => toolbarTarget === undefined
-      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} />
-      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} />, toolbarTarget) : null }),
-  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing]);
+      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />
+      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />, toolbarTarget) : null }),
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing]);
 
   useEffect(() => {
     if (value === lastValue.current) return;

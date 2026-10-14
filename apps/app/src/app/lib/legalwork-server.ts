@@ -2,7 +2,7 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
-import type { WikiSuggestion, WikiSuggestionInput } from "@legalwork/types/wiki-suggestions";
+import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -1712,6 +1712,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   return {
     baseUrl,
     token,
+    wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
+    wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),
     wikiSuggestion: (workspaceId: string, id: string) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken }),
     updateWikiSuggestion: (workspaceId: string, id: string, input: WikiSuggestionInput & { revision: string }) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken, method: "PUT", body: input }),

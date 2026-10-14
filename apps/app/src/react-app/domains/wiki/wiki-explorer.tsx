@@ -32,6 +32,7 @@ export function WikiExplorer(props: {
   onOpen: (path: string) => void; onNewPage: (folder: string) => void; onNewFolder: (folder: string) => void;
   onGraph: () => void; onAction: (entry: WikiTreeEntry, action: WikiExplorerAction) => void; children?: ReactNode;
   onImport: (files: WikiImportFile[], folder: string) => Promise<void>;
+  onDragFile?: (data: DataTransfer, path: string) => void;
 }) {
   const projectFiles = useProjectFiles();
   const acceptsDrop = (data: DataTransfer) => Array.from(data.types).includes("Files") || Boolean(projectFiles && hasProjectFileDrag(data));
@@ -113,7 +114,7 @@ export function WikiExplorer(props: {
       <ContextMenuItem variant="destructive" disabled={!props.writable || props.busy} onClick={() => props.onAction(entry, "trash")}><Trash2 size={15} />{t("wiki.move_to_trash")}</ContextMenuItem>
     </ContextMenuContent>
   </ContextMenu>;
-  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={<ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
+  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow draggable={Boolean(props.onDragFile)} onDragStart={event => props.onDragFile?.(event.dataTransfer, entry.path)} selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={<ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
   let shown = 0;
   let total = 0;
   const rows: ReactNode[] = [];

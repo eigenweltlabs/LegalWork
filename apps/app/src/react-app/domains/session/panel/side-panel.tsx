@@ -801,7 +801,7 @@ function SidePanelContent({
     importing.current = true;
     setOpeningFile(drop.projects[0]?.name ?? drop.workspace?.name ?? drop.storage?.name ?? drop.memory?.name ?? drop.files[0]?.name ?? null);
     try {
-      for await (const tab of viewerFileTabs(client, workspaceId, drop)) {
+      for await (const tab of viewerFileTabs(client, workspaceId, drop, client.baseUrl)) {
         if (!mounted.current) return;
         const store = usePanelTabStore.getState();
         const before = store.sessions[sessionId];
@@ -1051,7 +1051,7 @@ function SidePanelContent({
     const relocating = draggingTab && draggingTab.pane !== pane.id && panes.find(source => source.id === draggingTab.pane)?.tabIds.length === 1;
     const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
     return <TabDropZone workspaceId={projectId ?? workspaceId} onChatDrop={onDropChat} onProjectViewDrop={renderProjectView ? (view, pane, split) => dropProjectTab(projectViewTab(view, projectViewLabel(view)), pane, split) : undefined} onProjectItemDrop={renderProjectView ? dropProjectTab : undefined} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
-      shieldFileDrops={tab?.type === "artifact" || tab?.type === "browser"}
+      shieldFileDrops={tab?.type === "artifact" || tab?.type === "browser" || tab?.type === "wiki"}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
       {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty

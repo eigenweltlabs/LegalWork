@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { WikiSuggestionInputSchema } from "../wiki/suggestion-schema.js";
 import type { WikiRegistration } from "@legalwork/types/wiki";
+import type { WikiContribution } from "@legalwork/types/wiki-suggestions";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope } from "../types.js";
 import { WikiSuggestions } from "../wiki/suggestions.js";
@@ -50,6 +51,27 @@ export function registerWikiSuggestionRoutes(options: {
     return result.data;
   };
   const base = "/workspace/:workspaceId/wiki-suggestions";
+  addRoute(routes, "GET", "/wikis/:wikiId/suggestions", "client", async ctx => {
+    // This human inbox must not give a wiki agent access to other projects.
+    if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_review_required", "Only the user can browse project contributions.");
+    const wiki = await store.get(ctx.params.wikiId);
+    if (ctx.actor?.type !== "host" && ctx.actor?.scope !== "owner" && !wiki.sync) throw new ApiError(404, "wiki_not_found", "This wiki is not available.");
+    await options.ensureWikiReadable?.(ctx, wiki);
+    const wikis = await store.list();
+    const items: WikiContribution[] = [];
+    const unavailableProjects: string[] = [];
+    for (const project of config.workspaces) {
+      if (project.workspaceType === "remote" || wikis.some(item => item.workspaceId === project.id)) continue;
+      try {
+        const root = await realpath(project.directory || project.path);
+        if (!await wikiAgentCanAccess(config, wikis, wiki, root)) continue;
+        for (const { content, ...item } of await new WikiSuggestions(root, project.id).list()) {
+          if (item.status === "pending" && item.destination.wikiId === wiki.id) items.push({ ...item, projectName: project.name });
+        }
+      } catch { unavailableProjects.push(project.name); }
+    }
+    return jsonResponse({ items: items.sort((a, b) => b.createdAt - a.createdAt), unavailableProjects });
+  });
   addRoute(routes, "GET", base, "client", async ctx => {
     const repo = await repository(ctx);
     return jsonResponse({ items: (await repo.list()).map(({ content, ...item }) => item) });

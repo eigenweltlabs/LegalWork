@@ -362,6 +362,10 @@ export function registerWikiRoutes(options: Options): WikiStore {
     change(wiki.id);
     return jsonResponse({ ok: true });
   });
+  addRoute(routes, "GET", "/wikis/:wikiId/history/:revisionId", "client", async (ctx) => {
+    await selected(ctx);
+    return jsonResponse(await store.revision(ctx.params.wikiId, ctx.url.searchParams.get("path") ?? "", ctx.params.revisionId));
+  });
   addRoute(routes, "GET", "/wikis/:wikiId/history", "client", async (ctx) => {
     await selected(ctx);
     return jsonResponse({ items: await store.history(ctx.params.wikiId, ctx.url.searchParams.get("path") ?? "") });

@@ -7,6 +7,8 @@ import { ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwo
 import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
 import { TokenService } from "./tokens.js";
+import { WikiSuggestionSchema } from "@legalwork/types/wiki-suggestions";
+import { WikiSuggestions } from "./wiki/suggestions.js";
 import { WikiStore } from "./wiki/store.js";
 import { registerLocalProject } from "./routes/workspaces.js";
 import { runtimeDbPath } from "./runtime-db.js";
@@ -43,6 +45,54 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+
+  test("pending contributions aggregate projects without publishing drafts or exposing them to wiki agents", async () => {
+    const { request, config, root, base } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Inbox", template: "blank" })).json());
+    const { wiki: otherWiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Other", template: "blank" })).json());
+    const a = (await registerLocalProject(config, { folderPath: join(root, "a"), name: "Project A", preset: "starter" })).workspace;
+    const b = (await registerLocalProject(config, { folderPath: join(root, "b"), name: "Project B", preset: "starter" })).workspace;
+    expect((await request(`/wikis/${wiki.id}`, "owner", "PATCH", { allowInProjects: true })).status).toBe(200);
+    const input = { title: "Contribution", content: "# Confidential draft", destination: { wikiId: wiki.id, path: "Draft.md", baseRevision: null } };
+    const first = WikiSuggestionSchema.parse(await (await request(`/workspace/${a.id}/wiki-suggestions`, "owner", "POST", input)).json());
+    const second = WikiSuggestionSchema.parse(await (await request(`/workspace/${b.id}/wiki-suggestions`, "owner", "POST", { ...input, destination: { ...input.destination, path: "Second.md" } })).json());
+    await new WikiSuggestions(a.path, a.id).create({ ...input, destination: { ...input.destination, wikiId: otherWiki.id } }, null);
+    const inbox = z.object({ items: z.array(WikiSuggestionSchema.omit({ content: true }).extend({ projectName: z.string() })), unavailableProjects: z.array(z.string()) });
+    const endpoint = `/wikis/${wiki.id}/suggestions`;
+    const result = inbox.parse(await (await request(endpoint, "owner")).json());
+    expect(result.items.map(item => item.id).sort()).toEqual([first.id, second.id].sort());
+    expect(result.items.map(item => item.projectName).sort()).toEqual(["Project A", "Project B"]);
+    expect(result.unavailableProjects).toEqual([]);
+    expect((await request(`/wikis/${wiki.id}/page?path=Draft.md`)).status).toBe(404);
+    expect((await request(endpoint, "viewer")).status).toBe(404);
+    expect((await request(endpoint, "anonymous")).status).toBe(401);
+    const token = await ensureWikiAgentToken(config);
+    await grantWikiAgentSession(config, { sessionId: "wiki-inbox-agent", directory: wiki.root, scope: "owner" });
+    expect((await fetch(`${base}${endpoint}`, { headers: { "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": "wiki-inbox-agent", "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root) } })).status).toBe(403);
+    expect((await request(`/workspace/${a.id}/wiki-suggestions/${first.id}/dismiss`, "owner", "POST", { revision: first.revision })).status).toBe(200);
+    expect((await request(`/workspace/${b.id}/wiki-suggestions/${second.id}/save`, "owner", "POST", { revision: second.revision })).status).toBe(200);
+    expect(inbox.parse(await (await request(endpoint, "owner")).json()).items).toEqual([]);
+    expect(documentSchema.parse(await (await request(`/wikis/${wiki.id}/page?path=Second.md`)).json()).content).toBe(input.content);
+  });
+
+  test("historical content is read-only, path-bound and protected by wiki permissions", async () => {
+    const { request } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Versions", template: "blank" })).json());
+    const base = `/wikis/${wiki.id}`, path = "Page.md";
+    const original = documentSchema.parse(await (await request(`${base}/page`, "owner", "PUT", { path, content: "# Before\n", baseRevision: null })).json());
+    const updated = documentSchema.parse(await (await request(`${base}/page`, "owner", "PUT", { path, content: "# After\n", baseRevision: original.revision })).json());
+    const history = z.object({ items: z.array(z.object({ id: z.string() })) }).parse(await (await request(`${base}/history?path=${path}`)).json());
+    const revisionId = history.items.at(-1)!.id;
+    const endpoint = `${base}/history/${revisionId}?path=${path}`;
+    expect(documentSchema.parse(await (await request(endpoint, "owner")).json()).content).toBe(original.content);
+    expect(documentSchema.parse(await (await request(`${base}/page?path=${path}`)).json()).content).toBe(updated.content);
+    expect((await request(endpoint, "viewer")).status).toBe(404);
+    expect((await request(endpoint, "anonymous")).status).toBe(401);
+    expect((await request(`${base}/history/${revisionId}?path=Other.md`)).status).toBe(404);
+    expect((await request(`${base}/history/${revisionId}?path=../escape.md`)).status).toBe(400);
+    await request(`${base}/page`, "owner", "DELETE", { path, baseRevision: updated.revision });
+    expect(documentSchema.parse(await (await request(endpoint, "owner")).json()).content).toBe(original.content);
+  });
   test("typed queries and frozen reports retain wiki authorization and revision checks", async () => {
     const { request, config } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Views", template: "blank" })).json());

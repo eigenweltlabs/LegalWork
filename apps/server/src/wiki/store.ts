@@ -669,6 +669,13 @@ export class WikiStore {
     const sql = `SELECT id,path,createdAt,action,size FROM wiki_history WHERE wiki=?${path ? " AND path=?" : ""} ORDER BY createdAt DESC,rowid DESC LIMIT 200`;
     return db.all(sql, path ? [id, path] : [id]).map((row) => z.object({ id: z.string(), path: z.string(), createdAt: z.number(), action: z.enum(["write", "delete", "restore"]), size: z.number() }).parse(row));
   }
+  async revision(id: string, path: string, revisionId: string): Promise<WikiDocument> {
+    await this.get(id);
+    const db = await this.db();
+    const raw = db.all("SELECT path,content,revision,createdAt AS updatedAt FROM wiki_history WHERE id=? AND wiki=? AND path=?", [revisionId, id, wikiPath(path)])[0];
+    if (!raw) throw new ApiError(404, "wiki_revision_not_found", "This revision is unavailable for this page.");
+    return z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() }).parse(raw);
+  }
   async restore(id: string, path: string, revisionId: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, async () => {
       await this.get(id);

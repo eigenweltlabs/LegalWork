@@ -93,6 +93,7 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
       const result = await client.reviewWikiSuggestion(workspaceId, id, action, ready.revision);
       current.current = result; saved.current = fingerprint(result); setDraft(result); cache.setQueryData(key, result);
       void cache.invalidateQueries({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId] });
+      void cache.invalidateQueries({ queryKey: ["wiki-contributions", client.baseUrl] });
       if (action === "save") {
         await cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, result.destination.wikiId] });
         replaceTab(tabId, wikiPanelTab(client.baseUrl, result.destination.wikiId, { kind: "page", path: result.destination.path }, wikiPageHeading(result.content, result.title).title));

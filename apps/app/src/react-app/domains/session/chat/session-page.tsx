@@ -1336,7 +1336,7 @@ export function SessionPage(props: SessionPageProps) {
           >
             {wikiWorkspace && props.wiki && wikiNavigationOpen ? <>
               <ResizablePanel key={wikiWorkspace.workspaceId} id="wiki-navigation" defaultSize={`${readWikiNavigationWidth(wikiWorkspace.workspaceId)}px`} onResize={size => writeWikiNavigationWidth(wikiWorkspace.workspaceId, size.inPixels)} groupResizeBehavior="preserve-pixel-size" minSize="200px" maxSize="440px" className="min-w-0 border-r border-border">
-                <WikiPane key={wikiWorkspace.id} {...props.wiki} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
+                <WikiPane key={wikiWorkspace.id} {...props.wiki} chatHistory={{ group: listedSessionGroups.find(group => group.workspace.id === wikiWorkspace.workspaceId), selectedSessionId: props.selectedSessionId, onOpen: id => openSessionTab(wikiWorkspace.workspaceId, id) }} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
               </ResizablePanel>
               <ResizableHandle />
             </> : null}
