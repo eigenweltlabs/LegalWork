@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
 import { Button } from "@/components/ui/button";
-import type { ReactNode } from "react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ProviderActionsMenu } from "../provider-actions-menu";
+import { useState, type ReactNode } from "react";
 
 import { t } from "@/i18n";
 import { ProviderIcon } from "../../../design-system/provider-icon";
@@ -11,12 +13,12 @@ import {
   LayoutSectionHeader,
   LayoutSectionItem,
   LayoutSectionItemFootnote,
-  LayoutSectionItemHeader,
-  LayoutSectionItemHeaderActions,
-  LayoutSectionItemTitle,
   LayoutSectionTitle,
   LayoutStack,
 } from "../settings-layout";
+import { useOrgPolicyForbids } from "../../connections/org-policy";
+import { FirmItemNote, MemberKeyDialog, OrgPolicyNote } from "../../connections/org-policy-ui";
+import { ChatGptSignInButton } from "../../connections/provider-auth/chatgpt-plan-card";
 
 type ConnectedProvider = {
   id: string;
@@ -25,6 +27,9 @@ type ConnectedProvider = {
   /** True when this is a user-defined OpenAI-spec provider our form can edit. */
   editableAsCustom?: boolean;
 };
+
+/** One of the firm's chat providers, by its engine id; `key` says whose key it uses. */
+type FirmChatProvider = { id: string; name: string; key: "firm" | "member" | "oauth"; connected: boolean };
 
 export type AiSettingsViewProps = {
   busy: boolean;
@@ -43,14 +48,22 @@ export type AiSettingsViewProps = {
   onReplaceProviderKey?: (providerId: string) => void | Promise<void>;
   /** Edit a user-defined custom provider (only shown for `source === "custom"`). */
   onEditProvider?: (providerId: string) => void | Promise<void>;
+  onRefreshProvider?: (providerId: string) => void | Promise<void>;
   canDisconnectProvider: (source?: ConnectedProvider["source"]) => boolean;
-  /** When true, show a footnote that Eigenwelt is managed on its own tab. */
-  eigenweltConnected?: boolean;
+  firmProviders: FirmChatProvider[];
+  /** Sign in to one of the firm's providers with the member's own account (ChatGPT, for OpenAI). */
+  onSignInFirmProvider: (providerId: string) => void | Promise<void>;
+  /** Save the member's own key for one of the firm's providers. */
+  onSaveFirmProviderKey: (providerId: string, key: string) => Promise<unknown>;
+  eigenweltConnected: boolean;
+  onManageEigenweltAccount: () => void;
   /** Set of local provider IDs that were imported from cloud. */
   cloudProviderIds?: Set<string>;
   cloudProvidersView?: ReactNode;
+  ocrView?: ReactNode;
   /** Fusion mode configuration section (candidate models + fusion model). */
   fusionView?: ReactNode;
+  systemOneView?: ReactNode;
   /** Firm Hub: "share current settings as preset" section (shown only when entitled). */
   presetShareView?: ReactNode;
 };
@@ -63,119 +76,157 @@ function providerSourceLabel(source?: ConnectedProvider["source"]) {
   return null;
 }
 
-function providerStatusTone(label: string): "ready" | "warning" | "neutral" {
-  if (label.toLowerCase().includes("connected")) return "ready";
-  if (label.toLowerCase().includes("error") || label.toLowerCase().includes("fail")) return "warning";
-  return "neutral";
-}
-
 export function AiSettingsView(props: AiSettingsViewProps) {
+  const providersForbidden = useOrgPolicyForbids("ai.chat.allowCustom");
+  const [keyFor, setKeyFor] = useState<FirmChatProvider | null>(null);
   return (
     <LayoutStack>
       {/* ---- Providers ---- */}
       <LayoutSection>
         <LayoutSectionHeader>
-          <LayoutSectionTitle>{t("settings.providers_title")}</LayoutSectionTitle>
+          <div className="flex items-center justify-between gap-3">
+            <LayoutSectionTitle>{t("settings.providers_title")}</LayoutSectionTitle>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => void props.onOpenProviderAuth()}
+              disabled={props.busy || props.providerAuthBusy || providersForbidden}
+            >
+              {props.providerAuthBusy
+                ? t("settings.loading_providers")
+                : t("provider_auth.add_provider")}
+            </Button>
+          </div>
           <LayoutSectionDescription>{t("settings.providers_desc")}</LayoutSectionDescription>
+          <OrgPolicyNote policyKey="ai.chat.allowCustom" />
         </LayoutSectionHeader>
 
-        <LayoutSectionItem>
-          <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>
-              {props.providerSummary}
-              <SettingsStatusBadge
-                tone={providerStatusTone(props.providerStatusLabel)}
-                label={props.providerStatusLabel}
-              />
-            </LayoutSectionItemTitle>
-            <LayoutSectionItemHeaderActions>
-              <Button
-                onClick={() => void props.onOpenProviderAuth()}
-                disabled={props.busy || props.providerAuthBusy}
-              >
-                {props.providerAuthBusy
-                  ? t("settings.loading_providers")
-                  : t("settings.connect_provider")}
-              </Button>
-            </LayoutSectionItemHeaderActions>
-          </LayoutSectionItemHeader>
+        <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <ProviderIcon providerId="eigenwelt" size={20} className="text-dls-text" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{t("account.connected_title")}</p>
+              <p className="text-xs text-dls-secondary">
+                {t(props.eigenweltConnected ? "config.status_connected" : "config.status_not_connected")}
+              </p>
+            </div>
+          </div>
+          <ProviderActionsMenu name={t("account.connected_title")}>
+            <DropdownMenuItem onClick={props.onManageEigenweltAccount}>
+              {t(props.eigenweltConnected ? "account.manage" : "account.sign_in")}
+            </DropdownMenuItem>
+          </ProviderActionsMenu>
         </LayoutSectionItem>
 
-        {props.connectedProviders.length > 0 ? (
-          <>
-            {props.connectedProviders.map((provider) => (
-              <LayoutSectionItem
-                key={provider.id}
-                className="flex-row flex-wrap items-center justify-between gap-3"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <ProviderIcon providerId={provider.id} size={20} className="text-dls-text" />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-base font-medium text-ink">{provider.name}</span>
-                      {props.cloudProviderIds?.has(provider.id) ? (
-                        <span className="shrink-0 rounded-full border border-blue-6 bg-blue-2 px-2 py-0.5 text-[10px] font-medium text-blue-11">
-                          Cloud
-                        </span>
-                      ) : null}
-                      {provider.source === "env" ? (
-                        <span className="shrink-0 rounded-full border border-amber-6 bg-amber-2 px-2 py-0.5 text-[10px] font-medium text-amber-11">
-                          {providerSourceLabel("env")}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">{provider.id}</div>
-                  </div>
+        {props.connectedProviders.map((provider) => {
+          const firm = props.firmProviders.find((each) => each.id === provider.id);
+          return (
+          <LayoutSectionItem
+            key={provider.id}
+            className="flex-row flex-wrap items-center justify-between gap-3"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <ProviderIcon providerId={provider.id} size={20} className="text-dls-text" />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-medium">{provider.name}</p>
+                  {props.cloudProviderIds?.has(provider.id) ? (
+                    <SettingsStatusBadge label="Cloud" tone="neutral" className="min-h-6 px-2" />
+                  ) : null}
                 </div>
-                {!props.cloudProviderIds?.has(provider.id) ? (
-                  <div className="flex items-center gap-2">
-                    {provider.source === "env" && props.onReplaceProviderKey ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => void props.onReplaceProviderKey?.(provider.id)}
-                        disabled={
-                          props.busy ||
-                          props.providerAuthBusy ||
-                          props.disconnectingProviderId !== null
-                        }
-                      >
-                        {t("settings.replace_key")}
-                      </Button>
-                    ) : null}
-                    {provider.editableAsCustom && props.onEditProvider ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => void props.onEditProvider?.(provider.id)}
-                        disabled={
-                          props.busy ||
-                          props.providerAuthBusy ||
-                          props.disconnectingProviderId !== null
-                        }
-                      >
-                        {t("settings.edit")}
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="destructive"
-                      onClick={() => void props.onDisconnectProvider(provider.id)}
-                      disabled={
-                        props.busy ||
-                        props.providerAuthBusy ||
-                        props.disconnectingProviderId !== null ||
-                        !props.canDisconnectProvider(provider.source)
-                      }
-                    >
-                      {props.disconnectingProviderId === provider.id
-                        ? t("settings.disconnecting")
-                        : props.canDisconnectProvider(provider.source)
-                          ? t("settings.disconnect")
-                          : t("settings.managed_by_env")}
-                    </Button>
-                  </div>
+                {firm ? <FirmItemNote /> : <p className="text-xs text-dls-secondary">{providerSourceLabel(provider.source) ?? provider.id}</p>}
+              </div>
+            </div>
+            {/* The firm's key is not the member's to disconnect. */}
+            {!props.cloudProviderIds?.has(provider.id) && firm?.key !== "firm" && (
+              (provider.source === "env" && props.onReplaceProviderKey) ||
+              (provider.editableAsCustom && props.onEditProvider) || props.onRefreshProvider ||
+              props.canDisconnectProvider(provider.source)
+            ) ? (
+              <ProviderActionsMenu name={provider.name} disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}>
+                {provider.source === "env" && props.onReplaceProviderKey ? (
+                  <DropdownMenuItem
+                    onClick={() => void props.onReplaceProviderKey?.(provider.id)}
+                    disabled={
+                      props.busy ||
+                      props.providerAuthBusy ||
+                      props.disconnectingProviderId !== null
+                    }
+                  >
+                    {t("settings.replace_key")}
+                  </DropdownMenuItem>
                 ) : null}
-              </LayoutSectionItem>
-            ))}
-          </>
+                {provider.editableAsCustom && props.onEditProvider ? (
+                  <DropdownMenuItem
+                    onClick={() => void props.onEditProvider?.(provider.id)}
+                    disabled={
+                      props.busy ||
+                      props.providerAuthBusy ||
+                      props.disconnectingProviderId !== null
+                    }
+                  >
+                    {t("settings.edit")}
+                  </DropdownMenuItem>
+                ) : null}
+                {props.onRefreshProvider ? (
+                  <DropdownMenuItem
+                    onClick={() => void props.onRefreshProvider?.(provider.id)}
+                    disabled={props.busy || props.providerAuthBusy || props.disconnectingProviderId !== null}
+                  >
+                    {t("provider_auth.refresh_models")}
+                  </DropdownMenuItem>
+                ) : null}
+                {props.canDisconnectProvider(provider.source) ? (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => void props.onDisconnectProvider(provider.id)}
+                    disabled={
+                      props.busy ||
+                      props.providerAuthBusy ||
+                      props.disconnectingProviderId !== null
+                    }
+                  >
+                    {props.disconnectingProviderId === provider.id
+                      ? t("settings.disconnecting")
+                      : t("settings.disconnect")}
+                  </DropdownMenuItem>
+                ) : null}
+              </ProviderActionsMenu>
+            ) : null}
+          </LayoutSectionItem>
+          );
+        })}
+
+        {props.firmProviders.filter((provider) => !provider.connected).map((provider) => (
+          <LayoutSectionItem key={provider.id} className="flex-row flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <ProviderIcon providerId={provider.id} size={20} className="text-dls-text" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{provider.name}</p>
+                <FirmItemNote />
+              </div>
+            </div>
+            {provider.key === "oauth" ? (
+              // The row's size, like the other buttons here.
+              <ChatGptSignInButton className="h-8 gap-2 rounded-lg px-3 text-[13px] [&>span]:size-4" disabled={props.busy || props.providerAuthBusy} onClick={() => void props.onSignInFirmProvider(provider.id)} />
+            ) : provider.key === "member" ? (
+              <Button variant="outline" size="sm" disabled={props.busy || props.providerAuthBusy} onClick={() => setKeyFor(provider)}>
+                {t("org_policy.add_own_key")}
+              </Button>
+            ) : (
+              <p className="text-xs text-dls-secondary">{t("org_policy.firm_key_signed_out")}</p>
+            )}
+          </LayoutSectionItem>
+        ))}
+
+        {keyFor ? (
+          <MemberKeyDialog
+            name={keyFor.name}
+            onClose={() => setKeyFor(null)}
+            onSave={async (key) => {
+              await props.onSaveFirmProviderKey(keyFor.id, key);
+            }}
+          />
         ) : null}
 
         {props.providerConnectError ? (
@@ -188,19 +239,17 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           <SettingsNotice tone="error">{props.providerDisconnectError}</SettingsNotice>
         ) : null}
 
-        {props.eigenweltConnected ? (
-          <LayoutSectionItemFootnote>{t("account.managed_notice")}</LayoutSectionItemFootnote>
-        ) : null}
         {props.connectedProviders.some((provider) => provider.source === "env") ? (
           <LayoutSectionItemFootnote>
             {t("settings.env_key_override_info")}
           </LayoutSectionItemFootnote>
-        ) : (
-          <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
-        )}
+        ) : null}
       </LayoutSection>
 
       {props.cloudProvidersView}
+
+      {props.systemOneView}
+      {props.ocrView}
 
       {props.fusionView}
 

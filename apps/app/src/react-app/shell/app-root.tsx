@@ -1,6 +1,8 @@
+import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
 import { useEffect } from "react";
+import { DocumentDiscardDialog } from "../domains/session/artifacts/document-discard-dialog";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "../../i18n/use-locale";
@@ -8,6 +10,7 @@ import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
 import { NewProvidersListener } from "./new-providers-listener";
+import { OrgPolicyRoot } from "../domains/connections/org-policy-ui";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
@@ -51,10 +54,12 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
         <AppMenuProvider>
         <LegalworkControlProvider>
+          <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
           <Routes>
               <Route
@@ -76,6 +81,9 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/wikis" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId/session/:sessionId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/evals"
                 element={
@@ -100,6 +108,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/home" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/session/:sessionId"
                 element={
@@ -108,6 +117,17 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/scheduled" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/projects" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workflows" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/recorder" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/files" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/sessions" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/workspace/:workspaceId/session"
                 element={
@@ -140,11 +160,10 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
-              {/* Default + fallback: land on the session view. Users open
-                  settings deliberately via the sidebar or command palette. */}
-              <Route path="/" element={<Navigate to="/session" replace />} />
-              <Route path="*" element={<Navigate to="/session" replace />} />
+              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
+          </DocumentRuntimeProvider>
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>
@@ -161,6 +180,7 @@ export function AppRoot() {
       */}
       <NewProvidersListener />
       <TaskNotificationsListener />
+      <OrgPolicyRoot />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

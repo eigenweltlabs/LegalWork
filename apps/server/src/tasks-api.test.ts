@@ -20,7 +20,7 @@ describe("tasks-api: who is acting", () => {
       account: ACCOUNT,
       platformURL: null,
       platformToken: "tok",
-      refreshToken: null,
+      refreshToken: null, refreshRequestId: null, refreshError: null,
       platformTokenExpiresAt: null,
     };
     expect(taskActorOf(connection)).toEqual({ userId: "user_ada", name: "Ada", email: "ada@kanzlei.test" });
@@ -33,7 +33,7 @@ describe("tasks-api: who is acting", () => {
       account: ACCOUNT,
       platformURL: null,
       platformToken: null,
-      refreshToken: null,
+      refreshToken: null, refreshRequestId: null, refreshError: null,
       platformTokenExpiresAt: null,
     };
     expect(connectedTaskOrgId(connection)).toBeNull();
@@ -129,9 +129,9 @@ describe("tasks-api: create and patch bodies", () => {
     expect(() => parseTaskPatch({ note: "ok", noteSource: "system" })).toThrow(ApiError);
   });
 
-  test("a due date is a calendar day at local midnight, a timestamp, or null", () => {
+  test("a due date preserves a calendar day, a timestamp, or null", () => {
     const day = parseDueDate("2026-09-18");
-    expect(day).toBe(new Date(2026, 8, 18).toISOString());
+    expect(day).toBe("2026-09-18");
     expect(parseDueDate("2026-09-18T09:30:00Z")).toBe("2026-09-18T09:30:00.000Z");
     expect(parseDueDate(null)).toBeNull();
     expect(() => parseDueDate("2026-02-30")).toThrow(ApiError);
@@ -139,4 +139,12 @@ describe("tasks-api: create and patch bodies", () => {
     expect(() => parseDueDate(5)).toThrow(ApiError);
     expect(parseTaskPatch({ dueDate: null })).toEqual({ dueDate: null });
   });
+});
+
+test("project assignment supports explicit unlinking and refuses malformed IDs", () => {
+  expect(parseTaskCreate({ title: "Review", projectId: " matter-a " }).projectId).toBe("matter-a");
+  expect(parseTaskPatch({ projectId: null })).toEqual({ projectId: null });
+  expect(parseTaskPatch({ projectId: "matter-b" })).toEqual({ projectId: "matter-b" });
+  expect(parseTaskListParams(new URLSearchParams("projectId=matter-a"))).toEqual({ projectId: "matter-a" });
+  for (const projectId of [42, "", " ", "x".repeat(201)]) expect(() => parseTaskPatch({ projectId })).toThrow(ApiError);
 });

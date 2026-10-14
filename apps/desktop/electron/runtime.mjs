@@ -115,6 +115,13 @@ export async function mergeRuntimeMcpConfig(name, config, env = process.env) {
   return file;
 }
 
+// Documents is supplied by Electron's OS known-folder API, including redirected
+// Windows/OneDrive folders. Never derive user documents from the engine's HOME.
+export function desktopProjectsDirectory(documentsDirectory, development = false, platform = process.platform) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  return paths.join(documentsDirectory, development ? "LegalWork Dev" : "LegalWork", "Projects");
+}
+
 export function seedWorkspacePathsForEmbeddedServer(workspacePaths, serverConfigExists) {
   return serverConfigExists ? [] : workspacePaths;
 }
@@ -466,7 +473,7 @@ export function nodeShimFileName(platform = process.platform) {
 
 // Development-only fallback that re-execs Electron in Node mode. Electron ships a
 // full Node runtime, so machines without a system Node.js can still run the
-// bundled workspace skills (docx-edit, pdf-tools, tabular-review), which shell
+// bundled workspace skills (docx-edit, pdf-tools), which shell
 // out to `node`. The shim directory is appended LAST to the child PATH, so any
 // real Node installation always wins.
 export function nodeShimScriptContent(execPath, platform = process.platform) {
@@ -638,6 +645,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  const pluginDiscoveryHome = app.getPath("home");
+  const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
@@ -934,6 +943,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
       ...extra,
+      // Import sources belong to the OS user, even when dev isolates OpenCode's HOME.
+      LEGALWORK_PLUGIN_DISCOVERY_HOME: pluginDiscoveryHome,
     };
     const pathKey =
       Object.prototype.hasOwnProperty.call(env, "PATH") ||
@@ -1421,6 +1432,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      decryptLegacyConnectorSecrets: async (value) => {
+        const { safeStorage } = await import("electron");
+        return safeStorage.decryptString(Buffer.from(value, "base64"));
+      },
+      projectsDirectory,
       host,
       port: portSelection.port,
       corsOrigins: ["*"],
@@ -2309,7 +2325,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     officeAddinUninstall: (appId) => officeAddinManager.uninstall(appId),
     officeAddinOpenApp: (appId) => officeAddinManager.openApp(appId),
     orchestratorStatus,
-    orchestratorWorkspaceActivate,
+    orchestratorWorkspaceActivate: (input) => withRuntimeLifecycle(() => orchestratorWorkspaceActivate(input)),
     orchestratorInstanceDispose,
     orchestratorStartDetached,
     opencodeMcpAuth,

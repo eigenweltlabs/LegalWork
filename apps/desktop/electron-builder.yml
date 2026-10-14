@@ -15,6 +15,11 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/actaport-mcp
+    to: actaport-mcp
+    filter:
+      - index.mjs
+      - auth.mjs
   - from: resources/node
     to: node
     filter:
@@ -22,6 +27,10 @@ extraResources:
       - node.exe
       - LICENSE
       - runtime.json
+  - from: ../server/resources/ocr
+    to: ocr
+  - from: ../server/resources/agent-sandbox/runtime
+    to: agent-sandbox
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
@@ -50,6 +59,8 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
 asarUnpack:
+  - node_modules/.pnpm/@napi-rs+canvas*/**
+  - node_modules/@napi-rs/canvas*/**
   - node_modules/.pnpm/@lydell+node-pty*/**
   - node_modules/node-pty/**
   # sherpa-onnx ships prebuilt native libraries (local speech-to-text for the
@@ -57,6 +68,14 @@ asarUnpack:
   # outside the asar.
   - node_modules/.pnpm/sherpa-onnx*/**
   - node_modules/sherpa-onnx-node/**
+  # The bundled Node OCR worker must resolve JS and native files outside ASAR.
+  - node_modules/.pnpm/onnxruntime*/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+  - node_modules/.pnpm/paddleocr*/**
+  - node_modules/paddleocr/**
+  - node_modules/.pnpm/image-size*/**
+  - node_modules/image-size/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
@@ -69,6 +88,7 @@ publish:
     repo: legalwork
     releaseType: release
 mac:
+  sign: scripts/sign-macos.cjs
   binaries:
     - Contents/Resources/node/node
   icon: resources/icons/icon.icns
@@ -79,6 +99,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
+    NSAppleEventsUsageDescription: LegalWork uses Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LegalWork captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LegalWork uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
@@ -98,7 +119,6 @@ mac:
     - from: resources/helpers
       to: helpers
       filter:
-        - "LegalWork Computer Use.app/**"
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
   target:

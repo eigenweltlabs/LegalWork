@@ -1,8 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
-
-const computerUseHelperAppName = "LegalWork Computer Use.app";
+const { Arch } = require("electron-builder");
+const { pruneOcrRuntime } = require("./packaged-ocr.cjs");
 
 const sidecarBases = [
   "opencode",
@@ -47,30 +46,6 @@ function resolveMacAppPath(context) {
   return fallback ? path.join(context.appOutDir, fallback) : null;
 }
 
-function signComputerUseHelper(context) {
-  const appPath = resolveMacAppPath(context);
-  if (!appPath) return;
-
-  const helperPath = path.join(appPath, "Contents", "Resources", "helpers", computerUseHelperAppName);
-  if (!fs.existsSync(helperPath)) {
-    throw new Error(`Missing Computer Use helper app at ${helperPath}`);
-  }
-
-  const identity = process.env.LEGALWORK_COMPUTER_USE_CODESIGN_IDENTITY
-    || process.env.CSC_NAME
-    || process.env.APPLE_CODESIGN_IDENTITY
-    || "-";
-  const args = ["--force", "--deep", "--options", "runtime", "--sign", identity];
-  if (identity !== "-") args.push("--timestamp");
-  args.push(helperPath);
-
-  const result = spawnSync("codesign", args, { stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`codesign failed for Computer Use helper app with status ${result.status}`);
-  }
-}
-
 function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
   const targetPath = path.join(sidecarsDir, targetName);
   if (!fs.existsSync(targetPath)) {
@@ -91,6 +66,8 @@ async function afterPack(context) {
   const resources = appPath ? path.join(appPath, "Contents", "Resources") : path.join(context.appOutDir, "resources");
   const nodePath = path.join(resources, "node", context.electronPlatformName === "win32" ? "node.exe" : "node");
   if (!fs.existsSync(nodePath)) throw new Error(`Missing packaged Node runtime: ${nodePath}`);
+  const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
+  pruneOcrRuntime(resources, context.electronPlatformName, arch);
   const triple = targetTriple(context.electronPlatformName, context.arch);
   if (!triple) return;
 
@@ -124,8 +101,6 @@ async function afterPack(context) {
       fs.rmSync(path.join(sidecarsDir, entry), { force: true, recursive: true });
     }
   }
-
-  signComputerUseHelper(context);
 }
 
 module.exports = afterPack;

@@ -107,6 +107,12 @@ describe("requireIntakeClient", () => {
 });
 
 describe("intakeListTasks", () => {
+  test("uses date-only deadlines from a new platform and retains old-platform timestamps", async () => {
+    stubFetch(() => jsonResponse({ tasks: [{ ...TASK, dueDate: "2026-10-07T00:00:00", dueDateDay: "2026-10-07" }], nextCursor: null }));
+    expect((await intakeListTasks(client)).tasks[0].dueDate).toBe("2026-10-07");
+    stubFetch(() => jsonResponse({ tasks: [{ ...TASK, dueDate: "2026-10-07T14:30:00.000Z" }], nextCursor: null }));
+    expect((await intakeListTasks(client)).tasks[0].dueDate).toBe("2026-10-07T14:30:00.000Z");
+  });
   test("shapes the filter/sort/paging query and carries the bearer token", async () => {
     stubFetch(() => jsonResponse({ tasks: [TASK], nextCursor: "cur_2" }));
     const page = await intakeListTasks(client, {
@@ -229,7 +235,7 @@ describe("intakeGetTask", () => {
 describe("intakePatchTask", () => {
   test("sends only the fields the caller set, as JSON", async () => {
     stubFetch(() => jsonResponse({ ...TASK, status: "done" }));
-    const task = await intakePatchTask(client, "task_1", { status: "done", assigneeUserId: null });
+    const { task } = await intakePatchTask(client, "task_1", { status: "done", assigneeUserId: null });
 
     expect(calls[0].url).toBe("https://platform.test/api/intake/tasks/task_1");
     expect(calls[0].init.method).toBe("PATCH");
@@ -240,9 +246,16 @@ describe("intakePatchTask", () => {
 
   test("accepts a `{ task }` envelope and answers null when neither shape comes back", async () => {
     stubFetch(() => jsonResponse({ task: TASK }));
-    expect((await intakePatchTask(client, "task_1", { priority: 4 }))?.id).toBe("task_1");
+    expect((await intakePatchTask(client, "task_1", { priority: 4 })).task?.id).toBe("task_1");
     stubFetch(() => jsonResponse({ ok: true }));
-    expect(await intakePatchTask(client, "task_1", { priority: 4 })).toBeNull();
+    expect((await intakePatchTask(client, "task_1", { priority: 4 })).task).toBeNull();
+  });
+
+  test("hands back a title or description a colleague changed in the same words", async () => {
+    stubFetch(() => jsonResponse({ task: TASK, conflicts: [{ field: "title", mine: "Frist Schmidt", theirs: "Frist Müller" }, { field: "status", mine: "x", theirs: "y" }] }));
+    const result = await intakePatchTask(client, "task_1", { title: "Frist Schmidt", bases: { title: "Frist" } });
+    expect(JSON.parse(String(calls[0].init.body))).toMatchObject({ bases: { title: "Frist" } });
+    expect(result.conflicts).toEqual([{ field: "title", mine: "Frist Schmidt", theirs: "Frist Müller" }]);
   });
 });
 
@@ -381,4 +394,3 @@ describe("error mapping", () => {
     });
   });
 });
-

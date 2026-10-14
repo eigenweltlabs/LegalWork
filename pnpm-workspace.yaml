@@ -3,6 +3,12 @@ minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   # Explicitly allow the reviewed Electron security update.
   - "electron@43.7.5"
+  # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
+  - "@openuidev/react-lang@0.4.1"
+  - "@openuidev/lang-core@0.4.1"
+  - "@openuidev/react-ui@0.17.1"
+  - "@openuidev/react-headless@0.17.1"
+  - "@openuidev/devtools@0.2.3"
 
 packages:
   - "apps/*"
@@ -25,6 +31,8 @@ preferWorkspacePackages: true
 # Installs are always explicit here, so skip the pre-run check.
 verifyDepsBeforeRun: false
 allowBuilds:
+  # The published runtime is prebuilt; its postinstall only sends telemetry.
+  "@openuidev/lang-core": false
   cpu-features: false
   ssh2: false
   "@whiskeysockets/baileys": true
@@ -36,6 +44,8 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  # CPU binaries already ship in the package; do not download optional CUDA libraries.
+  onnxruntime-node: false
   # Windows releases use NSIS, not the optional Squirrel installer.
   electron-winstaller: false
 # Keep document parsers patched even when a transitive dependency pins an older patch.

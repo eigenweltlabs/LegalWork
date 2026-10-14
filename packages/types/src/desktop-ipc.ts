@@ -13,6 +13,16 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+
+export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
+export type ActaportConnectionStatus = {
+  configured: boolean;
+  secureStorage: boolean;
+  allowWrites: boolean;
+  coreToolCount: number;
+  enabledToolsets: ActaportToolset[];
+  toolsets: Array<{ id: ActaportToolset; readTools: number; writeTools: number }>;
+};
 import type {
   AudioCapturePermissions,
   AudioDiarizationState,
@@ -45,6 +55,16 @@ export type OpencodeExecutionEnvEntry = {
   name: string;
   value: string;
   redacted: boolean;
+};
+
+export type OpenComputerUseStatus = {
+  version: string;
+  platform: string;
+  installed: boolean;
+  ready: boolean;
+  accessibility?: boolean;
+  screenRecording?: boolean;
+  error?: string;
 };
 
 export type OpencodeExecutionSnapshot = {
@@ -109,6 +129,15 @@ export type WorkspaceList = {
   watchedId?: string | null;
   activeId?: string | null;
   workspaces: WorkspaceWire[];
+};
+
+export type WorkspaceCopyFilesResult = {
+  files: Array<{
+    name: string;
+    path?: string;
+    status: "copied" | "already_here" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+  }>;
 };
 
 export type WorkspaceExportSummary = {
@@ -312,13 +341,6 @@ export type UiControlBridgeInfo = {
   token?: string;
 };
 
-export type ComputerUsePermissions = {
-  ok: boolean;
-  accessibility: boolean;
-  screenRecording: boolean;
-  error?: string;
-};
-
 export type RunningAppsResult = {
   ok: boolean;
   apps: string[];
@@ -373,10 +395,30 @@ export type OfficeAddinOpenAppResult = {
 // The command map
 // ---------------------------------------------------------------------------
 
+export type NativeMailDraftInput = {
+  subject: string;
+  body: string;
+  from: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  attachments: { name: string; data: Uint8Array }[];
+};
+
 export type DesktopCommandMap = {
+  composeAppleMailDraft: { args: [draft: NativeMailDraftInput]; result: void };
+  composeOutlookDraft: { args: [draft: NativeMailDraftInput]; result: void };
   // Native windows
+  openAppWindow: {
+    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];
+    result: boolean;
+  };
   openSessionWindow: {
     args: [input: { workspaceId: string; sessionId: string; title?: string }];
+    result: boolean;
+  };
+  openProjectWindow: {
+    args: [input: { workspaceId: string; page: "home" | "calendar" | "reviews" | "tasks" | "files" | "workspace"; seed?: string; title?: string }];
     result: boolean;
   };
 
@@ -385,6 +427,10 @@ export type DesktopCommandMap = {
   workspaceSetSelected: { args: [workspaceId: string]; result: WorkspaceList };
   workspaceSetRuntimeActive: { args: [workspaceId: string | null]; result: WorkspaceList };
   workspaceCreate: { args: [input: WorkspaceCreateInput]; result: WorkspaceList };
+  workspaceCopyFiles: {
+    args: [input: { workspaceId: string; paths: string[]; folder?: string }];
+    result: WorkspaceCopyFilesResult;
+  };
   workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
   workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {
@@ -451,14 +497,21 @@ export type DesktopCommandMap = {
   appBuildInfo: { args: []; result: AppBuildInfo };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
-  getComputerUseMcpCommand: { args: []; result: string[] };
+  getActaportMcpCommand: { args: []; result: string[] };
+  getActaportMcpEnvironment: { args: []; result: Record<string, string> };
+  actaportStatus: { args: []; result: ActaportConnectionStatus };
+  actaportConnect: { args: [credentials: { realm: string; clientId: string; clientSecret: string; username: string; password: string }]; result: ActaportConnectionStatus };
+  actaportTest: { args: []; result: { ok: boolean } };
+  actaportSetWriteAccess: { args: [enabled: boolean]; result: ActaportConnectionStatus };
+  actaportSetToolsets: { args: [toolsets: ActaportToolset[]]; result: ActaportConnectionStatus };
+  actaportDisconnect: { args: []; result: ActaportConnectionStatus };
+  getOpenComputerUseMcpConfig: { args: []; result: { command: string[]; environment: Record<string, string> } };
+  checkOpenComputerUse: { args: []; result: OpenComputerUseStatus };
+  openOpenComputerUsePermissionSetup: { args: []; result: void };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use
-  checkComputerUsePermissions: { args: []; result: ComputerUsePermissions };
   listRunningApps: { args: []; result: RunningAppsResult };
-  openComputerUsePermissionSetup: { args: []; result: ComputerUsePermissions };
-  openComputerUsePermissionSettings: { args: []; result: unknown };
 
   // Bootstrap config
   getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };
@@ -647,6 +700,7 @@ export type DesktopCommandMap = {
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  audioRecordingSetProject: { args: [recordingId: string, projectId: string, linked: boolean]; result: AudioRecordingMeta[] };
   /**
    * Flip an ephemeral recording (system dictation) to retained. Used when the
    * paste failed so the spoken text stays recoverable in Recorder history.
@@ -773,11 +827,15 @@ export type DesktopCommandMap = {
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
+  __streamRead: { args: [id: string]; result: Uint8Array | null };
+  __streamCancel: { args: [id: string]; result: void };
   __homeDir: { args: []; result: string };
   __joinPath: { args: [...segments: string[]]; result: string };
   __setZoomFactor: { args: [factor: number]; result: boolean };
-  __setNativeTheme: { args: [theme: string]; result: unknown };
+  __setNativeTheme: { args: [theme: string, appearance?: string]; result: unknown };
   __setApplicationMenuVisible: { args: [visible: boolean]; result: unknown };
+  __showApplicationMenu: { args: [menu: "File" | "Edit" | "View" | "Help", point: { x: number; y: number }]; result: boolean };
 };
 
 export type DesktopCommandName = keyof DesktopCommandMap;
@@ -810,3 +868,26 @@ export type DesktopCommandHandlers<Event = unknown> = {
 export type DesktopCommandInvokers = {
   [C in DesktopCommandName]: (...args: DesktopCommandArgs<C>) => Promise<DesktopCommandResult<C>>;
 };
+
+
+/** Exact request shown for one-time approval on the worker's host. */
+export interface HostApprovalRequest {
+  canRemember?: boolean;
+  id: string;
+  workspaceId: string;
+  action: string;
+  summary: string;
+  sessionID?: string;
+  description?: string;
+  paths: string[];
+  createdAt: number;
+  actor: { type: "remote" | "host"; clientId?: string; scope?: string };
+  network?: {
+    url: string;
+    method: string;
+    headers: Readonly<Record<string, string>>;
+    body: string;
+    bodyFormat: "text" | "base64";
+    bodyBytes: number;
+  };
+}

@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
+import { composedSkill } from "./skill-composition.js";
+import { resolveSkillDir } from "./skill-resources.js";
+import { computeReloadFingerprint } from "./reload-fingerprint.js";
+import { createWikiStarterFiles } from "./wiki/templates.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
+let configHome: string;
+let savedConfigHome: string | undefined;
 
 async function writeSkill(dir: string, name: string, metadata = "") {
   await mkdir(dir, { recursive: true });
@@ -15,9 +21,14 @@ async function writeSkill(dir: string, name: string, metadata = "") {
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "legalwork-skills-"));
   await mkdir(join(workspace, ".git"), { recursive: true });
+  savedConfigHome = process.env.XDG_CONFIG_HOME;
+  configHome = join(workspace, "global-config");
+  process.env.XDG_CONFIG_HOME = configHome;
 });
 
 afterEach(async () => {
+  if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = savedConfigHome;
   await rm(workspace, { recursive: true, force: true });
 });
 
@@ -47,21 +58,6 @@ describe("deleteSkill", () => {
 });
 
 describe("upsertSkill", () => {
-  let configHome: string;
-  let savedConfigHome: string | undefined;
-
-  beforeEach(async () => {
-    savedConfigHome = process.env.XDG_CONFIG_HOME;
-    configHome = await mkdtemp(join(tmpdir(), "legalwork-skills-config-"));
-    process.env.XDG_CONFIG_HOME = configHome;
-  });
-
-  afterEach(async () => {
-    if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = savedConfigHome;
-    await rm(configHome, { recursive: true, force: true });
-  });
-
   test("defaults to the workspace's own skills dir", async () => {
     const result = await upsertSkill(workspace, {
       name: "matter-intake",
@@ -103,6 +99,29 @@ describe("upsertSkill", () => {
 });
 
 describe("listSkills", () => {
+  test("wiki skills are local, loadable and editable in place without leaking to another workspace", async () => {
+    for (const [path, content] of Object.entries(createWikiStarterFiles("firm", "Test firm"))) {
+      const target = join(workspace, path);
+      await mkdir(target.slice(0, target.lastIndexOf("/")), { recursive: true });
+      await writeFile(target, content);
+    }
+    const local = (await listSkills(workspace, false)).filter(item => item.name.startsWith("wiki-"));
+    expect(local).toHaveLength(4);
+    expect(local.every(item => item.scope === "project" && item.kind === "workflow")).toBe(true);
+    const loaded = await composedSkill(workspace, "wiki-setup");
+    expect(loaded.chain[0]?.content).toContain("# Set up this firm's wiki");
+    expect(await resolveSkillDir(workspace, "wiki-setup")).toBe(join(workspace, "Skills/wiki-setup"));
+    const sibling = join(workspace, "other-project");
+    await mkdir(sibling);
+    expect((await listSkills(sibling, false)).some(item => item.name === "wiki-setup")).toBe(false);
+    const before = await computeReloadFingerprint(workspace, "skills");
+    const result = await upsertSkill(workspace, { name: "wiki-setup", description: "Our customized setup.", content: "Keep our chosen organization." });
+    expect(result).toMatchObject({ action: "updated", path: join(workspace, "Skills/wiki-setup/SKILL.md") });
+    expect(await computeReloadFingerprint(workspace, "skills")).not.toBe(before);
+    expect((await composedSkill(workspace, "wiki-setup")).chain[0]?.content).toContain("Keep our chosen organization.");
+    await deleteSkill(workspace, "wiki-setup");
+    expect((await listSkills(workspace, false)).some(item => item.name === "wiki-setup")).toBe(false);
+  });
   test("accepts OpenCode-style colons and skips other malformed Claude skills", async () => {
     const claudeSkills = join(workspace, ".claude", "skills");
     const compatible = join(claudeSkills, "compatible-skill");
@@ -177,4 +196,15 @@ describe("listSkills", () => {
     expect(resolveHubSkillKind(undefined, "skill", "workflow-legacy-review")).toBe("workflow");
     expect(resolveHubSkillKind(undefined, "skill", "ordinary-skill")).toBe("skill");
   });
+});
+
+test("legacy tabular workflows are normal workflows without renaming or rewriting user content", async () => {
+  for (const [name, metadata] of [["workflow-tabular-commercial", ""], ["private-review", "workflow_type: tabular\n"]]) {
+    const dir = join(workspace, ".opencode", "skills", name);
+    await writeSkill(dir, name, metadata);
+    const path = join(dir, "SKILL.md"), before = await readFile(path, "utf8");
+    const item = (await listSkills(workspace, false)).find(item => item.name === name);
+    expect(item).toMatchObject({ name, path, kind: "workflow", workflowType: "assistant" });
+    expect(await readFile(path, "utf8")).toBe(before);
+  }
 });

@@ -16,10 +16,11 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
@@ -36,6 +37,7 @@ import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
@@ -44,18 +46,20 @@ import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
 } from "./updater.mjs";
-import {
-  checkComputerUsePermissions,
-  getComputerUseMcpCommand,
-  listRunningApps,
-  openComputerUseSetupApp,
-} from "./computer-use.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
+import { createOpenComputerUseIntegration } from "./open-computer-use.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
+import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome.mjs";
+import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { resolveBrowserProject } from "./browser-project.mjs";
+import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
+import { getApplicationsForFile } from "./file-applications.mjs";
+import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { extractDescription } from "./skill-description.mjs";
 import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
@@ -63,6 +67,7 @@ import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
+const openComputerUse = createOpenComputerUseIntegration({ getDataDir: () => app.getPath("userData") });
 const mcpOAuthOwners = new WeakSet();
 app.on("will-quit", () => mcpOAuthCallbacks.close());
 
@@ -103,6 +108,22 @@ function recordingAudioContentType(filePath) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function actaportBundlePath(file) {
+  return app.isPackaged ? path.join(process.resourcesPath, "actaport-mcp", file)
+    : path.resolve(__dirname, "../../../packages/actaport-mcp/dist", file);
+}
+/** @type {ReturnType<typeof createActaportConnection> | undefined} */
+let actaportConnection;
+function getActaportConnection() {
+  actaportConnection ??= createActaportConnection({ directory: app.getPath("userData"), safeStorage,
+    loadAuth: () => import(pathToFileURL(actaportBundlePath("auth.mjs")).href) });
+  return actaportConnection;
+}
+function prepareActaportMcpRuntime() {
+  return prepareActaportRuntime(path.dirname(actaportBundlePath("index.mjs")), path.join(app.getPath("userData"), "mcp", "actaport"));
+}
+app.on("will-quit", () => { void actaportConnection?.close(); });
 
 // Where the app UI is served from: the dev server, or the built app folder.
 const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
@@ -491,13 +512,6 @@ function resolveAppIconPath({ dark = false } = {}) {
   return null;
 }
 
-function normalizeRuntimeArch(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (["arm64", "aarch64", "arm64e"].includes(normalized)) return "arm64";
-  if (["x64", "x86_64", "amd64"].includes(normalized)) return "x64";
-  return normalized || "unknown";
-}
-
 function isMacRunningUnderRosetta() {
   if (process.platform !== "darwin" || process.arch !== "x64") return false;
   try {
@@ -511,127 +525,23 @@ function isMacRunningUnderRosetta() {
 }
 
 function resolveSystemArch() {
-  if (process.platform === "darwin" && isMacRunningUnderRosetta()) return "arm64";
-  if (process.platform === "win32") {
-    return normalizeRuntimeArch(
-      process.env.PROCESSOR_ARCHITEW6432 || process.env.PROCESSOR_ARCHITECTURE || os.arch(),
-    );
-  }
-  if (typeof os.machine === "function") return normalizeRuntimeArch(os.machine());
-  return normalizeRuntimeArch(os.arch());
+  return nativeSystemArch({
+    platform: process.platform,
+    appArch: process.arch,
+    machine: typeof os.machine === "function" ? os.machine() : os.arch(),
+    env: process.env,
+    translated: app.runningUnderARM64Translation || isMacRunningUnderRosetta(),
+  });
 }
 
-function platformDownloadSlug() {
-  if (process.platform === "darwin") return "mac";
-  if (process.platform === "win32") return "win";
-  return "linux";
-}
-
-function downloadAssetArch(arch) {
-  if (process.platform === "linux" && arch === "x64") return "x86_64";
-  return arch;
-}
-
-function downloadAssetExtension() {
-  if (process.platform === "darwin") return "dmg";
-  if (process.platform === "win32") return "exe";
-  return "AppImage";
-}
-
-function updaterManifestName(arch) {
-  if (process.platform === "darwin") return "latest-mac.yml";
-  if (process.platform === "win32") return "latest.yml";
-  return arch === "arm64" ? "latest-linux-arm64.yml" : "latest-linux.yml";
-}
-
-function archLabel(arch) {
-  if (arch === "arm64") return "ARM";
-  if (arch === "x64") return "Intel";
-  return arch;
-}
-
-function parseUpdaterManifestFiles(raw) {
-  const files = [];
-  let current = null;
-  for (const line of String(raw || "").split(/\r?\n/)) {
-    const start = line.match(/^\s*-\s+url:\s*(.+?)\s*$/);
-    if (start) {
-      current = { url: start[1].trim().replace(/^['"]|['"]$/g, "") };
-      files.push(current);
-      continue;
-    }
-    const prop = line.match(/^\s{4}([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
-    if (prop && current) {
-      current[prop[1]] = prop[2].trim().replace(/^['"]|['"]$/g, "");
-    }
-  }
-  return files.filter((file) => file.url);
-}
-
-function selectDownloadFile(files, arch) {
-  const assetArch = downloadAssetArch(arch);
-  const expected = `-${assetArch}-`;
-  const extension = downloadAssetExtension();
-  const matchingArch = files.filter((file) => file.url.includes(expected));
-  return (
-    matchingArch.find((file) => file.url.endsWith(`.${extension}`)) ||
-    matchingArch.find((file) => file.url.endsWith(".zip")) ||
-    matchingArch[0] ||
-    null
-  );
-}
-
-async function resolveCorrectArchitectureDownloadUrl(arch) {
-  for (const baseUrl of [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL]) {
-    try {
-      const response = await fetch(`${baseUrl}/${updaterManifestName(arch)}`, {
-        headers: { Accept: "text/yaml, text/plain, */*" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-      // No match is treated like an unreachable feed: a 200 with a
-      // non-manifest body (maintenance page, bot challenge) parses to nothing
-      // and must not short-circuit past the GitHub fallback.
-      if (!selected?.url) {
-        console.warn(`[architecture] no matching download in manifest via ${baseUrl}`);
-        continue;
-      }
-      return /^https?:\/\//i.test(selected.url)
-        ? selected.url
-        : new URL(selected.url, `${baseUrl}/`).toString();
-    } catch (error) {
-      console.warn(`[architecture] failed to resolve download URL via ${baseUrl}`, error);
-    }
-  }
-  return null;
-}
-
-async function resolveArchitectureInfo() {
-  const appArch = normalizeRuntimeArch(process.arch);
-  const systemArch = resolveSystemArch();
-  const version = app.getVersion();
-  const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const assetName = `legalwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
-  // Only the mismatch gate consumes this, and resolving it hits the release
-  // feed. Skip the request outright when the arches already agree, so a
-  // correctly-installed app never touches the update feed on launch — that
-  // ping is not covered by the "check for updates automatically" setting.
-  const latestDownloadUrl =
-    appArch === systemArch ? null : await resolveCorrectArchitectureDownloadUrl(targetArch);
-  const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
-  return {
-    appArch,
-    appArchLabel: archLabel(appArch),
-    systemArch,
-    systemArchLabel: archLabel(systemArch),
-    mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
-    platform: process.platform === "win32" ? "windows" : process.platform,
-    version,
-    // Static fallback uses GitHub directly: if we reach this branch the
-    // tracked route did not answer, so handing out its URL would be dead too.
-    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_FALLBACK_BASE_URL}/${assetName}`,
+function resolveArchitectureInfo() {
+  return architectureInfo({
+    platform: process.platform,
+    appArch: normalizeRuntimeArch(process.arch),
+    systemArch: resolveSystemArch(),
+    version: app.getVersion(),
     releaseUrl: RELEASE_PAGE_URL,
-  };
+  });
 }
 
 const APP_ICON_PATH = resolveAppIconPath();
@@ -756,7 +666,8 @@ const IDLE_ROUTER_INFO = Object.freeze({
 });
 
 let mainWindow = null;
-const detachedSessionWindows = new Map();
+const secondaryWindows = new Set();
+const eventStreams = createEventStreams();
 const pendingDeepLinks = [];
 
 // Relay a content-free error signal to the renderer, which turns it into an
@@ -793,6 +704,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const browserPanel = createBrowserPanel({
+  app, BaseWindow, WebContentsView, clipboard, session,
+  authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
+  resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
+  ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
   isAllowedAppNavigation: (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL,
@@ -1142,6 +1058,21 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
+      .filter((recording) => recording.projectIds?.includes(projectId))
+      .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),
+    readProjectRecording: async (projectId, id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      if (!linked) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail ? { segments: detail.segments } : null;
+    },
+    exportProjectRecording: async (projectId, id, projectRoot) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return false;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      return linked && (await recorderService().exportToProject(id, projectRoot)) !== null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
@@ -1563,7 +1494,8 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description,
         trigger: extractTrigger(raw) ?? undefined,
-        kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
+        // Saved corrections belong in Workflows, including older unprefixed packages.
+        kind: await pathExists(path.join(skillDir, "legalwork-extension.json")) ? "workflow" : extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }
@@ -1624,23 +1556,28 @@ function macosVibrancyForCurrentTheme() {
   return nativeTheme.shouldUseDarkColors ? "under-window" : "sidebar";
 }
 
-function applyNativeTheme(mode) {
+let nativeAppearanceMode = "system";
+
+function applyNativeTheme(mode, appearance) {
+  nativeAppearanceMode = appearance ?? mode;
   nativeTheme.themeSource = mode;
-
-  if (process.platform !== "darwin") {
-    return true;
-  }
-
-  mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
-  mainWindow?.setBackgroundColor("#00000001");
-  for (const window of detachedSessionWindows.values()) {
-    if (window.isDestroyed()) continue;
-    window.setVibrancy(macosVibrancyForCurrentTheme());
-    window.setBackgroundColor("#00000001");
-  }
-
+  updateWindowChrome();
   return true;
 }
+
+function updateWindowChrome() {
+  for (const window of [mainWindow, ...secondaryWindows]) {
+    if (!window || window.isDestroyed()) continue;
+    if (process.platform === "darwin") {
+      window.setVibrancy(macosVibrancyForCurrentTheme());
+      window.setBackgroundColor("#00000001");
+    } else if (process.platform === "win32") {
+      window.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"));
+    }
+  }
+}
+
+nativeTheme.on("updated", updateWindowChrome);
 
 function sessionWindowRoute(workspaceId, sessionId) {
   return `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}?detached=1`;
@@ -1658,34 +1595,32 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  const key = `${workspaceId}:${sessionId}`;
-  const existing = detachedSessionWindows.get(key);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
-    return true;
-  }
+  return openAppWindow(event, sessionWindowRoute(workspaceId, sessionId), input.title);
+}
 
-  const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
+async function openDetachedProjectWindow(event, input) {
+  const workspaceId = String(input?.workspaceId ?? "").trim();
+  const page = input?.page;
+  if (!workspaceId || !["home", "calendar", "reviews", "tasks", "files", "workspace"].includes(page)) {
+    throw new Error("A workspace and valid project page are required to open a new window.");
   }
+  const path = page === "workspace" ? "session" : page === "home" || page === "files" ? "project" : page;
+  const seed = typeof input.seed === "string" && /^[\w-]{1,80}$/.test(input.seed) ? `&seed=${encodeURIComponent(input.seed)}` : "";
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "workspace" ? "&view=workspace" : ""}${page === "files" ? "&panel=files" : ""}${seed}`;
+  return openAppWindow(event, route, input.title);
+}
+
+async function openAppWindow(event, route, title = "") {
+  const preloadPath = path.join(__dirname, "preload.cjs");
 
   const sessionWindow = new BrowserWindow({
-    width: 980,
-    height: 760,
+    width: 1180,
+    height: 820,
     minWidth: 640,
     minHeight: 480,
-    title: detachedWindowTitle(input?.title),
+    title: detachedWindowTitle(title),
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       backgroundThrottling: false,
@@ -1696,23 +1631,21 @@ async function openDetachedSessionWindow(event, input = {}) {
       plugins: true,
     },
   });
-  detachedSessionWindows.set(key, sessionWindow);
+  secondaryWindows.add(sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
   logWindowErrors(sessionWindow.webContents);
 
-  sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
+  sessionWindow.on("page-title-updated", (pageTitleEvent, pageTitle) => {
     pageTitleEvent.preventDefault();
-    sessionWindow.setTitle(detachedWindowTitle(title || input?.title));
+    sessionWindow.setTitle(detachedWindowTitle(pageTitle || title));
   });
   sessionWindow.once("ready-to-show", () => {
     sessionWindow.show();
     sessionWindow.focus();
   });
   sessionWindow.on("closed", () => {
-    if (detachedSessionWindows.get(key) === sessionWindow) {
-      detachedSessionWindows.delete(key);
-    }
+    secondaryWindows.delete(sessionWindow);
   });
 
   guardPreviewNavigation(sessionWindow.webContents);
@@ -1720,21 +1653,26 @@ async function openDetachedSessionWindow(event, input = {}) {
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
     navigationEvent.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
   sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      sessionWindow.webContents.stop();
-    } catch {
-      // Best effort — routing below still preserves the detached chat.
-    }
-    browserPanel.routeBlockedMainWindowNavigation(url);
+    const contents = sessionWindow.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still preserves the detached chat.
+      }
+    });
+    browserPanel.routeBlockedMainWindowNavigation(url, sessionWindow);
   });
 
   const sourceUrl = event.sender.getURL();
   const appDocumentUrl = sourceUrl.split("#", 1)[0];
-  await sessionWindow.loadURL(`${appDocumentUrl}#${sessionWindowRoute(workspaceId, sessionId)}`);
+  await sessionWindow.loadURL(`${appDocumentUrl}#${route}`);
   return true;
 }
 
@@ -1747,9 +1685,21 @@ async function openDetachedSessionWindow(event, input = {}) {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  "composeAppleMailDraft": async (_event, draft) => composeAppleMailDraft(draft),
+  "composeOutlookDraft": async (_event, draft) => composeOutlookDraft(draft),
+  "__streamOpen": (event, id, url, headers) => eventStreams.open(event.sender, id, url, headers),
+  "__streamRead": (event, id) => eventStreams.read(event.sender, id),
+  "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),
+  "openAppWindow": async (event, input) => {
+    if (!["home", "scheduled", "calendar", "projects", "workflows", "tasks", "recorder", "wikis", "evals"].includes(input?.page)) {
+      throw new Error("A valid app page is required to open a new window.");
+    }
+    return openAppWindow(event, `/${input.page}?detached=1`);
+  },
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
+  "openProjectWindow": async (event, input) => openDetachedProjectWindow(event, input),
   "workspaceBootstrap": async (event, ...args) => {
       return workspaceStore.readWorkspaceState();
   },
@@ -1761,6 +1711,12 @@ const desktopCommandHandlers = {
   },
   "workspaceCreate": async (event, ...args) => {
       return workspaceStore.createWorkspace(args[0] ?? {});
+  },
+  "workspaceCopyFiles": async (event, ...args) => {
+      const input = args[0];
+      const state = await workspaceStore.readWorkspaceState();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});
@@ -1873,28 +1829,35 @@ const desktopCommandHandlers = {
       }
       return ["npx", "-y", "legalwork-ui-mcp"];
   },
-  "getComputerUseMcpCommand": async (event, ...args) => {
-      return getComputerUseMcpCommand();
+  "getActaportMcpCommand": async (event, ...args) => {
+      // The worker's PATH already contains LegalWork's bundled Node runtime.
+      return ["node", await prepareActaportMcpRuntime()];
   },
-  "checkComputerUsePermissions": async (event, ...args) => {
-      // Spawn --check → fresh TCC read → always accurate.
-      return checkComputerUsePermissions();
+  "getActaportMcpEnvironment": async (event, ...args) => {
+      return getActaportConnection().environment();
   },
-  "listRunningApps": async (event, ...args) => {
-      // Running regular macOS apps for composer @App mentions.
-      return listRunningApps();
+  "actaportStatus": async (event, ...args) => {
+      return getActaportConnection().status();
   },
-  "openComputerUsePermissionSetup": async (event, ...args) => {
-      // Open the GUI app. Returns immediately — React shows "verify" CTA.
-      await openComputerUseSetupApp();
-      // Return a fresh check so the UI shows the current state.
-      return checkComputerUsePermissions();
+  "actaportConnect": async (event, ...args) => {
+      return getActaportConnection().connect(args[0]);
   },
-  "openComputerUsePermissionSettings": async (event, ...args) => {
-      // Legacy: open the setup app (same as above).
-      await openComputerUseSetupApp();
-      return checkComputerUsePermissions();
+  "actaportTest": async (event, ...args) => {
+      return getActaportConnection().test();
   },
+  "actaportSetWriteAccess": async (event, ...args) => {
+      return getActaportConnection().setWriteAccess(args[0]);
+  },
+  "actaportSetToolsets": async (event, ...args) => {
+      return getActaportConnection().setToolsets(args[0]);
+  },
+  "actaportDisconnect": async (event, ...args) => {
+      return getActaportConnection().disconnect();
+  },
+  "getOpenComputerUseMcpConfig": async (event, ...args) => openComputerUse.mcpConfig(),
+  "checkOpenComputerUse": async (event, ...args) => openComputerUse.status(),
+  "openOpenComputerUsePermissionSetup": async (event, ...args) => openComputerUse.openPermissionSetup(),
+  "listRunningApps": async (event, ...args) => openComputerUse.listRunningApps(),
   "getLegalworkUiMcpEnvironment": async (event, ...args) => {
       return {
         LEGALWORK_UI_CONTROL_DISCOVERY: path.join(app.getPath("userData"), "legalwork-ui-control.json"),
@@ -2430,6 +2393,9 @@ const desktopCommandHandlers = {
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
   },
+  "audioRecordingSetProject": async (event, ...args) => {
+      return recorderService().setRecordingProject(String(args[0] ?? ""), String(args[1] ?? ""), args[2] === true);
+  },
   "audioRecordingRetain": async (event, ...args) => {
       return recorderService().retainRecording(String(args[0] ?? ""));
   },
@@ -2625,64 +2591,15 @@ const desktopCommandHandlers = {
   "__getApplicationsForFile": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return [];
-      const platform = process.platform;
-      const results = [];
-
-      try {
-        if (platform === "darwin") {
-          // Scan /Applications and /System/Applications for .app bundles
-          const appDirs = ["/Applications", "/System/Applications", "/Applications/Utilities", `${os.homedir()}/Applications`];
-          const seen = new Set();
-          for (const dir of appDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".app")) continue;
-              const appPath = path.join(dir, entry);
-              if (seen.has(appPath)) continue;
-              seen.add(appPath);
-              const name = entry.replace(/\.app$/i, "");
-              let icon = null;
-              try {
-                const img = await app.getFileIcon(appPath, { size: "small" });
-                icon = img.isEmpty() ? null : img.toDataURL();
-              } catch {}
-              results.push({ name, appPath, icon });
-            }
-          }
-        } else if (platform === "linux") {
-          // Parse .desktop files in standard directories
-          const desktopDirs = ["/usr/share/applications", "/usr/local/share/applications", `${os.homedir()}/.local/share/applications`];
-          const seen = new Set();
-          for (const dir of desktopDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".desktop")) continue;
-              const filePath = path.join(dir, entry);
-              if (seen.has(filePath)) continue;
-              seen.add(filePath);
-              try {
-                const content = await readFile(filePath, "utf-8");
-                const nameMatch = content.match(/^Name=(.+)$/m);
-                const execMatch = content.match(/^Exec=(.+)$/m);
-                if (!nameMatch || !execMatch) continue;
-                const name = nameMatch[1].trim();
-                const appPath = execMatch[1].trim().replace(/%[fFuU]/g, "").trim();
-                if (!appPath) continue;
-                let icon = null;
-                try {
-                  const img = await app.getFileIcon(filePath, { size: "small" });
-                  icon = img.isEmpty() ? null : img.toDataURL();
-                } catch {}
-                results.push({ name, appPath, icon });
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-
-      return results;
+      const applications = await getApplicationsForFile(target);
+      return Promise.all(applications.map(async ({ name, appPath }) => {
+        let icon = null;
+        try {
+          const image = await app.getFileIcon(appPath, { size: "small" });
+          icon = image.isEmpty() ? null : image.toDataURL();
+        } catch {}
+        return { name, appPath, icon };
+      }));
   },
   "__openWithApp": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
@@ -2693,8 +2610,14 @@ const desktopCommandHandlers = {
         if (platform === "darwin") {
           execFileSync("open", ["-a", appPath, target]);
         } else if (platform === "linux") {
-          const child = spawn(appPath, [target], { detached: true, stdio: "ignore" });
-          child.unref();
+          await new Promise((resolve, reject) => {
+            const child = spawn("gio", ["launch", appPath, target], { stdio: "ignore" });
+            child.once("error", reject);
+            child.once("exit", (code) => {
+              if (code === 0) resolve(undefined);
+              else reject(new Error("Could not open file with this application."));
+            });
+          });
         } else {
           return `Open with app is not supported on ${platform}`;
         }
@@ -2736,10 +2659,13 @@ const desktopCommandHandlers = {
       return true;
   },
   "__setNativeTheme": async (event, ...args) => {
-      return applyNativeTheme(String(args[0]));
+      return applyNativeTheme(String(args[0]), args[1]);
   },
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
+  },
+  "__showApplicationMenu": async (event, ...args) => {
+      return applicationMenu.popup(activeWindowFromEvent(event), args[0], args[1]);
   },
 };
 
@@ -2761,22 +2687,13 @@ async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
   const preloadPath = path.join(__dirname, "preload.cjs");
-  const windowAppearanceOptions = {};
-  if (process.platform === "darwin") {
-    Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
-      titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
-    });
-  }
 
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 820,
     title: APP_NAME,
     show: false,
-    ...windowAppearanceOptions,
+    ...windowAppearanceOptions(process.platform, nativeTheme.shouldUseDarkColors, nativeAppearanceMode === "blackout"),
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
     webPreferences: {
       // The renderer owns session dispatch + event streams; keep it running
@@ -2848,7 +2765,7 @@ async function createMainWindow() {
   });
 
   mainWindow.on("closed", () => {
-    browserPanel.destroy();
+    browserPanel.destroy(mainWindow);
     mainWindow = null;
   });
 
@@ -2888,11 +2805,16 @@ async function createMainWindow() {
   mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      mainWindow?.webContents.stop();
-    } catch {
-      // best effort — routing below still gives the user a way back
-    }
+    const contents = mainWindow?.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (!contents || contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still gives the user a way back.
+      }
+    });
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 
@@ -2916,6 +2838,11 @@ ipcMain.handle("legalwork:shell:relaunch", async () => {
   app.exit(0);
 });
 ipcMain.handle("legalwork:system:architecture", async () => resolveArchitectureInfo());
+ipcMain.handle("legalwork:system:architecture-download", async () => findArchitectureDownload({
+  platform: process.platform,
+  arch: resolveSystemArch(),
+  feeds: [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL],
+}));
 ipcMain.handle("legalwork:system:microphoneStatus", async () => {
   if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
   return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
@@ -3057,6 +2984,9 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
+    // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
+    await getActaportConnection().environment();
     // Serve recording audio to <audio> elements. The element loads this URL
     // natively (no async JS between the click and play()), so first-play works
     // within the user gesture, and Range requests stream the file for seeking.

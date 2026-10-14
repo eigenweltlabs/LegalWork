@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import * as React from "react";
+import { codeLanguage } from "@/react-app/domains/session/artifacts/code-language";
 
 import {
   isApplyPatchToolPart,
@@ -54,7 +55,7 @@ export function isHtmlPreviewSupported(extension: string) {
 }
 
 export function isTextPreviewSupported(extension: string) {
-  return ["txt", "log", "json", "jsonc", "yaml", "yml", "toml", "xml", "ts", "tsx", "js", "jsx", "css", "scss"].includes(extension);
+  return ["txt", "log"].includes(extension) || codeLanguage(`file.${extension}`) !== null;
 }
 
 export function isPreviewSupported(extension: string) {
@@ -104,7 +105,7 @@ export function getArtifactType(filename: string): ArtifactType {
     return "html";
   }
 
-  if (["txt", "log", "json", "jsonc", "json5", "yaml", "yml", "toml", "xml", "ini", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte", "css", "scss", "sass", "less", "py", "rb", "go", "rs", "java", "kt", "swift", "php", "c", "cpp", "h", "cs", "sql", "sh", "bash", "zsh"].includes(extension)) {
+  if (codeLanguage(filename) || ["txt", "log", "json", "jsonc", "json5", "yaml", "yml", "toml", "xml", "ini", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte", "css", "scss", "sass", "less", "py", "rb", "go", "rs", "java", "kt", "swift", "php", "c", "cpp", "h", "cs", "sql", "sh", "bash", "zsh"].includes(extension)) {
     return "text";
   }
 
@@ -177,7 +178,7 @@ function artifactTypeToPreview(type: ArtifactType, extension?: string): OpenTarg
 function artifactPathMatchesTarget(path: string, targetValue: string) {
   const normalized = normalizeArtifactPath(path).toLowerCase();
   const target = normalizeArtifactPath(targetValue).toLowerCase();
-  return normalized === target || normalized.endsWith(`/${target}`);
+  return normalized === target || normalized.endsWith(`/${target}`) || target.endsWith(`/${normalized}`);
 }
 
 function openTargetFromArtifactPath(
@@ -188,9 +189,11 @@ function openTargetFromArtifactPath(
 ): OpenTarget {
   const normalized = normalizeArtifactPath(path);
   const id = `file:${normalized.toLowerCase()}`;
-  const verified = verifiedTargets.find(
-    (target) => target.id === id || artifactPathMatchesTarget(normalized, target.value),
-  );
+  const openableTargets = verifiedTargets.filter(isOpenableFileTarget);
+  const exact = openableTargets.find((target) => target.id === id || normalizeArtifactPath(target.value).toLowerCase() === normalized.toLowerCase());
+  const matches = openableTargets.filter((target) => artifactPathMatchesTarget(normalized, target.value));
+  const uniqueMatches = new Map(matches.map((target) => [target.value, target]));
+  const verified = exact ?? (uniqueMatches.size === 1 ? matches[0] : undefined);
 
   return verified ?? {
     id,
@@ -292,9 +295,9 @@ function addArtifact(
   verifiedTarget?: OpenTarget,
 ) {
   const normalized = normalizeArtifactPath(path);
-  const key = normalized.toLowerCase();
   const type = getArtifactType(normalized);
   const legacyTarget = verifiedTarget ?? openTargetFromArtifactPath(normalized, getArtifactName(normalized), type, verifiedTargets);
+  const key = normalizeArtifactPath(legacyTarget.value).toLowerCase();
   const name = legacyTarget.name;
 
   artifacts.set(key, {

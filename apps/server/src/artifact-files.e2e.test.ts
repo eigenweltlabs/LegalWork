@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,98 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("code editor extensions round-trip through the text API without enabling binary files", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    for (const extension of ["py", "pyw", "mts", "cts", "mjs", "cjs", "tsx", "jsx", "sass", "scss", "sql", "sh", "bash", "zsh", "jsonc", "toml"]) {
+      const path = `reports/source.${extension.toUpperCase()}`;
+      const content = "# Code editor round-trip\n";
+      const saved = await fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, content }) });
+      expect(saved.status).toBe(200);
+      await saved.arrayBuffer();
+      const loaded = await fetch(`${base}/workspace/ws_1/files/content?path=${encodeURIComponent(path)}`, { headers: auth(token) });
+      expect(loaded.status).toBe(200);
+      expect(await loaded.json()).toMatchObject({ path, content });
+      expect(await readFile(join(root, path), "utf8")).toBe(content);
+    }
+    const rejected = await fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/image.png", content: "not an image" }) });
+    expect(rejected.status).toBe(400);
+    await rejected.arrayBuffer();
+  });
+
+  test("file identity survives atomic saves and is shared by workspace path aliases", async () => {
+    const root = await createWorkspaceRoot();
+    await symlink(join(root, "reports"), join(root, "reports-alias"), "dir");
+    const { base, token } = await startLegalworkServer(root);
+    const identity = async (path: string) => {
+      const response = await fetch(`${base}/workspace/ws_1/files/stat?path=${path}`, { headers: auth(token) });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const original = await identity("reports/artifact-eval.md");
+    expect(original.fileId).toMatch(/^[a-f0-9]{64}$/);
+    expect((await identity("reports-alias/artifact-eval.md")).fileId).toBe(original.fileId);
+    const saved = await fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/artifact-eval.md", baseUpdatedAt: original.updatedAt, content: "updated" }) });
+    expect(saved.status).toBe(200);
+    await saved.arrayBuffer();
+    expect((await identity("reports/artifact-eval.md")).fileId).toBe(original.fileId);
+  });
+  test("concurrent raw and text writes cannot both replace the same baseline", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const path = "reports/artifact-eval.md";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      // Read the revision without coupling this write race to streamed-download timing.
+      const loaded = await fetch(`${base}/workspace/ws_1/files/stat?path=${path}`, { headers: auth(token) });
+      expect(loaded.status).toBe(200);
+      const { updatedAt: baseUpdatedAt } = await loaded.json();
+      const writes = await Promise.all([
+        fetch(`${base}/workspace/ws_1/files/raw`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, baseUpdatedAt, dataBase64: Buffer.from(`Window A ${attempt}`).toString("base64") }) }),
+        fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, baseUpdatedAt, content: `Window B ${attempt}` }) }),
+      ]);
+      expect(writes.map(response => response.status).sort()).toEqual([200, 409]);
+      const winner = writes[0].status === 200 ? "A" : "B";
+      expect(await readFile(join(root, path), "utf8")).toBe(`Window ${winner} ${attempt}`);
+      await Promise.all(writes.map(response => response.arrayBuffer()));
+    }
+  });
+
+  test("previews and downloads preserve Unicode filenames in safe response headers", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const filenames = [
+      "SH-Lu\u0308beck_HRB_26773_HL+Liste_der_Gesellschafter-20260925162201.pdf",
+      "Vertrag-München.pdf",
+      "契約書-📄.pdf",
+      "Client's \"draft\" (100%)*.pdf",
+      "contract.pdf",
+    ];
+    const bytes = Buffer.from("%PDF-1.7\n% filename regression fixture\n");
+    for (const filename of filenames) {
+      for (const area of ["reports", ".opencode/legalwork/inbox", ".opencode/legalwork/outbox"]) {
+        await mkdir(join(root, area), { recursive: true });
+        await writeFile(join(root, area, filename), bytes);
+      }
+      const id = Buffer.from(filename).toString("base64url");
+      for (const [path, disposition] of [
+        [`files/raw?path=${encodeURIComponent(`reports/${filename}`)}`, "inline"],
+        [`inbox/${id}`, "attachment"],
+        [`artifacts/${id}`, "attachment"],
+      ]) {
+        const response = await fetch(`${base}/workspace/ws_1/${path}`, { headers: auth(token) });
+        expect(response.status).toBe(200);
+        const header = response.headers.get("content-disposition") ?? "";
+        expect(header).toMatch(/^[\x20-\x7e]+$/);
+        expect(header.startsWith(`${disposition}; filename="`)).toBe(true);
+        const encoded = header.match(/; filename\*=UTF-8''([^;]+)$/)?.[1];
+        expect(encoded).toBeDefined();
+        expect(encoded).not.toMatch(/['()*]/);
+        expect(decodeURIComponent(encoded ?? "")).toBe(filename);
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      }
+    }
+  });
+
   test("template copies preserve the source and reject overwrites, traversal and symlink escapes", async () => {
     const root = await createWorkspaceRoot();
     const outside = await createWorkspaceRoot();
@@ -164,6 +256,24 @@ describe("artifact file routes", () => {
     expect(mdWrite.status).toBe(200);
     expect(await readFile(join(root, "reports", "artifact-eval.md"), "utf8")).toBe("# Updated\n");
 
+    // Changed on disk while open (a colleague's edit synced in): the editor's save merges with it.
+    const loaded: { updatedAt: number } = await mdWrite.json();
+    const notePath = join(root, "reports", "artifact-eval.md");
+    await writeFile(notePath, "# Updated\n\nFrom Ben.\n");
+    await utimes(notePath, new Date(), new Date(loaded.updatedAt + 5_000));
+    const save = (content: string) =>
+      fetch(`${base}/workspace/ws_1/files/content`, {
+        method: "POST",
+        headers: auth(token),
+        body: JSON.stringify({ path: "reports/artifact-eval.md", content, baseUpdatedAt: loaded.updatedAt, baseContent: "# Updated\n" }),
+      });
+    expect(await (await save("# Updated by Anna\n")).json()).toMatchObject({ merged: true, content: "# Updated by Anna\n\nFrom Ben.\n" });
+    expect(await readFile(notePath, "utf8")).toBe("# Updated by Anna\n\nFrom Ben.\n");
+    // Changed in the same place: refused, with what is there now for the editor to offer.
+    const clash = await save("# Updated by Carla\n");
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toMatchObject({ details: { reason: "overlap", current: { content: "# Updated by Anna\n\nFrom Ben.\n" } } });
+
     const xlsxWrite = await fetch(`${base}/workspace/ws_1/files/raw`, {
       method: "POST",
       headers: auth(token),
@@ -182,6 +292,9 @@ describe("artifact file routes", () => {
 
   test("lists workspace directories with dirs-first ordering and path safety", async () => {
     const root = await createWorkspaceRoot();
+    for (const name of ["Matter 10.txt", "Matter 2.txt", "München.txt", "münchen 2.txt"]) {
+      await writeFile(join(root, "reports", name), "fixture");
+    }
     const { base, token } = await startLegalworkServer(root);
 
     const rootList = await fetch(`${base}/workspace/ws_1/files/list`, { headers: auth(token) });
@@ -202,6 +315,7 @@ describe("artifact file routes", () => {
     expect(csvEntry.updatedAt).toBeGreaterThan(0);
     const names = reportsListing.entries.map((entry) => entry.name);
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })));
+    expect(names.indexOf("Matter 2.txt")).toBeLessThan(names.indexOf("Matter 10.txt"));
 
     const fileList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("reports/artifact-eval.csv")}`, { headers: auth(token) });
     expect(fileList.status).toBe(400);
@@ -212,4 +326,18 @@ describe("artifact file routes", () => {
     const missingList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("does-not-exist")}`, { headers: auth(token) });
     expect(missingList.status).toBe(404);
   });
+});
+
+test("streamed Markdown creation never overwrites an existing file, including racing writers", async () => {
+  const root = await createWorkspaceRoot();
+  const { base, token } = await startLegalworkServer(root);
+  const create = (content: string) => fetch(`${base}/workspace/ws_1/files/content`, {
+    method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/new.md", content, createOnly: true }),
+  });
+  const results = await Promise.all([create("First draft"), create("Second draft")]);
+  expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+  const saved = await readFile(join(root, "reports/new.md"), "utf8");
+  expect(["First draft", "Second draft"]).toContain(saved);
+  expect((await create("Overwrite")).status).toBe(409);
+  expect(await readFile(join(root, "reports/new.md"), "utf8")).toBe(saved);
 });

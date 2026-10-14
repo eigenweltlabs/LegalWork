@@ -1,3 +1,5 @@
+import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
@@ -33,6 +35,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
+import type { OpenCodeModelConfig } from "./opencode-model-config.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -76,7 +79,7 @@ export function validateEigenweltPlatformUrl(value: string): string {
   return configured;
 }
 
-export type EigenweltManifestModel = {
+export type EigenweltManifestModel = OpenCodeModelConfig & {
   id: string;
   name?: string;
   description?: string;
@@ -140,7 +143,7 @@ export type EigenweltUsage = {
  */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -159,6 +162,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /**
@@ -175,6 +179,8 @@ export function eigenweltHasPremiumModels(
 }
 
 export type EigenweltSignInPayload = {
+  preferredAiProvider?: "openai" | "other";
+  systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
   orgId?: string;
@@ -194,6 +200,7 @@ export type EigenweltSignInPayload = {
 };
 
 export type EigenweltManifest = {
+  systemOne?: SystemOneConfiguration;
   baseURL: string;
   models: EigenweltManifestModel[];
 };
@@ -267,7 +274,7 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
   const plan =
-    value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+    value.plan === "sync" || value.plan === "plus" || value.plan === "pro" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
@@ -341,6 +348,8 @@ export function parseEigenweltAccountIdentity(value: unknown): EigenweltAccountI
     userEmail: typeof value.userEmail === "string" && value.userEmail.trim() ? value.userEmail.trim() : null,
     orgId,
     orgName,
+    ...(typeof value.orgRole === "string" && value.orgRole.trim()
+      ? { orgRole: value.orgRole.trim() } : {}),
   };
 }
 
@@ -375,10 +384,10 @@ async function bindLoopback(handler: LoopbackHandler): Promise<{ server: Server;
 }
 
 /** The plans the platform's checkout sells (model-api's PlanId). */
-export type EigenweltSignInPlan = "plus" | "pro";
+export type EigenweltSignInPlan = "sync" | "plus" | "pro";
 
 export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInPlan {
-  return value === "plus" || value === "pro";
+  return value === "sync" || value === "plus" || value === "pro";
 }
 
 /**
@@ -394,6 +403,7 @@ export async function startEigenweltSignIn(opts?: {
   /** The plan picked on the app's plan screen. A firm without a subscription
    *  lands on that plan's checkout instead of the plan comparison. */
   plan?: EigenweltSignInPlan;
+  checkout?: EigenweltCheckoutSelection;
 }): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
@@ -415,6 +425,7 @@ export async function startEigenweltSignIn(opts?: {
   // Set once a valid browser callback arrived: the exchange is running, so a
   // newer sign-in must not replace this one.
   let exchanging = false;
+  let callbackExchange: { code: string; result: Promise<{ ok: true } | { ok: false; message: string }> } | null = null;
   const settleOk = (payload: EigenweltSignInPayload) => {
     if (settled) return;
     settled = true;
@@ -464,12 +475,15 @@ export async function startEigenweltSignIn(opts?: {
       // is delivered byte-for-byte, and the optional subscription fields are
       // normalized (never partially-formed) when the platform does send them.
       const delivered: EigenweltSignInPayload = {
+        ...(payload.preferredAiProvider === "openai" || payload.preferredAiProvider === "other" ? {preferredAiProvider: payload.preferredAiProvider} : {}),
         apiKey: payload.apiKey,
         baseURL: payload.baseURL,
         models: payload.models,
         ...(payload.orgId ? { orgId: payload.orgId } : {}),
         ...(payload.orgName ? { orgName: payload.orgName } : {}),
       };
+      const systemOne = SystemOneConfigurationSchema.safeParse(payload.systemOne);
+      if (systemOne.success) delivered.systemOne = systemOne.data;
       const entitlements = parseEigenweltEntitlements(payload.entitlements);
       if (entitlements) delivered.entitlements = entitlements;
       const account = parseEigenweltAccountIdentity(payload.account);
@@ -507,9 +521,18 @@ export async function startEigenweltSignIn(opts?: {
     }
     // Answer the browser only once the exchange settled — the old
     // "You're connected" page lied whenever the exchange then failed.
+    if (callbackExchange && callbackExchange.code !== code) {
+      res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
+      return;
+    }
     exchanging = true;
+    // Browser reloads and duplicate redirects share the same exchange. An
+    // OAuth code and platform state are single-use; a second exchange could
+    // otherwise turn a successful connection into a failure.
+    callbackExchange ??= { code, result: exchange(code, boundPort) };
+    const result = callbackExchange.result;
     void (async () => {
-      const outcome = await exchange(code, boundPort);
+      const outcome = await result;
       const html = outcome.ok ? CALLBACK_HTML : callbackErrorHtml(outcome.message);
       res.writeHead(200, { "Content-Type": "text/html" }).end(html);
       teardown();
@@ -559,6 +582,11 @@ export async function startEigenweltSignIn(opts?: {
   if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
   // Platforms that predate the hint ignore it and show the plan comparison.
   if (opts?.plan && isEigenweltSignInPlan(opts.plan)) authorizeUrl.searchParams.set("plan", opts.plan);
+  if (opts?.plan && isEigenweltSignInPlan(opts.plan) && opts.checkout) {
+    authorizeUrl.searchParams.set("confirmed", "1");
+    authorizeUrl.searchParams.set("interval", opts.checkout.interval);
+    authorizeUrl.searchParams.set("seats", String(opts.checkout.seats));
+  }
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }
@@ -633,12 +661,13 @@ export async function fetchEigenweltManifest(options?: {
     throw new Error(`Could not reach the Eigenwelt platform (HTTP ${response.status}).`);
   }
   const payload = (await response.json().catch(() => null)) as
-    | { baseURL?: unknown; models?: unknown }
+    | { baseURL?: unknown; models?: unknown; systemOne?: unknown }
     | null;
   if (!payload || typeof payload.baseURL !== "string" || !payload.baseURL || !Array.isArray(payload.models)) {
     throw new Error("The Eigenwelt platform returned an invalid models manifest.");
   }
-  return { baseURL: payload.baseURL, models: payload.models as EigenweltManifestModel[] };
+  const systemOne = SystemOneConfigurationSchema.safeParse(payload.systemOne);
+  return { baseURL: payload.baseURL, models: payload.models as EigenweltManifestModel[], ...(systemOne.success ? { systemOne: systemOne.data } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -665,6 +694,9 @@ export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Recor
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
+          ...(model.options ? { options: model.options } : {}),
+          ...(model.variants ? { variants: model.variants } : {}),
+          ...(model.interleaved !== undefined ? { interleaved: model.interleaved } : {}),
           limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
           ...(input
             ? {

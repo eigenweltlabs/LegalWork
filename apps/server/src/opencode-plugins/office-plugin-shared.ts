@@ -8,12 +8,22 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { realpath } from "node:fs/promises";
+
 export type OpenCodeContext = {
   agent?: string;
   sessionID?: string;
   messageID?: string;
   directory?: string;
   worktree?: string;
+  abort?: AbortSignal;
+  ask?: (input: {
+    permission: string;
+    patterns: string[];
+    always: string[];
+    metadata: Record<string, unknown>;
+  }) => Promise<void>;
 };
 
 export const OFFICE_TOOL_TIMEOUT_MS = 45_000;
@@ -28,6 +38,17 @@ export function serverToken(): string {
   return String(process.env.LEGALWORK_SERVER_TOKEN || "");
 }
 
+export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${serverToken()}` };
+  const token = process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim();
+  if (token && context?.sessionID && context.directory) {
+    headers["x-legalwork-wiki-agent-token"] = token;
+    headers["x-legalwork-wiki-agent-session"] = context.sessionID;
+    headers["x-legalwork-wiki-agent-directory"] = encodeURIComponent(await realpath(context.directory));
+  }
+  return headers;
+}
+
 type WorkspaceListPayload = {
   items?: Array<{ id?: unknown; path?: unknown }>;
 };
@@ -36,13 +57,15 @@ type WorkspaceListPayload = {
 // pointed at a different LegalWork server must not read the previous one's.
 let workspaceCache: { at: number; url: string; items: Array<{ id: string; path: string }> } | null = null;
 
-export async function listWorkspaces(): Promise<Array<{ id: string; path: string }>> {
+export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{ id: string; path: string }>> {
   const url = serverUrl();
-  if (workspaceCache && workspaceCache.url === url && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) {
+  const headers = await workspaceToolHeaders(context);
+  const sessionScoped = Boolean(headers["x-legalwork-wiki-agent-token"]);
+  if (!sessionScoped && workspaceCache && workspaceCache.url === url && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) {
     return workspaceCache.items;
   }
   const response = await fetch(`${url}/workspaces`, {
-    headers: { Authorization: `Bearer ${serverToken()}` },
+    headers,
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
@@ -50,20 +73,22 @@ export async function listWorkspaces(): Promise<Array<{ id: string; path: string
   const items = (payload.items ?? []).flatMap((item) =>
     typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
   );
-  workspaceCache = { at: Date.now(), url, items };
+  if (!sessionScoped) workspaceCache = { at: Date.now(), url, items };
   return items;
 }
 
-export async function resolveWorkspaceId(context: OpenCodeContext): Promise<string> {
+export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
   const directory = context.directory?.trim() ?? "";
-  const items = await listWorkspaces();
+  const items = await listWorkspaces(context);
   if (directory) {
-    const match =
-      items.find((item) => item.path === directory) ??
-      items.find((item) => directory.startsWith(`${item.path}/`));
+    const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
+      if (!item.path) return false;
+      const path = relative(resolve(item.path), resolve(directory));
+      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+    });
     if (match) return match.id;
   }
-  if (items.length === 1) return items[0]!.id;
+  if (!options.requireDirectory && items.length === 1) return items[0]!.id;
   throw new Error(
     directory
       ? `No LegalWork workspace matches the working directory ${directory}.`
@@ -113,14 +138,16 @@ export type OfficePaneStatus = {
   connected: boolean;
   /** One entry per connected pane — Word and Excel can be open at once. */
   hosts: OfficePaneInfo[];
+  /** The server could not be asked: unknown, not disconnected. */
+  failed?: true;
 };
 
 const paneStatusCache = new Map<string, { at: number; status: OfficePaneStatus }>();
 
 /**
- * Status of the connected Office panes, if any. Checked per chat turn (with
- * a short cache) so system prompts flip to document-first behavior as soon
- * as the user opens a pane in an Office host.
+ * Status of the connected Office panes, if any. Checked on each user message
+ * and tool result (with a short cache) so a reminder switches the agent to
+ * document-first behavior as soon as the user opens a pane in an Office host.
  */
 export async function officePaneStatus(directory?: string): Promise<OfficePaneStatus> {
   const normalizedDirectory = directory?.trim() ?? "";
@@ -153,7 +180,10 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,
           { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(3_000) },
         );
-        if (!response.ok) continue;
+        if (!response.ok) {
+          status = { connected: false, hosts: [], failed: true };
+          continue;
+        }
         const payload = (await response.json()) as {
           connected?: unknown;
           hosts?: unknown;
@@ -175,7 +205,7 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
       }
     }
   } catch {
-    status = { connected: false, hosts: [] };
+    status = { connected: false, hosts: [], failed: true };
   }
   paneStatusCache.set(cacheKey, { at: Date.now(), status });
   return status;
@@ -187,33 +217,10 @@ export async function officePaneForHost(host: string, directory?: string): Promi
   return status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
-const HOST_LABELS: Record<string, string> = {
-  word: "Microsoft Word",
-  excel: "Microsoft Excel",
-  powerpoint: "Microsoft PowerPoint",
-};
-const HOST_TOOL_PREFIX: Record<string, string> = {
-  word: "word_*",
-  excel: "excel_*",
-  powerpoint: "ppt_*",
-};
-
-/**
- * A prompt fragment naming the OTHER Office apps whose panes are open, so a
- * host-specific mode prompt doesn't tunnel the agent into a single app. Empty
- * when this is the only pane. Appended to each live mode instruction.
- */
-export async function describeOtherOpenApps(currentHost: string, directory?: string): Promise<string> {
+/** The connected pane for a host, null without one, undefined when the server could not be asked. */
+export async function officePaneIfKnown(host: string, directory?: string): Promise<OfficePaneInfo | null | undefined> {
   const status = await officePaneStatus(directory);
-  const others = status.hosts.filter((entry) => entry.host !== currentHost && HOST_LABELS[entry.host]);
-  if (others.length === 0) return "";
-  const list = others
-    .map((entry) => {
-      const name = entry.documentUrl ? entry.documentUrl.split(/[\\/]/).pop() || "" : "";
-      return `${HOST_LABELS[entry.host]} (${HOST_TOOL_PREFIX[entry.host]} tools${name ? `, "${name}"` : ""})`;
-    })
-    .join(", ");
-  return `\n\nIMPORTANT: other Office apps are open next to this chat and you can use their tools in the SAME conversation: ${list}. Do not restrict yourself to one app — choose tools by which document a request is about. It is expected and correct to read from one app and edit another in a single task (e.g. read a figure from the workbook, then redline the Word document).`;
+  return status.failed ? undefined : status.hosts.find((entry) => entry.host === host) ?? null;
 }
 
 export function describeOpenDocument(documentUrl: string | null): string {

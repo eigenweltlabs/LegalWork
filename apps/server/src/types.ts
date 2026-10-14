@@ -1,3 +1,5 @@
+import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
+import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
 export type WorkspaceType = "local" | "remote";
@@ -103,6 +105,10 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
+  readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
+  /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */
+  exportProjectRecording?: (projectId: string, id: string, projectRoot: string) => Promise<boolean>;
   status: (workspacePath: string) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
   setLiveTranscript: (
     enabled: boolean,
@@ -111,12 +117,16 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** Read-only migration from the previous desktop safeStorage connector store. */
+  decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   host: string;
   port: number;
   token: string;
   hostToken: string;
   configPath?: string;
   wordAddin?: WordAddinConfig;
+  /** Native host default for new project folders; existing workspace paths stay authoritative. */
+  projectsDirectory?: string;
   /**
    * Host-app hook that opens a native "choose folder" dialog. Set by the
    * desktop app (which owns OS dialogs); null when the server runs
@@ -130,6 +140,8 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
+  agentSandboxEnabled?: boolean;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -139,6 +151,8 @@ export interface ServerConfig {
   workspaces: WorkspaceInfo[];
   authorizedRoots: string[];
   readOnly: boolean;
+  /** Background setup of the layout model and the small OCR model when selected; enabled by resolved host config. */
+  autoDownloadOcr?: boolean;
   startedAt: number;
   tokenSource: "cli" | "env" | "file" | "generated";
   hostTokenSource: "cli" | "env" | "file" | "generated";
@@ -233,6 +247,8 @@ export interface SkillItem {
   trigger?: string;
   kind?: "workflow";
   workflowType?: "tabular" | "assistant";
+  /** From the firm's hub (firm-hub.ts): installed for everyone, or added by the member. Members cannot change it. */
+  firm?: "automatic" | "optional";
 }
 
 export interface HubSkillItem {
@@ -264,13 +280,7 @@ export interface Actor {
   scope?: TokenScope;
 }
 
-export interface ApprovalRequest {
-  id: string;
-  workspaceId: string;
-  action: string;
-  summary: string;
-  paths: string[];
-  createdAt: number;
+export interface ApprovalRequest extends HostApprovalRequest {
   actor: Actor;
 }
 

@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT } from "../scheduled-tasks/access.js";
 
 const roots: string[] = [];
 let originalFetch: typeof globalThis.fetch | null = null;
@@ -32,9 +33,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
     async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
-      if (url.endsWith("/execute") && execute) {
+      if (url.endsWith("/execute")) {
         const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
-        return Response.json(execute(body));
+        if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
+        if (execute) return Response.json(execute(body));
       }
       return new Response("Not found", { status: 404 });
     },
@@ -42,7 +44,33 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
   );
 }
 
+/** What the model sees for a session: the fixed system text and the reminder on a new user message. */
+async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkExtensionsPreview>>, sessionID: string) {
+  const system: { system: string[] } = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
+  await plugin["chat.message"]({ sessionID }, message);
+  return {
+    system: system.system.join("\n"),
+    reminder: message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n"),
+  };
+}
+
 describe("legalwork_ui_snapshot session identity", () => {
+  test("scheduled agents cannot read or navigate the active UI even with saved tool approval", async () => {
+    let executions = 0;
+    await withBridge({ ok: true }, () => { executions++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT]) {
+      const context = { agent, sessionID: "scheduled" };
+      await expect(plugin.tool.legalwork_ui_snapshot.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_list_actions.execute({}, context)).rejects.toThrow("cannot control");
+      await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "session.open", args: { sessionId: "other" } }, context)).rejects.toThrow("cannot control");
+    }
+    expect(executions).toBe(0);
+    await plugin.tool.legalwork_ui_execute_action.execute({ actionId: "settings.panel.open" }, { agent: "legalwork" });
+    expect(executions).toBe(1);
+  });
   // Regression: asked "give me the session id of this convo", the agent found
   // no tool carrying it, navigated to the session view, and read an id out of
   // the resulting route — a DIFFERENT session than the one it was running in —
@@ -110,39 +138,98 @@ describe("in-app Word document routing", () => {
     actions: [],
   };
 
-  test("injects the active document and live tracked-edit route for the matching session", async () => {
+  test("reports the active document and live tracked-edit route to the matching session", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
 
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_open" }, output);
+    const { system, reminder } = await modelContext(plugin, "ses_open");
 
-    const system = output.system.join("\n");
-    expect(system).toContain("compensation-memo.docx");
-    expect(system).toContain("operation suggest_change");
-    expect(system).toContain("operation reject_changes");
-    expect(system).toContain("save automatically");
-    expect(system).toContain("Do not search LegalMemory merely");
+    expect(reminder).toStartWith('<system-reminder topic="sidebar">');
+    expect(reminder).toContain("compensation-memo.docx");
+    expect(reminder).toContain("inapp_docx_suggest_change");
+    expect(reminder).toContain("inapp_docx_reject_changes");
+    expect(reminder).toContain("save automatically");
+    expect(reminder).toContain("Do not search LegalMemory merely");
+    // The open document never enters the system prompt.
+    expect(system).not.toContain("compensation-memo.docx");
   });
 
   test("does not claim a document open in a different session", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
 
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_other" }, output);
-
-    expect(output.system.join("\n")).not.toContain("The active right-hand document");
+    expect((await modelContext(plugin, "ses_other")).reminder).not.toContain("The active right-hand document");
   });
 
-  test("blocks Bash from reading the document that is open in the editor", async () => {
+  test("keeps the system prompt identical while files open and close", async () => {
+    let snapshot: unknown = { ok: true, openFiles: [] };
+    await withBridge(null);
+    // Serve whatever the sidebar currently shows.
+    globalThis.fetch = Object.assign(async () => Response.json({ ok: true, result: snapshot }), { preconnect: globalThis.fetch.preconnect });
+    const plugin = await LegalWorkExtensionsPreview();
+
+    const before = await modelContext(plugin, "ses_open");
+    expect(before.reminder).toBe("");
+
+    // The agent opens a document mid-run: the next tool result reports it.
+    snapshot = activeDocumentSnapshot;
+    const opened = { output: "opened" };
+    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, opened);
+    expect(opened.output).toContain("compensation-memo.docx");
+    const unchanged = { output: "read" };
+    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, unchanged);
+    expect(unchanged.output).toBe("read");
+
+    // The user closes it between turns: the next message says so once.
+    snapshot = { ok: true, openFiles: [] };
+    const after = await modelContext(plugin, "ses_open");
+    expect(after.reminder).toContain("No files are open in this session's sidebar any more");
+    expect(after.system).toBe(before.system);
+
+    // A bridge that cannot be reached is not a change.
+    snapshot = { ok: false, error: "UI bridge unreachable" };
+    expect((await modelContext(plugin, "ses_open")).reminder).toBe("");
+  });
+
+  test("allows reads of documents open in the editor", async () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
 
     await expect(plugin["tool.execute.before"](
       { tool: "bash", sessionID: "ses_open", callID: "call_1" },
       { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).rejects.toThrow("use inapp_docx");
+    )).resolves.toBeUndefined();
+  });
+
+  test("leaves shell write coordination to the execution service", async () => {
+    await withBridge({
+      ...activeDocumentSnapshot,
+      activeSurface: { ...activeDocumentSnapshot.activeSurface, format: "xlsx", name: "Data.xlsx", path: "Data.xlsx" },
+      protectedSurfaces: [activeDocumentSnapshot.activeSurface],
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    await expect(plugin["tool.execute.before"](
+      { tool: "legalwork_shell", sessionID: "ses_open", callID: "write" },
+      { args: { command: 'python format.py "compensation-memo.docx"', write: true } },
+    )).resolves.toBeUndefined();
+    await plugin["tool.execute.before"](
+      { tool: "legalwork_shell", sessionID: "ses_open", callID: "read" },
+      { args: { command: 'python inspect.py "compensation-memo.docx"', write: false } },
+    );
+  });
+
+  test("Word file handoff addresses the exact path and reports save failure", async () => {
+    let request: unknown;
+    await withBridge(activeDocumentSnapshot, body => {
+      request = body;
+      return { ok: true, result: { ok: false, saved: false, error: "Save failed" } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const path = "compensation-memo.docx";
+    const result = JSON.parse(await plugin.tool.inapp_docx_prepare_file_edit.execute({ path }, { sessionID: "ses_open" }));
+    expect(request).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_open", path, toolName: "prepare_file_edit", args: { path } } });
+    expect(result.result).toEqual({ ok: false, saved: false, error: "Save failed" });
+    expect((await modelContext(plugin, "ses_open")).reminder).toContain("inapp_docx_prepare_file_edit");
   });
 
   test("routes in-app document tools to the matching session-scoped editor action", async () => {
@@ -157,7 +244,8 @@ describe("in-app Word document routing", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
 
-    const raw = await plugin.tool.inapp_docx.execute({ operation: "read_document", args: { fromIndex: 0, toIndex: 5 } },
+    const raw = await plugin.tool.inapp_docx_read_document.execute(
+      { fromIndex: 0, toIndex: 5 },
       { sessionID: "ses_open" },
     );
 
@@ -172,6 +260,25 @@ describe("in-app Word document routing", () => {
     expect(JSON.parse(raw)).toMatchObject({ ok: true, result: { data: "[P1] Compensation" } });
   });
 
+  test("routes clean template fills and native replies to the originating chat", async () => {
+    const requests: unknown[] = [];
+    await withBridge(activeDocumentSnapshot, body => {
+      requests.push(body);
+      return { ok: true, result: { ok: true, saved: true } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const fill = { paraId: "p1", placeholder: "[DATE]", value: "11 October 2026" };
+    const reply = { commentId: 2, text: "Agreed." };
+    await plugin.tool.inapp_docx_fill_template.execute(fill, { sessionID: "ses_open" });
+    await plugin.tool.inapp_docx_reply_comment.execute(reply, { sessionID: "ses_open" });
+    expect(requests).toEqual([
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "fill_template", args: fill } },
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "reply_comment", args: reply } },
+    ]);
+    await expect(plugin.tool.inapp_docx_reply_comment.execute({ commentId: -1, text: "Agreed." }, { sessionID: "ses_open" })).rejects.toThrow();
+    expect(requests).toHaveLength(2);
+  });
+
   test("routes targeted tracked-change rejection to the live editor", async () => {
     let request: unknown;
     await withBridge(activeDocumentSnapshot, (body) => {
@@ -180,7 +287,8 @@ describe("in-app Word document routing", () => {
     });
     const plugin = await LegalWorkExtensionsPreview();
 
-    await plugin.tool.inapp_docx.execute({ operation: "reject_changes", args: { changeIds: [11, 12] } },
+    await plugin.tool.inapp_docx_reject_changes.execute(
+      { changeIds: [11, 12] },
       { sessionID: "ses_open" },
     );
 
@@ -208,12 +316,11 @@ describe("in-app Office sidebar routing", () => {
     const result = JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_office" }));
     expect(result.files).toHaveLength(2);
     expect(result.files[1].active).toBe(false);
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_office" }, output);
-    expect(output.system.join("\n")).toContain("inapp_xlsx_write");
-    expect(output.system.join("\n")).toContain("matter/Review.pptx");
-    expect(output.system.join("\n")).not.toContain("Private.xlsx");
-    expect(output.system.join("\n")).toContain("not tracked changes");
+    const { reminder } = await modelContext(plugin, "ses_office");
+    expect(reminder).toContain("inapp_xlsx_write");
+    expect(reminder).toContain("matter/Review.pptx");
+    expect(reminder).not.toContain("Private.xlsx");
+    expect(reminder).toContain("not tracked changes");
   });
   test("routes writes with exact file and engine session identity", async () => {
     let called: unknown;
@@ -221,19 +328,14 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: surface.path, sheet: "Budget", range: "B4", values: [[18]] };
     await plugin.tool.inapp_xlsx_write.execute(args, { sessionID: "ses_office" });
-    expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "write", args } });
+    expect(called).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "write", args } });
   });
-  test("rejects stale paths, wrong formats and cross-session access before dispatch", async () => {
-    let calls = 0;
-    await withBridge(snapshot, () => { calls++; return { ok: true }; });
+  test("dispatches explicit targets without consulting the foreground editor", async () => {
+    const calls: unknown[] = [];
+    await withBridge({ ...snapshot, surfaces: [{ ...surface, path: "background.xlsx", sessionId: "background-task" }] }, body => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    for (const [path, sessionID] of [[surface.path, "ses_other"], ["switched.xlsx", "ses_office"]]) {
-      const result = JSON.parse(await plugin.tool.inapp_xlsx_read.execute({ path }, { sessionID }));
-      expect(result.ok).toBe(false);
-    }
-    const pptxResult = await plugin.tool.inapp_pptx_read.execute({ path: surface.path }, { sessionID: "ses_office" });
-    expect(typeof pptxResult === "string" && JSON.parse(pptxResult).ok).toBe(false);
-    expect(calls).toBe(0);
+    await plugin.tool.inapp_xlsx_read.execute({ path: "background.xlsx" }, { sessionID: "background-task" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "background-task", path: "background.xlsx", format: "xlsx", toolName: "read", args: { path: "background.xlsx" } } }]);
     expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, {})).files).toEqual([]);
   });
   test("selects open tabs and retries save without repeating mutations", async () => {
@@ -244,14 +346,15 @@ describe("in-app Office sidebar routing", () => {
     await plugin.tool.inapp_office_save.execute({ path: surface.path }, { sessionID: "ses_office" });
     expect(calls).toEqual([
       { actionId: "documents.select_open", args: { sessionId: "ses_office", path: surface.path } },
-      { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, toolName: "save", args: { path: surface.path } } },
+      { actionId: "office.agent_tool", args: { sessionId: "ses_office", path: surface.path, format: "xlsx", toolName: "save", args: { path: surface.path } } },
     ]);
   });
-  test("blocks file rewrites of the live Office draft but allows unrelated work", async () => {
+  test("does not reject shell commands based on an open Office filename", async () => {
     await withBridge(snapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
+    await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).resolves.toBeUndefined();
     await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
+    await plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "3" }, { args: { command: "inspect matter/Budget.xlsx", write: false } });
   });
   test("routes presentation replacements to the live editor", async () => {
     const pptx = { ...surface, format: "pptx", path: "Review.pptx" };
@@ -260,7 +363,7 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     const args = { path: pptx.path, slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Approved" };
     await plugin.tool.inapp_pptx_replace_text.execute(args, { sessionID: "ses_office" });
-    expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, toolName: "replace_text", args } });
+    expect(call).toEqual({ actionId: "office.agent_tool", args: { sessionId: "ses_office", path: pptx.path, format: "pptx", toolName: "replace_text", args } });
   });
 });
 
@@ -277,14 +380,11 @@ describe("in-app Markdown routing", () => {
     const calls: unknown[] = [];
     await withBridge({ activeSurface: surface }, (body) => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_md" }, output);
-    expect(output.system.join("\n")).toContain("inapp_md_replace_text");
+    expect((await modelContext(plugin, "ses_md")).reminder).toContain("inapp_md_replace_text");
     const args = { path: surface.path, search: "draft", replacement: "final" };
     await plugin.tool.inapp_md_replace_text.execute(args, { sessionID: "ses_md" });
-    expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, toolName: "replace_text", args } }]);
-    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: surface.path }, { sessionID: "other" })).ok).toBe(false);
-    expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "wrong.md" }, { sessionID: "ses_md" })).ok).toBe(false);
+    expect(calls).toEqual([{ actionId: "markdown.agent_tool", args: { sessionId: "ses_md", path: surface.path, format: "md", toolName: "replace_text", args } }]);
+
     expect(calls).toHaveLength(1);
   });
 });
@@ -307,11 +407,48 @@ test("opens workspace and connected files in the engine session, then exposes li
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
   expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("An empty inapp_documents_list means you need to open the file");
+  expect(output.system.join("\n")).toContain("Source reading, extraction and wiki imports never require opening a viewer");
+  expect(output.system.join("\n")).toContain("Document work is independent of the user's screen");
 });
 
 describe("PowerPoint visual feedback", () => {
   const snapshot = { activeSurface: { kind: "document", format: "pptx", sessionId: "ses_slides", name: "Deck.pptx", path: "Deck.pptx", editable: true } };
+  test("adds and fills a slide through a named, session-scoped tool", async () => {
+    const calls: unknown[] = [];
+    await withBridge(snapshot, body => { calls.push(body); return { ok: true, result: { saved: true, data: { slideIndex: 0 } } }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { path: "Deck.pptx", templateSlideIndex: 2, insertIndex: 0, replacements: [{ elementId: "title", text: "Introduction" }] };
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "ses_slides" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "add_slide", args } }]);
+    await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other" });
+    expect(calls).toHaveLength(1);
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, output);
+    expect(output.system.join("\n")).toContain("inapp_pptx_add_slide");
+    expect(output.system.join("\n")).toMatch(/do not [^\n.]*probe internal app bundles/i);
+  });
+  test("reads a complete read-only presentation in one session-scoped request", async () => {
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: { ...snapshot.activeSurface, editable: false } }, body => {
+      calls.push(body);
+      return { ok: true, result: { success: true, saved: false, data: { activeSlideIndex: 4, slideCount: 2, slides: [
+        { slideIndex: 0, elements: [{ id: "title", text: "Introduction" }], notes: "Opening notes" },
+        { slideIndex: 1, elements: [{ id: "body", text: "Conclusion" }], notes: "Closing notes" },
+      ] } } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const result = await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "ses_slides" });
+    expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "read_presentation", args: { path: "Deck.pptx" } } }]);
+    if (typeof result !== "string") throw new Error("A read must not return image attachments");
+    expect(JSON.parse(result).result.data.slides).toHaveLength(2);
+    const instructions: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
+    expect(instructions.system.join("\n")).toContain("inapp_pptx_read_presentation");
+    expect(instructions.system.join("\n")).toContain("Do not loop over slides just to read the deck");
+    await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "other-session" });
+    await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Other.pptx" }, { sessionID: "ses_slides" });
+    expect(calls).toHaveLength(1);
+  });
   test("only explicit previews send a slide image attachment", async () => {
     let request: unknown;
     await withBridge(snapshot, (body) => {
@@ -352,82 +489,78 @@ describe("PowerPoint visual feedback", () => {
   });
 });
 
-describe("native Word structure agent tools", () => {
-  test("advertises one Word tool and discovers operation syntax without opening a document", async () => {
-    let dispatches = 0;
-    await withBridge({}, () => { dispatches++; return { ok: true }; });
-    const plugin = await LegalWorkExtensionsPreview();
-    expect(Object.keys(plugin.tool).filter((name) => name.startsWith("inapp_docx"))).toEqual(["inapp_docx"]);
-    expect(Object.keys(plugin.tool.inapp_docx.args)).toEqual(["operation", "args"]);
-    const list = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help" }, {}));
-    expect(list).toMatchObject({ tool: "inapp_docx", operations: expect.arrayContaining([{ operation: "insert_cross_reference", description: expect.any(String) }, { operation: "create_comparison_copy", description: expect.any(String) }]) });
-    expect(list).not.toHaveProperty("argsSchema");
-    const help = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "insert_cross_reference" } }, {}));
-    expect(help).toMatchObject({ operation: "insert_cross_reference", argsSchema: { type: "object", required: expect.arrayContaining(["documentId", "draftRevision", "paraId", "search", "kind"]), properties: { kind: { enum: ["number", "text", "page"] } } } });
-    expect(dispatches).toBe(0);
-    await expect(plugin.tool.inapp_docx.execute({ operation: "unknown_method" }, {})).rejects.toThrow("Use operation help");
-    await expect(plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "unknown_method" } }, {})).rejects.toThrow("Use operation help");
-  });
-
-  test("routes native reference creation with identity and preserves stale/protection errors", async () => {
-    let call: unknown;
-    await withBridge({}, (body) => { call = body; return { ok: true, result: { ok: false, error: "Read the draft again" } }; });
-    const plugin = await LegalWorkExtensionsPreview();
-    const args = { documentId: "doc-1", draftRevision: 3, paraId: "P1", targetParaId: "P8", kind: "number", search: "8" };
-    const raw = await plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: args }, { sessionID: "ses_word" });
-    expect(call).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "insert_cross_reference", args } });
-    expect(JSON.parse(raw).result).toEqual({ ok: false, error: "Read the draft again" });
-    await expect(plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: { ...args, draftRevision: -1 } }, { sessionID: "ses_word" })).rejects.toThrow();
-    await expect(plugin.tool.inapp_docx.execute({ operation: "insert_cross_reference", args: { paraId: "P1", kind: "number", search: "8" } }, { sessionID: "ses_word" })).rejects.toThrow();
-  });
-
-  test("discovers and routes formatting inside the single Word tool with validated units and fresh identity", async () => {
+describe("project-scoped document controls", () => {
+  test("both open chats see and read the project document, while other chats and pane ids cannot", async () => {
+    const sessionIds = ["ses_left", "ses_right"];
+    const surface = { kind: "document", format: "md", sessionId: "workspace:project-a", sessionIds, workspaceId: "project-a", name: "Brief.md", path: "Brief.md", editable: true, agentEditsTracked: false };
     const calls: unknown[] = [];
-    await withBridge({}, (body) => { calls.push(body); return { ok: true, result: { ok: true, saved: true } }; });
+    await withBridge({ activeSurface: surface, openFiles: [{ ...surface, active: true }] }, body => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    const help = JSON.parse(await plugin.tool.inapp_docx.execute({ operation: "help", args: { operation: "apply_formatting" } }, {}));
-    expect(help.argsSchema.required).toEqual(expect.arrayContaining(["documentId", "draftRevision", "paraId"]));
-    expect(help.argsSchema.properties.marks.properties.fontSize.description).toContain("Points");
-    const args = { documentId: "doc-1", draftRevision: 3, paraId: "P1", search: "Clause", marks: { bold: false, fontSize: 10.5 }, paragraph: { alignment: "both", spaceAfter: 6 } };
-    await plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args }, { sessionID: "ses_word" });
-    await plugin.tool.inapp_docx.execute({ operation: "read_formatting", args: { paraId: "P1", includeStyles: true } }, { sessionID: "ses_word" });
-    expect(calls).toEqual([
-      { actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "apply_formatting", args } },
-      { actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "read_formatting", args: { paraId: "P1", includeStyles: true } } },
-    ]);
-    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { ...args, marks: { fontSize: -1 } } }, {})).rejects.toThrow();
-    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { ...args, paragraph: { typo: true } } }, {})).rejects.toThrow();
-    await expect(plugin.tool.inapp_docx.execute({ operation: "apply_formatting", args: { paraId: "P1", marks: { bold: true } } }, {})).rejects.toThrow();
-    await expect(plugin.tool.inapp_docx.execute({ operation: "read_formatting", args: { limit: 500 } }, {})).rejects.toThrow();
-    expect(calls.length).toBe(2);
+    for (const sessionID of sessionIds) {
+      const result = JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID }));
+      expect(result.files).toEqual([{ name: "Brief.md", path: "Brief.md", active: true }]);
+      expect(result.activeDocument?.path).toBe("Brief.md");
+      expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "Brief.md" }, { sessionID })).ok).toBe(true);
+    }
+    for (const sessionID of ["ses_other_project", "workspace:project-a"]) {
+      expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID }))).toEqual({ files: [], activeDocument: null });
+      expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "Brief.md" }, { sessionID })).ok).toBe(false);
+    }
+    expect(calls).toHaveLength(2);
+  });
+  test("an explicitly empty chat scope does not fall back to a stale legacy session", async () => {
+    const surface = { kind: "document", format: "docx", sessionId: "ses_old", sessionIds: [], name: "Brief.docx", path: "Brief.docx" };
+    await withBridge({ activeSurface: surface, openFiles: [{ ...surface, active: true }] });
+    const plugin = await LegalWorkExtensionsPreview();
+    expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_old" }))).toEqual({ files: [], activeDocument: null });
+  });
+});
+
+describe("requested document navigation", () => {
+  test("instructions require a user request without quote or confirmation fields", async () => {
+    const plugin = await LegalWorkExtensionsPreview();
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, output);
+    expect(output.system.join("\n")).toContain("ONLY when the user explicitly asks");
+    expect(Object.keys(plugin.tool.inapp_documents_navigate.args)).toEqual(["path", "target"]);
   });
 
-  test("clean-copy tools write only a new workspace file and hide the binary payload", async () => {
-    const root = await mkdtemp(join(tmpdir(), "word-agent-copy-")); roots.push(root);
-    const bytes = Buffer.from("detached native DOCX test bytes");
-    await withBridge({}, () => ({ ok: true, result: { ok: true, data: { bufferBase64: bytes.toString("base64"), findings: [], sourceChanged: false } } }));
+  test("routes all four formats using this session and preserves read-only access", async () => {
+    let currentFormat = "pdf";
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: { kind: "document", get format() { return currentFormat; }, sessionId: "pane", sessionIds: ["chat"], name: "File", path: "file", editable: false } }, body => { calls.push(body); return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    const args = { documentId: "doc-1", draftRevision: 4, fileName: "Outgoing.docx", categories: ["comments"] };
-    const raw = await plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: args }, { sessionID: "ses_word", directory: root });
-    expect(await readFile(join(root, "Outgoing.docx"))).toEqual(bytes);
-    expect(JSON.parse(raw).result.data).toEqual({ findings: [], sourceChanged: false, path: join(await realpath(root), "Outgoing.docx") });
-    expect(raw).not.toContain("bufferBase64");
-    await expect(plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: args }, { sessionID: "ses_word", directory: root })).rejects.toThrow("EEXIST");
-    await expect(plugin.tool.inapp_docx.execute({ operation: "create_clean_copy", args: { ...args, fileName: "../Outside.docx" } }, { sessionID: "ses_word", directory: root })).rejects.toThrow();
+    for (const format of ["pdf", "docx", "pptx", "xlsx"]) {
+      currentFormat = format;
+      const target = format === "pptx" ? { kind: "slide", slide: 3 } : format === "xlsx" ? { kind: "cells", sheet: "Budget", range: "B20:D22" } : { kind: "page", page: 3 };
+      expect(JSON.parse(await plugin.tool.inapp_documents_navigate.execute({ path: "file", target }, { sessionID: "chat" })).ok).toBe(true);
+      expect(calls.at(-1)).toEqual({ actionId: "documents.navigate", args: { path: "file", target, sessionId: "chat" } });
+    }
   });
 
-  test("comparison tools read returned workspace drafts and reject symlink escapes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "word-agent-compare-")); roots.push(root);
-    const outside = await mkdtemp(join(tmpdir(), "word-agent-outside-")); roots.push(outside);
-    await writeFile(join(root, "Returned.docx"), "returned document bytes");
-    await writeFile(join(outside, "Secret.docx"), "outside");
-    await symlink(join(outside, "Secret.docx"), join(root, "Escape.docx"));
-    let request: unknown;
-    await withBridge({}, (body) => { request = body; return { ok: true, result: { ok: true, data: { bufferBase64: Buffer.from("comparison bytes").toString("base64"), changes: [{ author: "Counsel" }] } } }; });
+  test("rejects a different session, stale path, wrong format, invalid destination and scheduled runs", async () => {
+    let executions = 0;
+    await withBridge({ activeSurface: { kind: "document", format: "pdf", sessionId: "chat", name: "File", path: "file.pdf" } }, () => { executions++; return { ok: true }; });
     const plugin = await LegalWorkExtensionsPreview();
-    const args = { documentId: "doc-1", draftRevision: 2, fileName: "Comparison.docx", versions: [{ path: "Returned.docx", author: "Counsel" }] };
-    await plugin.tool.inapp_docx.execute({ operation: "create_comparison_copy", args: args }, { sessionID: "ses_word", directory: root });
-    expect(request).toMatchObject({ actionId: "document.agent_tool", args: { sessionId: "ses_word", toolName: "create_comparison_copy", args: { versions: [{ base64: Buffer.from("returned document bytes").toString("base64"), author: "Counsel" }] } } });
-    await expect(plugin.tool.inapp_docx.execute({ operation: "create_comparison_copy", args: { ...args, fileName: "EscapeComparison.docx", versions: [{ path: "Escape.docx", author: "Counsel" }] } }, { sessionID: "ses_word", directory: root })).rejects.toThrow("inside the active workspace");
+    const args = { path: "file.pdf", target: { kind: "page", page: 2 } };
+    for (const [request, context] of [[args, { sessionID: "other" }], [{ ...args, path: "other.pdf" }, { sessionID: "chat" }], [{ ...args, target: { kind: "slide", slide: 2 } }, { sessionID: "chat" }]] satisfies Array<[unknown, { sessionID: string }]>) {
+      expect(JSON.parse(await plugin.tool.inapp_documents_navigate.execute(request, context)).ok).toBe(false);
+    }
+    for (const page of [0, -1, 1.5]) await expect(plugin.tool.inapp_documents_navigate.execute({ ...args, target: { kind: "page", page } }, { sessionID: "chat" })).rejects.toThrow();
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT]) await expect(plugin.tool.inapp_documents_navigate.execute(args, { sessionID: "chat", agent })).rejects.toThrow("cannot control");
+    expect(executions).toBe(0);
   });
+});
+
+test("Markdown chunks are scoped to the originating task and a failed save is a tool error", async () => {
+  const calls: unknown[] = [];
+  let fail = false;
+  await withBridge({}, body => { calls.push(body); return fail ? { ok: false, error: "File already exists" } : { ok: true, result: { saved: false } }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  const args = { path: "Draft.md", content: "# Draft\n", append: false, complete: false };
+  await plugin.tool.inapp_markdown_create.execute(args, { sessionID: "background-task" });
+  expect(calls).toEqual([{ actionId: "markdown.create", args: { ...args, sessionId: "background-task" } }]);
+  fail = true;
+  await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task" })).rejects.toThrow("File already exists");
+  await expect(plugin.tool.inapp_markdown_create.execute(args, {})).rejects.toThrow("A task is required");
 });

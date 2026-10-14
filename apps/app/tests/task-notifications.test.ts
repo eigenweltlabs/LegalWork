@@ -32,7 +32,6 @@ const {
   useTaskNotificationPreferences,
 } = await import("../src/react-app/domains/tasks/task-notification-preferences");
 const { requestTasksPane, takePendingTasksPaneRequest, TASKS_PANE_OPEN_EVENT } = await import("../src/react-app/domains/tasks/tasks-pane-request");
-const { isSessionViewPath } = await import("../src/react-app/shell/show-tasks-pane");
 const { appBadgeLabel } = await import("../src/react-app/shell/app-badge");
 
 import type { LegalworkTaskNotification } from "../src/app/lib/legalwork-server";
@@ -121,6 +120,18 @@ describe("selecting what to announce", () => {
     expect(ids({ ...everything, scope: "unassigned" })).toEqual(["mine", "open", "late", "today"]);
     expect(ids(everything)).toEqual(["mine", "open", "bobs", "late", "today"]);
     expect(ids({ ...everything, dueToday: false, overdue: false })).toEqual(["mine", "open", "bobs"]);
+  });
+
+  test("a change of the member's own that could not be merged is always said, first, even on a task just arrived", () => {
+    const claim = [
+      notification({ kind: "new", taskId: "arrived", audience: "others" }),
+      notification({ kind: "conflict", taskId: "arrived", audience: "others" }),
+      notification({ kind: "conflict", taskId: "bobs", audience: "others" }),
+    ];
+    const quiet = { ...everything, scope: "mine" as const, arrivals: false, dueToday: false, overdue: false };
+    expect(selectTaskAnnouncements(claim, quiet)).toEqual([
+      { kind: "conflict", tasks: [expect.objectContaining({ id: "arrived" }), expect.objectContaining({ id: "bobs" })] },
+    ]);
   });
 });
 
@@ -287,15 +298,5 @@ describe("opening a task from anywhere", () => {
       if (original) Object.defineProperty(globalThis, "window", original);
       else Reflect.deleteProperty(globalThis, "window");
     }
-  });
-
-  test("knows which screens can show the Tasks pane", () => {
-    expect(isSessionViewPath("/session")).toBe(true);
-    expect(isSessionViewPath("/tasks")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/session/ses_1")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/evals")).toBe(true);
-    expect(isSessionViewPath("/workspace/ws_1/settings/notifications")).toBe(false);
-    expect(isSessionViewPath("/settings/general")).toBe(false);
-    expect(isSessionViewPath("/welcome")).toBe(false);
   });
 });

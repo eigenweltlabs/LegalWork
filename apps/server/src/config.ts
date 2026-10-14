@@ -32,6 +32,7 @@ export interface CliArgs {
 }
 
 interface FileConfig {
+  autoDownloadOcr?: boolean;
   host?: string;
   port?: number;
   token?: string;
@@ -53,7 +54,7 @@ interface FileConfig {
 const DEFAULT_PORT = 8787;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_WORD_ADDIN_PORT = 47443;
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_LOG_FORMAT: LogFormat = "pretty";
 const DEFAULT_LOG_REQUESTS = true;
 
@@ -400,6 +401,7 @@ export async function resolveServerConfig(
     workspaces,
     authorizedRoots,
     readOnly,
+    autoDownloadOcr: parseBoolean(process.env.LEGALWORK_OCR_AUTO_DOWNLOAD) ?? fileConfig.autoDownloadOcr ?? true,
     startedAt: Date.now(),
     tokenSource,
     hostTokenSource,

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   applyEigenweltPaidManifestModels,
+  applyEigenweltSystemOne,
   eigenweltPaidManifestRevision,
   parseManifestModels,
   readCachedEigenweltPaidManifest,
@@ -92,6 +93,20 @@ describe("parseManifestModels", () => {
 });
 
 describe("applyEigenweltPaidManifestModels", () => {
+  test("renames a model around its existing ID and key, so saved selections remain valid", async () => {
+    const config = await setup();
+    const original = { id: "Eigenwelt Europe Gemini", name: "Eigenwelt Europe Gemini", region: "EU" };
+    await writeCachedEigenweltPaidManifest(config, {
+      baseURL: "https://gateway.test/v1", apiKey: "existing-firm-key", models: [original],
+    });
+    const renamed = { ...original, name: "Gemini 3.8 Flash (EU)" };
+    const argon = { id: "gemini-4-argon-eu", name: "Gemini 4 Argon (EU)", region: "EU" };
+    expect(await applyEigenweltPaidManifestModels(config, [renamed, argon])).toBe(true);
+    const cached = await readCachedEigenweltPaidManifest(config);
+    expect(cached).toMatchObject({ apiKey: "existing-firm-key", models: [renamed, argon] });
+    expect(cached?.models.find((model) => model.id === original.id)?.name).toBe(renamed.name);
+    expect(await applyEigenweltPaidManifestModels(config, [renamed, argon])).toBe(false);
+  });
   test("is a no-op without a cached manifest (not signed in)", async () => {
     const config = await setup();
     expect(await applyEigenweltPaidManifestModels(config, [EUROPE])).toBe(false);
@@ -126,4 +141,17 @@ describe("eigenweltPaidManifestRevision", () => {
     // The key is not part of the fingerprint: a rotated key is not a model change.
     expect(eigenweltPaidManifestRevision({ ...base, apiKey: "other", models: [EUROPE, US] })).toBe(both);
   });
+});
+
+
+test("SystemOne metadata survives model refresh with the same subscription key, and older payloads stay compatible", async () => {
+  const config = await setup();
+  const systemOne = { enabled: true, available: true, baseURL: "https://api.eigenweltlabs.com", model: "EigenJev", region: "EU", questionTypes: ["noul", "choice", "score"] };
+  await applyEigenweltSystemOne(config, systemOne);
+  expect(await readCachedEigenweltPaidManifest(config)).toBeNull();
+  await writeCachedEigenweltPaidManifest(config, { baseURL: "https://chat.test/v1", apiKey: "same-subscription-key", models: [EUROPE] });
+  await applyEigenweltSystemOne(config, systemOne);
+  await applyEigenweltPaidManifestModels(config, [US]);
+  await applyEigenweltSystemOne(config, undefined);
+  expect(await readCachedEigenweltPaidManifest(config)).toMatchObject({ apiKey: "same-subscription-key", models: [US], systemOne });
 });

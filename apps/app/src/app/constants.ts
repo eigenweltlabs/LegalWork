@@ -30,6 +30,11 @@ export type McpDirectoryInfo = {
   url?: string;
   type?: "remote" | "local";
   command?: string[];
+  cwd?: string;
+  environment?: Record<string, string>;
+  timeout?: number;
+  /** Update an existing owned connector without changing its scope or identity. */
+  existingConfig?: import("@legalwork/types/connector-config").ConnectorConfig;
   /** Static auth headers for a remote MCP (e.g. { Authorization: "Bearer …" }).
    * When set, the server connects via these headers and skips OAuth — the way to
    * connect token-authed servers like iManage that reject the engine's OAuth redirect. */
@@ -301,6 +306,19 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     requiresToken: true,
     kind: "mcp",
     preview: true,
+  },
+  {
+    name: "Vaquill",
+    serverName: "vaquill",
+    get description() { return t("mcp.quick_connect_vaquill_desc") },
+    // Hosted US statute server (github.com/Vaquill-AI/vaquill-mcp). One-click:
+    // /mcp is OAuth 2.1 + PKCE with dynamic client registration, and accepts
+    // the engine's loopback redirect. Not /s/_, the same server for API keys
+    // (vq_key_…), which lists tools without auth and so never offers sign-in.
+    url: "https://mcp.vaquill.ai/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
   },
   {
     name: "Verisk",

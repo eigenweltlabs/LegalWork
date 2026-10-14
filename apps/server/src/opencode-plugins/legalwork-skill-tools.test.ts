@@ -1,38 +1,48 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildSkillMarkdown,
   fitSkillName,
   resolveSkillName,
 } from "../skill-tool-content.js";
 
-type Recorded = { url: string; method: string; body: Record<string, unknown> | null };
+type Recorded = { url: string; method: string; body: Record<string, unknown> | null; headers: Headers };
 
 const originalFetch = globalThis.fetch;
 const originalUrl = process.env.LEGALWORK_SERVER_URL;
 const originalToken = process.env.LEGALWORK_SERVER_TOKEN;
+const originalWikiToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
 
 let requests: Recorded[] = [];
 let installedNames: string[] = [];
+let existingCorrection = false;
 
 // The office-plugin-shared workspace lookup caches per URL, so every test hits
 // the same server URL and workspace to keep the cache consistent.
 const SERVER_URL = "http://127.0.0.1:9911";
 const WORKSPACE = { id: "ws-1", path: "/firm/matters" };
+let workspace = WORKSPACE;
 
 function stubFetch() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : null;
-    requests.push({ url, method, body });
+    requests.push({ url, method, body, headers: new Headers(init?.headers) });
 
     const path = url.slice(SERVER_URL.length);
     if (path === "/workspaces") {
-      return new Response(JSON.stringify({ items: [WORKSPACE] }), { status: 200 });
+      return new Response(JSON.stringify({ items: [workspace] }), { status: 200 });
     }
+    if (path === "/workspace/ws-1/skills/wiki-setup/composed") {
+      return Response.json({ chain: [{ name: "wiki-setup", directory: join(workspace.path, "Skills/wiki-setup"), files: [{ path: "SKILL.md", size: 12 }] }] });
+    }
+    if (path.startsWith("/workspace/ws-1/skills/wiki-setup/package-file?")) return Response.json({ text: "Wiki-local setup" });
     if (path.startsWith("/workspace/ws-1/skills?")) {
-      return new Response(JSON.stringify({ items: installedNames.map((name) => ({ name, scope: "global" })) }), {
+      return new Response(JSON.stringify({ items: installedNames.map((name) => ({ name, scope: "global", ...(existingCorrection ? { kind: "workflow" } : {}) })) }), {
         status: 200,
       });
     }
@@ -57,6 +67,9 @@ async function createSkill(args: Record<string, unknown>) {
 beforeEach(() => {
   requests = [];
   installedNames = [];
+  existingCorrection = false;
+  workspace = WORKSPACE;
+  delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
   process.env.LEGALWORK_SERVER_URL = SERVER_URL;
   process.env.LEGALWORK_SERVER_TOKEN = "test-token";
   stubFetch();
@@ -68,6 +81,29 @@ afterEach(() => {
   else process.env.LEGALWORK_SERVER_URL = originalUrl;
   if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
   else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+  if (originalWikiToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+  else process.env.LEGALWORK_WIKI_AGENT_TOKEN = originalWikiToken;
+});
+
+test("wiki-local skill loading and resource reads retain authenticated chat origin", async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "wiki-skill-origin-")));
+  try {
+    workspace = { id: "ws-1", path: directory };
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = "test-wiki-runtime-token";
+    const context = { directory, sessionID: "wiki-chat", ask: async () => {} };
+    const plugin = await LegalWorkSkillTools();
+    expect(JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: "wiki-setup" }, context)).ok).toBe(true);
+    expect(JSON.parse(await plugin.tool.legalwork_skill_read.execute({ name: "wiki-setup", path: "SKILL.md" }, context)).ok).toBe(true);
+    expect(requests.filter(request => request.url.includes("/skills/"))).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.headers.get("authorization")).toBe("Bearer test-token");
+      expect(request.headers.get("x-legalwork-wiki-agent-token")).toBe("test-wiki-runtime-token");
+      expect(request.headers.get("x-legalwork-wiki-agent-session")).toBe("wiki-chat");
+      expect(request.headers.get("x-legalwork-wiki-agent-directory")).toBe(encodeURIComponent(directory));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 describe("skill naming", () => {
@@ -86,8 +122,8 @@ describe("skill naming", () => {
     expect(resolveSkillName({ name: "NDA review", kind: "workflow", workflowType: "assistant" })).toBe(
       "workflow-assistant-nda-review",
     );
-    expect(resolveSkillName({ name: "Lease terms", kind: "workflow", workflowType: "tabular" })).toBe(
-      "workflow-tabular-lease-terms",
+    expect(resolveSkillName({ name: "workflow-tabular-lease-terms", kind: "workflow", workflowType: "assistant" })).toBe(
+      "workflow-assistant-lease-terms",
     );
     expect(resolveSkillName({ name: "NDA review", kind: "skill", workflowType: "assistant" })).toBe("nda-review");
   });
@@ -113,17 +149,14 @@ describe("SKILL.md content", () => {
     expect(md).toContain("Do the review.");
   });
 
-  test("routes a tabular workflow through the tabular-review skill", () => {
-    const md = buildSkillMarkdown({
-      fullName: "workflow-tabular-lease-terms",
-      description: "Use when comparing lease terms.",
-      instructions: "Rent, term, break clause",
-      kind: "workflow",
-      workflowType: "tabular",
-    });
-    expect(md).toContain("# Lease Terms");
-    expect(md).toContain("`tabular-review`");
-    expect(md).toContain("Rent, term, break clause");
+  test("rejects retired tabular workflow creation and points authors to the prompt library", async () => {
+    await expect(createSkill({ name: "Lease terms", description: "Reusable questions", instructions: "Rent, term, break clause", kind: "workflow", workflowType: "tabular" })).rejects.toThrow();
+    expect(requests).toHaveLength(0);
+    const plugin = await LegalWorkSkillTools();
+    const guidance: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, guidance);
+    expect(guidance.system.join(" ")).toContain("author-review-prompts");
+    expect(guidance.system.join(" ")).toContain("legalwork_review_library_save");
   });
 });
 
@@ -158,6 +191,25 @@ describe("legalwork_skill_create", () => {
     expect(requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 
+  test.each(["global", "project"])("saves %s corrections in Workflows even for older callers", async (scope) => {
+    const lesson = { base: "de-civil-deadlines", appliesWhen: "Absolute payment-order cutoff", correction: "Require the later procedural record.", examples: [{ input: "Record missing", expected: "No date" }, { input: "Ordinary response", expected: "Calculate the supported period" }] };
+    const result = await createSkill({ name: "Payment order cutoff", description: "Use for payment-order objections.", instructions: "Check which cutoff was requested.", kind: "skill", ...(scope === "project" ? { scope } : {}), lesson });
+    expect(result).toMatchObject({ ok: true, name: "workflow-assistant-payment-order-cutoff", kind: "workflow", scope, extends: lesson.base });
+    expect(String(result.message)).toContain("in Workflows");
+    expect(String(result.message)).toContain("loads automatically");
+    const body = requests.find((entry) => entry.method === "POST")?.body;
+    expect(body).toMatchObject({ name: result.name, scope, lesson });
+    expect(body?.content).not.toContain("kind:");
+  });
+
+  test("editing a previously saved correction preserves its unprefixed name", async () => {
+    installedNames.push("payment-order-cutoff");
+    existingCorrection = true;
+    const result = await createSkill({ name: "payment-order-cutoff", description: "Use for payment-order objections.", instructions: "Refined instructions.", kind: "workflow", overwrite: true });
+    expect(result).toMatchObject({ ok: true, name: "payment-order-cutoff", kind: "workflow" });
+    expect(requests.find((entry) => entry.method === "POST")?.body).toMatchObject({ name: "payment-order-cutoff" });
+  });
+
   test("overwrites when asked", async () => {
     installedNames.push("workflow-assistant-nda-review");
     const result = await createSkill({
@@ -186,10 +238,19 @@ describe("legalwork_skill_create", () => {
 });
 
 describe("system prompt", () => {
-  test("tells the agent the tool is the only path into the app", async () => {
+  test("treats workflows as automatically discoverable user-facing skills", async () => {
     const plugin = await LegalWorkSkillTools();
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"](null, output);
     expect(output.system.join("\n")).toContain("legalwork_skill_create");
+    expect(output.system.join("\n")).toContain("Both kinds can be loaded automatically");
+    expect(output.system.join("\n")).toContain("kind=workflow, lesson=");
   });
+});
+
+test("editing an existing tabular workflow keeps its original callable name", async () => {
+  installedNames.push("workflow-tabular-lease-terms");
+  const result = await createSkill({ name: "workflow-tabular-lease-terms", description: "Use when reviewing leases.", instructions: "Keep these exact existing instructions.", kind: "workflow", overwrite: true });
+  expect(result).toMatchObject({ ok: true, name: "workflow-tabular-lease-terms", workflowType: "assistant" });
+  expect(requests.find(request => request.method === "POST")?.body).toMatchObject({ name: "workflow-tabular-lease-terms" });
 });
