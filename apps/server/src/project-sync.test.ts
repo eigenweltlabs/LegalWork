@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -251,6 +251,25 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const akte = await localProject(owner.config, "Manual sync");
+    const requests: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    try {
+      await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+      expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      expect(requests.filter((url) => url.includes("/api/projects"))).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
