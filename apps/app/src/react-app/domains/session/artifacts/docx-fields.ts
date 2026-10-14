@@ -4,6 +4,7 @@ import { toFlowBlocks } from "@eigenpal/docx-editor-core/layout-bridge";
 import type { FlowBlock, Layout, Page } from "@eigenpal/docx-editor-core/layout-engine";
 import type { DocxEditorRef } from "@eigenpal/docx-editor-react";
 import type { PageNumberRule, WordMetadata } from "./docx-word-package";
+import { wordBookmarkIdentities, wordBookmarks } from "./docx-bookmarks";
 
 export function formatPageNumber(number: number, format: string): string {
   if (/^(upper|lower)Roman$/.test(format) && number > 0) {
@@ -70,7 +71,8 @@ export function wordParagraphs(doc: Node): Paragraph[] {
     const outline = node.attrs.outlineLevel;
     const level = typeof outline === "number" ? outline + 1 : /^Heading[1-9]$/.test(style) ? Number(style.slice(7)) : undefined;
     const bookmarks: unknown = node.attrs.bookmarks;
-    const bookmark = Array.isArray(bookmarks) ? bookmarks.find((mark) => mark && typeof mark.name === "string")?.name : undefined;
+    let bookmark = Array.isArray(bookmarks) ? bookmarks.find((mark) => mark && typeof mark.name === "string")?.name : undefined;
+    node.descendants(child => { if (!bookmark && child.type.name === "bookmarkStart") bookmark = String(child.attrs.name); });
     result.push({ node, pos, marker: markers.get(pos) ?? "", level, bookmark });
   });
   paragraphCache.set(doc, result);
@@ -103,11 +105,7 @@ export function resolveWordFields(doc: Node, layout: Layout | null, metadata: Wo
   layout = withWordSections(bodyDoc, layout);
   const values = new Map<number, string>();
   const paragraphs = wordParagraphs(bodyDoc);
-  const bookmarks = new Map<string, Paragraph>();
-  for (const paragraph of paragraphs) {
-    const marks: unknown = paragraph.node.attrs.bookmarks;
-    if (Array.isArray(marks)) for (const mark of marks) if (mark && typeof mark.name === "string") bookmarks.set(mark.name, paragraph);
-  }
+  const bookmarks = new Map(wordBookmarks(bodyDoc).map(mark => [mark.name, { ...mark, paragraph: paragraphs.find(item => mark.from >= item.pos && mark.from < item.pos + item.node.nodeSize) }]));
   const labels = pageLabels(layout, metadata.pages);
   const sequences = new Map<string, number>();
   doc.descendants((node, pos) => {
@@ -122,11 +120,11 @@ export function resolveWordFields(doc: Node, layout: Layout | null, metadata: Wo
     if (type === "SECTIONPAGES" && page && layout) text = String(layout.pages.filter((p) => p.sectionIndex === page.sectionIndex).length);
     if (type === "SECTION" && page) text = String((page.sectionIndex ?? 0) + 1);
     if (type === "PAGEREF") {
-      const targetPage = target && pageAtPosition(layout, target.pos);
+      const targetPage = target && pageAtPosition(layout, target.from);
       if (targetPage) text = labels.get(targetPage.number);
       else if (!target) text = "Error! Reference source not found.";
     }
-    if (type === "REF") text = target ? /\\[nrw]\b/.test(instruction) ? target.marker || target.node.textContent : target.node.textContent : "Error! Reference source not found.";
+    if (type === "REF") text = target ? /\\[nrw]\b/.test(instruction) ? target.paragraph?.marker || target.text : target.text : "Error! Reference source not found.";
     if (type === "STYLEREF") {
       const style = instruction.match(/^STYLEREF\s+(?:"([^"]+)"|([^\s\\]+))/i)?.slice(1).find(Boolean);
       const firstPos = page?.fragments.find((fragment) => fragment.pmStart !== undefined)?.pmStart ?? pos;
@@ -167,13 +165,13 @@ export function updateContents(view: EditorView, layout: Layout | null, metadata
   if (!entries.length) return false;
   const schema = view.state.schema;
   let tr = view.state.tr;
-  let nextBookmark = 1;
-  for (const paragraph of paragraphs) for (const bookmark of paragraph.node.attrs.bookmarks ?? []) if (typeof bookmark.id === "number") nextBookmark = Math.max(nextBookmark, bookmark.id + 1);
+  const allBookmarks = wordBookmarks(view.state.doc);
+  let nextBookmark = Math.max(0, ...wordBookmarkIdentities(view.state.doc).map(bookmark => bookmark.id)) + 1;
   const headings = paragraphs.filter((paragraph) => paragraph.level !== undefined && paragraph.level >= metadata.tocLevels[0] && paragraph.level <= metadata.tocLevels[1]);
   const labels = pageLabels(layout, metadata.pages);
   const generated = headings.map((paragraph) => {
     const bookmarks: { id: number; name: string }[] = paragraph.node.attrs.bookmarks ?? [];
-    const existing = bookmarks.find((mark) => /^_(?:Toc|LW_Toc)/i.test(mark.name));
+    const existing = allBookmarks.find(mark => mark.from >= paragraph.pos && mark.from < paragraph.pos + paragraph.node.nodeSize && /^_(?:Toc|LW_Toc)/i.test(mark.name));
     const bookmark = existing?.name ?? `_LW_Toc${nextBookmark}`;
     if (!existing) tr = tr.setNodeMarkup(paragraph.pos, undefined, { ...paragraph.node.attrs, bookmarks: [...bookmarks, { id: nextBookmark++, name: bookmark }] });
     const hyperlink = schema.marks.hyperlink.create({ href: `#${bookmark}` });
@@ -229,12 +227,14 @@ export function decorateWordFields(root: HTMLElement, editor: DocxEditorRef, met
     const paint = (container: HTMLElement, doc: Node, values: Map<number, string>) => {
       doc.descendants((node, pos) => {
         if (node.type.name !== "field") return;
-        const span = container.querySelector<HTMLElement>(`.layout-run[data-pm-start="${pos}"]`);
-        if (!span) return;
-        const text = values.get(pos);
-        if (text !== undefined && span.textContent !== text) span.textContent = text;
-        const target = fieldTarget(String(node.attrs.instruction ?? ""));
-        if (target) { span.dataset.wordBookmark = target; span.tabIndex = 0; span.setAttribute("role", "link"); span.setAttribute("aria-label", `${span.textContent}, ${target}`); }
+        for (const span of container.querySelectorAll<HTMLElement>(`.layout-run[data-pm-start="${pos}"]`)) {
+          const text = values.get(pos);
+          // Wrapped results are measured and sliced from the native field cache.
+          // Replacing a fragment with the full result would undo wrapping.
+          if (span.dataset.wordFieldResult !== "true" && text !== undefined && span.textContent !== text) span.textContent = text;
+          const target = fieldTarget(String(node.attrs.instruction ?? ""));
+          if (target) { span.dataset.wordBookmark = target; span.tabIndex = 0; span.setAttribute("role", "link"); span.setAttribute("aria-label", `${span.textContent}, ${target}`); }
+        }
       });
     };
     const content = pageElement.querySelector<HTMLElement>(".layout-page-content");

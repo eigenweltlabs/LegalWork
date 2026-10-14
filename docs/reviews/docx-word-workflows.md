@@ -89,7 +89,7 @@ section numbering and protection. It includes fields in headers, footers and not
 including stories that have not yet been opened in the UI. Document contents and
 metadata remain source material rather than instructions.
 
-The agent can create whole-paragraph bookmarks; insert or retarget linked
+The agent can create paragraph or exact-text range bookmarks; insert or retarget linked
 REF/PAGEREF fields; fill native text controls; edit and insert linked footnotes or
 endnotes; refresh fields/contents; apply heading styles and section breaks; and set
 section numbering or unpassworded protection. Structural tools require the
@@ -133,8 +133,8 @@ The six unused Word QA document windows and Word's start window were closed;
 Microsoft Word is no longer running. The user's demo document was not changed.
 
 Limits: structural/control/note operations are direct edits, not tracked proposals;
-mandatory tracked-change protection blocks them. New bookmarks cover whole
-paragraphs and field editing targets body REF/PAGEREF fields. Other stories' fields
+mandatory tracked-change protection blocks them. Bookmarks can cover paragraphs
+or exact text ranges, and field editing targets body REF/PAGEREF fields. Other stories' fields
 are visible to the agent; unsupported field kinds keep cached results. Only plain
 text controls can be filled; bound/locked/typed or complex controls are rejected.
 Note edits preserve other content but reload the model, resetting native undo
@@ -248,3 +248,48 @@ Current scope: body paragraphs, including text within tables/controls. Table
 geometry/borders and header/footer/note formatting are not exposed for editing.
 Full Word formatting parity is not claimed. Restart the development worker/app to
 load the newly available operation schemas.
+
+## Reference fixes from the two-paragraph session (15 October 2026)
+
+The plain-text reader now includes cached field results. Text search keeps native
+fields and bookmark boundaries out of replacement ranges, so visible field text
+cannot be mistaken for editable document characters. Pending insertions retain
+existing vanilla-read semantics.
+
+Long cached field results use the text layout engine, with every wrapped fragment
+mapped to the original atomic field position. Painting adds links to all fragments
+without replacing each fragment with the entire field result. Clicking a reference
+navigates to the native bookmark start.
+
+`create_bookmark.search` and `insert_cross_reference.targetSearch` select an exact
+unique phrase for the bookmark. Native inline bookends preserve imported ranges,
+including ranges spanning paragraphs; typing, splits and undo move them with the
+content. The serializer emits actual OOXML start/end boundaries and preserves
+formatting. Paragraph bookmarks remain supported. Manually typed § labels use
+`kind: "text"` with a short target search; `kind: "number"` requires native numbering.
+
+The public surface remains fifteen tools. Operation discriminators use single-value
+enums in the model JSON schema, the edit description lists accepted names, and
+validation errors identify the bad operation and the correct syntax. Fixed guidance
+requires fresh identity/handles on each new user request, native field readback, and
+an actual preview before diagnosing visibility. Duplicate unlinked text workarounds
+are explicitly discouraged.
+
+Validation: 77 app/editor tests across twelve files; 33 server tool/routing tests;
+app and server typechecks and production builds; clean frozen-lockfile installation;
+CommonJS native bookmark/field/flow smoke test. Electron computer use exercised the
+production editor with a minimal two-paragraph fixture: full and short references,
+three wrapped fragments with no clipping, save, reopen, native range readback,
+plain-text field readback, click navigation to § 2, and caret placement after the
+final line of a wrapped native field. The QA BrowserWindow disables
+background throttling so renderer readiness completes while Codex is foreground.
+Evidence: [reopened screenshot](word-reference-fixes/reopened.png) and
+[accessibility readback](word-reference-fixes/reopened-ax.txt).
+
+The original session's DOCX and recovered draft were not edited by these tests.
+The main Electron dev runtime was restarted on port 5481 to load the rebuilt tool
+plugin and updated SDK. Temporary diagnostic logs and the guessed save-status fix
+were removed: a test fixture's orphaned comment, rather than a production save
+failure, caused that warning.
+
+Update fields shares one document-tools bar with Review changes, Accept all changes and Reject all changes. The commands wrap together on narrow panes and retain their existing disabled/protection rules; no separate fields row remains.

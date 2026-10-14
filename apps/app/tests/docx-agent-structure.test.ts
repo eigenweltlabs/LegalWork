@@ -56,6 +56,43 @@ test("agent creates a native bookmark and reference, retargets it and saves/reop
   assert.match(xml, /REF Verguetung \\w \\h/);
 });
 
+test("short reference targets use native ranges and follow edits through save/reopen", async () => {
+  const { context, read, save } = await contract(true);
+  const snapshot = read(); const source = snapshot.fields.find(field => field.type === "REF")!;
+  const target = snapshot.headings.find(heading => heading.number === "8")!;
+  const label = target.text.slice(0, 8);
+  executeWordStructureTool(context, "insert_cross_reference", { paraId: source.paraId, targetParaId: target.paraId, targetSearch: label, kind: "text", search: "" });
+  const reference = read().fields.find(field => field.target?.startsWith("_LW_Ref"))!;
+  assert.equal(reference.resolvedText, label);
+  const mark = read().bookmarks.find(mark => mark.name === reference.target)!;
+  assert.equal(mark.scope, "range"); assert.equal(mark.text, label);
+  const paragraph = wordParagraphs(context.view.state.doc).find(item => item.node.attrs.paraId === target.paraId)!;
+  let start = 0;
+  paragraph.node.descendants((node, offset) => { if (node.type.name === "bookmarkStart" && node.attrs.name === mark.name) start = paragraph.pos + offset + 2; });
+  context.view.dispatch(context.view.state.tr.insertText(" updated", start + label.length));
+  assert.equal(read().bookmarks.find(mark => mark.name === reference.target)?.text, label + " updated");
+  const saved = await save(); const reopened = await parseDocx(saved);
+  const after = readWordStructure(toProseDoc(reopened), reopened, null, await readWordMetadata(saved));
+  assert.equal(after.bookmarks.find(mark => mark.name === reference.target)?.text, label + " updated");
+  assert.equal(after.fields.find(field => field.target === reference.target)?.resolvedText, label + " updated");
+});
+
+test("imported bookmarks spanning paragraphs retain native boundaries and formatting", async () => {
+  const { context, read, save } = await contract();
+  const first = schema.nodes.paragraph.create({ paraId: "CROSS1" }, [schema.nodes.bookmarkStart.create({ id: 97, name: "Across" }), schema.text("alpha", [schema.marks.bold.create()])]);
+  const second = schema.nodes.paragraph.create({ paraId: "CROSS2" }, [schema.text("beta"), schema.nodes.bookmarkEnd.create({ id: 97 })]);
+  const third = schema.nodes.paragraph.create({ paraId: "CROSS3" }, [schema.nodes.bookmarkStart.create({ id: 105, name: "Orphan" }), schema.text("source")]);
+  context.view.dispatch(context.view.state.tr.replaceWith(0, context.view.state.doc.content.size, [first, second, third]));
+  assert.equal(read().bookmarks.find(mark => mark.name === "Across")?.text, "alpha\nbeta");
+  assert.throws(() => executeWordStructureTool(context, "create_bookmark", { paraId: "CROSS3", bookmark: "Orphan" }), /already exists/);
+  executeWordStructureTool(context, "create_bookmark", { paraId: "CROSS3", bookmark: "Safe" });
+  assert.ok(read().bookmarks.find(mark => mark.name === "Safe")!.id > 105);
+  const saved = await save(); const reopened = await parseDocx(saved); const doc = toProseDoc(reopened);
+  const after = readWordStructure(doc, reopened, null, await readWordMetadata(saved));
+  assert.equal(after.bookmarks.find(mark => mark.name === "Across")?.text, "alpha\nbeta");
+  assert.ok(doc.firstChild?.lastChild?.marks.some(mark => mark.type.name === "bold"));
+});
+
 test("agent-created reference renumbers with its target and broken targets are visible", async () => {
   const { context, read } = await contract(); const snapshot = read(); const source = snapshot.fields.find((field) => field.type === "REF")!;
   executeWordStructureTool(context, "insert_cross_reference", { paraId: source.paraId, targetParaId: snapshot.headings.find((heading) => heading.number === "8")!.paraId, kind: "number", search: "" });

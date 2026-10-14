@@ -55,6 +55,7 @@ const docxIdentity = {
 const paraId = z.string().min(1).describe("Live paragraph handle from read_document or find_text.");
 const docxTarget = {
   bookmark: z.string().min(1).optional(),
+  targetSearch: z.string().min(1).optional().describe("Unique plain phrase in targetParaId, e.g. § 2 Schlussbestimmungen. Omit to reference the whole target paragraph; use only with targetParaId."),
   targetParaId: paraId.optional().describe("Creates a native target bookmark if needed; alternatively use bookmark."),
   kind: z.enum(["number", "text", "page"]),
 };
@@ -81,7 +82,7 @@ export const docxTemplateSchema = z.object({
   return control ? (value.controlId === undefined || value.tag === undefined) && value.documentId !== undefined && value.draftRevision !== undefined && value.paraId === undefined && value.placeholder === undefined : value.paraId !== undefined && value.placeholder !== undefined;
 }, "Use paraId/placeholder, or one controlId/tag with documentId/draftRevision from a fresh read.");
 const docxFormattingOperation = z.object({
-  operation: z.literal("apply_formatting"), paraId: z.string().min(1), search: z.string().min(1).optional().describe("Unique plain-text phrase for character formatting; omit for the whole paragraph. Paragraph properties always affect the whole paragraph."),
+  operation: z.enum(["apply_formatting"]), paraId: z.string().min(1), search: z.string().min(1).optional().describe("Unique plain-text phrase for character formatting; omit for the whole paragraph. Paragraph properties always affect the whole paragraph."),
   marks: z.object({
     bold: z.boolean().optional(), italic: z.boolean().optional(), strike: z.boolean().optional(), smallCaps: z.boolean().optional(), allCaps: z.boolean().optional(), hidden: z.boolean().optional(),
     underline: z.union([z.boolean(), z.object({ style: z.enum(["single", "double", "dotted", "dash", "wave"]) }).strict()]).optional(),
@@ -102,22 +103,36 @@ const docxFormattingOperation = z.object({
 
 export const docxEditOperationSchema = z.discriminatedUnion("operation", [
   docxFormattingOperation,
-  z.object({ operation: z.literal("set_paragraph_style"), paraId, styleId: z.string().min(1).describe("Existing native style ID from read_document.") }).strict(),
-  z.object({ operation: z.literal("create_bookmark"), paraId, bookmark: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,39}$/) }).strict(),
-  z.object({ operation: z.literal("insert_cross_reference"), paraId, ...docxTarget, search: z.string().describe("Replace this unique plain phrase with a field; empty appends.") }).strict(),
-  z.object({ operation: z.literal("edit_cross_reference"), paraId, ...docxTarget, ordinal: z.number().int().min(0).describe("Zero-based field ordinal in this paragraph from the live read.") }).strict(),
-  z.object({ operation: z.literal("edit_note"), noteType: z.enum(["footnote", "endnote"]), noteId: z.number().int().min(1), search: z.string().min(1), replaceWith: z.string() }).strict(),
-  z.object({ operation: z.literal("insert_note"), noteType: z.enum(["footnote", "endnote"]), paraId, search: z.string().describe("Place the note marker after this unique phrase; empty appends."), text: z.string().min(1) }).strict(),
-  z.object({ operation: z.literal("insert_break"), paraId, type: z.enum(["page", "sectionNextPage", "sectionContinuous"]) }).strict(),
-  z.object({ operation: z.literal("set_page_numbering"), sectionIndex: z.number().int().min(0), format: z.enum(["decimal", "decimalZero", "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"]), start: z.number().int().min(1).max(32767).nullable().describe("Restart at this number; null continues numbering.") }).strict(),
-  z.object({ operation: z.literal("set_protection"), mode: z.enum(["none", "forms", "trackedChanges"]) }).strict(),
-  z.object({ operation: z.literal("update_fields") }).strict(),
+  z.object({ operation: z.enum(["set_paragraph_style"]), paraId, styleId: z.string().min(1).describe("Existing native style ID from read_document.") }).strict(),
+  z.object({ operation: z.enum(["create_bookmark"]), paraId, bookmark: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,39}$/), search: z.string().min(1).optional().describe("Unique plain phrase to bookmark; omit for the whole paragraph.") }).strict(),
+  z.object({ operation: z.enum(["insert_cross_reference"]), paraId, ...docxTarget, search: z.string().describe("Replace this unique plain phrase with a field; empty appends.") }).strict(),
+  z.object({ operation: z.enum(["edit_cross_reference"]), paraId, ...docxTarget, ordinal: z.number().int().min(0).describe("Zero-based field ordinal in this paragraph from the live read.") }).strict(),
+  z.object({ operation: z.enum(["edit_note"]), noteType: z.enum(["footnote", "endnote"]), noteId: z.number().int().min(1), search: z.string().min(1), replaceWith: z.string() }).strict(),
+  z.object({ operation: z.enum(["insert_note"]), noteType: z.enum(["footnote", "endnote"]), paraId, search: z.string().describe("Place the note marker after this unique phrase; empty appends."), text: z.string().min(1) }).strict(),
+  z.object({ operation: z.enum(["insert_break"]), paraId, type: z.enum(["page", "sectionNextPage", "sectionContinuous"]) }).strict(),
+  z.object({ operation: z.enum(["set_page_numbering"]), sectionIndex: z.number().int().min(0), format: z.enum(["decimal", "decimalZero", "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"]), start: z.number().int().min(1).max(32767).nullable().describe("Restart at this number; null continues numbering.") }).strict(),
+  z.object({ operation: z.enum(["set_protection"]), mode: z.enum(["none", "forms", "trackedChanges"]) }).strict(),
+  z.object({ operation: z.enum(["update_fields"]) }).strict(),
 ]);
+export const DOCX_EDIT_OPERATIONS = docxEditOperationSchema.options.map(option => option.shape.operation.options[0]);
 export const docxEditSchema = z.object({
   path: path.optional(), ...docxIdentity,
   action: z.enum(["apply", "save"]).optional().describe("Default apply. save retries persistence of the current draft without repeating any edit."),
   operations: z.array(docxEditOperationSchema).min(1).max(50).optional().describe("Sequential direct native edits; save once. Stops on failure, reports earlier applied edits. Note edits reload paragraph handles: put them last, then read again."),
-}).refine(value => value.action === "save" ? value.operations === undefined : value.operations !== undefined, "Apply requires operations; save must omit operations.");
+}).refine(value => value.action === "save" ? value.operations === undefined : value.operations !== undefined, "Apply requires operations; save must omit operations.").superRefine((value, context) => {
+  value.operations?.forEach((operation, index) => {
+    if (operation.operation !== "insert_cross_reference" && operation.operation !== "edit_cross_reference") return;
+    if ((operation.bookmark !== undefined) === (operation.targetParaId !== undefined) || operation.targetSearch !== undefined && operation.targetParaId === undefined) {
+      context.addIssue({ code: "custom", path: ["operations", index], message: "Use either bookmark or targetParaId. targetSearch requires targetParaId." });
+    }
+  });
+});
+export function parseDocxEdit(input: unknown) {
+  const result = docxEditSchema.safeParse(input);
+  if (result.success) return result.data;
+  const details = result.error.issues.map(issue => `${issue.path.join(".") || "edit"}: ${issue.message}`).join("; ");
+  throw new Error(`Invalid Word edit: ${details}. Accepted operations: ${DOCX_EDIT_OPERATIONS.join(", ")}. Use create_bookmark (not set_bookmark); targetSearch selects a short reference label. Read the live document again for documentId/draftRevision and paragraph handles.`);
+}
 const docxCopyName = z.string().min(1).max(180).regex(/^[^/\\\u0000-\u001f]+\.docx$/i).describe("New filename in this task's project; existing files are never overwritten.");
 const docxRelativePath = z.string().min(1).max(4096).refine(value => !/^[A-Za-z]:|^\/|[\\\u0000-\u001f]/.test(value) && value.split("/").every(part => part && part !== "." && part !== ".."), "Use a workspace-relative path.");
 export const docxCompareSchema = z.object({

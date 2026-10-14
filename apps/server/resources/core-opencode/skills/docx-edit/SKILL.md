@@ -61,6 +61,8 @@ For a named reference document that is not already open, inspect its saved file 
 ## IN-APP LIVE mode — edit the document open in LegalWork
 
 - Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
+  Start every new user edit request with a fresh live read. Do not reuse document
+  identity, revision or paragraph handles from an earlier turn.
   Both return stable `paraId` anchors. Read_document defaults to 20 paragraphs
   (max 50); follow `nextIndex` until coverage is complete. Use `view: "structure"`
   or `view: "formatting"`, or a `paraId`, for focused reads. Structure exposes native
@@ -81,6 +83,21 @@ For a named reference document that is not already open, inspect its saved file 
   run sequentially and save once; on failure inspect `appliedOperations`/`failedIndex`.
   Never replay applied edits. Re-read and use `action: "save"` without operations to
   retry a failed save. Note edits reload handles; put them last and read again.
+- The operation names are `apply_formatting`, `set_paragraph_style`,
+  `create_bookmark`, `insert_cross_reference`, `edit_cross_reference`, `edit_note`,
+  `insert_note`, `insert_break`, `set_page_numbering`, `set_protection`, `update_fields`.
+  For a short linked reference use, for example,
+  `{operation: "insert_cross_reference", paraId: sourceId, targetParaId: targetId,
+  targetSearch: "§ 2 Schlussbestimmungen", kind: "text", search: "[REFERENCE]"}`.
+  `search` replaces a unique source phrase (empty appends); `targetSearch` selects
+  the native bookmark range in the target (omitting it references the paragraph).
+  `create_bookmark` also accepts a unique `search` for a text range. Use an existing
+  `bookmark` instead of `targetParaId`/`targetSearch` when one already matches.
+  `kind: "number"` requires automatic numbering. A manually typed § label uses
+  `kind: "text"` with `targetSearch`. Follow with `update_fields` and read back the
+  native field instruction, linked status, target range and displayed result.
+  When visibility is questioned, inspect structure and a real preview before
+  claiming a rendering problem; do not add a duplicate unlinked text reference.
 - `inapp_docx_compare_documents` compares the live draft with one saved returned
   project DOCX, or combines independent drafts into a new native redline copy.
   `inapp_docx_inspect_document` reads privacy findings; explicit `fileName`/`categories`

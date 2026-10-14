@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
+import { getCaretPositionFromDom } from "@eigenpal/docx-editor-core/layout-bridge";
 import JSZip from "jszip";
 import { readWordMetadata } from "../src/react-app/domains/session/artifacts/docx-word-package";
 import { ArtifactDocxEditor, type DocxEditorApi } from "../src/react-app/domains/session/artifacts/artifact-docx-editor";
@@ -189,6 +190,49 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       setAgentReport(JSON.stringify({ partialBatchPassed: true, firstEditSaved: true, thirdEditNotApplied: true, result }, null, 2));
     } catch (cause) { setAgentReport(String(cause)); }
   };
+  const verifyReferences = async () => {
+    const first = await agentRead(); const fields = records(first.fields);
+    if (fields.length !== 2 || fields.some(field => field.status !== "linked")) throw new Error("Native reference fields are missing");
+    const short = fields.find(field => field.resolvedText === "§ 2 Schlussbestimmungen");
+    if (!short || !records(first.bookmarks).some(mark => mark.name === short.target && mark.text === "§ 2 Schlussbestimmungen" && mark.scope === "range")) throw new Error("Short target is not a native range");
+    const text = await api.current?.executeAgentTool("read_document", { view: "text" });
+    if (!text?.success || !JSON.stringify(text.data).includes("§ 2 Schlussbestimmungen")) throw new Error("Plain agent read omitted reference display");
+    const spans = Array.from(document.querySelectorAll<HTMLElement>('[data-word-field-result="true"]'));
+    const full = fields.find(field => field !== short)!;
+    const fragments = spans.filter(span => span.dataset.wordBookmark === full.target);
+    const clipped = spans.some(span => {
+      const paragraph = span.closest(".layout-paragraph"); if (!paragraph) return true;
+      const bounds = paragraph.getBoundingClientRect(), rect = span.getBoundingClientRect();
+      return rect.left < bounds.left - 2 || rect.right > bounds.right + 2;
+    });
+    if (fragments.length < 2 || clipped) throw new Error(`Reference wrapping failed: ${fragments.length} fragments, clipped=${clipped}`);
+    const last = fragments.at(-1)!; const overlay = document.body.getBoundingClientRect();
+    const caret = getCaretPositionFromDom(document.body, Number(last.dataset.pmEnd), overlay);
+    if (!caret || Math.abs(caret.y - (last.getBoundingClientRect().top - overlay.top)) > 4) throw new Error("Caret after a wrapped field must land on its final line");
+    setAgentReport(JSON.stringify({ referencesPassed: true, nativeLinkedFields: fields.length, shortTarget: short.resolvedText, wrappedFragments: fragments.length, clipped, caretOnFinalLine: true, nativeRanges: first.bookmarks, textRead: text.data }, null, 2));
+  };
+  const testReferences = async () => {
+    try {
+      const first = await agentRead(), paragraphs = records(first.paragraphs);
+      const result = await api.current?.executeAgentTool("edit", { documentId: first.documentId, draftRevision: first.draftRevision, operations: [
+        { operation: "insert_cross_reference", paraId: paragraphs[0].paraId, targetParaId: paragraphs[1].paraId, kind: "text", search: "[FULL]" },
+        { operation: "insert_cross_reference", paraId: paragraphs[0].paraId, targetParaId: paragraphs[1].paraId, targetSearch: "§ 2 Schlussbestimmungen", kind: "text", search: "[SHORT]" },
+        { operation: "update_fields" },
+      ] });
+      if (!result?.success || !result.saved) throw new Error(`Reference edit failed: ${JSON.stringify(result)}`);
+      await verifyReferences();
+    } catch (cause) { setAgentReport(String(cause)); }
+  };
+  const testReviewToolbar = async () => {
+    try {
+      const first = await agentRead(), source = records(first.paragraphs)[0];
+      const result = await api.current?.executeAgentTool("suggest_change", { paraId: source.paraId, search: "Vollständiger Verweis", replaceWith: "Vollständige Referenz" });
+      if (!result?.success) throw new Error(`Tracked edit failed: ${JSON.stringify(result)}`);
+      const toolbar = document.querySelector('.docx-word-tools[role="toolbar"]');
+      if (!toolbar || toolbar.querySelectorAll("button").length !== 4) throw new Error("Fields and review commands must share one toolbar");
+      setAgentReport(JSON.stringify({ combinedToolbarPassed: true, commands: Array.from(toolbar.querySelectorAll("button")).map(button => button.textContent) }, null, 2));
+    } catch (cause) { setAgentReport(String(cause)); }
+  };
   return <TooltipProvider><div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#fff" }}>
     <div style={{ padding: 10, display: "flex", gap: 16, flexWrap: "wrap", borderBottom: "1px solid #ddd" }}>
       <button onClick={async () => { try { const ok = await api.current?.save(); setStatus(ok ? "Saved to workspace" : "Save failed"); } catch { setStatus("Save failed; draft retained"); } }}>Save to workspace</button>
@@ -196,6 +240,8 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
       <button onClick={() => setNarrow(!narrow)}>{narrow ? "Full width" : "Narrow panel"}</button>
       <button onClick={() => void testNativeBatch()}>Test typed native batch</button>
       <button onClick={() => void testPartialBatch()}>Test partial batch</button>
+      {fixture === "references" && <button onClick={() => void testReviewToolbar()}>Test review toolbar</button>}
+      {fixture === "references" && <><button onClick={() => void testReferences()}>Test references</button><button onClick={() => void verifyReferences().catch(cause => setAgentReport(String(cause)))}>Verify reopened references</button><button onClick={() => void api.current?.executeAgentTool("read_selection", {}).then(result => setAgentReport(JSON.stringify(result, null, 2)))}>Read selection</button></>}
       <button onClick={() => void runAgentWorkflow()}>Test agent Word workflow</button>
       <button onClick={() => void agentRead().then((structure) => setAgentReport(JSON.stringify(structure, null, 2))).catch((cause) => setAgentReport(String(cause)))}>Read agent Word structure</button>
       <button onClick={() => void verifyAgentData()}>Verify reopened agent data</button>
@@ -231,5 +277,13 @@ if (import.meta.env.DEV || import.meta.env.MODE === "docx-review") {
   const response = await fetch(positions
     ? new URL("./fixtures/legal-review-positions.docx", import.meta.url)
     : fixture === "word" ? new URL("./fixtures/legal-word-workflows.docx", import.meta.url) : new URL("./fixtures/legal-review.docx", import.meta.url));
-  if (root) createRoot(root).render(<ReviewHarness initial={await response.arrayBuffer()} fixture={positions ? "positions" : fixture === "word" ? "word" : "review"} />);
+  let initial = await response.arrayBuffer();
+  if (fixture === "references") {
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+    zip.file("_rels/.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+    zip.file("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>§ 1 Vertragsgegenstand: Vollständiger Verweis: [FULL]. Kurzer Verweis: [SHORT].</w:t></w:r></w:p><w:p><w:r><w:t>§ 2 Schlussbestimmungen: Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden.</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>');
+    initial = await zip.generateAsync({ type: "arraybuffer" });
+  }
+  if (root) createRoot(root).render(<ReviewHarness initial={initial} fixture={positions ? "positions" : fixture === "word" ? "word" : fixture === "references" ? "references" : "review"} />);
 }

@@ -147,6 +147,8 @@ describe("in-app Word document routing", () => {
     expect(reminder).toStartWith('<system-reminder topic="sidebar">');
     expect(reminder).toContain("compensation-memo.docx");
     expect(reminder).toContain("inapp_docx_suggest_change");
+    expect(reminder).toContain("never reuse identity or handles from earlier turns");
+    expect(reminder).toContain("targetSearch");
     expect(reminder).toContain("inapp_docx_reject_changes");
     expect(reminder).toContain("save automatically");
     expect(reminder).toContain("Do not search LegalMemory merely");
@@ -591,7 +593,7 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
     { sessionId: "ses_open", path: identity.path, toolName: "create_clean_copy" },
   ]);
   const count = requests.length;
-  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, operations: [{ operation: "invented" }] }, { sessionID: "ses_open" })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, operations: [{ operation: "set_bookmark" }] }, { sessionID: "ses_open" })).rejects.toThrow("Use create_bookmark (not set_bookmark)");
   await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save", operations: edit.operations }, { sessionID: "ses_open" })).rejects.toThrow();
   await expect(plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "x.docx", versions: [{ path: "../foreign.docx", author: "X" }] }, { sessionID: "ses_open" })).rejects.toThrow();
   await expect(plugin.tool.inapp_docx_fill_template.execute({ tag: "ClientName", value: "X" }, { sessionID: "ses_open" })).rejects.toThrow();
@@ -600,4 +602,8 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
     const method = Object.entries(plugin.tool).find(([key]) => key === name)?.[1];
     expect(method && JSON.stringify(z.toJSONSchema(z.object(method.args)))).toContain("documentId");
   }
+  const editSchema = JSON.stringify(z.toJSONSchema(z.object(plugin.tool.inapp_docx_edit.args)));
+  expect(editSchema).toContain('"enum":["create_bookmark"]');
+  expect(editSchema).toContain('"enum":["insert_cross_reference"]');
+  expect(editSchema).toContain('"targetSearch"');
 });

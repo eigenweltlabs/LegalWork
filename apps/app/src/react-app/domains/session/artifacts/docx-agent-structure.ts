@@ -6,6 +6,7 @@ import type { Layout } from "@eigenpal/docx-editor-core/layout-engine";
 import { fieldTarget, pageAtPosition, pageLabels, resolveWordFields, wordParagraphs, withWordSections } from "./docx-fields";
 import { permitsWordEdit } from "./docx-protection";
 import type { WordMetadata } from "./docx-word-package";
+import { wordBookmarkIdentities, wordBookmarks } from "./docx-bookmarks";
 
 type View = { state: EditorState; dispatch: (transaction: Transaction) => void };
 type WordField = { id: string; paraId: string; ordinal: number; type: string; instruction: string; target?: string; displayText: string; resolvedText?: string; status: string; locked: boolean; tracked: boolean };
@@ -30,12 +31,11 @@ function text(node: Node): string {
 export function readWordStructure(doc: Node, document: Document, layout: Layout | null, metadata: WordMetadata, story = "body", bodyDoc = doc, includeNotes = true) {
   layout = withWordSections(doc, layout);
   const items = paragraphs(doc);
-  const bookmarks = items.flatMap(({ node, paraId, marker }) => {
-    const marks: unknown = node.attrs.bookmarks;
-    if (!Array.isArray(marks)) return [];
-    return marks.flatMap((mark: unknown) => mark && typeof mark === "object" && "name" in mark && typeof mark.name === "string" ? [{ name: mark.name, paraId, text: text(node), number: marker, scope: "paragraph" }] : []);
+  const bookmarks = wordBookmarks(doc).flatMap(mark => {
+    const item = items.find(item => mark.from >= item.pos && mark.from < item.pos + item.node.nodeSize);
+    return item ? [{ ...mark, paraId: item.paraId, number: item.marker }] : [];
   });
-  const targetBookmarks = paragraphs(bodyDoc).flatMap((item) => bookmarkList(item.node));
+  const targetBookmarks = wordBookmarks(bodyDoc);
   const values = resolveWordFields(doc, layout, metadata, undefined, bodyDoc);
   const fields: WordField[] = [];
   const controls: WordControl[] = [];
@@ -70,7 +70,7 @@ export function readWordStructure(doc: Node, document: Document, layout: Layout 
     sections: metadata.pages.map((rule, index) => ({ index, ...rule })), protection: metadata.protection, contents: { levels: metadata.tocLevels },
     paragraphs: items.map((item, index) => ({ paraId: item.paraId, index, styleId: item.node.attrs.styleId ?? null })),
     styles: document.package.styles?.styles.map((style) => ({ id: style.styleId, name: style.name, type: style.type, basedOn: style.basedOn })) ?? [],
-    capabilities: { bookmarkScope: "whole_paragraph", crossReferenceKinds: ["number", "text", "page"], editableFieldStories: ["body"], structuralEditsTracked: false, noteEditsTracked: false, noteInsertion: true, formattingReadTool: "inapp_docx_read_document", formattingReadView: "formatting", formattingEditTool: "inapp_docx_edit", formattingEditOperation: "apply_formatting", formattingEditsTracked: false, editableFormattingStories: ["body"] },
+    capabilities: { bookmarkScope: "paragraph_or_text_range", crossReferenceKinds: ["number", "text", "page"], editableFieldStories: ["body"], structuralEditsTracked: false, noteEditsTracked: false, noteInsertion: true, formattingReadTool: "inapp_docx_read_document", formattingReadView: "formatting", formattingEditTool: "inapp_docx_edit", formattingEditOperation: "apply_formatting", formattingEditsTracked: false, editableFormattingStories: ["body"] },
   };
 }
 
@@ -90,12 +90,16 @@ function bookmarkList(node: Node): { id: number; name: string }[] {
   return value.flatMap((mark: unknown) => mark && typeof mark === "object" && "id" in mark && typeof mark.id === "number" && "name" in mark && typeof mark.name === "string" ? [{ id: mark.id, name: mark.name }] : []);
 }
 
-function addBookmark(transaction: Transaction, paraId: string, name: string) {
+function addBookmark(transaction: Transaction, paraId: string, name: string, search?: string) {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(name)) throw new Error("A Word bookmark needs a letter or underscore followed by letters, numbers or underscores (maximum 40 characters).");
   const item = paragraph(transaction.doc, paraId);
-  const marks = paragraphs(transaction.doc).flatMap((p) => bookmarkList(p.node));
+  const marks = wordBookmarkIdentities(transaction.doc);
   if (marks.some((mark) => mark.name.toLowerCase() === name.toLowerCase())) throw new Error("That bookmark name already exists. Reuse it or choose another name.");
   const id = Math.max(0, ...marks.map((mark) => mark.id)) + 1;
+  if (search) {
+    const range = uniqueTextRange(item.node, item.pos, search);
+    return transaction.insert(range.to, transaction.doc.type.schema.nodes.bookmarkEnd.create({ id })).insert(range.from, transaction.doc.type.schema.nodes.bookmarkStart.create({ id, name }));
+  }
   return transaction.setNodeMarkup(item.pos, undefined, { ...item.node.attrs, bookmarks: [...bookmarkList(item.node), { id, name }] });
 }
 
@@ -134,17 +138,21 @@ export function commit(context: WordToolContext, transaction: Transaction) {
 export function executeWordStructureTool(context: WordToolContext, tool: string, args: Record<string, unknown>) {
   const { view } = context;
   let tr = view.state.tr;
-  if (tool === "create_bookmark") return commit(context, addBookmark(tr, requiredString(args, "paraId"), requiredString(args, "bookmark")));
+  if (tool === "create_bookmark") return commit(context, addBookmark(tr, requiredString(args, "paraId"), requiredString(args, "bookmark"), typeof args.search === "string" ? args.search : undefined));
   if (tool === "insert_cross_reference" || tool === "edit_cross_reference") {
     let bookmark = typeof args.bookmark === "string" ? args.bookmark : "";
     if (typeof args.targetParaId === "string") {
       const target = paragraph(tr.doc, args.targetParaId);
-      bookmark = bookmarkList(target.node).find((mark) => !/^_(Toc|LW_Toc)/i.test(mark.name))?.name ?? `_LW_Ref${Math.max(0, ...paragraphs(tr.doc).flatMap((item) => bookmarkList(item.node).map((mark) => mark.id))) + 1}`;
-      if (!bookmarkList(target.node).some((mark) => mark.name === bookmark)) tr = addBookmark(tr, args.targetParaId, bookmark);
+      const search = typeof args.targetSearch === "string" ? args.targetSearch : undefined;
+      const range = search ? uniqueTextRange(target.node, target.pos, search) : { from: target.pos + 1, to: target.pos + target.node.nodeSize - 1 };
+      const marks = wordBookmarks(tr.doc);
+      bookmark = marks.find(mark => (search ? mark.from === range.from && mark.to === range.to : mark.from >= range.from && mark.to <= range.to && mark.text === text(target.node)) && !/^_(Toc|LW_Toc)/i.test(mark.name))?.name ?? `_LW_Ref${Math.max(0, ...wordBookmarkIdentities(tr.doc).map(mark => mark.id)) + 1}`;
+      if (!marks.some(mark => mark.name === bookmark)) tr = addBookmark(tr, args.targetParaId, bookmark, search);
     }
-    const targets = paragraphs(tr.doc).filter((item) => bookmarkList(item.node).some((mark) => mark.name === bookmark));
+    const targets = wordBookmarks(tr.doc).filter(mark => mark.name === bookmark);
     if (targets.length !== 1) throw new Error("Reference target does not exist or is ambiguous. Read the structure and select a bookmark or targetParaId.");
-    if (args.kind === "number" && !targets[0].marker) throw new Error("The target has no automatic paragraph number. Use text or page instead.");
+    const target = paragraphs(tr.doc).find(item => targets[0].from >= item.pos && targets[0].from < item.pos + item.node.nodeSize)!;
+    if (args.kind === "number" && !target.marker) throw new Error("The target has no automatic paragraph number. Use text or page instead. For a manually typed label, use kind=text and targetSearch.");
     const instruction = referenceInstruction(args.kind, bookmark);
     const item = paragraph(tr.doc, requiredString(args, "paraId"));
     if (/^TOC\d+$/i.test(String(item.node.attrs.styleId))) throw new Error("The contents entry is generated. Edit its target heading and update fields instead.");
@@ -160,8 +168,8 @@ export function executeWordStructureTool(context: WordToolContext, tool: string,
       const search = requiredString(args, "search");
       if (search) ({ from, to } = uniqueTextRange(item.node, item.pos, search));
     }
-    if (targets[0].paraId === item.paraId) throw new Error("A paragraph reference cannot target its own paragraph.");
-    const field = view.state.schema.nodes.field.create({ fieldType: args.kind === "page" ? "PAGEREF" : "REF", instruction, displayText: args.kind === "number" ? targets[0].marker : args.kind === "text" ? text(targets[0].node) : "", fieldKind: "complex", dirty: true }, null, marks);
+    if (target.paraId === item.paraId) throw new Error("A paragraph reference cannot target its own paragraph.");
+    const field = view.state.schema.nodes.field.create({ fieldType: args.kind === "page" ? "PAGEREF" : "REF", instruction, displayText: args.kind === "number" ? target.marker : args.kind === "text" ? targets[0].text : "", fieldKind: "complex", dirty: true }, null, marks);
     tr = tr.replaceWith(from, to, field);
     const result = commit(context, tr);
     return { ...result, data: { ...result.data, bookmark, instruction } };

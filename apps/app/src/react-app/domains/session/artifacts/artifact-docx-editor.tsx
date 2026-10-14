@@ -34,6 +34,7 @@ import { t } from "@/i18n";
 import { createDocumentAutosave } from "./document-autosave";
 import { createWordProtectionPlugin } from "./docx-protection";
 import { decorateWordFields, navigateWordNote, updateWordFields } from "./docx-fields";
+import { wordBookmarks } from "./docx-bookmarks";
 import { emptyWordMetadata, finalizeWordPackage, inspectWordPackage, readWordMetadata, removeWordPrivateData, type InspectionKind, type Protection } from "./docx-word-package";
 import { executeWordStructureTool, readWordStructure, WORD_STRUCTURE_MUTATIONS } from "./docx-agent-structure";
 import { applyWordFormatting, preserveWordFormatting, readWordFormatting } from "./docx-agent-formatting";
@@ -402,14 +403,12 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       void getBuffer().then((buffer) => { if (buffer) downloadDocx(buffer, name); }).catch((error) => toast.error(String(error)));
       return;
     }
-    const bookmark = target.closest<HTMLElement>("[data-word-bookmark]")?.dataset.wordBookmark;
+    const bookmark = target.closest<HTMLElement>("[data-word-bookmark]")?.dataset.wordBookmark
+      ?? target.closest<HTMLAnchorElement>('a[href^="#"]')?.getAttribute("href")?.slice(1);
     if (!bookmark) { onReviewClick(event); return; }
     const view = editorRef.current?.getEditorRef()?.getView();
-    let position: number | undefined;
-    view?.state.doc.descendants((node, pos) => {
-      if (Array.isArray(node.attrs.bookmarks) && node.attrs.bookmarks.some((mark) => mark.name === bookmark)) position ??= pos;
-    });
-    if (position !== undefined) { event.preventDefault(); event.stopPropagation(); editorRef.current?.highlightRange(position + 1, position + 1); }
+    const mark = view && wordBookmarks(view.state.doc).find(mark => mark.name === bookmark);
+    if (mark) { event.preventDefault(); event.stopPropagation(); editorRef.current?.highlightRange(mark.from, mark.from); }
   };
 
   checkpoint.current = () => {
@@ -770,8 +769,9 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         toast.error(error instanceof Error ? error.message : t("docx.save_failed_draft_open"));
       });
     }}>
-      {metadataReady && visible && <DocxWordTools editorRef={editorRef} metadata={wordMetadata} readOnly={readOnly || interactionLocked} onChanged={markDirty} />}
-      {changeCount > 0 && <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1" aria-label={t("docx.review_changes")}>
+      {metadataReady && visible && <div className="docx-word-tools flex flex-wrap items-center gap-2 border-b border-border px-3 py-1" role="toolbar" aria-label={t("docx.word.tools")}>
+        <DocxWordTools editorRef={editorRef} metadata={wordMetadata} readOnly={readOnly || interactionLocked} onChanged={markDirty} />
+        {changeCount > 0 && <>
         <Button size="sm" variant="ghost" aria-pressed={commentsOpen} onClick={() => setCommentsOpen(!commentsOpen)}>{t("docx.review_changes")} ({changeCount})</Button>
         {!readOnly && (["accept", "reject"] satisfies Array<"accept" | "reject">).map(decision => <Button key={decision} size="sm" variant="ghost" disabled={interactionLocked || wordMetadata.protection.mode === "trackedChanges"} onClick={() => {
           const view = editorRef.current?.getEditorRef()?.getView();
@@ -779,6 +779,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           const ids = extractTrackedChanges(view.state).entries.map(entry => Number(entry.revisionId)).filter(Number.isFinite);
           setReviewDecision({ decision, ids, revision: revision.current });
         }}>{t(decision === "accept" ? "docx.accept_all" : "docx.reject_all")}</Button>)}
+        </>}
       </div>}
       <div className="min-h-0 min-w-0 flex-1">
         {!metadataReady ? <p role="status" className="p-4">{metadataError || t("docx.word.working")}</p> : <DocxEditor

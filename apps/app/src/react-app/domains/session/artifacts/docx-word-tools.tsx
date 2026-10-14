@@ -28,7 +28,5 @@ export function DocxWordTools({ editorRef, metadata, readOnly, onChanged }: Prop
       setBusy(false);
     }
   };
-  return <div className="docx-word-tools flex flex-wrap items-center gap-1 border-b border-border px-3 py-1" role="toolbar" aria-label={t("docx.word.tools")}>
-    <Button size="sm" variant="ghost" disabled={readOnly || busy} onClick={() => void updateFields()}>{t("docx.word.update_fields")}</Button>
-  </div>;
+  return <Button size="sm" variant="ghost" disabled={readOnly || busy} onClick={() => void updateFields()}>{t("docx.word.update_fields")}</Button>;
 }

@@ -1,4 +1,4 @@
-import { docxEditSchema } from "@legalwork/types/office-editor";
+import { parseDocxEdit } from "@legalwork/types/office-editor";
 import type { DocxEditorToolResult } from "./artifact-docx-editor";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -11,7 +11,7 @@ export async function executeWordBatch(
   rawArgs: Record<string, unknown>,
   execute: (name: string, args: Record<string, unknown>, persist: boolean) => Promise<DocxEditorToolResult>,
 ): Promise<DocxEditorToolResult> {
-  const args = docxEditSchema.parse(rawArgs);
+  const args = parseDocxEdit(rawArgs);
   if (args.action === "save") return execute("save_document", args, true);
   const operations = args.operations!;
   let expectedRevision = args.draftRevision;
