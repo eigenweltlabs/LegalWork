@@ -37,24 +37,24 @@ export function WikiProjectFilesDialog({ open, onOpenChange, client, wikiId, wor
   };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-xl gap-4">
     <DialogHeader><DialogTitle>{t("wiki.project_files")}</DialogTitle><DialogDescription>{t("wiki.project_attachment_hint")}</DialogDescription></DialogHeader>
-    {wikis.error && <p role="alert" className="text-xs text-destructive">{wikis.error.message}</p>}
-    {sandbox.error && <p role="alert" className="text-xs text-destructive">{sandbox.error.message}</p>}
+    {wikis.error && <p role="alert" className="text-xs text-destructive">{wikis.error.message}<Button variant="ghost" size="sm" onClick={() => void wikis.refetch()}>{t("wiki.retry")}</Button></p>}
+    {sandbox.error && <p role="alert" className="text-xs text-destructive">{sandbox.error.message}<Button variant="ghost" size="sm" onClick={() => void sandbox.refetch()}>{t("wiki.retry")}</Button></p>}
     {sandbox.data && (!sandbox.data.enabled || !sandbox.data.supported) && <p className="text-xs text-muted-foreground">{t("wiki.project_sandbox_off")}</p>}
     {selected ? <>
       <div className="flex items-center gap-2"><Button variant="ghost" size="icon-sm" aria-label={t("wiki.project_back")} onClick={() => path ? setPath(path.replace(/\/?[^/]+\/?$/, "")) : setProjectId(null)}><ArrowLeft className="size-4" /></Button><span className="min-w-0 truncate text-sm font-medium">{selected.name}{path ? ` / ${path}` : ""}</span></div>
       {grant && <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-xs"><span className="flex items-center gap-2">{grant.granted && <ShieldCheck className="size-4" />}{grant.granted ? t("wiki.project_read_only") : t("wiki.project_allow")}</span><Button size="sm" variant="outline" disabled={busy} onClick={() => void changeAccess()}>{grant.granted ? t("wiki.project_revoke") : t("wiki.project_allow")}</Button></div>}
-      {access.error && <p role="alert" className="text-xs text-destructive">{access.error.message}</p>}
+      {access.error && <p role="alert" className="text-xs text-destructive">{access.error.message}<Button variant="ghost" size="sm" onClick={() => void access.refetch()}>{t("wiki.retry")}</Button></p>}
       <div className="max-h-72 overflow-auto" aria-busy={listing.isPending}>
         {listing.isPending && <p role="status" className="p-3 text-sm text-muted-foreground">{t("wiki.loading")}</p>}
-        {listing.error && <p role="alert" className="text-sm text-destructive">{listing.error.message}</p>}
-        {listing.data?.entries.map(entry => <button key={entry.path} type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-accent " onClick={() => {
+        {listing.error && <p role="alert" className="text-sm text-destructive">{listing.error.message}<Button variant="ghost" size="sm" onClick={() => void listing.refetch()}>{t("wiki.retry")}</Button></p>}
+        {listing.data?.entries.map(entry => <button key={entry.path} type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
           if (entry.kind === "dir") { setPath(entry.path); return; }
           try { files?.attach({ projectId: selected.projectId, workspaceId: selected.workspaceId, path: entry.path, name: entry.name }, sessionId); onOpenChange(false); }
           catch (error) { toast.error(error instanceof Error ? error.message : t("project_files.failed")); }
         }}>{entry.kind === "dir" ? <FolderIcon empty={entry.empty === true} className="size-4" /> : <FileText className="size-4 shrink-0 text-muted-foreground" />}<span className="truncate">{entry.name}</span></button>)}
         {listing.data?.entries.length === 0 && <p className="p-3 text-sm text-muted-foreground">{t("wiki.project_no_files")}</p>}
       </div>
-    </> : <div className="max-h-72 overflow-auto">{projects.map(project => <button type="button" key={project.projectId} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-accent" onClick={() => { setProjectId(project.projectId); setPath(""); }}><FolderIcon className="size-4" /><span className="truncate">{project.name}</span></button>)}{!projects.length && !wikis.isPending && <p className="text-sm text-muted-foreground">{t("wiki.project_no_projects")}</p>}</div>}
+    </> : <div className="max-h-72 overflow-auto">{wikis.isPending && <p role="status" className="p-3 text-sm text-muted-foreground">{t("wiki.loading")}</p>}{projects.map(project => <button type="button" key={project.projectId} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { setProjectId(project.projectId); setPath(""); }}><FolderIcon className="size-4" /><span className="truncate">{project.name}</span></button>)}{!projects.length && !wikis.isPending && !wikis.error && <p className="text-sm text-muted-foreground">{t("wiki.project_no_projects")}</p>}</div>}
   </DialogContent></Dialog>;
 }
 

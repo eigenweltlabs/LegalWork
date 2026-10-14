@@ -23,7 +23,8 @@ export function WikiChatHistory({ group, selectedSessionId, onOpen, stateKey, on
   };
   const sessions = (group?.sessions ?? []).filter(session => !session.parentID && !session.time?.archived);
   const visible = sessions.filter(session => getDisplaySessionTitle(session.title).toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
-  const defaultHeight = 54 + Math.max(1, Math.min(3, sessions.length)) * 36 + (sessions.length > 5 ? 40 : 0);
+  const showSearch = sessions.length > 5 || Boolean(search);
+  const defaultHeight = 54 + Math.max(1, Math.min(3, sessions.length)) * 36 + (showSearch ? 40 : 0);
   return <section ref={section} className="relative flex max-h-[60%] shrink-0 flex-col border-t p-2" style={{ height: expanded ? height ?? defaultHeight : undefined }} aria-label={t("wiki.chats")}>
     {expanded && <div role="separator" tabIndex={0} aria-orientation="horizontal" aria-label={t("wiki.resize_chats")} aria-valuemin={88} aria-valuemax={Math.round((section.current?.parentElement?.clientHeight ?? 600) * 0.6)} aria-valuenow={Math.round(height ?? defaultHeight)} className="absolute -top-1 inset-x-0 z-10 h-2 cursor-row-resize touch-none hover:bg-primary/20 focus-visible:bg-primary/20"
       onPointerDown={event => { drag.current = { y: event.clientY, height: section.current?.clientHeight ?? defaultHeight }; event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
@@ -31,12 +32,12 @@ export function WikiChatHistory({ group, selectedSessionId, onOpen, stateKey, on
       onPointerUp={event => { drag.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { drag.current = null; }}
       onDoubleClick={() => { setHeight(null); try { localStorage.removeItem(storageKey); } catch { /* Optional preference. */ } }}
       onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); resize((section.current?.clientHeight ?? defaultHeight) + (event.key === "ArrowUp" ? 36 : -36)); } }} />}
-    <div className="flex shrink-0 items-center gap-1"><button className="wiki-nav-row flex-1" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><MessageSquare size={15} /><span className="flex-1 text-left">{t("wiki.chats")} · {sessions.length}</span><ChevronDown size={14} className={expanded ? "rotate-180" : ""} /></button><Button size="icon-sm" variant="ghost" disabled={busy} title={t("session.new_task")} aria-label={t("session.new_task")} onClick={onNewChat}><MessageSquarePlus size={16} /></Button></div>
+    <div className="flex shrink-0 items-center gap-1"><button className="wiki-nav-row flex-1" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><MessageSquare size={15} /><span className="flex-1 text-left">{t("wiki.chats")}{group?.status === "ready" || sessions.length ? ` · ${sessions.length}` : ""}</span><ChevronDown size={14} className={expanded ? "rotate-180" : ""} /></button><Button size="icon-sm" variant="ghost" disabled={busy} title={t("session.new_task")} aria-label={t("session.new_task")} onClick={onNewChat}><MessageSquarePlus size={16} /></Button></div>
     {expanded && <>
-      {sessions.length > 5 && <Input className="my-1 h-8 shrink-0" value={search} onChange={event => setSearch(event.target.value)} placeholder={t("wiki.search_chats")} aria-label={t("wiki.search_chats")} />}
+      {showSearch && <Input type="search" className="my-1 h-8 shrink-0" value={search} onChange={event => setSearch(event.target.value)} placeholder={t("wiki.search_chats")} aria-label={t("wiki.search_chats")} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visible.map(session => <button key={session.id} className="wiki-nav-row w-full text-left aria-[current=true]:bg-accent" aria-current={session.id === selectedSessionId} onClick={() => onOpen(session.id)} title={getDisplaySessionTitle(session.title)}><span className="truncate">{getDisplaySessionTitle(session.title)}</span></button>)}
-        {!visible.length && <p className="px-2 py-2 text-xs text-muted-foreground">{group?.status === "error" ? group.error : group?.status === "loading" || !group ? t("wiki.loading") : t("wiki.no_chats")}</p>}
+        {!visible.length && <p className="px-2 py-2 text-xs text-muted-foreground">{group?.status === "error" ? group.error : group?.status === "loading" || !group ? t("wiki.loading") : search ? <>{t("wiki.no_matching_chats")} <button className="underline underline-offset-2" onClick={() => setSearch("")}>{t("wiki.clear_chat_search")}</button></> : t("wiki.no_chats")}</p>}
       </div>
     </>}
   </section>;

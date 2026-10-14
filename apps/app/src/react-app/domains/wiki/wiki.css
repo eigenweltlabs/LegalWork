@@ -30,6 +30,7 @@
 .wiki-nav-row > svg { flex-shrink: 0; color: var(--muted-foreground); }
 .wiki-nav-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-nav-row:hover { background: var(--accent); }
+.wiki-nav-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .wiki-nav-row.is-active { background: var(--accent); color: var(--accent-foreground); font-weight: 500; box-shadow: inset 2px 0 var(--primary); }
 .wiki-nav-row.is-active > svg { color: var(--primary); }
 .wiki-tree-group + .wiki-tree-group { margin-top: 6px; }

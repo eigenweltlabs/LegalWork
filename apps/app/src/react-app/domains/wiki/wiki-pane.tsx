@@ -367,8 +367,8 @@ function WikiContentPane(props: WikiPaneProps) {
           <div className="wiki-sidebar-header">
             {props.onManageWikis ? <button className="wiki-nav-row" onClick={props.onManageWikis}><BookOpen size={15} /><span>{t("wiki.manage_all")}</span></button> : null}
             <div className="wiki-sidebar-actions">
-              {wiki && props.client ? <WikiContributions client={props.client} wikiId={wiki.id} workspaceId={props.workspaceId} /> : null}
               <button className="wiki-nav-row" title={t("wiki.history")} onClick={() => { setHistoryPath(""); setHistory(true); }}><History size={15} /><span>{t("wiki.history")}</span></button>
+              {wiki && props.client ? <WikiContributions client={props.client} wikiId={wiki.id} workspaceId={props.workspaceId} /> : null}
             </div>
             <div className="wiki-sidebar-switcher">{wikiSelector}<WikiIconButton label={t("wiki.refresh")} disabled={busy} onClick={() => void run(async () => { if (wiki?.sync) await props.client?.syncWiki(wiki.id); refresh(); })}><RefreshCw size={14} className={busy ? "animate-spin" : ""} /></WikiIconButton></div>
           </div>

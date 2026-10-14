@@ -22,6 +22,7 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
     return entries;
   } });
   const targets = destinations.data?.filter(item => selected.includes(viewOwnerKey(item.owner))) ?? [];
+  const unsavedTargets = targets.filter(item => !saved.some(view => sameViewOwner(view.owner, item.owner)));
   const finish = () => { if (saved[0]) onSaved(saved[0]); else onClose(); };
   const save = async () => {
     setBusy(true); setError("");
@@ -43,9 +44,10 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
     finally { setBusy(false); }
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent>
-    <DialogHeader><DialogTitle>{t("views.save_title")}</DialogTitle><DialogDescription>{t(fromChat ? "views.preview_save_hint" : "views.save_hint")}</DialogDescription></DialogHeader>
+    <DialogHeader><DialogTitle className="break-words">{t("views.save_named", { title: preview.input.title })}</DialogTitle><DialogDescription>{t(fromChat ? "views.preview_save_hint" : "views.save_hint")}</DialogDescription></DialogHeader>
     <div className="max-h-[45vh] space-y-2 overflow-y-auto">
-      {destinations.isPending && <Loader2 className="size-5 animate-spin" />}
+      {destinations.isPending && <p role="status" className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>}
+      {destinations.data?.length === 0 && <p className="py-2 text-sm text-muted-foreground">{t("views.no_save_destinations")}</p>}
       {destinations.error && <p role="alert" className="text-sm text-destructive">{destinations.error.message}<Button size="sm" variant="ghost" onClick={() => void destinations.refetch()}>{t("wiki.retry")}</Button></p>}
       {destinations.data?.map(({ owner, name }) => { const key = viewOwnerKey(owner), done = saved.some(view => sameViewOwner(view.owner, owner)); return <label key={key} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-accent">
         <input type="checkbox" checked={done || selected.includes(key)} disabled={busy || done} onChange={event => setSelected(values => event.target.checked ? [...values, key] : values.filter(value => value !== key))} />
@@ -55,7 +57,8 @@ export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, o
     </div>
     {targets.some(item => !sameViewOwner(item.owner, preview.owner)) && Object.keys(preview.input.queries).length > 0 && <p className="text-xs text-muted-foreground">{t("views.copy_snapshot_hint")}</p>}
     {targets.some(item => item.owner.kind === "wiki") && <p className="text-xs text-muted-foreground">{t("views.wiki_save_hint")}</p>}
+    {saved.length > 0 && <p role="status" className="text-xs text-muted-foreground">{t("views.saved_destinations", { destinations: saved.map(view => destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title).join(", ") })}</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <DialogFooter><Button variant="ghost" disabled={busy} onClick={finish}>{t("common.cancel")}</Button><Button disabled={busy || !targets.length || destinations.isFetching} onClick={() => void save()}>{busy && <Loader2 className="size-4 animate-spin" />}{t("common.save")}</Button></DialogFooter>
+    <DialogFooter><Button variant="ghost" disabled={busy} onClick={finish}>{t(saved.length ? "common.close" : "common.cancel")}</Button><Button disabled={busy || !unsavedTargets.length || destinations.isFetching || Boolean(destinations.error)} onClick={() => void save()}>{busy && <Loader2 className="size-4 animate-spin" />}{t("common.save")}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }

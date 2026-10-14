@@ -24,7 +24,7 @@ export function WikiContributions({ client, wikiId, workspaceId }: { client: Leg
         {query.data?.unavailableProjects.length ? <p role="alert" className="text-sm text-muted-foreground">{t("wiki.contributions_unavailable", { projects: query.data.unavailableProjects.join(", ") })}</p> : null}
         {query.data && !query.data.items.length && <p className="py-6 text-center text-sm text-muted-foreground">{t("wiki.no_contributions")}</p>}
         {query.data?.items.map(item => <button type="button" key={`${item.workspaceId}:${item.id}`} className="w-full space-y-2 rounded-xl border p-4 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { requestTab(suggestionTab(item)); setOpen(false); }}>
-          <span className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{item.title}</span><WikiDiffStats changes={item.changes} /></span>
+          <span className="flex items-start justify-between gap-3"><span className="min-w-0 break-words text-sm font-medium">{item.title}</span><WikiDiffStats changes={item.changes} /></span>
           <p className="text-xs text-muted-foreground">{item.projectName} · {new Date(item.createdAt).toLocaleString()}</p>
           <p className="break-all text-xs text-muted-foreground">{item.destination.path}</p>
           <span className="block text-xs text-muted-foreground">{t("wiki.review_contribution")} →</span>

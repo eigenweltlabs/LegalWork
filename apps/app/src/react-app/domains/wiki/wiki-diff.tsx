@@ -12,8 +12,11 @@ export function WikiDiffStats({ changes }: { changes: LineChanges | null | undef
   return changes ? <span className="inline-flex shrink-0 gap-2 font-mono text-xs tabular-nums" aria-label={t("wiki.line_changes", changes)}><span className="text-success">+{changes.added}</span><span className="text-danger">-{changes.removed}</span></span> : <span className="text-xs text-muted-foreground">{t("wiki.counts_unavailable")}</span>;
 }
 
-export function WikiDiff({ before, after }: { before: string; after: string }) {
-  return <Suspense fallback={<p className="p-4">{t("wiki.loading")}</p>}><Editor value={after} baseline={before} readOnly onChange={noChange} imageUpload={noUpload} imagePreview={imagePreview} viewModeRequest={mode} toolbarTarget={null} suppressHtmlProcessing /></Suspense>;
+export function WikiDiff({ before, after, beforeLabel, afterLabel }: { before: string; after: string; beforeLabel?: string; afterLabel?: string }) {
+  return <div>
+    {(beforeLabel || afterLabel) && <div className="grid grid-cols-2 divide-x border-b bg-muted/30 text-xs text-muted-foreground"><span className="min-w-0 px-3 py-2">{beforeLabel}</span><span className="min-w-0 px-3 py-2">{afterLabel}</span></div>}
+    <Suspense fallback={<p className="p-4">{t("wiki.loading")}</p>}><Editor value={after} baseline={before} readOnly onChange={noChange} imageUpload={noUpload} imagePreview={imagePreview} viewModeRequest={mode} toolbarTarget={null} suppressHtmlProcessing /></Suspense>
+  </div>;
 }
 
 export function WikiContentStats({ before, after }: { before: string; after: string }) {
