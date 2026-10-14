@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { connectorMailDraftTargetSchema, connectorDraftDeliverySchema } from "./connectors.js";
 
 const header = z.string().max(2000).refine(value => !/[\r\n\u0000]/.test(value), "Email headers must be a single line.");
 export const EmailDraftInputSchema = z.object({
@@ -20,6 +21,8 @@ export type EmailDraftInput = z.infer<typeof EmailDraftInputSchema>;
 export const EmailDraftSchema = EmailDraftInputSchema.extend({
   id: z.uuid(), workspaceId: z.string(), revision: z.uuid(),
   path: z.string(), updatedAt: z.number(),
+  connectorTarget: connectorMailDraftTargetSchema.optional(), delivery: connectorDraftDeliverySchema.optional(),
+  artifactHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 export type EmailDraft = z.infer<typeof EmailDraftSchema>;
 

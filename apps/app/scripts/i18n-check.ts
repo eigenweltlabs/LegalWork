@@ -133,6 +133,8 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
 
 /** Text that speaks TO the agent, where "du" is the intended register. */
 const AGENT_FACING = new Set<string>([
+  "connectors.prompt",
+  "connectors.calendar_prompt", "connectors.files_prompt",
   "blueprint.starter_blueprint_prompt", "blueprint.starter_chrome_prompt",
   "blueprint.starter_command_prompt", "blueprint.starter_csv_prompt",
   "blueprint.starter_explore_prompt", "blueprint.csv_session_user",

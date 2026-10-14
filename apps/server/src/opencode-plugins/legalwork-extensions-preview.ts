@@ -3,6 +3,7 @@ import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { uiBridgeRequest, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
+import { connectorDefinitions } from "@legalwork/types/connectors";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
 import { documentNavigationSchema, officeFileSchema, xlsxReadSchema, xlsxWriteSchema, pptxReadSchema, pptxAddSlideSchema, pptxReplaceSchema, pptxLayoutSchema } from "@legalwork/types/office-editor";
 
@@ -269,11 +270,14 @@ function errorMessage(payload: unknown, fallback: string): string {
 
 async function postJson(path: string, body: ExtensionActionPayload): Promise<unknown> {
   const { url, token } = requireLegalWorkServer();
+  const connectorToken = connectorDefinitions.some((definition) => definition.id === body.extensionId)
+    ? process.env.LEGALWORK_CONNECTOR_TOKEN?.trim() : undefined;
   const response = await fetch(url + path, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...(connectorToken ? { "x-legalwork-connector-token": connectorToken } : {}),
     },
     body: JSON.stringify(body),
   });

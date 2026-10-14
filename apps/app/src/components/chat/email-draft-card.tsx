@@ -13,14 +13,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Surface } from "@/react-app/design-system/surface";
 import { useMessageList } from "./message-list-provider";
 import { emailComposeLink, type EmailApp } from "./email-draft-links";
+import { ConnectorDraftActions, connectorDraftTool, draftToolPayload } from "./connector-draft-actions";
 
 export function isEmailDraftTool(part: ToolUIPart | DynamicToolUIPart) {
-  return ["legalwork_email_draft", "legalwork_email_draft_update"].includes(getToolName(part));
+  return ["legalwork_email_draft", "legalwork_email_draft_update"].includes(getToolName(part)) || connectorDraftTool(part, "email");
 }
 export function parseEmailDraftCard(output: unknown) {
   try {
-    const value: unknown = typeof output === "string" ? JSON.parse(output) : output;
-    const payload = value && typeof value === "object" && "referenceData" in value ? value.referenceData : value;
+    const payload = draftToolPayload(output);
     const parsed = EmailDraftSchema.safeParse(payload && typeof payload === "object" && "draft" in payload ? payload.draft : null);
     return parsed.success ? parsed.data : null;
   } catch { return null; }
@@ -64,27 +64,35 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
   if (!draft) return <Surface className="my-3 w-full max-w-2xl p-5"><p role={query.isError || !available ? "alert" : "status"}>{query.isError || !available ? "Connect to this project to load the email draft." : "Loading email draft…"}</p></Surface>;
-  const editable = available && !query.isError && !busy;
+  const actionable = available && !query.isError && !busy;
+  const editable = actionable && !draft.delivery;
   const current = draft;
   const change = (patch: Partial<EmailDraft>) => { setDraft({ ...current, ...patch }); setError(null); };
 
   const save = async () => {
-    if (!client || !editable) throw new Error("The draft is unavailable.");
+    if (!client || !actionable) throw new Error("The draft is unavailable.");
     if (!dirty) return current;
     const result = await client.saveEmailDraft(workspaceId, current);
     setDraft(result.draft); setBaseline(result.draft);
     cache.setQueryData(key, result);
     return result.draft;
   };
-  const run = async (action: "save" | "download" | "outlook-app" | EmailApp) => {
+  const run = async (action: "save" | "download" | "outlook-app" | "provider-save" | "provider-send" | "provider-open" | EmailApp) => {
     if (busyRef.current) return;
     // Reserve a browser window during the click so saving cannot trigger a popup block.
-    const popup = (action === "gmail" || action === "outlook") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
+    const popup = (action === "gmail" || action === "outlook" || action === "provider-open") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
     if (popup) popup.opener = null;
     busyRef.current = true; setBusy(true); setError(null);
     try {
       const saved = await save();
-      if (action === "download") {
+      if (action === "provider-save" || action === "provider-send") {
+        if (!client) throw new Error("The draft is unavailable.");
+        const result = await client.deliverEmailDraft(workspaceId, saved, action === "provider-send" ? "send" : "save");
+        setDraft(result.draft); setBaseline(result.draft); cache.setQueryData(key, result);
+      } else if (action === "provider-open") {
+        const link = saved.delivery?.webUrl ?? (saved.connectorTarget?.connectorId === "gmail" ? "https://mail.google.com/mail/u/0/#drafts" : "https://outlook.office.com/mail/drafts");
+        if (popup) popup.location.href = link; else await openDesktopUrl(link);
+      } else if (action === "download") {
         if (!client) throw new Error("The draft is unavailable.");
         const result = await client.downloadWorkspaceFile(workspaceId, saved.path);
         const url = URL.createObjectURL(new Blob([result.data], { type: "message/rfc822" }));
@@ -115,7 +123,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
         else if (action === "system" && !isElectronRuntime()) window.location.href = link;
         else await openDesktopUrl(link);
       }
-    } catch (problem) { popup?.close(); setError(problem instanceof Error ? problem.message : "Could not save or open the draft."); }
+    } catch (problem) { popup?.close(); setError(problem instanceof Error ? problem.message : "Could not save, send or open the draft."); if (current.connectorTarget) void query.refetch(); }
     finally { busyRef.current = false; setBusy(false); }
   };
   const upload = async (files: File[]) => {
@@ -140,13 +148,13 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
   return <Surface className="my-3 w-full max-w-2xl overflow-hidden rounded-2xl shadow-[0_2px_12px_-5px_rgb(0_0_0/0.12)]">
     <div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-5 py-3">
       <Mail className="size-3.5 text-muted-foreground" />
-      <h3 className="flex-1 text-xs font-medium text-muted-foreground">Email draft</h3>
+      <h3 className="flex-1 text-xs font-medium text-muted-foreground">{current.connectorTarget?.connectorId === "gmail" ? "Gmail draft" : current.connectorTarget ? "Outlook Email draft" : "Email draft"}</h3>
       <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
-        {busy ? <><Loader2 className="size-3 animate-spin" />Saving</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />Saved</>}
+        {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />{current.delivery?.state === "sent" ? "Sent" : current.delivery?.state === "saved" ? "Saved in mailbox" : current.delivery ? "Check mailbox" : "Saved locally"}</>}
       </span>
       <Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Email options" title="Cc, Bcc, sender and formatting" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>
     </div>
-    <fieldset disabled={!editable} className="min-w-0">
+    <fieldset disabled={!editable} className={`min-w-0 ${current.delivery ? "[&_input:disabled]:opacity-100 [&_textarea:disabled]:opacity-100" : ""}`}>
       <div className="flex items-center gap-3 border-b border-border/50 px-5 py-2.5">
         <label htmlFor={`${fieldId}-to`} className="text-xs text-muted-foreground">To</label>
         <Input id={`${fieldId}-to`} title={current.to} value={current.to} onChange={event => change({ to: event.target.value })} placeholder="Recipient email" className="h-7 rounded-sm border-transparent bg-transparent px-0 text-sm shadow-none hover:enabled:border-transparent focus-visible:ring-0" />
@@ -165,14 +173,15 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
       </div>
       <input ref={fileInput} type="file" multiple className="hidden" aria-label="Attach files" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void upload(files); }} />
     </fieldset>
-    {nativeMail && (current.html || current.replyTo) && <p className="px-5 pb-3 text-xs text-muted-foreground">Apple Mail and Outlook use the message text. HTML and custom Reply-To are included in the .eml download.</p>}
-    {!nativeMail && current.attachments.length > 0 && <p className="px-5 pb-3 text-xs text-muted-foreground">Attach files in your mail app, or download .eml to keep attachments.</p>}
+    {!current.connectorTarget && nativeMail && (current.html || current.replyTo) && <p className="px-5 pb-3 text-xs text-muted-foreground">Apple Mail and Outlook use the message text. HTML and custom Reply-To are included in the .eml download.</p>}
+    {!current.connectorTarget && !nativeMail && current.attachments.length > 0 && <p className="px-5 pb-3 text-xs text-muted-foreground">Attach files in your mail app, or download .eml to keep attachments.</p>}
     {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setError(null); } })}>Discard edits and reload</Button></div>}
     <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
       <Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Attach files" title="Attach files" onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button>
+      {current.connectorTarget && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .eml" title="Download .eml" onClick={() => void run("download")}><Download className="size-4" /></Button>}
       {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
       <div className="flex-1" />
-      <div role="group" aria-label="Open email draft" className="inline-flex items-stretch rounded-lg">
+      {current.connectorTarget ? <ConnectorDraftActions draft={current} disabled={!actionable} onSave={() => void run("provider-save")} onSend={() => void run("provider-send")} onOpen={() => void run("provider-open")} /> : <div role="group" aria-label="Open email draft" className="inline-flex items-stretch rounded-lg">
         <Button size="sm" disabled={!editable} className="gap-2 rounded-l-lg rounded-r-none border-r-0 bg-clip-border px-3.5 motion-safe:active:not-aria-[haspopup]:translate-y-0" onClick={() => void run("system")}>{nativeMail ? "Open in Apple Mail" : "Open in Mail"}<ArrowUpRight className="size-3.5" /></Button>
         <DropdownMenu><DropdownMenuTrigger render={<Button size="icon-sm" className="rounded-l-none rounded-r-lg border-l-background/20 bg-clip-border" disabled={!editable} aria-label="Open draft in…"><ChevronDown className="size-3.5" /></Button>} /><DropdownMenuContent align="end" className="w-64">
           <DropdownMenuItem onClick={() => void run("gmail")}><Mail />Open in Gmail</DropdownMenuItem>
@@ -180,7 +189,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
           <DropdownMenuItem onClick={() => void run("outlook")}><Mail />Open in Outlook web</DropdownMenuItem>
           <DropdownMenuItem onClick={() => void run("download")}><Download />Download .eml</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>
-      </div>
+      </div>}
     </div>
   </Surface>;
 }

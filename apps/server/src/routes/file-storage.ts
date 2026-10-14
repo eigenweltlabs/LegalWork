@@ -2,7 +2,7 @@ import { registerProjectFolderRoutes } from "./project-folders.js";
 import { readProjectDetails } from "../project-store.js";
 import { connectionFingerprint, projectFolderScopes } from "../file-storage/project-folders.js";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
@@ -33,6 +33,7 @@ import {
 } from "../file-storage/common.js";
 import { withStorage } from "../file-storage/service.js";
 import { StorageOAuth } from "../file-storage/oauth/session.js";
+import { oauthVaultPath } from "../file-storage/oauth/vault.js";
 import { oauthProviders } from "../file-storage/oauth/providers.js";
 import { TeamStorage, isTeamStorage, teamStorageId } from "../file-storage/team.js";
 import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-storage/store.js";
@@ -77,7 +78,7 @@ export function registerStorageRoutes({
 }: Options) {
   const store = new StorageStore(config);
   const team = new TeamStorage(config);
-  const oauth = new StorageOAuth(join(dirname(store.path), "storage-oauth.vault"));
+  const oauth = new StorageOAuth(oauthVaultPath(config));
   // File-server protocols lack conditional writes. Serialize this server's
   // mutations per connection so folder renames cannot interleave with descendant saves.
   const pendingWrites = new Map<string, Promise<unknown>>();

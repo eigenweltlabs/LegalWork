@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CalendarValueSchema } from "./calendar.js";
+import { connectorCalendarDraftTargetSchema, connectorDraftDeliverySchema } from "./connectors.js";
 
 export const CalendarEventDraftInputSchema = z.object({
   title: z.string().trim().min(1).max(1000),
@@ -19,5 +20,6 @@ export type CalendarEventDraftInput = z.infer<typeof CalendarEventDraftInputSche
 export const CalendarEventDraftSchema = CalendarEventDraftInputSchema.extend({
   id: z.uuid(), workspaceId: z.string(), revision: z.uuid(),
   sequence: z.number().int().nonnegative(), path: z.string(), updatedAt: z.number(), startInstant: z.string(), endInstant: z.string(),
+  connectorTarget: connectorCalendarDraftTargetSchema.optional(), delivery: connectorDraftDeliverySchema.optional(),
 });
 export type CalendarEventDraft = z.infer<typeof CalendarEventDraftSchema>;

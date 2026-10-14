@@ -1429,6 +1429,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      decryptLegacyConnectorSecrets: async (value) => {
+        const { safeStorage } = await import("electron");
+        return safeStorage.decryptString(Buffer.from(value, "base64"));
+      },
       projectsDirectory,
       host,
       port: portSelection.port,

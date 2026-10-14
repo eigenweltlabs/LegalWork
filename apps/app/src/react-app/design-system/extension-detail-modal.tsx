@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { Check, ExternalLink, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Card,
@@ -251,16 +251,9 @@ export function ExtensionDetailModal({
           <div className="flex min-w-0 items-start gap-4">
             {/* Icon. Omitted for a product whose name is already its mark. */}
             <div className={cn("relative shrink-0", brandWordmark && "hidden")}>
-              <div
-                className={cn(
-                  "flex size-12 items-center justify-center rounded-xl border",
-                  connected ? "border-emerald-6 bg-emerald-2" : "border-dls-border bg-dls-hover",
-                )}
-              >
+              <div className="flex size-12 items-center justify-center">
                 {resolvedIconSrc ? (
-                  <div className="flex size-8 items-center justify-center rounded-md bg-white">
-                    <img src={resolvedIconSrc} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
-                  </div>
+                  <img src={resolvedIconSrc} alt="" width={32} height={32} loading="lazy" className="block size-8 object-contain" />
                 ) : (
                   <ExtensionMeshAvatar
                     name={name}
@@ -270,8 +263,8 @@ export function ExtensionDetailModal({
                 )}
               </div>
               {connected ? (
-                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-dls-surface bg-emerald-9">
-                  <CheckCircle2 size={11} className="text-white" strokeWidth={3} />
+                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-dls-surface bg-success">
+                  <Check size={11} className="text-white" strokeWidth={3} />
                 </div>
               ) : null}
             </div>
@@ -412,7 +405,7 @@ export function ExtensionDetailModal({
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Status</span>
-                    <span className={cn("font-medium", connected ? "text-emerald-11" : "text-muted-foreground")}>
+                    <span className={cn("font-medium", connected ? "text-green-11" : "text-muted-foreground")}>
                       {connected
                         ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? "Installed" : "Connected")
                         : connecting

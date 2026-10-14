@@ -1,5 +1,6 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
+import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -28,6 +29,7 @@ import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, 
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
+import type { ConnectorStatus, ConnectorConnect, ConnectorFlow, ConnectorOAuthClient, ConnectorOAuthClientInput } from "@legalwork/types/connectors";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
@@ -1770,6 +1772,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    connectorSettings: (id: string) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, timeoutMs: timeouts.config }),
+    setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),
+    connectorStatus: () => requestJson<ConnectorStatus>(baseUrl, "/connectors", { token, hostToken, timeoutMs: 120_000 }),
+    connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),
+    connectorConnect: (id: string, connectionId?: string, method: "nango" | "custom" = "nango") => requestJson<ConnectorConnect>(baseUrl, `/connectors/${encodeURIComponent(id)}/connect`, { token, hostToken, method: "POST", body: { method, ...(connectionId ? { connectionId } : {}) }, timeoutMs: 60_000 }),
+    connectorOAuthClient: (id: string) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, timeoutMs: timeouts.status }),
+    connectorSaveOAuthClient: (id: string, details: ConnectorOAuthClientInput) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, method: "PUT", body: details, timeoutMs: timeouts.status }),
+    connectorRemoveOAuthClient: (id: string) => requestJson<ConnectorOAuthClient>(baseUrl, `/connectors/${encodeURIComponent(id)}/oauth-client`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.status }),
+    connectorFlowStatus: (flowId: string) => requestJson<ConnectorFlow>(baseUrl, `/connectors/flows/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: 60_000 }),
+    connectorCancelFlow: (flowId: string) => requestJson<{ ok: true }>(baseUrl, `/connectors/flows/${encodeURIComponent(flowId)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.status }),
+    connectorDisconnect: (id: string, connectionId: string) => requestJson<ConnectorStatus>(baseUrl, `/connectors/${encodeURIComponent(id)}/connections/${encodeURIComponent(connectionId)}`, { token, hostToken, method: "DELETE", timeoutMs: 60_000 }),
+    connectorTest: (id: string, connectionId: string) => requestJson<{ ok: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/connections/${encodeURIComponent(connectionId)}/test`, { token, hostToken, method: "POST", timeoutMs: 120_000 }),
     canApprove: Boolean(hostToken),
     pendingHostApprovals: () => requestJson<{ items: import("@legalwork/types/desktop-ipc").HostApprovalRequest[] }>(baseUrl, "/approvals", { token, hostToken, timeoutMs: timeouts.status }),
     replyHostApproval: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest, reply: "allow" | "deny" | "always") =>
@@ -3198,6 +3212,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     calendarEventDraft: (workspaceId: string, id: string) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar-drafts/${encodeURIComponent(id)}`, { token, hostToken }),
     saveCalendarEventDraft: (workspaceId: string, draft: CalendarEventDraft) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/calendar-drafts/${encodeURIComponent(draft.id)}`, { token, hostToken, method: "PUT", body: draft }),
     emailDraft: (workspaceId: string, id: string) => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/email-drafts/${encodeURIComponent(id)}`, { token, hostToken }),
+    deliverEmailDraft: (workspaceId: string, draft: EmailDraft, operation: "save" | "send") => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/connector-drafts/email/${encodeURIComponent(draft.id)}/deliver`, { token, hostToken, method: "POST", body: { revision: draft.revision, operation }, timeoutMs: 120_000 }),
+    deliverCalendarEventDraft: (workspaceId: string, draft: CalendarEventDraft) => requestJson<{ draft: CalendarEventDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/connector-drafts/calendar/${encodeURIComponent(draft.id)}/deliver`, { token, hostToken, method: "POST", body: { revision: draft.revision, operation: "save" }, timeoutMs: 120_000 }),
     saveEmailDraft: (workspaceId: string, draft: EmailDraft) => requestJson<{ draft: EmailDraft }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/email-drafts/${encodeURIComponent(draft.id)}`, { token, hostToken, method: "PUT", body: draft }),
 
     readWorkspaceFile: (workspaceId: string, path: string) =>

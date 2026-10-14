@@ -25,6 +25,7 @@
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
     },
+    "./connectors": "./src/connectors.ts",
     "./audio": {
       "types": "./src/audio.ts",
       "development": "./src/audio.ts",

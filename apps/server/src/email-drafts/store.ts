@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -6,6 +6,9 @@ import type { EmailDraft, EmailDraftInput } from "@legalwork/types/email-draft";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath, withFileWriteLocks } from "../file-write-lock.js";
 import { renderEml, type EmailAttachment } from "./eml.js";
+import { EmailDraftSchema } from "./schema.js";
+import { z } from "zod";
+import { connectorMailDraftTargetSchema, connectorCalendarDraftTargetSchema, connectorDraftDeliverySchema } from "../connectors/schema.js";
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const validId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,8 +69,35 @@ export async function readDraft(root: string, id: string, kind: "email" | "calen
   }
 }
 
-export async function saveEmailDraft(root: string, workspaceId: string, input: EmailDraftInput, previous?: { id: string; revision: string }): Promise<EmailDraft> {
-  return saveDraftFiles(root, workspaceId, "email", async () => ({ input, content: renderEml(input, await attachmentData(root, input)) }), previous);
+export async function saveEmailDraft(root: string, workspaceId: string, input: EmailDraftInput, previous?: { id: string; revision: string }, connectorTarget?: z.infer<typeof connectorMailDraftTargetSchema>): Promise<EmailDraft> {
+  return EmailDraftSchema.parse(await saveDraftFiles(root, workspaceId, "email", async (_id, current) => {
+    const content = renderEml(input, await attachmentData(root, input));
+    return { input: { ...input, ...editableDraftMetadata(current), ...(connectorTarget ? { connectorTarget } : {}), artifactHash: createHash("sha256").update(content).digest("hex") }, content };
+  }, previous));
+}
+
+export async function readEmailDraftMime(root: string, draft: EmailDraft, maxBytes: number) {
+  const paths = await draftPaths(root, draft.id);
+  const file = await open(paths.artifact, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const info = await file.stat();
+    if (!info.isFile() || info.size > maxBytes) throw new ApiError(413, "connector_email_size", "This email exceeds the connected provider's upload limit. Reduce its attachments or export the draft.");
+    const data = Buffer.alloc(info.size);
+    let offset = 0;
+    while (offset < data.length) {
+      const { bytesRead } = await file.read(data, offset, data.length - offset, offset);
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    if (offset !== info.size || (await file.stat()).size !== info.size || createHash("sha256").update(data).digest("hex") !== draft.artifactHash) throw new ApiError(409, "connector_draft_changed", "The draft export changed. Save and review the draft again before continuing.");
+    return data;
+  } finally { await file.close(); }
+}
+
+export function editableDraftMetadata(current: unknown) {
+  const saved = z.object({ connectorTarget: z.union([connectorMailDraftTargetSchema, connectorCalendarDraftTargetSchema]).optional(), delivery: connectorDraftDeliverySchema.optional() }).parse(current ?? {});
+  if (saved.delivery) throw new ApiError(409, "connector_draft_closed", "This item was handed to the connected app. Open it there to edit, or prepare a new draft.");
+  return saved;
 }
 
 export async function saveDraftFiles<T extends object>(root: string, workspaceId: string, kind: "email" | "calendar", prepare: (id: string, previous: unknown) => Promise<{ input: T; content: string }>, previous?: { id: string; revision: string }) {

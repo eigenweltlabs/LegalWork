@@ -2,7 +2,7 @@ import { eventDraftTimes, renderEventDraft } from "../calendar-event-drafts/ics.
 import { z } from "zod";
 import { CalendarEventDraftInputSchema, CalendarEventDraftSchema } from "../calendar-event-drafts/schema.js";
 import { ApiError } from "../errors.js";
-import { draftPaths, readDraft, saveDraftFiles } from "../email-drafts/store.js";
+import { draftPaths, readDraft, saveDraftFiles, editableDraftMetadata } from "../email-drafts/store.js";
 import { recordAudit } from "../audit.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -41,7 +41,7 @@ export function registerCalendarEventDraftRoutes(options: {
     await options.requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: "Save calendar event draft", paths: paths ? [paths.artifact, paths.metadata] : [workspace.path + "/.legalwork/calendar-drafts"] });
     const draft = await saveDraftFiles(workspace.path, workspace.id, "calendar", async (id, current) => {
       const sequence = current ? CalendarEventDraftSchema.parse(current).sequence + 1 : 0;
-      return { input: { ...input, ...eventDraftTimes(input), sequence }, content: renderEventDraft(input, id, sequence) };
+      return { input: { ...input, ...editableDraftMetadata(current), ...eventDraftTimes(input), sequence }, content: renderEventDraft(input, id, sequence) };
     }, previous);
     await recordAudit(workspace.path, { id: draft.revision, workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: draft.path, summary: "Saved calendar event draft", timestamp: draft.updatedAt });
     return { draft };

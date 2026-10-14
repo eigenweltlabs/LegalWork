@@ -257,13 +257,11 @@ function LedgerBrandIcon(props: {
 }) {
   const resolvedIconSrc = resolveBrandIconSrc(props.iconSrc, props.iconSlug);
   return (
-    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-dls-hover">
+    <div className="flex size-9 shrink-0 items-center justify-center">
       {props.connecting ? (
         <Loader2 size={16} className="animate-spin text-dls-secondary" />
       ) : resolvedIconSrc ? (
-        <div className="flex size-6 items-center justify-center rounded-md bg-white">
-          <img src={resolvedIconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
-        </div>
+        <img src={resolvedIconSrc} alt="" width={24} height={24} loading="lazy" className="block size-6 object-contain" />
       ) : (
         <ExtensionMeshAvatar name={props.name} category={props.kind} className="size-6 rounded-md shadow-inner" />
       )}

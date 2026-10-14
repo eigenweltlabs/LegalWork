@@ -1,0 +1,65 @@
+/** @jsxImportSource react */
+// Development fixture for the real settings panel. No production build entry.
+import { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { z } from "zod";
+import type { DynamicToolUIPart } from "ai";
+import { EmailDraftSchema } from "@legalwork/types/email-draft";
+import { CalendarEventDraftSchema } from "@legalwork/types/calendar-event-draft";
+import { EmailDraftToolCard } from "@/components/chat/email-draft-card";
+import { CalendarEventDraftToolCard } from "@/components/chat/calendar-event-draft-card";
+import { MessageListProvider } from "@/components/chat/message-list-provider";
+import { createRoot } from "react-dom/client";
+import { ConnectorConfig } from "@/react-app/domains/settings/connector-config";
+import { PlatformProvider, createDefaultPlatform } from "@/react-app/kernel/platform";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
+import { initLocale } from "@/i18n";
+import "./app/index.css";
+
+if (!import.meta.env.DEV) throw new Error("The connector fixture is available only in development.");
+initLocale();
+const base = "http://127.0.0.1:44641";
+const client = createLegalworkServerClient({ baseUrl: base, token: "fixture-client", hostToken: "fixture-host" });
+const queryClient = new QueryClient();
+const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraftSchema, outlook: EmailDraftSchema, "google-calendar": CalendarEventDraftSchema, "outlook-calendar": CalendarEventDraftSchema });
+const noop = () => {};
+
+function DraftPreview() {
+  const [data, setData] = useState<z.infer<typeof fixtureDraftsSchema> | null>(null);
+  const [provider, setProvider] = useState<"gmail" | "outlook" | "google-calendar" | "outlook-calendar">("gmail");
+  useEffect(() => { void fetch("http://127.0.0.1:44642/fixture/drafts").then(response => response.json()).then(value => setData(fixtureDraftsSchema.parse(value))); }, []);
+  if (!data) return <p>Loading simulated connector drafts…</p>;
+  const calendar = provider === "google-calendar" || provider === "outlook-calendar";
+  const part: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_extension_call", toolCallId: `fixture-${provider}`, state: "output-available", input: { extensionId: provider, action: calendar ? "create_event" : "create_draft" }, output: { ok: true, result: { draft: data[provider] } } };
+  return <QueryClientProvider client={queryClient}><TooltipProvider><MessageListProvider legalworkClient={client} workspaceId={data.workspaceId} sessionId="fixture-session" showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
+    <main className="mx-auto min-h-dvh max-w-3xl space-y-6 px-6 py-10">
+      <div><h1 className="text-xl font-semibold">Connected draft cards</h1><p className="mt-1 text-sm text-muted-foreground">Isolated fixture · Simulated providers · No real email or calendar writes</p></div>
+      <div className="flex flex-wrap gap-2">{["gmail", "outlook", "google-calendar", "outlook-calendar"].map(id => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { if (id === "gmail" || id === "outlook" || id === "google-calendar" || id === "outlook-calendar") setProvider(id); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "google-calendar" ? "Google Calendar" : "Outlook Calendar"}</Button>)}</div>
+      {calendar ? <CalendarEventDraftToolCard key={provider} part={part} /> : <EmailDraftToolCard key={provider} part={part} />}
+    </main>
+  </MessageListProvider></TooltipProvider></QueryClientProvider>;
+}
+
+function Preview() {
+  const [provider, setProvider] = useState("gmail");
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const platform = { ...createDefaultPlatform(), openLink: (url: string) => setAuthUrl(url) };
+  return <PlatformProvider value={platform}><TooltipProvider>
+    <main className="mx-auto min-h-dvh max-w-3xl space-y-6 px-6 py-10">
+      <div><h1 className="text-xl font-semibold">Email connections</h1><p className="mt-1 text-sm text-muted-foreground">Local verification fixture · Simulated accounts · No mailbox data</p></div>
+      <div className="flex gap-2">{["gmail", "outlook", "outlook-calendar", "google-drive"].map((id) => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { setProvider(id); setAuthUrl(null); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "outlook-calendar" ? "Outlook Calendar" : "Google Drive"}</Button>)}</div>
+      <ConnectorConfig key={provider} id={provider} legalworkServerClient={client} />
+      {authUrl && <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm"><p>The consent browser would open here.</p><Button variant="outline" onClick={() => {
+        void fetch("http://127.0.0.1:44642/fixture/authorize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: provider === "outlook-calendar" ? "outlook" : provider, authUrl }) }).then(() => setAuthUrl(null));
+      }}>Complete simulated sign-in</Button></div>}
+    </main>
+  </TooltipProvider></PlatformProvider>;
+}
+
+const root = document.getElementById("root");
+if (!root) throw new Error("Preview root element not found.");
+const previewRoot = createRoot(root);
+previewRoot.render(new URLSearchParams(window.location.search).has("drafts") ? <DraftPreview /> : <Preview />);
+if (import.meta.hot) import.meta.hot.dispose(() => previewRoot.unmount());
