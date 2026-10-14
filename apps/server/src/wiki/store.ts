@@ -1,3 +1,4 @@
+import { lineChanges } from "./line-diff.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, watch, type FSWatcher } from "node:fs";
 import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
@@ -666,8 +667,15 @@ export class WikiStore {
     if (path) wikiPath(path);
     await this.snapshot(id);
     const db = await this.db();
-    const sql = `SELECT id,path,createdAt,action,size FROM wiki_history WHERE wiki=?${path ? " AND path=?" : ""} ORDER BY createdAt DESC,rowid DESC LIMIT 200`;
-    return db.all(sql, path ? [id, path] : [id]).map((row) => z.object({ id: z.string(), path: z.string(), createdAt: z.number(), action: z.enum(["write", "delete", "restore"]), size: z.number() }).parse(row));
+    const sql = `SELECT h.id,h.path,h.createdAt,h.action,h.size,h.content,
+      (SELECT CASE WHEN p.action='delete' THEN '' ELSE p.content END FROM wiki_history p
+       WHERE p.wiki=h.wiki AND p.path=h.path AND (p.createdAt<h.createdAt OR (p.createdAt=h.createdAt AND p.rowid<h.rowid))
+       ORDER BY p.createdAt DESC,p.rowid DESC LIMIT 1) AS previous
+      FROM wiki_history h WHERE h.wiki=?${path ? " AND h.path=?" : ""} ORDER BY h.createdAt DESC,h.rowid DESC LIMIT 200`;
+    return db.all(sql, path ? [id, path] : [id]).map(raw => {
+      const { content, previous, ...row } = z.object({ id: z.string(), path: z.string(), createdAt: z.number(), action: z.enum(["write", "delete", "restore"]), size: z.number(), content: z.string(), previous: z.string().nullable() }).parse(raw);
+      return { ...row, changes: lineChanges(previous ?? "", row.action === "delete" ? "" : content) };
+    });
   }
   async revision(id: string, path: string, revisionId: string): Promise<WikiDocument> {
     await this.get(id);

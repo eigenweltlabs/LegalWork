@@ -98,7 +98,7 @@ export type WikiSnapshot = {
   warnings: string[];
 };
 export type WikiDocument = { path: string; content: string; revision: string; updatedAt: number };
-export type WikiRevision = { id: string; path: string; createdAt: number; action: "write" | "delete" | "restore"; size: number };
+export type WikiRevision = { id: string; path: string; createdAt: number; action: "write" | "delete" | "restore"; size: number; changes?: import("./line-diff.js").LineChanges | null };
 export type WikiCreateInput = {
   name: string;
   root?: string;

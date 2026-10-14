@@ -1,18 +1,23 @@
+import { t } from "@/i18n";
+import { Button } from "@/components/ui/button";
+import { ViewSaveDialog } from "./view-save-dialog";
+import { viewPanelTab } from "./view-reference";
 import { Loader2 } from "lucide-react";
 import { useSessionActivityStore } from "../session/status/session-activity-store";
 import { useViewGenerationStore, type ViewDraftTab } from "./view-generation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { usePanelTabStore } from "../session/panel/panel-tab-store";
 import type { ViewPanelTab } from "./view-reference";
-import { SavedView, OpenUIView } from "./view-renderer";
+import { SavedView, OpenUIView, PreviewView } from "./view-renderer";
 
 export function ViewPanel({ client, tab, sessionId }: { client: LegalworkServerClient | null; tab: ViewPanelTab; sessionId: string }) {
   const title = useCallback((label: string) => usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, label), [sessionId, tab.id]);
   return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><SavedView client={client?.baseUrl === tab.serverUrl ? client : null} reference={tab} onTitle={title} /></div>;
 }
 
-export function ViewDraftPanel({ tab, sessionId: panelScope }: { tab: ViewDraftTab; sessionId: string }) {
+export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client: LegalworkServerClient | null; tab: ViewDraftTab; sessionId: string }) {
+  const [saving, setSaving] = useState(false);
   const generation = useViewGenerationStore(state => state.entries[tab.generationId]);
   const activity = useSessionActivityStore(state => generation ? state.statusesByWorkspaceId[generation.workspaceId]?.[generation.sessionId] : undefined);
   useEffect(() => {
@@ -24,6 +29,15 @@ export function ViewDraftPanel({ tab, sessionId: panelScope }: { tab: ViewDraftT
     const timer = window.setTimeout(() => useViewGenerationStore.getState().fail(tab.generationId, activity === "error" ? "Generation stopped with an error. No saved view was returned." : "Generation stopped before a saved view was returned."), 1500);
     return () => window.clearTimeout(timer);
   }, [activity, generation?.status, tab.generationId]);
+  if (generation?.preview && client?.baseUrl === tab.serverUrl) return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
+    <div className="lw-saved-view-toolbar"><span>{t("views.preview_unsaved")}</span><Button size="sm" onClick={() => setSaving(true)}>{t("views.save_title")}</Button></div>
+    <PreviewView client={client} preview={generation.preview} generationId={tab.generationId} />
+    {saving && <ViewSaveDialog client={client} preview={generation.preview} onClose={() => setSaving(false)} onSaved={view => {
+      useViewGenerationStore.getState().markSaved(tab.generationId, view);
+      usePanelTabStore.getState().resolveViewTab(tab.generationId, viewPanelTab(client.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
+      setSaving(false);
+    }} />}
+  </div></div>;
   const failed = !generation || generation.status === "failed";
   return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
     <div className="lw-saved-view-toolbar" role={failed ? "alert" : "status"}>{failed ? generation?.error ?? "This generation is no longer available. Ask the agent to create the view again." : <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Creating {generation.title === "Creating view…" ? "view" : generation.title}…</span>}</div>

@@ -138,21 +138,37 @@ test("an agent captures an authorized source into real Markdown through the serv
   const input = { version: 1, title: "Closing review", mode: "report", catalog: "legalwork-1", program: 'root = Text("Closing review")', queries: {} };
   const { content_is_data, ...dataset } = queried;
   expect(content_is_data).toBe(true);
-  const projectReport = JSON.parse(await tool.view_create.execute({ input: { ...input, datasets: { reviewed: dataset } } }));
-  expect(projectReport.owner).toEqual({ kind: "workspace", id: "matter" });
-  expect(projectReport.datasets.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
+  const projectPreview = JSON.parse(await tool.view_create.execute({ input: { ...input, datasets: { reviewed: dataset } } }));
+  expect(projectPreview.status).toBe("preview");
+  expect(projectPreview.owner).toEqual({ kind: "workspace", id: "matter" });
+  expect(projectPreview.input.datasets.reviewed.sourceOwner).toEqual({ kind: "wiki", id: wiki.id });
+  expect(projectPreview.id).toBeUndefined();
+  expect(JSON.parse(await tool.view_list.execute({})).items).toEqual([]);
+  expect((await fetch(`${url}/workspace/matter/ui-views`, { method: "POST", headers: agentHeaders, body: JSON.stringify(input) })).status).toBe(403);
+  const projectSave = await fetch(`${url}/workspace/matter/ui-views`, { method: "POST", headers, body: JSON.stringify(projectPreview.input) });
+  expect(projectSave.status).toBe(201);
+  const projectReport = await projectSave.json();
   expect(JSON.parse(await tool.view_list.execute({})).items.map((view: { id: string }) => view.id)).toContain(projectReport.id);
   const wikiOwner = { kind: "wiki", id: wiki.id };
-  const report = JSON.parse(await approved(inside.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }), "wiki.view.create"));
-  expect(report.datasets.reviewed.rows[0]["properties.score"]).toBe(0);
-  expect(report.reference).toBe(`wiki:${wiki.id}/${report.id}`);
+  const reportPreview = JSON.parse(await inside.view_create.execute({ owner: wikiOwner, input: { ...input, queries: { reviewed: query } } }));
+  expect(reportPreview.status).toBe("preview");
+  expect(reportPreview.input.datasets.reviewed.rows[0]["properties.score"]).toBe(0);
+  expect(JSON.parse(await inside.view_list.execute({ owner: wikiOwner })).items).toEqual([]);
+  expect((await fetch(`${url}/wikis/${wiki.id}/ui-views`, { method: "POST", headers: agentHeaders, body: JSON.stringify(input) })).status).toBe(403);
+  const wikiSave = await fetch(`${url}/wikis/${wiki.id}/ui-views`, { method: "POST", headers, body: JSON.stringify(reportPreview.input) });
+  expect(wikiSave.status).toBe(201);
+  const report = await wikiSave.json();
   const reread = JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id }));
   expect(reread.revision).toBe(report.revision);
-  const updated = JSON.parse(await approved(inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
-    base_revision: report.revision, input: { ...input, title: "Reviewed closing", queries: report.queries, datasets: report.datasets } }), "wiki.view.update"));
-  expect(updated.title).toBe("Reviewed closing");
-  expect(JSON.parse(await approved(inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
-    base_revision: report.revision, input }), "wiki.view.update")).code).toBe("view_revision_conflict");
+  const updated = JSON.parse(await inside.view_update.execute({ owner: wikiOwner, view_id: report.id,
+    base_revision: report.revision, input: { ...reportPreview.input, title: "Reviewed closing" } }));
+  expect(updated.status).toBe("preview");
+  expect(updated.input.title).toBe("Reviewed closing");
+  expect(updated.target).toEqual({ viewId: report.id, baseRevision: report.revision });
+  expect(JSON.parse(await tool.view_read.execute({ owner: wikiOwner, view_id: report.id })).title).toBe(report.title);
+  const updateSave = await fetch(`${url}/wikis/${wiki.id}/ui-views/${report.id}`, { method: "PUT", headers, body: JSON.stringify({ input: updated.input, baseRevision: updated.target.baseRevision }) });
+  expect(updateSave.status).toBe(200);
+  expect(JSON.parse(await inside.view_update.execute({ owner: wikiOwner, view_id: report.id, base_revision: report.revision, input })).code).toBe("view_revision_conflict");
 
   const controller = new AbortController();
   controller.abort();

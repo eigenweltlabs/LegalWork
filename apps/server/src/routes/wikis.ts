@@ -133,7 +133,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
   });
 
   const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
-    dashboardFolder: async () => (await store.snapshot(id)).folders?.includes("Dashboards") ? "Dashboards" : "Views",
+    dashboardFolder: async () => "Dashboards",
     list: async () => (await store.files(id)).map(file => file.path),
     read: path => store.readAsset(id, path),
     write: async (path, bytes, revision) => { await store.writeAsset(id, path, bytes, revision); },
@@ -171,17 +171,19 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return jsonResponse(await views(wiki.id).read(ctx.params.viewId));
   });
   addRoute(routes, "POST", "/wikis/:wikiId/ui-views", "client", async ctx => {
+    if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const wiki = await selected(ctx, true), input = await viewInput(ctx);
     if (input.mode === "report" && Object.keys(input.queries).length) {
       const pages = await store.indexedPages(wiki.id);
-      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, queryWikiPages(pages, query)])) };
+      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, input.datasets?.[name] ?? { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } }])) };
     }
-    await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Views"], input);
+    await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Dashboards"], input);
     const result = await views(wiki.id).create(input);
     change(wiki.id);
     return jsonResponse(result, 201);
   });
   addRoute(routes, "PUT", "/wikis/:wikiId/ui-views/:viewId", "client", async ctx => {
+    if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const wiki = await selected(ctx, true);
     const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the view before changing its definition.");

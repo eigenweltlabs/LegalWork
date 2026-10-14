@@ -42,3 +42,8 @@ export function wikiCopyPath(path: string, existing: string[]): string {
   while (existing.includes(candidate)) candidate = `${stem} copy ${++count}${extension}`;
   return candidate;
 }
+
+/** A folder with only empty descendants has no content yet. */
+export function wikiFolderEmpty(node: WikiTreeNode): boolean {
+  return node.kind === "folder" && node.children.every(wikiFolderEmpty);
+}

@@ -77,16 +77,19 @@ async function teamFlow(sandbox?: VmSandbox) {
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
   const view = JSON.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
   expect(view).not.toHaveProperty("error");
+  expect(view.status).toBe("preview");
+  expect((await (await b.request(`/wikis/${wiki.id}/ui-views`)).json()).items).toEqual([]);
+  const savedView = ViewRecordSchema.parse(await (await b.request(`/wikis/${wiki.id}/ui-views`, "POST", view.input)).json());
   const views = await (await b.request(`/wikis/${wiki.id}/ui-views`)).json();
-  expect(views.items.find((item: { id: string }) => item.id === view.id).path).toBe(`Dashboards/${view.id}.view.json`);
+  expect(views.items.find((item: { id: string }) => item.id === savedView.id).path).toBe(`Dashboards/${savedView.id}.view.json`);
 
   // A project report/dashboard needs no wiki destination or wiki query.
   const datasets: Record<string, WikiDataResult> = { invoices: { rows: [{ path: "invoice.csv", amount: 42 }], total: 1, revision: "invoice-1", asOf: Date.now(), truncated: false, sourceOwner: { kind: "workspace", id: project.id } } };
   for (const mode of ["report", "dashboard"]) {
     const raw = JSON.parse(await outside.tool.view_create.execute({ input: { version: 1, title: `Invoice ${mode}`, mode, catalog: "legalwork-1", queries: {}, datasets, program: 'invoice = Query("data", {name:"invoices"}, {rows:[],total:0})\nroot = Table(invoice.rows, [{field:"amount",label:"Amount"}])' } }));
     expect(raw).not.toHaveProperty("error");
-    const { reference, url, content_is_data, ...record } = raw;
-    const saved = ViewRecordSchema.parse(record);
+    expect(raw.status).toBe("preview");
+    const saved = ViewRecordSchema.parse(await (await b.request(`/workspace/${project.id}/ui-views`, "POST", raw.input)).json());
     expect(saved.owner).toEqual({ kind: "workspace", id: project.id });
     expect(saved.datasets).toEqual(datasets);
     expect(JSON.parse(await outside.tool.view_read.execute({ view_id: saved.id })).revision).toBe(saved.revision);

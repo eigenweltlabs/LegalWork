@@ -1,3 +1,4 @@
+import { lineChanges } from "../wiki/line-diff.js";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { WikiSuggestionInputSchema } from "../wiki/suggestion-schema.js";
@@ -66,7 +67,11 @@ export function registerWikiSuggestionRoutes(options: {
         const root = await realpath(project.directory || project.path);
         if (!await wikiAgentCanAccess(config, wikis, wiki, root)) continue;
         for (const { content, ...item } of await new WikiSuggestions(root, project.id).list()) {
-          if (item.status === "pending" && item.destination.wikiId === wiki.id) items.push({ ...item, projectName: project.name });
+          if (item.status !== "pending" || item.destination.wikiId !== wiki.id) continue;
+          let current = "";
+          try { current = (await store.read(wiki.id, item.destination.path)).content; }
+          catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+          items.push({ ...item, projectName: project.name, changes: lineChanges(current, content) });
         }
       } catch { unavailableProjects.push(project.name); }
     }

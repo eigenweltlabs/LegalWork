@@ -55,3 +55,12 @@ export const ViewGenerationChunkSchema = z.object({
   raw: z.string().max(200_000),
 }).strict();
 export type ViewGenerationChunk = z.infer<typeof ViewGenerationChunkSchema>;
+
+/** A completed generation in the chat; not a saved project/wiki file. */
+export const ViewPreviewSchema = z.object({
+  status: z.literal("preview"),
+  owner: ViewOwnerSchema,
+  input: ViewInputSchema,
+  target: z.object({ viewId: z.string().uuid(), baseRevision: z.string().min(1).max(200) }).strict().optional(),
+}).strict();
+export type ViewPreview = z.infer<typeof ViewPreviewSchema>;

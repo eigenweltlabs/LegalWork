@@ -112,6 +112,7 @@ export function workspaceViewFiles(root: string): ViewFiles {
     } finally { await handle.close(); }
   };
   return {
+    dashboardFolder: async () => "Dashboards",
     async list() {
       const paths: string[] = [];
       let count = 0;
@@ -134,7 +135,7 @@ export function workspaceViewFiles(root: string): ViewFiles {
       if (!name || !isRecordPath(path)) throw new ApiError(400, "invalid_view_path", "Invalid saved view path.");
       if (revision === "") {
         const destination = parts.join("/");
-        if (destination !== "Views" && destination !== "Reports") throw new ApiError(400, "invalid_view_path", "New views belong in Views or Reports.");
+        if (destination !== "Views" && destination !== "Reports" && destination !== "Dashboards") throw new ApiError(400, "invalid_view_path", "New views belong in Dashboards or Reports.");
         const base = await realpath(root), folder = join(base, destination);
         try { await mkdir(folder); } catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
         if ((await lstat(folder)).isSymbolicLink()) throw new ApiError(403, "invalid_view_path", "The view folder cannot be a symbolic link.");

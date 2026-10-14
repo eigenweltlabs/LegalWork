@@ -1,3 +1,4 @@
+import { WikiDiffStats } from "./wiki-diff";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Inbox, Loader2 } from "lucide-react";
@@ -22,12 +23,12 @@ export function WikiContributions({ client, wikiId, workspaceId }: { client: Leg
         {query.error && <p role="alert" className="text-sm text-destructive">{query.error.message}<Button variant="ghost" size="sm" onClick={() => void query.refetch()}>{t("wiki.retry")}</Button></p>}
         {query.data?.unavailableProjects.length ? <p role="alert" className="text-sm text-muted-foreground">{t("wiki.contributions_unavailable", { projects: query.data.unavailableProjects.join(", ") })}</p> : null}
         {query.data && !query.data.items.length && <p className="py-6 text-center text-sm text-muted-foreground">{t("wiki.no_contributions")}</p>}
-        {query.data?.items.map(item => <article key={`${item.workspaceId}:${item.id}`} className="space-y-2 rounded-xl border p-4">
-          <h3 className="text-sm font-medium">{item.title}</h3>
+        {query.data?.items.map(item => <button type="button" key={`${item.workspaceId}:${item.id}`} className="w-full space-y-2 rounded-xl border p-4 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { requestTab(suggestionTab(item)); setOpen(false); }}>
+          <span className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{item.title}</span><WikiDiffStats changes={item.changes} /></span>
           <p className="text-xs text-muted-foreground">{item.projectName} · {new Date(item.createdAt).toLocaleString()}</p>
           <p className="break-all text-xs text-muted-foreground">{item.destination.path}</p>
-          <Button size="sm" variant="outline" onClick={() => { requestTab(suggestionTab(item)); setOpen(false); }}>{t("wiki.review_contribution")}</Button>
-        </article>)}
+          <span className="block text-xs text-muted-foreground">{t("wiki.review_contribution")} →</span>
+        </button>)}
       </div>
     </DialogContent></Dialog>
   </>;

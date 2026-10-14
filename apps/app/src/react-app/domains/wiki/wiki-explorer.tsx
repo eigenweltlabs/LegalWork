@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, ChevronsDownUp, Copy, Download, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, GitFork, History, Link, Loader2, Pencil, Search, Trash2, Upload, X } from "lucide-react";
+import { LayoutDashboard, ChevronRight, ChevronsDownUp, Copy, Download, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, GitFork, History, Link, Loader2, Pencil, Search, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -11,7 +11,7 @@ import { ArtifactIcon } from "../session/artifacts/artifact-icon";
 import { classifyOpenTarget } from "../session/artifacts/open-target";
 import { t } from "@/i18n";
 import { isWindowsPlatform } from "@/app/utils";
-import { wikiFileLabel, wikiTree, type WikiTreeEntry, type WikiTreeNode } from "./wiki-tree";
+import { wikiFileLabel, wikiTree, wikiFolderEmpty, type WikiTreeEntry, type WikiTreeNode } from "./wiki-tree";
 import { wikiDroppedFiles, type WikiImportFile } from "./wiki-file-import";
 import { toast } from "@/components/ui/sonner";
 import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
@@ -114,7 +114,7 @@ export function WikiExplorer(props: {
       <ContextMenuItem variant="destructive" disabled={!props.writable || props.busy} onClick={() => props.onAction(entry, "trash")}><Trash2 size={15} />{t("wiki.move_to_trash")}</ContextMenuItem>
     </ContextMenuContent>
   </ContextMenu>;
-  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow draggable={Boolean(props.onDragFile)} onDragStart={event => props.onDragFile?.(event.dataTransfer, entry.path)} selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={<ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
+  const file = (entry: WikiTreeEntry, depth: number, name: string) => menu(entry, <FileBrowserRow draggable={Boolean(props.onDragFile)} onDragStart={event => props.onDragFile?.(event.dataTransfer, entry.path)} selected={props.active === entry.path} style={{ paddingLeft: 6 + depth * 15 }} aria-current={props.active === entry.path ? "page" : undefined} title={props.viewFiles?.[entry.path] ? `${props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"} · ${entry.path}` : entry.path} onClick={() => props.onOpen(entry.path)} leading={<span className="size-3.5 shrink-0" />} icon={props.viewFiles?.[entry.path]?.mode === "dashboard" ? <LayoutDashboard className="size-5 text-muted-foreground" /> : <ArtifactIcon type={classifyOpenTarget(entry.path, "file")} className="size-5" />}>{wikiFileLabel(entry.path, props.viewFiles?.[entry.path]?.title ?? props.pageTitles?.[entry.path] ?? name)}{props.viewFiles?.[entry.path] && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{props.viewFiles[entry.path].mode === "dashboard" ? "Dashboard" : "Report"}</span>}</FileBrowserRow>);
   let shown = 0;
   let total = 0;
   const rows: ReactNode[] = [];
@@ -124,7 +124,7 @@ export function WikiExplorer(props: {
       if (shown < limit) {
         shown++;
         if (node.kind === "file") rows.push(file(node, depth, node.name));
-        else rows.push(menu(node, <FileBrowserRow style={{ paddingLeft: 6 + depth * 15 }} aria-expanded={expanded.has(node.path)} title={node.path} onClick={() => toggleFolder(node.path)} leading={<ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded.has(node.path) && "rotate-90")} />} icon={<FolderIcon open={expanded.has(node.path)} />}>{node.name}</FileBrowserRow>));
+        else rows.push(menu(node, <FileBrowserRow className={wikiFolderEmpty(node) ? "text-muted-foreground" : undefined} style={{ paddingLeft: 6 + depth * 15 }} aria-expanded={expanded.has(node.path)} title={node.path} onClick={() => toggleFolder(node.path)} leading={<ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded.has(node.path) && "rotate-90")} />} icon={node.path === "Dashboards" ? <LayoutDashboard className={cn("size-5 text-muted-foreground", wikiFolderEmpty(node) && "opacity-45")} /> : <FolderIcon open={expanded.has(node.path)} className={wikiFolderEmpty(node) ? "grayscale opacity-45" : undefined} />}>{node.name}{wikiFolderEmpty(node) && <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{t("wiki.empty_folder")}</span>}</FileBrowserRow>));
       }
       if (node.kind === "folder" && expanded.has(node.path)) visit(node.children, depth + 1);
     }

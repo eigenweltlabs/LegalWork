@@ -1,4 +1,6 @@
-import { lazy, Suspense, useState } from "react";
+import { WikiContentPreview } from "./wiki-content-preview";
+import { WikiDiff, WikiContentStats } from "./wiki-diff";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { WikiRevision } from "@legalwork/types/wiki";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -6,12 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, RotateCcw } from "lucide-react";
 import { t } from "@/i18n";
-
-const Editor = lazy(() => import("../session/artifacts/artifact-markdown-editor").then(module => ({ default: module.ArtifactMarkdownEditor })));
-const diffMode: { mode: "diff" } = { mode: "diff" };
-const noChange = () => {};
-const noUpload = async (): Promise<string> => { throw new Error("Read-only version"); };
-const imagePreview = async (source: string) => source;
 
 export function WikiRevisionDialog({ client, wikiId, revision, writable, onClose, onRestore }: {
   client: LegalworkServerClient; wikiId: string; revision: WikiRevision; writable: boolean;
@@ -39,6 +35,7 @@ export function WikiRevisionDialog({ client, wikiId, revision, writable, onClose
     <div className="flex flex-wrap items-center gap-2">
       <Button size="sm" variant={!compare ? "secondary" : "ghost"} onClick={() => setCompare(false)}>{t("wiki.version_content")}</Button>
       <Button size="sm" variant={compare ? "secondary" : "ghost"} onClick={() => setCompare(true)}>{t("wiki.compare_versions")}</Button>
+      {version.data && comparison.data && <WikiContentStats before={version.data.content} after={comparison.data.content} />}
       {compare && <label className="flex min-w-0 items-center gap-2 text-sm">{t("wiki.compare_with")}<select className="h-9 min-w-0 rounded-md border bg-background px-2" value={target} onChange={event => setTarget(event.target.value)}>
         <option value="current">{t("wiki.current_version")}</option>
         {versions.data?.items.filter(item => item.id !== revision.id).map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString()} · {item.action === "delete" ? t("wiki.revision_delete") : item.action === "restore" ? t("wiki.revision_restore") : t("wiki.revision_write")}</option>)}
@@ -47,9 +44,7 @@ export function WikiRevisionDialog({ client, wikiId, revision, writable, onClose
     {compare && <p className="text-xs text-muted-foreground">{t("wiki.diff_direction")}{comparison.data && "deleted" in comparison.data ? ` · ${t("wiki.current_deleted")}` : ""}</p>}
     {failure && <p role="alert" className="text-sm text-destructive">{failure}<Button size="sm" variant="ghost" onClick={() => { setError(""); void version.refetch(); void current.refetch(); if (compare && target !== "current") void historical.refetch(); }}>{t("wiki.retry")}</Button></p>}
     <div className="min-h-0 overflow-auto rounded-lg border">
-      {!version.data || (compare && !comparison.data) ? failure ? null : <div className="p-8"><Loader2 className="mx-auto size-5 animate-spin" aria-label={t("wiki.loading")} /></div> : compare && comparison.data ? <Suspense fallback={<p className="p-4">{t("wiki.loading")}</p>}>
-        <Editor key={`${revision.id}:${target}:${comparison.data.revision}`} value={comparison.data.content} baseline={version.data.content} readOnly onChange={noChange} imageUpload={noUpload} imagePreview={imagePreview} viewModeRequest={diffMode} toolbarTarget={null} suppressHtmlProcessing />
-      </Suspense> : <pre className="whitespace-pre-wrap break-words p-4 font-mono text-sm">{version.data.content}</pre>}
+      {!version.data || (compare && !comparison.data) ? failure ? null : <div className="p-8"><Loader2 className="mx-auto size-5 animate-spin" aria-label={t("wiki.loading")} /></div> : compare && comparison.data ? <WikiDiff before={version.data.content} after={comparison.data.content} /> : <WikiContentPreview client={client} wikiId={wikiId} path={revision.path} content={version.data.content} />}
     </div>
     <DialogFooter>
       <Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.close")}</Button>

@@ -92,8 +92,8 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   if (method === "GET" && /^\/wikis\/[^/]+\/search$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/fields$/.test(pathname)) return true;
   if (method === "POST" && /^\/wikis\/[^/]+\/query$/.test(pathname)) return true;
-  if (["GET", "POST"].includes(method) && /^\/(?:wikis|workspace)\/[^/]+\/ui-views$/.test(pathname)) return true;
-  if (["GET", "PUT"].includes(method) && /^\/(?:wikis|workspace)\/[^/]+\/ui-views\/[^/]+$/.test(pathname)) return true;
+  if (method === "GET" && /^\/(?:wikis|workspace)\/[^/]+\/ui-views$/.test(pathname)) return true;
+  if (method === "GET" && /^\/(?:wikis|workspace)\/[^/]+\/ui-views\/[^/]+$/.test(pathname)) return true;
   if (method === "PATCH" && /^\/wikis\/[^/]+\/properties$/.test(pathname)) return true;
   return ["GET", "PUT", "DELETE"].includes(method) && /^\/wikis\/[^/]+\/page$/.test(pathname);
 }

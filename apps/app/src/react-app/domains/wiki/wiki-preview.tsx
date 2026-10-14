@@ -85,6 +85,8 @@ export function WikiPreview(props: {
     }
     return { html: document.body.innerHTML, outline: headings, anchors };
   }, [props.content]);
+  // Keep the HTML prop stable when portals mount; resetting innerHTML would erase their DOM.
+  const markup = useMemo(() => ({ __html: html }), [html]);
   const viewPortals = useViewPortals(element, html);
   const scrollToHeading = useCallback((id: string) => {
     const exact = element.current?.querySelector(`[id="${CSS.escape(id)}"]`);
@@ -113,7 +115,7 @@ export function WikiPreview(props: {
   return <div className={`wiki-reader${showOutline ? " wiki-reader-with-outline" : ""}`}><div
     ref={element}
     className="lw-markdown-page wiki-preview"
-    dangerouslySetInnerHTML={{ __html: html }}
+    dangerouslySetInnerHTML={markup}
     onClick={(event) => {
       if (!(event.target instanceof Element)) return;
       const anchor = event.target.closest("a");

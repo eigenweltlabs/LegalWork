@@ -1,3 +1,4 @@
+import { LayoutDashboard } from "lucide-react";
 import type { PanelTabDestination } from "./panel-tab-request";
 import { ViewHostProvider } from "../../views/view-host";
 import { documentControlTarget } from "./document-control-target";
@@ -424,7 +425,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
-          ) : (tab.type === "view" || tab.type === "view-draft") ? <TableProperties /> : tab.type === "wiki" ? (
+          ) : (tab.type === "view" || tab.type === "view-draft") ? <LayoutDashboard /> : tab.type === "wiki" ? (
             tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
@@ -1032,13 +1033,13 @@ function SidePanelContent({
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
             {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
             {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
-            {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
+            {renderProjectView && (["calendar", "reviews", "tasks", "dashboards"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
               const store = usePanelTabStore.getState();
               const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
               if (existing) store.selectTab(sessionId, existing.id);
               else store.openTab(sessionId, tab, pane.id);
-            }}>{view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
+            }}>{view === "dashboards" ? <LayoutDashboard /> : view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
             <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1118,7 +1119,7 @@ function SidePanelContent({
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
         const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
-          : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel tab={tab} sessionId={sessionId} /></React.Suspense>
+          : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
@@ -1159,5 +1160,5 @@ function PanelEmpty({ onNewChat, onOpenFile, onOpenBrowser }: {
 }
 
 function ProjectViewIcon({ view }: { view: ProjectView }) {
-  return view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
+  return view === "dashboards" ? <LayoutDashboard /> : view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
 }
