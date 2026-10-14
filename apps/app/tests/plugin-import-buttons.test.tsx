@@ -42,7 +42,7 @@ test("Browse directory is a single global action before Import on every category
 test("the public Plugins route selects the bundle tab in normal and developer modes", () => {
   for (const developerMode of [false, true]) {
     const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="plugins" developerMode={developerMode} />);
-    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Plugins<\/button>/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>)[\s\S])*Plugins<\/button>/);
     expect(html).toContain("Connectors");
     expect(html).toContain("File storage");
     expect(html).not.toContain("Engine plugins");

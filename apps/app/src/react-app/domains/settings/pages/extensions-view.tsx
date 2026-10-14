@@ -84,10 +84,10 @@ export type ExtensionsViewProps = {
 // module-level constant would freeze the tabs in whatever language loaded first.
 const tabs = (): HubTab<ExtensionsTab>[] => {
   const items: HubTab<ExtensionsTab>[] = [
-    { id: "plugins", label: t("extensions.filter_plugins") },
-    { id: "connectors", label: t("extensions.connectors_label") },
-    { id: "skills", label: "Skills" },
-    { id: "storage", label: t("storage.tab") },
+    { id: "plugins", label: t("extensions.filter_plugins"), icon: Package },
+    { id: "connectors", label: t("extensions.connectors_label"), icon: Plug },
+    { id: "skills", label: "Skills", icon: Blocks },
+    { id: "storage", label: t("storage.tab"), icon: HardDrive },
   ];
   return items;
 };
