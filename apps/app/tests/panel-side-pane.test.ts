@@ -1,3 +1,5 @@
+import { wikiPanelTab } from "../src/react-app/domains/wiki/wiki-tabs";
+import { viewPanelTab } from "../src/react-app/domains/views/view-reference";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createJSONStorage } from "zustand/middleware";
 import { artifactDocumentKey, registerUnsavedDocument, getDocumentDiscardPrompt, resolveDocumentDiscardPrompt } from "../src/react-app/domains/session/artifacts/docx-document-state";
@@ -402,6 +404,58 @@ describe("draft safety", () => {
 });
 
 describe("restoration and repeated moves", () => {
+  test("a fresh wiki inherits no tabs and two wikis restore independent layouts", async () => {
+    const first = "workspace:wiki-first", second = "workspace:wiki-second";
+    const firstPage = wikiPanelTab("local", "wiki-first", { kind: "page", path: "Wiki.md" }, "Firm knowledge");
+    const secondPage = wikiPanelTab("local", "wiki-second", { kind: "page", path: "Wiki.md" }, "Firm knowledge");
+    store().openTab(first, firstPage, "main");
+    store().openTab(first, document("Contract.docx"), "main", "right");
+    store().migrateWorkspace("wiki-second");
+    expect(store().sessions[second]?.tabs ?? []).toEqual([]);
+    store().openTab(second, secondPage);
+    store().adoptChat(second, "second-chat", "New wiki chat", { preserveLayout: true });
+    const firstLayout = store().sessions[first], secondLayout = store().sessions[second];
+    expect(firstLayout.panes).toHaveLength(2);
+    expect(secondLayout.panes).toHaveLength(1);
+    expect(secondLayout.tabs.map(tab => tab.id)).toEqual([secondPage.id, "chat:second-chat"]);
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    expect(store().sessions[first]).toEqual(firstLayout);
+    expect(store().sessions[second]).toEqual(secondLayout);
+    store().closeTab(second, secondPage.id);
+    expect(store().sessions[first]).toEqual(firstLayout);
+  });
+
+  test("wiki pages, views, graph and chats survive reload with their own workspace layout", async () => {
+    const scope = "workspace:wiki-one";
+    const page = wikiPanelTab("local", "wiki-one", { kind: "page", path: "Clients/Acme.md", anchor: "sources", mode: "source" }, "Acme");
+    const view = viewPanelTab("local", { owner: { kind: "wiki", id: "wiki-one" }, viewId: "a09a8e3f-9186-4cc8-9e46-b0d778e8f204" }, "Clients");
+    const graph = wikiPanelTab("local", "wiki-one", { kind: "graph", focus: "Clients/Acme.md" }, "Graph");
+    store().openTab(scope, page, "main");
+    store().openTab(scope, view, "main");
+    store().openTab(scope, graph, "main");
+    store().openTab(scope, { id: "chat:wiki-chat", type: "chat", sessionId: "wiki-chat", label: "Wiki chat" }, "main", "right");
+    store().selectTab(scope, page.id);
+    store().openTab("workspace:project", wikiPanelTab("local", "wiki-two", { kind: "page", path: "Guide.md" }, "Guide"));
+    const before = store().sessions[scope];
+    const project = store().sessions["workspace:project"];
+    const persisted = new Map(storage);
+    usePanelTabStore.setState({ sessions: {} });
+    for (const [key, value] of persisted) storage.set(key, value);
+    await usePanelTabStore.persist.rehydrate();
+    const after = store().sessions[scope];
+    expect(after.tabs).toEqual(before.tabs);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.panes).toEqual(before.panes);
+    expect(after.focusedPaneId).toBe(before.focusedPaneId);
+    expect(after.activeTabId).toBe(page.id);
+    expect(store().sessions["workspace:project"]).toEqual(project);
+    store().adoptChat(scope, "another-chat", "New chat");
+    expect(store().sessions[scope].tabs).toHaveLength(5);
+    expect(store().sessions["workspace:project"]).toEqual(project);
+  });
   test("reload preserves arbitrary geometry and removes transient leaves locally", async () => {
     add("A"); add("B", "A", "left"); add("C", "B", "bottom");
     const originalTree = session().tree;

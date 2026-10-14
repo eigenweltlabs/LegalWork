@@ -125,6 +125,7 @@ import {
 import { LEGALMEMORY_OPEN_EVENT, LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
+import { SessionSubagents } from "./session-subagents";
 import { FusionIntroDialog, markFusionIntroSeen, shouldShowFusionIntro } from "@/react-app/domains/session/fusion/fusion-intro-dialog";
 import { useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
@@ -1905,6 +1906,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
+      <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">

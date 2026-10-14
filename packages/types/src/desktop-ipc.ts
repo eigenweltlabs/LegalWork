@@ -397,7 +397,7 @@ export type DesktopCommandMap = {
   composeOutlookDraft: { args: [draft: NativeMailDraftInput]; result: void };
   // Native windows
   openAppWindow: {
-    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
+    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];
     result: boolean;
   };
   openSessionWindow: {

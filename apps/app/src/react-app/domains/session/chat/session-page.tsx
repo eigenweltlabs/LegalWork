@@ -22,7 +22,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Columns2, Folder, PanelsTopLeft, Settings2, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, Plus, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import {
@@ -75,8 +75,11 @@ import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
+import { navigationTab } from "../../../shell/panel-navigation-history";
+import { usePanelNavigationHistory } from "../../../shell/use-panel-navigation-history";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
-import { workspaceSessionRoute, workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
+import { readWikiNavigationWidth, writeWikiNavigationWidth, readWikiNavigationOpen, writeWikiNavigationOpen } from "../../../shell/session-memory";
+import { wikiWorkspaceRoute, workspaceSessionRoute, workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
@@ -91,6 +94,10 @@ import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
+import type { WikiVault } from "@legalwork/types/wiki";
+import { WikiPagePicker } from "../../wiki/wiki-page-picker";
+import { WikiPane, type WikiPaneProps } from "../../wiki/wiki-pane";
+import { wikiPanelTab, wikiTabForFileTarget, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import { TerminalDock } from "../terminal/terminal-dock";
 import {
   EVALS_PANEL_SESSION_ID,
@@ -107,6 +114,7 @@ import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { ControlActionScope, useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { cn } from "@/lib/utils";
 import "@/components/chat/session-surfaces.css";
+import { ChatWorkspaceContext } from "@/components/chat/chat-workspace-context";
 import { WelcomeSurface } from "@/components/chat/session-welcome";
 import { TaskSuggestionCards } from "@/components/chat/task-suggestions";
 
@@ -143,6 +151,7 @@ export type SessionPageSidebarProps = {
   onShowChats?: () => void;
   onNewChat?: () => void;
   onShowProjects?: () => void;
+  onShowWikis?: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
@@ -150,7 +159,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -243,6 +252,10 @@ export type SessionPageProps = {
   mainView?: React.ReactNode;
   /** Live workflow service host, also needed when returning to an open editor. */
   workflowLibraryView?: React.ReactNode;
+  wiki?: WikiPaneProps;
+  wikiWorkspace?: WikiVault;
+  /** File sources remain available when wiki navigation hides the project list. */
+  fileWorkspaceGroups?: WorkspaceSessionGroup[];
   projectsPage?: boolean;
   homePage?: boolean;
   projectPage?: ProjectView;
@@ -345,6 +358,17 @@ function controlStringArg(args: unknown, key: string) {
 export function SessionPage(props: SessionPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const wikiWorkspace = props.wikiWorkspace;
+  const [wikiNavigationStates, setWikiNavigationStates] = useState<Record<string, boolean>>({});
+  const wikiNavigationOpen = wikiWorkspace ? wikiNavigationStates[wikiWorkspace.workspaceId] ?? readWikiNavigationOpen(wikiWorkspace.workspaceId) : false;
+  const toggleWikiNavigation = () => {
+    if (!wikiWorkspace) return;
+    const id = wikiWorkspace.workspaceId;
+    const open = !wikiNavigationOpen;
+    writeWikiNavigationOpen(id, open);
+    setWikiNavigationStates(current => ({ ...current, [id]: open }));
+  };
+  const [wikiPickerPane, setWikiPickerPane] = useState<string | null>(null);
   const hasMainView = Boolean(props.mainView || props.projectsPage || props.projectPage);
   const { config: shellConfig } = useShellConfig();
   const queryClient = useQueryClient();
@@ -355,6 +379,7 @@ export function SessionPage(props: SessionPageProps) {
   // A project window owns one layout, independently of the currently focused chat.
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
+  useEffect(() => setWikiPickerPane(null), [workspaceScope]);
   const workspacePanel = useSessionPanelState(workspaceScope);
   const controlSessionIds = useMemo(() => workspacePanel.tabs.flatMap(tab => tab.type === "chat" ? [tab.sessionId] : []), [workspacePanel.tabs]);
   const [overviewHost, setOverviewHost] = useState<HTMLDivElement | null>(null);
@@ -384,7 +409,8 @@ export function SessionPage(props: SessionPageProps) {
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
   const toggleSidePanelState = useUiStateStore((state) => state.toggleSidePanelState);
-  const fileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
+  const storedFileSidebar = useUiStateStore((state) => state.fileSidebarState[panelStateSessionId] ?? null);
+  const fileSidebar = storedFileSidebar === "wiki" ? null : storedFileSidebar;
   const setFileSidebarState = useUiStateStore((state) => state.setFileSidebarState);
   useEffect(() => {
     const search = new URLSearchParams(location.search);
@@ -392,7 +418,10 @@ export function SessionPage(props: SessionPageProps) {
       search.delete("panel");
       navigate({ pathname: workspaceViewRoute(props.selectedWorkspaceId, "files"), search: search.toString() }, { replace: true });
     }
-  }, [props.projectPage, props.selectedWorkspaceId, location.pathname, location.search, navigate]);
+    if (search.get("panel") === "wiki") {
+      navigate("/wikis", { replace: true });
+    }
+  }, [props.projectPage, props.selectedWorkspaceId, location.pathname, location.search, navigate, panelStateSessionId, setFileSidebarState]);
   const openTab = usePanelTabStore((state) => state.openTab);
   const closeTab = usePanelTabStore((state) => state.closeTab);
   const transcriptTargets = usePanelTabStore((state) => (
@@ -448,7 +477,7 @@ export function SessionPage(props: SessionPageProps) {
   const preserveSidePanelOnPanelOpenRef = useRef(false);
 
   const setCurrentSidePanel = useCallback(function setPanel(panel: SidePanelItem | null) {
-    if (panel === "files" || panel === "memory") {
+    if (panel === "files" || panel === "memory" || panel === "wiki") {
       setFileSidebarState(panelStateSessionId, panel);
       return;
     }
@@ -474,7 +503,7 @@ export function SessionPage(props: SessionPageProps) {
       if (hasMainView && props.sidebar.activeNav !== "evals" && !destination) return;
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
-      openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview });
+      openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
       if (tab.type === "artifact" && tab.pendingImportId && destination?.kind === "workspace") {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }
@@ -495,7 +524,7 @@ export function SessionPage(props: SessionPageProps) {
   }, [setSidePanelState]);
 
   const toggleCurrentSidePanel = useCallback(function togglePanel(panel: SidePanelItem) {
-    if (panel === "files" || panel === "memory") {
+    if (panel === "files" || panel === "memory" || panel === "wiki") {
       setFileSidebarState(panelStateSessionId, fileSidebar === panel ? null : panel);
       return;
     }
@@ -597,6 +626,15 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
 
+    const wikiTab = wikiWorkspace && props.wiki?.client
+      ? wikiTabForFileTarget(props.wiki.serverUrl, wikiWorkspace, target) : null;
+    if (wikiTab) {
+      openTab(panelStateSessionId, wikiTab);
+      preserveSidePanelOnPanelOpenRef.current = true;
+      setCurrentSidePanel("panel");
+      return;
+    }
+
     if (!isCollectibleArtifactTarget(target)) {
       if (isOpenableFileTarget(target)) {
         if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
@@ -627,7 +665,7 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, props.wiki?.client, props.wiki?.serverUrl, wikiWorkspace, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
@@ -884,7 +922,8 @@ export function SessionPage(props: SessionPageProps) {
   useControlAction(closeVoicePanelControlAction);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
-  const previousRouteChat = useRef<string | null>(null);
+  // A reload may restore a wiki page focused beside the chat named in the URL.
+  const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
   const selectedSessionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
@@ -894,13 +933,16 @@ export function SessionPage(props: SessionPageProps) {
     const store = usePanelTabStore.getState();
     const tab = store.sessions[panelStateSessionId]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId);
     const routeChat = `${panelStateSessionId}:${props.selectedSessionId}`;
+    // Back/Forward may target a file beside the chat named in this route.
+    const restoringTab = navigationTab(window.history.state?.usr, panelStateSessionId);
     if (tab) {
       store.updateTabLabel(panelStateSessionId, tab.id, selectedSessionTitle || tab.label);
-      if (previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
+      if (!restoringTab && previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
     }
-    else store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"));
+    else if (!restoringTab) store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"));
     previousRouteChat.current = routeChat;
   }, [panelStateSessionId, props.selectedSessionId, selectedSessionTitle, hasMainView]);
+  usePanelNavigationHistory(!hasMainView || sidePanelOpen ? panelStateSessionId : null);
   useEffect(() => { props.onSessionTabsChange?.(sessionTabs); }, [sessionTabs, props.onSessionTabsChange]);
   const sessionActionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
@@ -989,7 +1031,7 @@ export function SessionPage(props: SessionPageProps) {
   const openNavWindow = useCallback((key: ShellNavKey) => {
     const pages = {
       navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
-      navTasks: "tasks", navRecorder: "recorder", navEvaluations: "evals",
+      navTasks: "tasks", navRecorder: "recorder", navWikis: "wikis", navEvaluations: "evals",
     } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
       toast.error(t("projects.open_in_new_window_failed"));
@@ -1141,6 +1183,7 @@ export function SessionPage(props: SessionPageProps) {
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
+      viewerOpen={sidePanelOpen}
       onResize={setFilesHeaderWidth}
       memory={memoryDrivePanel}
       files={(
@@ -1159,6 +1202,7 @@ export function SessionPage(props: SessionPageProps) {
     />
   );
 
+  const renderWikiTab = (tab: WikiPanelTab) => props.wiki ? <WikiPane key={tab.id} {...props.wiki} client={tab.serverUrl === props.wiki.serverUrl ? props.wiki.client : null} display="tab" tab={tab} onCloseTab={() => closeTab(panelStateSessionId, tab.id)} /> : null;
   const workspaceFilesRailButton = (
     <Button
       variant="ghost"
@@ -1182,6 +1226,7 @@ export function SessionPage(props: SessionPageProps) {
     : props.sidebar.activeNav === "workflows" ? t("sidebar.workflows")
     : props.sidebar.activeNav === "recorder" ? t("recorder.nav_label")
     : props.sidebar.activeNav === "tasks" ? t("sidebar.tasks")
+    : props.sidebar.activeNav === "wikis" ? wikiWorkspace?.name ?? t("wiki.title")
     : props.sidebar.activeNav === "evals" ? t("sidebar.evals")
     : props.sidebar.activeNav === "extensions" ? t("extensions.title")
     : showWorkspaceSetupEmptyState ? t("session.create_or_connect_workspace")
@@ -1192,7 +1237,8 @@ export function SessionPage(props: SessionPageProps) {
   }, [windowTitle]);
 
   return (
-    <ProjectFileProvider groups={listedSessionGroups} client={props.environmentClient ?? null} createChat={props.sidebar.onCreateChatInWorkspace}>
+    <ChatWorkspaceContext.Provider value={wikiWorkspace ? "wiki" : "project"}>
+    <ProjectFileProvider groups={props.fileWorkspaceGroups ?? listedSessionGroups} client={props.environmentClient ?? null} createChat={props.sidebar.onCreateChatInWorkspace}>
     <ProjectPersonalisationProvider groups={listedSessionGroups} client={props.environmentClient ?? null}>
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
@@ -1212,7 +1258,7 @@ export function SessionPage(props: SessionPageProps) {
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-              {shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              {wikiWorkspace ? <SidebarTrigger className="titlebar-no-drag text-muted-foreground" aria-label={t("wiki.toggle_navigation")} title={t("wiki.toggle_navigation")} aria-expanded={wikiNavigationOpen} onToggleSidebar={toggleWikiNavigation} /> : shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
               <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1291,6 +1337,7 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onCreateChatInNewWorkspace={props.sidebar.onCreateChatInNewWorkspace}
+          onShowWikis={props.sidebar.onShowWikis}
           onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
@@ -1352,6 +1399,7 @@ export function SessionPage(props: SessionPageProps) {
                       projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
                       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
                       onClose={closeRightPane}
+                      renderWikiTab={renderWikiTab}
                     /></div>
                   </ResizablePanel>
                 </>
@@ -1392,9 +1440,16 @@ export function SessionPage(props: SessionPageProps) {
         <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
           <div className="flex min-h-0 flex-1">
           <ResizablePanelGroup
+            key={workspaceScope}
             orientation="horizontal"
             className="lw-workspace-surface min-h-0 flex-1"
           >
+            {wikiWorkspace && props.wiki && wikiNavigationOpen ? <>
+              <ResizablePanel key={wikiWorkspace.workspaceId} id="wiki-navigation" defaultSize={`${readWikiNavigationWidth(wikiWorkspace.workspaceId)}px`} onResize={size => writeWikiNavigationWidth(wikiWorkspace.workspaceId, size.inPixels)} groupResizeBehavior="preserve-pixel-size" minSize="200px" maxSize="440px" className="min-w-0 border-r border-border">
+                <WikiPane key={wikiWorkspace.id} {...props.wiki} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
+              </ResizablePanel>
+              <ResizableHandle />
+            </> : null}
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
 
@@ -1581,6 +1636,12 @@ export function SessionPage(props: SessionPageProps) {
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
           <SidePanel
+            renderWikiTab={renderWikiTab}
+            onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
+            onOpenWikiGraph={wikiWorkspace && props.wiki?.client ? pane => {
+              const client = props.wiki?.client;
+              if (client) openTab(workspaceScope, wikiPanelTab(client.baseUrl, wikiWorkspace.id, { kind: "graph" }, t("wiki.graph")), pane);
+            } : undefined}
             key={workspaceScope}
             sessionId={workspaceScope}
             controlSessionIds={controlSessionIds}
@@ -1592,7 +1653,7 @@ export function SessionPage(props: SessionPageProps) {
             visible={!hasMainView}
             onClose={closeRightPane}
             projectId={props.selectedWorkspaceId}
-            renderProjectView={(view, active) => renderProjectView(view, true, active)}
+            renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
             onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
             onDropChat={(ids, pane, edge) => {
               let destination = pane;
@@ -1608,7 +1669,7 @@ export function SessionPage(props: SessionPageProps) {
             onNewChat={pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
             onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
             onCloseChat={(id, nextId) => {
-              if (id === props.selectedSessionId) navigate(workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
+              if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
             }}
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
@@ -1631,6 +1692,12 @@ export function SessionPage(props: SessionPageProps) {
       {workflowLibrary && <DocumentPane key={props.selectedWorkspaceId} destination={workflowsPage ? workflowLibraryHost : null}><ControlActionScope active={workflowsPage}>{workflowLibrary}</ControlActionScope></DocumentPane>}
       </SidebarProvider>
 
+      {wikiPickerPane && props.wiki?.client ? <WikiPagePicker client={props.wiki.client} serverUrl={props.wiki.serverUrl} initialWikiId={wikiWorkspace?.id} onClose={() => setWikiPickerPane(null)} onOpen={tab => {
+        const store = usePanelTabStore.getState();
+        if (!store.sessions[workspaceScope]?.panes.some(pane => pane.id === wikiPickerPane)) { toast.error(t("side_panel.drop_target_closed")); return; }
+        store.openTab(workspaceScope, tab, wikiPickerPane);
+        setWikiPickerPane(null);
+      }} /> : null}
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}
 
       {props.onRenameSession ? (
@@ -1704,5 +1771,6 @@ export function SessionPage(props: SessionPageProps) {
     </div>
     </ProjectPersonalisationProvider>
     </ProjectFileProvider>
+    </ChatWorkspaceContext.Provider>
   );
 }

@@ -58,6 +58,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@openuidev/devtools": resolve(appRoot, "../../packages/openui/src/devtools-disabled.ts"),
       "@": resolve(appRoot, "src"),
     },
   },
