@@ -205,7 +205,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
+import { composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
@@ -1368,8 +1368,10 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: usableProviderCount,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      onOpenSettingsSection: (section: ComposerSettingsSection) => {
+        const path = composerSettingsPath(section);
+        if (section === "workflows") navigate(path);
+        else handleOpenSettings(path);
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;

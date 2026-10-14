@@ -28,7 +28,10 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
-import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
+import type { ImportedPlugin } from "@/app/lib/extension-imports";
+import type { ComposerConnector } from "./composer/tool-menu";
+import type { ComposerSettingsSection } from "@/react-app/shell/workspace-routes";
+import { resolveConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import {
   materializeLegalMemoryFile,
   materializeLegalMemoryFolder,
@@ -208,7 +211,7 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   providerConnectedCount?: number;
-  onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins" | "providers") => void) | undefined;
+  onOpenSettingsSection?: ((section: ComposerSettingsSection) => void) | undefined;
   onRevertToMessage?: (messageId: string, sessionId: string) => Promise<boolean>;
   onForkAtMessage?: (messageId: string | null, sessionId: string) => void;
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
@@ -740,7 +743,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: LegalworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
-  const [toolMcpStatus, setToolMcpStatus] = useState<string | null>(null);
   const [toolMcpStatuses, setToolMcpStatuses] = useState<McpStatusMap>({});
   const [toolImportedPlugins, setToolImportedPlugins] = useState<ImportedPlugin[]>([]);
   const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
@@ -1760,18 +1762,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useControlAction(composerStopControlAction);
 
   const listSkills = async (): Promise<SkillCard[]> => {
-    const response = await props.client.listSkills(props.workspaceId, { includeGlobal: true });
-    const next = (response.items ?? []).map((skill) => ({
+    const [response, firm] = await Promise.all([
+      props.client.listSkills(props.workspaceId, { includeGlobal: true }),
+      props.client.firmHubSkills().then(result => result.items, () => []),
+    ]);
+    const next = [...response.items, ...firm.filter(skill => !response.items.some(own => own.name === skill.name))].map((skill) => ({
       name: skill.name,
       path: skill.path,
       description: skill.description,
       trigger: skill.trigger,
+      kind: skill.kind,
+      workflowType: skill.workflowType,
+      firm: skill.firm,
     } satisfies SkillCard));
     setToolSkills(next);
     return next;
   };
 
-  const listMcp = async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
+  const listMcp = async (): Promise<{ servers: ComposerConnector[]; statuses: McpStatusMap }> => {
     const [response, firmHub] = await Promise.all([
       props.client.listMcp(props.workspaceId),
       // The firm's connectors run from the firm's own config, not the project's.
@@ -1781,16 +1789,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       name: entry.name,
       config: entry.config as McpServerEntry["config"],
     } satisfies McpServerEntry));
-    const firm = (firmHub?.items ?? []).flatMap((item): McpServerEntry[] => {
-      const connector = item.connector;
-      if (!connector || !(item.installation === "automatic" || item.added)) return [];
-      // Without the member's own key the engine doesn't run it yet.
-      if (connector.access === "member" && !connector.hasOwnKey) return [];
-      if (own.some((entry) => entry.name === connector.serverName)) return [];
-      return [{ name: connector.serverName, config: connector.url ? { type: "remote", url: connector.url } : { type: "local" } }];
-    });
-    const servers = [...own, ...firm];
-
     let statuses: McpStatusMap = {};
     try {
       if (props.workspaceRoot.trim()) {
@@ -1799,17 +1797,33 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch {
       statuses = {};
     }
-
-    const status = servers.length ? null : "No MCP servers loaded.";
+    const firm = (firmHub?.items ?? []).flatMap((item): ComposerConnector[] => {
+      const connector = item.connector;
+      if (!connector || !(item.installation === "automatic" || item.added)) return [];
+      if (own.some((entry) => entry.name === connector.serverName)) return [];
+      return [{
+        name: connector.serverName,
+        config: connector.url ? { type: "remote", url: connector.url } : { type: "local" },
+        displayName: item.name,
+        description: item.description,
+        firm: true,
+        state: resolveConnectorState({
+          enabled: true,
+          status: statuses[connector.serverName]?.status,
+          needsKey: connector.access === "member" && !connector.hasOwnKey,
+          needsSignIn: connector.access === "oauth" && statuses[connector.serverName]?.status !== "connected",
+        }),
+      }];
+    });
+    const servers = [...own, ...firm];
     setToolMcpServers(servers);
     setToolMcpStatuses(statuses);
-    setToolMcpStatus(status);
-    return { servers, statuses, status };
+    return { servers, statuses };
   };
 
   const listImportedPlugins = async (): Promise<ImportedPlugin[]> => {
-    const response = await props.client.getConfig(props.workspaceId);
-    const plugins = Object.values(readWorkspaceImports(response.legalwork).plugins)
+    const response = await props.client.listCloudPlugins(props.workspaceId);
+    const plugins = Object.values(response.plugins)
       .sort((left, right) => left.name.localeCompare(right.name));
     setToolImportedPlugins(plugins);
     return plugins;
@@ -1867,7 +1881,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
     if (action.target === "settings" && action.action === "open") {
-      props.onOpenSettingsSection?.(action.section);
+      props.onOpenSettingsSection?.(action.section === "commands" ? "workflows" : action.section === "mcps" ? "connectors" : action.section);
     }
   }, [props.onOpenSettingsSection]);
 
@@ -2160,7 +2174,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
         skills={toolSkills}
         listMcp={listMcp}
         mcpServers={toolMcpServers}
-        mcpStatus={toolMcpStatus}
         mcpStatuses={toolMcpStatuses}
         listImportedPlugins={listImportedPlugins}
         importedPlugins={toolImportedPlugins}
