@@ -1273,6 +1273,8 @@ async function proxyOpencodeRequest(input: {
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
   if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
+  // The sandbox may change the body; let fetch calculate its current length.
+  headers.delete("content-length");
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     if (input.config.agentSandboxEnabled) {
       if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");

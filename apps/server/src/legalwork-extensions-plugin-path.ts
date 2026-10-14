@@ -31,6 +31,7 @@ export const legalworkCapabilitiesKnowledgePluginPath = () => legalworkPluginPat
 export const legalworkLegalMemoryKnowledgePluginPath = () => legalworkPluginPath("legalwork-legalmemory-knowledge");
 export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPluginPath("legalwork-anthropic-adaptive-thinking");
 export const legalworkAnthropicToolSchemaPluginPath = () => legalworkPluginPath("legalwork-anthropic-tool-schema");
+export const legalworkOpenAIToolCallIdsPluginPath = () => legalworkPluginPath("legalwork-openai-tool-call-ids");
 export const legalworkWordToolsPluginPath = () => legalworkPluginPath("legalwork-word-tools");
 export const legalworkExcelToolsPluginPath = () => legalworkPluginPath("legalwork-excel-tools");
 export const legalworkPowerPointToolsPluginPath = () => legalworkPluginPath("legalwork-powerpoint-tools");
