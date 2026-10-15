@@ -654,51 +654,49 @@ const UserMessage = React.memo(
                   </MessageContent>
                 ) : null}
                 {files.map(file => <AssistantSharedFileCard key={file.path} file={{ path: file.path, title: file.name, filename: file.name, description: t("assistant.shared_with_project") }} />)}
-                {(assistantChat || !isStreaming) && (
-                  <MessageActions
-                    className={cn(
-                      "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
-                    )}
-                  >
-                    <MessageTimestamp message={message} className="mr-1.5" />
-                    <CopyMessageButton messages={[message]} />
-                    {messageText ? (
-                      <MessageAction tooltip={t("message_list.edit_message")}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("message_list.edit_message")}
-                          disabled={readOnly}
-                          onClick={() => onEditUserMessage(message.id, messageText)}
-                        >
-                          <Pencil />
-                        </Button>
-                      </MessageAction>
-                    ) : null}
-                    {!assistantChat && <><MessageAction tooltip={t("message_list.branch_in_new_chat")}>
+                <MessageActions
+                  className={cn(
+                    "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
+                  )}
+                >
+                  <MessageTimestamp message={message} className="mr-1.5" />
+                  <CopyMessageButton messages={[message]} />
+                  {messageText && (assistantChat || !isStreaming) ? (
+                    <MessageAction tooltip={t("message_list.edit_message")}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label={t("message_list.branch_in_new_chat")}
+                        aria-label={t("message_list.edit_message")}
                         disabled={readOnly}
-                        onClick={() => onForkAtMessage(message.id)}
+                        onClick={() => onEditUserMessage(message.id, messageText)}
                       >
-                        <Split className="rotate-90" />
+                        <Pencil />
                       </Button>
                     </MessageAction>
-                    <MessageAction tooltip={t("message_list.revert")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("message_list.revert")}
-                        disabled={readOnly}
-                        onClick={() => onRevertToUserMessage(message.id)}
-                      >
-                        <Undo2 />
-                      </Button>
-                    </MessageAction></>}
-                  </MessageActions>
-                )}
+                  ) : null}
+                  {!assistantChat && !isStreaming && <><MessageAction tooltip={t("message_list.branch_in_new_chat")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("message_list.branch_in_new_chat")}
+                      disabled={readOnly}
+                      onClick={() => onForkAtMessage(message.id)}
+                    >
+                      <Split className="rotate-90" />
+                    </Button>
+                  </MessageAction>
+                  <MessageAction tooltip={t("message_list.revert")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("message_list.revert")}
+                      disabled={readOnly}
+                      onClick={() => onRevertToUserMessage(message.id)}
+                    >
+                      <Undo2 />
+                    </Button>
+                  </MessageAction></>}
+                </MessageActions>
               </div>
             }
           />

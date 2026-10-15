@@ -407,10 +407,9 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     },
     inapp_documents_select: {
       description: "Select a prepared document for this task without switching any visible tabs or discarding other drafts.",
-      args: officeFileSchema.extend({ userRequested: explicitUiRequest }).shape,
+      args: officeFileSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = officeFileSchema.extend({ userRequested: explicitUiRequest }).parse(rawArgs);
-        await requireRequestedAssistantUi(context, args.userRequested);
+        const args = officeFileSchema.parse(rawArgs);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: "documents.select_open", args: { sessionId: context.sessionID ?? "", path: args.path } } }));
       },
     },
@@ -675,8 +674,8 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: browserOpenUrlArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
+        if (args.show) await requireRequestedAssistantUi(context, args.userRequested);
         const browserContext = await requireBrowserNetwork(context);
-        await requireRequestedAssistantUi(context, args.userRequested);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: {

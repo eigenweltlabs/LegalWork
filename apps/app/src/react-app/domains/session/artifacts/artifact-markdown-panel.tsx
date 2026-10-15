@@ -313,7 +313,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
             }
           })}><ExternalLink /></Button>
         </>}
-        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={onClose}><X /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={onClose} disabled={saving}><X /></Button>
       </>}
     >
       {!streamingPreview && <DocumentAccessBanner access={access} />}

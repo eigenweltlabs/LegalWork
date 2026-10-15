@@ -129,7 +129,7 @@ async function previewCopyDelay() {
   if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
 }
 
-if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ directory: workspace.path }), {
+if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
   connected: [model.providerID],
   all: [{ id: model.providerID, name: "Preview provider", models: {
     [model.modelID]: { name: model.modelID },

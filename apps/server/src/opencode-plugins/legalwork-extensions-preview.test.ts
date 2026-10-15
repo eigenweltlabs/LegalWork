@@ -415,7 +415,7 @@ test("opens workspace and connected files in the engine session, then exposes li
   expect(output.system.join("\n")).not.toContain("An empty inapp_documents_list means you need to open the file");
 });
 
-test("Assistant UI changes need an explicit user request; background reads do not open files", async () => {
+test("Assistant visible UI changes need an explicit user request; task drafts stay in the background", async () => {
   const previousUrl = process.env.LEGALWORK_SERVER_URL;
   const server = Bun.serve({ port: 0, fetch: () => Response.json({ workspace: { path: "/Assistant" } }) });
   process.env.LEGALWORK_SERVER_URL = server.url.origin;
@@ -432,13 +432,18 @@ test("Assistant UI changes need an explicit user request; background reads do no
   try {
     const plugin = await LegalWorkExtensionsPreview();
     const context = { sessionID: "assistant", directory: "/Assistant" };
-    await expect(plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf" }, context)).rejects.toThrow("only when the user explicitly asks");
-    await expect(plugin.tool.inapp_documents_select.execute({ path: "agreement.pdf" }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
     await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "documents.open", args: { path: "agreement.pdf" } }, context)).rejects.toThrow("only when the user explicitly asks");
-    await expect(plugin.tool.legalwork_browser_open_url.execute({ url: "https://example.com" }, context)).rejects.toThrow("only when the user explicitly asks");
+    await expect(plugin.tool.legalwork_browser_open_url.execute({ url: "https://example.com", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
     expect(calls).toHaveLength(0);
-    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", userRequested: true }, context);
-    expect(calls).toHaveLength(1);
+    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf" }, context);
+    await plugin.tool.inapp_documents_select.execute({ path: "agreement.pdf" }, context);
+    expect(calls).toEqual([
+      { actionId: "documents.open", args: { sessionId: "assistant", path: "agreement.pdf" } },
+      { actionId: "documents.select_open", args: { sessionId: "assistant", path: "agreement.pdf" } },
+    ]);
+    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true, userRequested: true }, context);
+    expect(calls).toHaveLength(3);
   } finally {
     server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
