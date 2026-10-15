@@ -43,6 +43,20 @@ git diff --check
 # Passed
 ```
 
+## Wiki entry transition
+
+The Wiki navigation button previously visited `/wikis`, mounted the manager, then redirected in an effect to the remembered workspace. It now opens the known workspace directly, restoring its focused chat or page. While initial discovery or a legacy `/wikis` redirect is pending, the shared loading state replaces the manager. Explicit **All wikis**, empty lists and connection/error states retain the manager. Automatic redirects replace the intermediate route so Back does not bounce into the wiki again.
+
+Validation: app typecheck and `git diff --check` passed; the existing route, wiki-tab, shared navigation history and wiki navigation tests passed (**25 tests, 131 assertions**):
+
+```sh
+pnpm --filter @legalwork/app exec bun test tests/workspace-routes.test.ts tests/wiki-tabs.test.ts tests/panel-navigation-history.test.ts tests/wiki-navigation-regression.test.ts
+pnpm --filter @legalwork/app typecheck
+git diff --check
+```
+
+The native desktop interaction check was blocked by a macOS ScreenCaptureKit capture failure, so this transition has not been visually verified. To check: leave a wiki page or chat open, switch to Home, then click Wiki repeatedly. The same workspace should open without showing the manager. Back should return to Home in one step. **All wikis** should still open the manager; opening `/wikis` after a cold start should show a loading state until discovery completes, then restore a wiki or show the genuinely empty manager.
+
 This follow-up changes client presentation and recovery feedback. It does not rerun the full repository suite or the sandbox VM flow; the wider validation results and known baseline failures remain recorded in PR #280. Native Electron drag gestures are still a manual check.
 
 
