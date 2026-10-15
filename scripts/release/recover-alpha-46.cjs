@@ -30,9 +30,14 @@ async function main() {
     const sevenzip = await getPath7za();
     const outer = path.join(dir, 'nsis');
     execFileSync(sevenzip, ['x', installer, `-o${outer}`, '-y'], { stdio: 'inherit' });
-    const inner = walk(outer).filter(file => path.basename(file) === (arch === 'arm64' ? 'app-arm64.7z' : 'app-64.7z'));
-    assert.equal(inner.length, 1, 'Expected one application archive inside the original installer');
-    execFileSync(sevenzip, ['x', inner[0], `-o${path.join(dir, 'app')}`, '-y'], { stdio: 'inherit' });
+    if (fs.existsSync(path.join(outer, 'LegalWork.exe'))) {
+      // The bundled 7za opens the embedded application archive directly.
+      fs.renameSync(outer, path.join(dir, 'app'));
+    } else {
+      const inner = walk(outer).filter(file => path.basename(file) === (arch === 'arm64' ? 'app-arm64.7z' : 'app-64.7z'));
+      assert.equal(inner.length, 1, 'Expected one application archive inside the original installer');
+      execFileSync(sevenzip, ['x', inner[0], `-o${path.join(dir, 'app')}`, '-y'], { stdio: 'inherit' });
+    }
     const pkg = JSON.parse(extractFile(path.join(dir, 'app/resources/app.asar'), 'package.json').toString());
     assert.equal(pkg.version, version);
     console.log(`Verified original packaged version: ${pkg.version}`);
