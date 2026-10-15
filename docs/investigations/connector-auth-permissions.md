@@ -7,8 +7,7 @@ Status: open for persistent authentication loss. A concurrent refresh defect is 
 Run from the repository root, after installing dependencies with `pnpm install --frozen-lockfile`:
 
 ```sh
-OPENCODE_TEST_BINARY=/absolute/path/to/opencode bun test apps/server/src/mcp.oauth-refresh.e2e.test.ts
-bun test apps/server/src/approvals.test.ts apps/server/src/agent-sandbox/service.test.ts apps/server/src/runtime-opencode-config-store.test.ts apps/server/src/legalwork-runtime-config.test.ts
+OPENCODE_TEST_BINARY=/absolute/path/to/opencode pnpm --filter legalwork-server exec bun test src/mcp.oauth-refresh.e2e.test.ts
 ```
 
 The engine test checks the binary version against `constants.json`. With no explicit binary it discovers the platform sidecar or skips if unavailable. It starts its own loopback OAuth/MCP server and engine, uses temporary projects and XDG directories, overrides the engine test home, disables default plugins, Claude configuration, and model fetching, and removes the processes and temporary state afterward. It uses no provider account, real credentials, external model, or running desktop app. The mock exposes count-only `/stats` and a test-only `POST /expire` endpoint.
@@ -47,13 +46,13 @@ Still to test before claiming a persistent-sign-out fix:
 
 Sandbox approvals remember the exact workspace, chat, permission, target, paths, network request, and effective policy. Identical sequential network requests reuse an approval. A changed URL or a child session prompts separately, even when the child inherits the parent's sandbox settings. Real permission changes revoke the previous approval and stop affected running commands. These boundaries should remain intact.
 
-A separate local defect was reproduced: writing an unchanged workspace runtime config cleared remembered approvals, so the next identical request prompted again. Unchanged global permission writes could also interrupt active commands. The completed fix snapshots normalized config before the updater and skips a byte-identical serialized result. It preserves object-key order because rule ordering is meaningful, and real changes continue to notify and revoke. Regression tests cover in-place updater mutations, reordered permission rules, approval retention, and cancellation on real tightening.
+A separate local defect was reproduced: writing an unchanged workspace runtime config cleared remembered approvals, so the next identical request prompted again. Unchanged global permission writes could also interrupt active commands. The companion completed-work PR contains the fix and regression tests; this investigation branch does not. The fix snapshots normalized config before the updater and skips a byte-identical serialized result. It preserves object-key order because rule ordering is meaningful, and real changes continue to notify and revoke. Regression tests cover in-place updater mutations, reordered permission rules, approval retention, and cancellation on real tightening.
 
 This finding does not cover every approval surface. OpenCode-native tool approvals and desktop presentation still need an exact repeated-request trace if prompts recur after this fix. Useful private diagnostic fields are app/engine version, time, approval source, permission type, chosen decision, workspace/chat/subagent relationship, and whether the target or effective settings changed. For authentication, add provider type, token grant result, HTTP status, engine lifecycle event, and refresh overlap. Do not put tokens, authorization URLs/codes, request bodies, workspace paths, personal identifiers, or production traces in a public issue or PR.
 
 ## Validation
 
 - Engine auth harness: 3 passed, including the explicitly named defect characterization.
-- Approval, sandbox service, runtime config store, and runtime config generation suites: 77 passed.
+- Approval, sandbox service, runtime config store, and runtime config generation suites: 77 passed on the companion completed-work branch (`pnpm --filter legalwork-server exec bun test src/approvals.test.ts src/agent-sandbox/service.test.ts src/runtime-opencode-config-store.test.ts src/legalwork-runtime-config.test.ts`).
 - Server typecheck (`pnpm --filter legalwork-server typecheck`) and mock syntax check (`node --check scripts/mock-oauth-mcp-server.mjs`) passed.
 - No desktop video was captured. The reproduction is a model-free engine/API fixture with exact commands and assertions above.
