@@ -376,6 +376,19 @@ test("live Office tool schemas are serializable for model tool calling", async (
   }
 });
 
+test("live Office schemas have no empty enum choices rejected by Vertex", async () => {
+  const plugin = await LegalWorkExtensionsPreview();
+  function checkEnums(value: unknown) {
+    if (!value || typeof value !== "object") return;
+    const choices = Reflect.get(value, "enum");
+    if (Array.isArray(choices)) expect(choices).not.toContain("");
+    Object.values(value).forEach(checkEnums);
+  }
+  for (const [name, tool] of Object.entries(plugin.tool)) {
+    if (name.startsWith("inapp_")) checkEnums(z.toJSONSchema(z.object(tool.args)));
+  }
+});
+
 describe("in-app Markdown routing", () => {
   test("reads and edits the live draft with exact session/path routing", async () => {
     const surface = { kind: "document", format: "md", sessionId: "ses_md", name: "Brief.md", path: "matter/Brief.md", editable: true, agentEditsTracked: false };

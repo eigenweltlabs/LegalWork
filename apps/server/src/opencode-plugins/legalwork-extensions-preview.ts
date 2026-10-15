@@ -65,9 +65,11 @@ const inAppDocumentsOpenArgsSchema = z.object({
 });
 
 const inAppDocxReadArgsSchema = z.object({
-  path: docxReadSchema.shape.path.or(z.enum([""])).nullable().describe("Exact document path from inapp_documents_list. Omit, null or empty uses this task's selected document."),
-  view: docxReadSchema.shape.view.or(z.enum([""])).nullable().describe("all, text, structure or formatting. Omit, null or empty defaults to all."),
-  paraId: docxReadSchema.shape.paraId.or(z.enum([""])).nullable().describe("Exact paragraph handle from a previous live read for one paragraph. Omit, null or empty reads the document; never invent a handle or use * as a wildcard."),
+  // Vertex rejects empty enum choices. Accept unset strings here; after
+  // normalization the shared editor schema still validates non-empty values.
+  path: z.string().nullish().describe("Exact document path from inapp_documents_list. Omit, null or empty uses this task's selected document."),
+  view: z.string().nullish().describe("all, text, structure or formatting. Omit, null or empty defaults to all."),
+  paraId: z.string().nullish().describe("Exact paragraph handle from a previous live read for one paragraph. Omit, null or empty reads the document; never invent a handle or use * as a wildcard."),
   fromIndex: docxReadSchema.shape.fromIndex.nullable().describe("Optional zero-based first paragraph index: a whole number >= 0. Omit or null starts at 0."),
   toIndex: docxReadSchema.shape.toIndex.nullable().describe("Optional inclusive last paragraph index: a whole number >= fromIndex. Omit or null reads through the end unless limit is supplied."),
   limit: docxReadSchema.shape.limit.nullable().describe("Optional paragraph count: a whole number >= 1. Omit or null reads the whole document. When paginating, follow nextIndex."),
