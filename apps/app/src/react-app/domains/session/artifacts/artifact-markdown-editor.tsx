@@ -1,5 +1,6 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
-import { useEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { createPortal } from "react-dom";
 import {
   MDXEditor, type MDXEditorMethods,
@@ -75,6 +76,7 @@ function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml,
 }
 
 export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
+  const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const initialMode = useRef<ViewMode>(viewModeRequest?.mode === "diff" ? "diff" : requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
@@ -172,7 +174,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
       return translated === translationKey ? defaultValue : translated;
     }}
-    className={toolbarTarget === undefined ? "lw-markdown-editor" : "lw-markdown-editor lw-markdown-external-toolbar"}
+    className={`lw-markdown-editor${toolbarTarget === undefined ? "" : " lw-markdown-external-toolbar"}${theme === "dark" ? " dark-theme" : ""}`}
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}

@@ -35,7 +35,7 @@ export function revokeWikiProjectAccess(config: ServerConfig, sessionId: string,
   if (!value) return;
   if (projectId) value.grants.delete(projectId); else value.grants.clear();
   value.revision++;
-  value.controller.abort(new Error("Wiki project access was revoked."));
+  value.controller.abort(new ApiError(403, "wiki_project_access_revoked", "Project access was revoked. This operation was stopped. Request access again before retrying."));
   value.controller = new AbortController();
 }
 /** Only for a deleted/revoked agent identity; live chats retain their root boundaries. */

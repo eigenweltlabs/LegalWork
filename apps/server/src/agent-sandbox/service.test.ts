@@ -648,7 +648,8 @@ test("wiki shell requires protected execution and approved project mounts stay r
     expect(run.signal.aborted).toBe(false);
     revoke();
     expect(run.signal.aborted).toBe(true);
-    await expect(run.beforeCommit?.()).rejects.toThrow();
+    await expect(run.beforeCommit?.()).rejects.toMatchObject({ status: 403, code: "wiki_project_access_revoked" });
+    run.signal.throwIfAborted();
   });
   const store = new WikiStore(f.config);
   try {
@@ -663,7 +664,9 @@ test("wiki shell requires protected execution and approved project mounts stay r
     await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_project_access_required" });
     grantWikiProjectAccess(f.config, "wiki-chat", { wikiId: wiki.id, projectId: f.workspace.id, root: await realpath(f.workspace.path), scope: "owner", origin: origin.generation }, wikiProjectAccessRevision(f.config, "wiki-chat"));
     revoke = () => revokeWikiProjectAccess(f.config, "wiki-chat", f.workspace.id);
-    await f.service.run(own, command, { type: "host" }, signal);
+    await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({
+      status: 403, code: "wiki_project_access_revoked", message: "Project access was revoked. This operation was stopped. Request access again before retrying.",
+    });
     const run = f.executions[0];
     expect(run.mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
     await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });

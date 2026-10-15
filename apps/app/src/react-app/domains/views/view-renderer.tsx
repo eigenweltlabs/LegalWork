@@ -1,9 +1,10 @@
 import { ViewSaveDialog } from "./view-save-dialog";
 import { viewInput } from "./view-save";
 import { t } from "@/i18n";
-import { Component, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { OpenUIView } from "@legalwork/openui";
+import { OpenUIView as OpenUIRenderer } from "@legalwork/openui";
 import "@legalwork/openui/styles.css";
 import type { ViewOwner, ViewPreview, ViewRecord, WikiDataResult } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -18,10 +19,9 @@ import { wikiDraftHasChanges } from "../wiki/wiki-drafts";
 import type { ViewReference } from "./view-reference";
 import "./views.css";
 
-function useDark() {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
-  useEffect(() => { const observer = new MutationObserver(() => setDark(document.documentElement.classList.contains("dark"))); observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] }); return () => observer.disconnect(); }, []);
-  return dark;
+function OpenUIView(props: Omit<ComponentProps<typeof OpenUIRenderer>, "dark">) {
+  const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
+  return <OpenUIRenderer {...props} dark={theme === "dark"} />;
 }
 class ViewBoundary extends Component<{ children: ReactNode; fallback?: string }, { failed: boolean }> {
   state = { failed: false };
@@ -29,7 +29,6 @@ class ViewBoundary extends Component<{ children: ReactNode; fallback?: string },
   render() { return this.state.failed ? <div role="alert" className="lw-saved-view-error">This view could not be displayed.{this.props.fallback && <pre>{this.props.fallback}</pre>}</div> : this.props.children; }
 }
 function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { client: LegalworkServerClient; view: ViewRecord; refreshKey: number; readOnly?: boolean; openSource?: (path: string) => void }) {
-  const dark = useDark();
   const queryClient = useQueryClient();
   const requestTab = useRequestPanelTab();
   const projectFiles = useProjectFiles();
@@ -79,7 +78,7 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   }, [client, openSource, projectFiles, requestTab, results.data, view.owner]);
   const datasets: WikiDataResult[] = Object.values(results.data ?? {});
   return <>
-    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} dark={dark} onError={setError} /></ViewBoundary>}
+    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
     {error && <details className="lw-saved-view-error"><summary>This view has an error</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
     {datasets.some(data => data.truncated) && <p className="lw-view-data-note">Showing a limited set of records. Charts and local filters use the displayed data.</p>}
     {datasets.length > 0 && <details className="lw-view-provenance"><summary>{view.mode === "report" ? "Snapshot" : "Data"} · {new Date(Math.max(...datasets.map(data => data.asOf))).toLocaleString()}</summary>{datasets.flatMap(data => (data.sources ?? []).map(source => ({ ...source, owner: data.sourceOwner ?? view.owner }))).slice(0, 50).map((source, i) => <button key={`${source.path}:${i}`} onClick={() => navigate(source.path, source.owner)}>{source.path}</button>)}</details>}

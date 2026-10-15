@@ -3,8 +3,28 @@ import { ViewInputSchema, ViewPreviewSchema, ViewRecordSchema, type ViewInput, t
 import { preferredSavedView, viewInputForDestination } from "../src/react-app/domains/views/view-save";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { viewToolOutcome } from "../src/react-app/domains/views/view-generation";
+import { viewSaveDestinationGroups } from "../src/react-app/domains/views/view-save-destinations";
 const owner: ViewOwner = { kind: "wiki", id: "source" };
 const input: ViewInput = { version: 1, title: "Cases", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Cases")', queries: { cases: { fields: ["title"] } }, datasets: { cases: { rows: [{ title: "A" }], total: 1, revision: "r1", asOf: 1, truncated: false } } };
+test("save destinations prioritize the originating wiki or project and search within either category", () => {
+  const project: ViewOwner = { kind: "workspace", id: "project" };
+  const destinations = [
+    { owner: project, name: "Zebra project" },
+    { owner: { kind: "workspace", id: "other" } satisfies ViewOwner, name: "Alpha project" },
+    { owner, name: "Zebra wiki" },
+    { owner: { kind: "wiki", id: "other" } satisfies ViewOwner, name: "Alpha wiki" },
+  ];
+  const wikiGroups = viewSaveDestinationGroups(destinations, owner);
+  expect(wikiGroups.map(group => group.kind)).toEqual(["wiki", "workspace"]);
+  expect(wikiGroups[0].items.map(item => item.name)).toEqual(["Zebra wiki", "Alpha wiki"]);
+  const projectGroups = viewSaveDestinationGroups(destinations, project);
+  expect(projectGroups.map(group => group.kind)).toEqual(["workspace", "wiki"]);
+  expect(projectGroups[0].items[0].owner).toEqual(project);
+  expect(viewSaveDestinationGroups(destinations, owner, "  PROJECT alpha ")[0].items.map(item => item.name)).toEqual(["Alpha project"]);
+  expect(viewSaveDestinationGroups(destinations, owner, "Zebra", "workspace")[0].items).toEqual([destinations[0]]);
+  expect(viewSaveDestinationGroups(destinations, owner, "missing")).toEqual([]);
+  expect(destinations[0].owner).toEqual(project);
+});
 test("a completed preview is recognized without a saved identity or location", () => {
   const preview = ViewPreviewSchema.parse({ status: "preview", owner, input });
   expect(viewToolOutcome(JSON.stringify(preview))).toEqual({ preview });

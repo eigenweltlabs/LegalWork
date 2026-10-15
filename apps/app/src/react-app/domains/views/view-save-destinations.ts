@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ViewOwner } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import { sameViewOwner } from "./view-save";
 
 type ViewSaveDestination = { owner: ViewOwner; name: string };
 
@@ -16,9 +17,13 @@ export function useViewSaveDestinations(client: LegalworkServerClient) {
   } });
 }
 
-export function viewSaveDestinationGroups(destinations: ViewSaveDestination[] = []) {
-  return [
-    { kind: "workspace", label: t("projects.plural"), items: destinations.filter(item => item.owner.kind === "workspace") },
-    { kind: "wiki", label: t("views.wikis"), items: destinations.filter(item => item.owner.kind === "wiki") },
-  ].filter(group => group.items.length > 0);
+export function viewSaveDestinationGroups(destinations: ViewSaveDestination[] = [], origin?: ViewOwner, search = "", kind?: ViewOwner["kind"]) {
+  const words = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const kinds: ViewOwner["kind"][] = origin?.kind === "wiki" ? ["wiki", "workspace"] : ["workspace", "wiki"];
+  return kinds.filter(value => !kind || value === kind).map(kind => ({
+    kind,
+    label: t(kind === "wiki" ? "views.wikis" : "projects.plural"),
+    items: destinations.filter(item => item.owner.kind === kind && words.every(word => item.name.toLocaleLowerCase().includes(word)))
+      .sort((a, b) => Number(Boolean(origin && sameViewOwner(b.owner, origin))) - Number(Boolean(origin && sameViewOwner(a.owner, origin))) || a.name.localeCompare(b.name, undefined, { numeric: true })),
+  })).filter(group => group.items.length > 0);
 }
