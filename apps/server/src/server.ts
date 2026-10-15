@@ -52,6 +52,7 @@ import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plu
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
+import { McpRecovery } from "./mcp-recovery.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
 import {
   deleteSkillResource,
@@ -1299,6 +1300,34 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
   });
 }
 
+const mcpRecoveryByServer = new WeakMap<ServerConfig, McpRecovery>();
+const mcpRecoveryStatuses = z.record(z.string(), z.object({ status: z.string() }));
+
+async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, directory: string, snapshot?: unknown): Promise<void> {
+  try {
+    const client = createDirectoryOpencodeClient(config, workspace, directory);
+    const readStatuses = async () => {
+      const result = await client.mcp.status({ directory }, { signal: AbortSignal.timeout(5000), throwOnError: true });
+      return mcpRecoveryStatuses.parse(result.data);
+    };
+    const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
+    const recovery = mcpRecoveryByServer.get(config) ?? new McpRecovery();
+    mcpRecoveryByServer.set(config, recovery);
+    await recovery.recover({
+      engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
+      directory, statuses, readStatuses,
+      connectors: async () => {
+        const items = await listMcp(config, workspace.id, directory);
+        const allowed = await allowedMemberConnectors(config, Object.fromEntries(items.map(item => [item.name, item.config])));
+        return items.filter(item => Object.hasOwn(allowed, item.name));
+      },
+      connect: name => client.mcp.connect({ directory, name }, { signal: AbortSignal.timeout(65_000), throwOnError: true }),
+    });
+  } catch {
+    // Engine unavailability must not erase connector state or block other work.
+  }
+}
+
 function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
   if (result.data != null) {
     return result.data;
@@ -1378,6 +1407,19 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (input.config.agentSandboxEnabled) body = sandboxSessionBody(proxyPath, body);
   // The sandbox may change the body; let fetch calculate its current length.
   headers.delete("content-length");
+  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "POST" && /^\/session\/[^/]+\/(?:message|prompt_async|command)$/.test(normalizedPath)) {
+    // Let a healthy network restore tools before the next turn. An unreachable
+    // connector continues in the background instead of holding the chat open.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        recoverWorkspaceMcp(input.config, workspace, sessionDirectory),
+        new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     if (protectedExecution) {
       if (!workspace || !body) throw new ApiError(400, "invalid_command", "A workspace command is required.");
@@ -1405,6 +1447,12 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
     headers,
     body,
   });
+
+  if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "GET" && normalizedPath === "/mcp" && response.ok) {
+    // The desktop already polls this endpoint. Repair only failed remote
+    // transports without delaying the status response or reloading the engine.
+    void response.clone().json().then(statuses => recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses)).catch(() => undefined);
+  }
 
   if (method === "POST" && response.ok && (normalizedPath === "/session" || normalizedPath.endsWith("/fork")) && sessionDirectory && input.actor?.scope && await realpath(sessionDirectory).catch(() => null)) {
     const created: unknown = await response.clone().json().catch(() => null);
