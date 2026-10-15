@@ -1,3 +1,4 @@
+import { forgetWikiProjectAccess, revokeWikiProjectAccess } from "./project-access.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
@@ -5,19 +6,31 @@ import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 
-type SessionOrigin = { directory: string; scope: TokenScope };
+type SessionOrigin = { directory: string; scope: TokenScope; generation: string };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; revoked: Set<string>; lookup?: SessionLookup };
+type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), revoked: new Set() };
+    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
     runtimes.set(config, access);
   }
   return access;
+}
+
+/** Verified lineage is a revocation dependency, never a cached scope grant. */
+function revokeProjectTree(config: ServerConfig, sessionId: string) {
+  const pending = [sessionId], visited = new Set<string>(), access = runtime(config);
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    revokeWikiProjectAccess(config, id);
+    for (const [child, parent] of access.parents) if (parent === id) pending.push(child);
+  }
 }
 
 /** The server supplies its authenticated, directory-pinned engine client. */
@@ -42,6 +55,7 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     // A remote engine may use a directory absent on this host. Its ordinary
     // session can proceed, but no private wiki grant may survive that change.
     const access = runtime(config);
+    revokeProjectTree(config, input.sessionId);
     access.sessions.delete(input.sessionId);
     access.revoked.add(input.sessionId);
     return;
@@ -52,8 +66,39 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     throw new ApiError(403, "wiki_agent_directory_mismatch", "This agent session belongs to another working directory.");
   // Replace rather than merge: a collaborator taking over an owner's session
   // must immediately lose the owner's private wiki access.
-  access.sessions.set(input.sessionId, { directory, scope: input.scope });
+  if (previous && previous.scope !== input.scope || access.parents.has(input.sessionId)) revokeProjectTree(config, input.sessionId);
+  access.parents.delete(input.sessionId);
+  access.sessions.set(input.sessionId, { directory, scope: input.scope, generation: previous?.scope === input.scope ? previous.generation : randomBytes(16).toString("hex") });
   access.revoked.delete(input.sessionId);
+}
+
+/** Human UI reads may reopen an existing chat before its next prompt registers it. */
+export async function verifiedWikiSessionOrigin(config: ServerConfig, workspace: WorkspaceInfo, sessionId: string, scope: TokenScope, signal: AbortSignal): Promise<SessionOrigin> {
+  const access = runtime(config);
+  const directory = await realpath(workspace.directory || workspace.path);
+  const existing = access.sessions.get(sessionId);
+  if (existing && existing.directory === directory && !access.revoked.has(sessionId)) return existing;
+  const lookup = access.lookup;
+  const found = lookup ? sessionSchema.safeParse(await lookup(workspace, sessionId, directory, AbortSignal.any([signal, AbortSignal.timeout(10_000)])).catch(() => null)) : null;
+  if (!found?.success || found.data.id !== sessionId || await realpath(found.data.directory).catch(() => null) !== directory || access.revoked.has(sessionId))
+    throw new ApiError(403, "wiki_agent_session_unknown", "This chat does not belong to this wiki.");
+  if (found.data.parentID) {
+    const inherited = await inheritedOrigin(config, access, sessionId, directory, signal);
+    if (!inherited) throw new ApiError(403, "wiki_agent_session_unknown", "This chat's originating permissions are unavailable.");
+    return inherited;
+  }
+  await grantWikiAgentSession(config, { sessionId, directory, scope });
+  const origin = access.sessions.get(sessionId);
+  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "This chat is unavailable.");
+  return origin;
+}
+
+export function revokeWikiAgentSession(config: ServerConfig, sessionId: string): void {
+  const access = runtime(config);
+  access.sessions.delete(sessionId);
+  access.revoked.add(sessionId);
+  revokeProjectTree(config, sessionId);
+  forgetWikiProjectAccess(config, sessionId);
 }
 
 /** Inherit live scope, never a cached owner grant, from an engine-verified ancestor. */
@@ -80,11 +125,15 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
     const origin = access.sessions.get(id);
     if (access.revoked.has(id)) return;
     if (origin) return origin.directory === directory ? origin : undefined;
+    if (session.data.parentID) access.parents.set(id, session.data.parentID);
+    else access.parents.delete(id);
     id = session.data.parentID;
   }
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
+  if (method === "GET" && /^\/wikis\/[^/]+\/sessions\/[^/]+\/projects(?:\/[^/]+\/(?:files|read))?$/.test(pathname)) return true;
+  if (method === "POST" && /^\/wikis\/[^/]+\/sessions\/[^/]+\/projects\/[^/]+\/access$/.test(pathname)) return true;
   if (method === "POST" && /^\/workspace\/[^/]+\/view-generations\/[^/]+$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/wikis/file-policy") return true;
   if (method === "GET" && (pathname === "/workspaces" || pathname === "/wikis")) return true;
@@ -92,8 +141,8 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   if (method === "GET" && /^\/wikis\/[^/]+\/search$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/fields$/.test(pathname)) return true;
   if (method === "POST" && /^\/wikis\/[^/]+\/query$/.test(pathname)) return true;
-  if (["GET", "POST"].includes(method) && /^\/(?:wikis|workspace)\/[^/]+\/ui-views$/.test(pathname)) return true;
-  if (["GET", "PUT"].includes(method) && /^\/(?:wikis|workspace)\/[^/]+\/ui-views\/[^/]+$/.test(pathname)) return true;
+  if (method === "GET" && /^\/(?:wikis|workspace)\/[^/]+\/ui-views$/.test(pathname)) return true;
+  if (method === "GET" && /^\/(?:wikis|workspace)\/[^/]+\/ui-views\/[^/]+$/.test(pathname)) return true;
   if (method === "PATCH" && /^\/wikis\/[^/]+\/properties$/.test(pathname)) return true;
   return ["GET", "PUT", "DELETE"].includes(method) && /^\/wikis\/[^/]+\/page$/.test(pathname);
 }
@@ -106,60 +155,4 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
     ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
-  return allowed ? decodeURIComponent(match[1]!) : null;
-}
-
-/**
- * This is not a host/owner credential. A valid runtime secret authenticates
- * only a session whose origin the server recorded from an authenticated user.
- * Wiki routes still enforce that actor's visibility and this directory's scope.
- */
-export async function authenticateWikiAgentRequest(config: ServerConfig, request: Request): Promise<{
-  actor: Actor;
-  directory: string;
-  sessionId: string;
-} | null> {
-  const token = request.headers.get("x-legalwork-wiki-agent-token");
-  if (token === null) return null;
-  const access = runtimes.get(config);
-  const candidate = Buffer.from(token);
-  const expected = Buffer.from(access?.token ?? "");
-  if (!access || candidate.length !== expected.length || !timingSafeEqual(candidate, expected))
-    throw new ApiError(403, "wiki_agent_unauthorized", "The wiki agent connection is not authorized.");
-  const pathname = new URL(request.url).pathname;
-  const toolWorkspaceId = workspaceToolPath(request.method, pathname);
-  if (!narrowWikiPath(request.method, pathname) && !toolWorkspaceId)
-    throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to wiki page tools.");
-  const sessionId = request.headers.get("x-legalwork-wiki-agent-session");
-  if (!sessionId || sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
-  const claimed = request.headers.get("x-legalwork-wiki-agent-directory");
-  let decoded: string | null = null;
-  try { decoded = claimed ? decodeURIComponent(claimed) : null; } catch { /* Invalid encoded claims fail closed. */ }
-  const directory = decoded ? await realpath(decoded).catch(() => null) : null;
-  if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
-  const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
-  if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
-  if (directory !== origin.directory)
-    throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
-  if (toolWorkspaceId) {
-    const candidates = await Promise.all(config.workspaces.map(async item => ({
-      id: item.id, root: await realpath(item.directory || item.path).catch(() => null),
-    })));
-    const own = candidates.filter(item => {
-      if (!item.root) return false;
-      const child = relative(item.root, directory);
-      return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
-    }).sort((a, b) => (b.root?.length ?? 0) - (a.root?.length ?? 0))[0];
-    if (own?.id !== toolWorkspaceId)
-      throw new ApiError(403, "wiki_agent_workspace_denied", "Use storage and execution tools only in this session's own workspace.");
-    if (pathname.includes("/sandbox/")) {
-      const claimedSession = request.method === "GET" ? decodeURIComponent(pathname.split("/").at(-1)!)
-        : z.object({ sessionID: z.string() }).parse(await request.clone().json()).sessionID;
-      if (claimedSession !== sessionId)
-        throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
-    }
-  }
-  return { directory, sessionId, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
-    tokenHash: createHash("sha256").update(access.token).digest("hex") } };
-}
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|sessions\/[^/]+\/review-recovery|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
