@@ -288,7 +288,7 @@ export const LegalWorkWikiTools = async (initial: OpenCodeContext & SavedConvers
   "tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args: Record<string, unknown> }) => {
     if (!wikiNativeFileTools.has(input.tool)) return;
     const own = await nativeWiki({ ...initial, sessionID: input.sessionID });
-    if (own) await assertWikiNativeFileAccess(own.root, input.tool, output.args);
+    if (own) await assertWikiNativeFileAccess(own.root, input.tool, output.args, initial.directory);
   },
   "shell.env": async (input: { sessionID?: string } = {}) => {
     const own = await nativeWiki({ ...initial, sessionID: input.sessionID });

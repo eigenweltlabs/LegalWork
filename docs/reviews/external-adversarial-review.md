@@ -52,6 +52,24 @@ The supplied review compared PR #280 at `9cac1e3a9e58d2701261abf471ad5369e5ccf49
 
 The requested dedicated sources/citations area and Home dashboard widgets remain outside this PR.
 
+## Independent Astra follow-up
+
+A second review of PR #280 against #276 checked the preceding fixes and looked for additional high-confidence issues. It confirmed two remaining native-tool boundary gaps, both fixed:
+
+- **Nested wiki sessions:** the guard resolved relative paths against the wiki root while the tools used the session directory. A symlink in a nested directory could therefore pass the check and read an unapproved project. Validation now uses the same working directory as the tool while retaining the wiki root as the access boundary. Valid parent-relative paths inside the wiki still work.
+- **Skill resources in unmanaged engines:** `legalwork_skill_create` could read and upload external `resourcePaths` without the wiki project check. Its optional resource paths now receive the same canonical-path validation as task and benchmark attachments. Skill creation without resources and resources inside the wiki remain usable.
+
+Both unit regressions failed before the production fixes and passed afterwards. The independent verifier also tested the actual plugin hook followed by the real skill resource reader, mocking only the server API: unapproved resources produced no uploads; own-wiki files uploaded their exact expected bytes. The verifier rechecked the production patch and reported no further concrete concern. The additional client review found no confirmed defect in dashboard saving/deletion or historical previews; this is a scoped review, not a claim that the entire PR is defect-free.
+
+Follow-up validation: **116 tests passed, 0 failed, 690 assertions** across ten security/history/provenance test files. The verifier separately ran the guard, wiki plugin and skill plugin tests: **45 passed, 0 failed, 276 assertions** (overlapping with the 116). Server build/typecheck and `git diff --check` passed. No UI changes were made in this follow-up, and the real VM limitation below remains.
+
+```sh
+pnpm --filter legalwork-server exec bun test src/wiki/agent-access.test.ts src/wiki/project-access.e2e.test.ts src/agent-sandbox/service.test.ts src/wiki/native-project-guard.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/views/save-source.test.ts src/views/session-previews.test.ts src/wiki/view-snapshots.test.ts src/opencode-plugins/legalwork-wiki-tools.e2e.test.ts src/wiki/file-access-policy.e2e.test.ts
+pnpm --filter legalwork-server exec bun test src/wiki/native-project-guard.test.ts src/opencode-plugins/legalwork-wiki-tools.test.ts src/opencode-plugins/legalwork-skill-tools.test.ts
+pnpm --filter legalwork-server build
+git diff --check
+```
+
 ## Measurements
 
 On the same local synthetic 1,500-page fixture used in the supplied report, embedded saves measured 37–49 ms (reported baseline around 400 ms); refreshing ten changed embed pages measured 82 ms (reported baseline around 4.5 seconds). History lists measured 41–57 ms including inventory reconciliation. Fourteen revisions share a 40,018-byte payload plus 4,144 bytes of per-revision metadata, versus the report's approximately 562 KB. These are development-machine measurements, not production latency guarantees. The benchmark was adapted only to count the new storage tables.
