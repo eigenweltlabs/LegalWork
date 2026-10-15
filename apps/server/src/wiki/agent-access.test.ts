@@ -210,3 +210,4 @@ test("verified descendants retain live scope and ancestor changes abort grants a
   revokeWikiAgentSession(config, "middle");
   expect(nextSignal.aborted).toBe(true);
   await expect(authenticateWikiAgentRequest(config, request("/wikis", { session: "child" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+});

@@ -6944,3 +6944,4 @@ export default {
   "views.project_hint": "Dashboards and reports you chose to save in this project.",
   "views.no_saved_dashboards": "No saved dashboards yet. Create one in a chat, then choose Save and this project.",
   "views.report": "Report",
+} as const;

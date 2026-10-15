@@ -7322,3 +7322,6 @@ const de = {
   "views.project_hint": "Dashboards und Berichte, die Sie bewusst in diesem Projekt gespeichert haben.",
   "views.no_saved_dashboards": "Noch keine gespeicherten Dashboards. Erstellen Sie eines im Chat und wählen Sie dann Speichern und dieses Projekt.",
   "views.report": "Bericht",
+} as const;
+
+export default de;
