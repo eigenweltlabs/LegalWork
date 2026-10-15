@@ -63,7 +63,7 @@ test("a child recovers exact content beyond the long-line and 64 KiB boundaries"
 });
 
 test("successive UTF-8 byte pages reconstruct a single long line exactly", async () => {
-  const content = "abcdé🙂東京".repeat(5000);
+  const content = "a".repeat(4096) + "\uFEFF" + "abcdé🙂東京".repeat(5000);
   await writeFile(outputPath, content);
   let offset: number | null = 0;
   let recovered = "";
@@ -74,7 +74,7 @@ test("successive UTF-8 byte pages reconstruct a single long line exactly", async
     offset = result.nextOffset;
   }
   expect(recovered).toBe(content);
-  await expect(read({ offset: 5 })).rejects.toThrow("UTF-8");
+  await expect(read({ offset: 4097 })).rejects.toThrow("UTF-8");
 });
 
 test("search has bounded scans, finds boundary-spanning matches and continues", async () => {

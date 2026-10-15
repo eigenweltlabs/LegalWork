@@ -23,7 +23,7 @@ for (const scenario of cases) test.skipIf(!binary)(`bundled saved-output retriev
   const recovered: string[] = [];
   const payload = JSON.stringify({ padding: "a".repeat(80000), result: "requested section beyond the long line" });
   let savedPath = "";
-  const fixture = Bun.serve({ port: 0, async fetch(request) {
+  const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/mcp") {
       if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -53,7 +53,7 @@ for (const scenario of cases) test.skipIf(!binary)(`bundled saved-output retriev
     return new Response(chunk({ role: "assistant", ...(call ? { tool_calls: [{ index: 0, id: "call_fixture_" + toolResults.length, type: "function", function: call }] } : { content: "Finished reading the fixture." }) }, null)
       + chunk({}, call ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
-  const reservation = Bun.serve({ port: 0, fetch: () => new Response() }), port = reservation.port;
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }), port = reservation.port;
   reservation.stop(true);
   const config = join(root, "config.json");
   await writeFile(config, JSON.stringify({ enabled_providers: ["fixture"], model: "fixture/fixture", small_model: "fixture/fixture", share: "disabled", autoupdate: false,
@@ -66,7 +66,8 @@ for (const scenario of cases) test.skipIf(!binary)(`bundled saved-output retriev
     agent: { build: { permission: { fixture_large_output: "allow", task: "allow" } } }, lsp: false, formatter: false,
   }));
   const engine = Bun.spawn([binary, "serve", "--hostname", "127.0.0.1", "--port", String(port)], { cwd: project, env: {
-    ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("OPENCODE_") && !key.startsWith("LEGALWORK_"))),
+    XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_TEST_HOME: root, OPENCODE_CONFIG: config, OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
   }, stdout: "pipe", stderr: "pipe" });
   const logs = new Response(engine.stderr).text();

@@ -91,7 +91,7 @@ async function page(file: FileHandle, size: number, offset: number, limit: numbe
   if (continuation(buffer[0])) throw new Error("Offset splits a UTF-8 character. Use a returned byte offset.");
   let length = Math.min(limit, buffer.length);
   while (length > 0 && continuation(buffer[length])) length--;
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length));
+  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length));
   return { offset, nextOffset: offset + length < size ? offset + length : null, totalBytes: size, text };
 }
 
