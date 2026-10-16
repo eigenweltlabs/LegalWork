@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { realpath } from "node:fs/promises";
 import { listSkills } from "../skills.js";
+import { globalOpencodeConfigDir } from "../workspace-files.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
 import { orgPolicyPermissions } from "../org-policy-engine.js";
@@ -26,6 +27,7 @@ import { WikiStore } from "../wiki/store.js";
 import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
+import { canonicalFolderPath } from "../wiki/workspace-safety.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -114,7 +116,8 @@ export class AgentSandboxService {
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
       const wikiStore = new WikiStore(this.config);
       const wikis = await wikiStore.list();
-      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, [wikiStore.baseDir, runtimeStorageDir(this.config)]);
+      const privateRoots = [wikiStore.baseDir, runtimeStorageDir(this.config)];
+      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots);
       const wikiAccess = new WikiSync(this.config, wikiStore);
       const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
       if (ownWiki && !settings.enabled) throw new ApiError(403, "wiki_sandbox_required", "Enable protected execution to run commands in a wiki chat. Approved projects remain available through the read-only project tools.");
@@ -199,8 +202,14 @@ export class AgentSandboxService {
       // Default wiki content lives below the private runtime's parent. Only
       // registered content roots may be shared there, never their parent.
       const safeMounts: SandboxMount[] = [];
+      // The shared skill library also lives below the engine configuration.
+      // Only explicitly selected skill packages get this exception. Resolve
+      // the parent first so a redirected skills folder cannot expose secrets.
+      const sharedSkillsRoot = join(await canonicalFolderPath(globalOpencodeConfigDir()), "skills");
       for (const mount of wikiMounts) {
-        const checked = await validateMounts([{ ...mount, target: "/workspace" }], wikiContentPath(wikiPolicy, mount.source) ? [] : wikiPolicy.runtimeRoots);
+        const sharedSkill = mount.target.startsWith("/skills/") && mount.source !== sharedSkillsRoot && within(sharedSkillsRoot, mount.source);
+        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
+        const checked = await validateMounts([{ ...mount, target: "/workspace" }], protectedPaths);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
       const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
