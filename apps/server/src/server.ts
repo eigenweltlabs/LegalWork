@@ -1303,6 +1303,12 @@ function createDirectoryOpencodeClient(config: ServerConfig, workspace: Workspac
 const mcpRecoveryByServer = new WeakMap<ServerConfig, McpRecovery>();
 const mcpRecoveryStatuses = z.record(z.string(), z.object({ status: z.string() }));
 
+function mcpRecovery(config: ServerConfig): McpRecovery {
+  const recovery = mcpRecoveryByServer.get(config) ?? new McpRecovery();
+  mcpRecoveryByServer.set(config, recovery);
+  return recovery;
+}
+
 async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInfo, directory: string, snapshot?: unknown): Promise<void> {
   try {
     const client = createDirectoryOpencodeClient(config, workspace, directory);
@@ -1311,9 +1317,7 @@ async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInf
       return mcpRecoveryStatuses.parse(result.data);
     };
     const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
-    const recovery = mcpRecoveryByServer.get(config) ?? new McpRecovery();
-    mcpRecoveryByServer.set(config, recovery);
-    await recovery.recover({
+    await mcpRecovery(config).recover({
       engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
       directory, statuses, readStatuses,
       connectors: async () => {
@@ -1321,7 +1325,9 @@ async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInf
         const allowed = await allowedMemberConnectors(config, Object.fromEntries(items.map(item => [item.name, item.config])));
         return items.filter(item => Object.hasOwn(allowed, item.name));
       },
-      connect: name => client.mcp.connect({ directory, name }, { signal: AbortSignal.timeout(65_000), throwOnError: true }),
+      // Fetch cancellation does not cancel the engine's handshake. Keep the
+      // lock until it actually settles; the engine enforces its MCP timeout.
+      connect: name => client.mcp.connect({ directory, name }, { throwOnError: true }),
     });
   } catch {
     // Engine unavailability must not erase connector state or block other work.
@@ -1357,6 +1363,33 @@ async function proxyOpencodeRequest(input: {
   actor?: Actor;
 }) {
   const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
+  const method = input.request.method.toUpperCase();
+  const mcp = path.match(/^\/mcp\/([^/]+)\/(connect|disconnect|auth(?:\/(?:callback|authenticate))?)$/);
+  const added = method === "POST" && path === "/mcp"
+    ? z.object({ name: z.string() }).safeParse(await input.request.clone().json().catch(() => null)) : null;
+  const name = mcp && (method === "POST" || method === "DELETE") ? decodeURIComponent(mcp[1]) : added?.success ? added.data.name : null;
+  if (name) {
+    const recovery = mcpRecovery(input.config);
+    return recovery.mutate(name, async () => {
+      const startAuth = method === "POST" && mcp?.[2] === "auth";
+      if (startAuth) recovery.beginAuth(name);
+      else if (mcp?.[2] !== "auth/callback") recovery.endAuth(name);
+      try {
+        const response = await forwardOpencodeRequest(input);
+        if (startAuth) {
+          const result = z.object({ authorizationUrl: z.string().optional() }).safeParse(await response.clone().json().catch(() => null));
+          if (response.ok && result.success && result.data.authorizationUrl) recovery.beginAuth(name);
+          else recovery.endAuth(name);
+        }
+        return response;
+      } catch (error) {
+        if (startAuth) recovery.endAuth(name);
+        throw error;
+      } finally {
+        if (mcp?.[2] === "auth/callback") recovery.endAuth(name);
+      }
+    });
+  }
   const session = path.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork|shell|summarize)$/);
   return input.request.method === "POST" && session
     ? withSessionExecution(input.config, decodeURIComponent(session[1]), () => forwardOpencodeRequest(input))
@@ -4842,15 +4875,17 @@ function createRoutes(
 
     // Best-effort disconnect so any active connection is torn down.
     try {
-      const opencode = createWorkspaceOpencodeClient(config, workspace);
-      unwrapOpencodeResult(await opencode.mcp.disconnect({ name }), `/mcp/${encodeURIComponent(name)}/disconnect`);
+      await disconnectMcpFromOpencodeEngine(config, workspace, name);
     } catch {
       // ignore
     }
 
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      unwrapOpencodeResult(await opencode.mcp.auth.remove({ name }), `/mcp/${encodeURIComponent(name)}/auth`);
+      await mcpRecovery(config).mutate(name, async () => {
+        mcpRecovery(config).endAuth(name);
+        unwrapOpencodeResult(await opencode.mcp.auth.remove({ name }), `/mcp/${encodeURIComponent(name)}/auth`);
+      });
     } catch (error) {
       // Treat missing credentials as a successful logout (idempotent).
       if (
@@ -5568,7 +5603,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   // each engine reload.
   const failures: EngineMcpSyncFailure[] = [];
   for (const [name, mcpConfig] of entries) {
-    const failure = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+    const failure = await mcpRecovery(config).mutate(name, () => postMcpEntryWithRetry(url, headers, name, mcpConfig));
     if (failure) failures.push(failure);
   }
 
@@ -5609,7 +5644,8 @@ async function postMcpEntryWithRetry(
         method: "POST",
         headers,
         body: JSON.stringify({ name, config: mcpConfig }),
-        signal: AbortSignal.timeout(15_000),
+        // Releasing the connector lock on an HTTP timeout leaves the engine's
+        // handshake running, able to overwrite a later disable or disconnect.
       });
       if (response.ok) return null;
       failure = { name, status: response.status, body: parseOpencodeErrorBody(await response.text()) };
@@ -5745,14 +5781,17 @@ async function disconnectMcpFromOpencodeEngine(
   const headers: Record<string, string> = {};
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
-  const response = await fetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok && response.status !== 404) {
-    const body = parseOpencodeErrorBody(await response.text());
-    throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
-      status: response.status,
-      body,
-    });
-  }
+  await mcpRecovery(config).mutate(name, async () => {
+    mcpRecovery(config).endAuth(name);
+    const response = await fetch(url, { method: "POST", headers });
+    if (!response.ok && response.status !== 404) {
+      const body = parseOpencodeErrorBody(await response.text());
+      throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
+        status: response.status,
+        body,
+      });
+    }
+  });
 }
 
 async function writeLegalworkConfig(workspaceRoot: string, payload: Record<string, unknown>, merge: boolean): Promise<void> {

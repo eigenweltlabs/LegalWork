@@ -103,3 +103,49 @@ test("disabling a connector while queued prevents reconnect", async () => {
   await Promise.all([first, second]);
   expect(b.connects).toEqual([]);
 });
+
+test("manual changes wait for an in-flight recovery and prevent queued recovery", async () => {
+  const recovery = new McpRecovery();
+  const a = input("/a"), b = input("/b");
+  const started = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const order: string[] = [];
+  const first = recovery.recover({ ...a, connect: async () => { order.push("recover"); started.resolve(); await release.promise; } });
+  await started.promise;
+  const queued = recovery.recover(b);
+  const changed = recovery.mutate("notes", async () => { order.push("disabled"); });
+  await recovery.recover(b);
+  expect(order).toEqual(["recover"]);
+  release.resolve();
+  await Promise.all([first, queued, changed]);
+  expect(order).toEqual(["recover", "disabled"]);
+  expect(b.connects).toEqual([]);
+});
+
+test("a failed manual operation releases its queue and recovery pause", async () => {
+  const recovery = new McpRecovery();
+  await expect(recovery.mutate("notes", async () => { throw new Error("Synthetic failure"); })).rejects.toThrow("Synthetic failure");
+  const current = input();
+  await recovery.recover(current);
+  expect(current.connects).toEqual(["notes"]);
+});
+
+test("pending OAuth pauses every instance sharing credentials, then ends or expires", async () => {
+  let now = 0;
+  const recovery = new McpRecovery(() => now);
+  const a = input("/a"), b = { ...input("/b"), engine: "http://another-engine" };
+  recovery.beginAuth("notes");
+  await recovery.recover(a);
+  await recovery.recover(b);
+  expect(a.connects).toEqual([]);
+  expect(b.connects).toEqual([]);
+  recovery.endAuth("notes");
+  await recovery.recover(a);
+  expect(a.connects).toEqual(["notes"]);
+  recovery.beginAuth("notes");
+  now = 5 * 60_000 - 1;
+  await recovery.recover(b);
+  expect(b.connects).toEqual([]);
+  now++;
+  await recovery.recover(b);
+  expect(b.connects).toEqual(["notes"]);
+});
