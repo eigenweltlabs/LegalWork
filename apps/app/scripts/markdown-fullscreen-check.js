@@ -24,6 +24,7 @@ export default async function checkMarkdownFullscreen(page) {
 
   const expand = page.getByRole("button", { name: "Expand document", exact: true });
   const exit = page.getByRole("button", { name: "Exit fullscreen", exact: true });
+  const restore = page.getByRole("button", { name: "Restore document panel", exact: true });
   const assertRestored = async () => {
     await expand.waitFor({ state: "visible" });
     if (await page.locator('[data-artifact-expanded="true"]').count()) throw new Error("Document stayed expanded.");
@@ -31,19 +32,19 @@ export default async function checkMarkdownFullscreen(page) {
   };
 
   await expand.click();
-  if (!await exit.isVisible()) throw new Error("Exit fullscreen is hidden on this platform.");
-  if (!await exit.evaluate(button => {
+  if (await exit.isVisible()) throw new Error("An extra exit button was added to the Windows layout.");
+  if (!await restore.evaluate(button => {
     const box = button.getBoundingClientRect();
     return box.left >= 0 && box.right <= innerWidth && box.top >= 0
       && box.bottom <= innerHeight && button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
       && getComputedStyle(button).getPropertyValue("app-region") === "no-drag";
-  })) throw new Error("Exit fullscreen is clipped, covered, or part of the native drag region.");
-  if (!await page.getByRole("button", { name: "Restore document panel", exact: true }).evaluate(button => {
+  })) throw new Error("Restore document panel is clipped, covered, or part of the native drag region.");
+  if (!await restore.evaluate(button => {
     const box = button.getBoundingClientRect();
     const caption = document.querySelector("[data-preview-caption-controls]")?.getBoundingClientRect();
     return !caption || box.top >= caption.bottom;
   })) throw new Error("Document toolbar overlaps the native caption controls.");
-  await exit.click();
+  await restore.click();
   await assertRestored();
 
   await expand.click();
@@ -51,12 +52,12 @@ export default async function checkMarkdownFullscreen(page) {
   await assertRestored();
 
   await expand.click();
-  await page.getByRole("button", { name: "Restore document panel", exact: true }).click();
+  await restore.click();
   await assertRestored();
   // Input drivers may create one undo entry per character instead of one per word.
   for (let undo = 0; undo < marker.length && await editor.innerText() !== original; undo++) {
     await editor.press("ControlOrMeta+z");
   }
   if (await editor.innerText() !== original) throw new Error("The editor lost its undo history while changing full-screen state.");
-  console.log("PASS: labeled exit, caption clearance, Escape, restore icon, unsaved draft and undo history.");
+  console.log("PASS: existing restore icon, no added exit button, caption clearance, Escape, unsaved draft and undo history.");
 }
