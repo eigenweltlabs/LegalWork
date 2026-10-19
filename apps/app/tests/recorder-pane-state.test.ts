@@ -7,12 +7,15 @@ import { useRecorderStore } from "../src/react-app/domains/recorder/recorder-sto
 
 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const previousSessionStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 const storage = { getItem: (key: string) => key === "legalwork.recorder.setupDismissed" ? "1" : null };
 Object.defineProperty(globalThis, "window", { configurable: true, value: {
+  location: { href: "http://localhost/#/recorder" },
   localStorage: storage,
   __LEGALWORK_ELECTRON__: { invokeDesktop: async () => { throw new Error("No native calls in a render test"); } },
 } });
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
 const { RecorderPane } = await import("../src/react-app/domains/recorder/recorder-pane");
 const initialState = { ...useRecorderStore.getInitialState() };
 // Render the supplied runtime state as the server snapshot, without starting capture.
@@ -23,6 +26,8 @@ afterAll(() => {
   else Reflect.deleteProperty(globalThis, "window");
   if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
   else Reflect.deleteProperty(globalThis, "localStorage");
+  if (previousSessionStorage) Object.defineProperty(globalThis, "sessionStorage", previousSessionStorage);
+  else Reflect.deleteProperty(globalThis, "sessionStorage");
 });
 const bootstrap: AudioRecorderBootstrap = {
   models: [{ id: "whisper-small", label: "Standard", description: "", kind: "whisper", tier: "balanced", plan: "free", languages: "multilingual", approxSizeBytes: 0, files: [], state: "installed", downloadedBytes: 0, totalBytes: 0, installedSizeBytes: 0, error: null }],

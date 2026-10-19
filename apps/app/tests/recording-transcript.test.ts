@@ -9,13 +9,16 @@ import { useRecorderStore } from "../src/react-app/domains/recorder/recorder-sto
 
 const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const previousSessionStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 const events = new EventTarget();
 const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+Object.defineProperty(events, "location", { value: { href: "http://localhost/#/recorder" } });
 Object.defineProperty(globalThis, "window", { configurable: true, value: events });
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
 const { usePanelTabStore, PANEL_OPEN_TAB_EVENT } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { recordingTranscriptTab, requestRecordingTranscript, closeRecordingTranscriptTabs } = await import("../src/react-app/domains/recorder/recording-transcript-tabs");
-const { RecordingTranscriptPanel } = await import("../src/react-app/domains/recorder/recording-transcript-panel");
+const { RecordingTranscript, RecordingTranscriptPanel } = await import("../src/react-app/domains/recorder/recording-transcript-panel");
 usePanelTabStore.persist.setOptions({ storage: createJSONStorage(() => storage) });
 const initialState = { ...useRecorderStore.getInitialState() };
 const setRenderState = (state: Partial<typeof initialState>) => Object.assign(useRecorderStore.getInitialState(), state);
@@ -29,6 +32,8 @@ afterAll(() => {
   else Reflect.deleteProperty(globalThis, "window");
   if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
   else Reflect.deleteProperty(globalThis, "localStorage");
+  if (previousSessionStorage) Object.defineProperty(globalThis, "sessionStorage", previousSessionStorage);
+  else Reflect.deleteProperty(globalThis, "sessionStorage");
 });
 
 const recording: AudioRecordingMeta = {
@@ -39,12 +44,14 @@ const recording: AudioRecordingMeta = {
 const segment = (id: string, text: string, speaker?: number | null): AudioTranscriptSegment => ({
   id, text, speaker, startMs: 1000, endMs: 2000, final: true,
 });
-const render = (detail?: AudioRecordingDetail) => {
+const render = (detail?: AudioRecordingDetail, inline = false) => {
   const client = new QueryClient();
   if (detail) client.setQueryData(["recorder", "transcript", recording.id], detail);
   try {
     return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
-      React.createElement(RecordingTranscriptPanel, { sessionId: "session", tab: recordingTranscriptTab(recording) })));
+      inline
+        ? React.createElement(RecordingTranscript, { recordingId: recording.id })
+        : React.createElement(RecordingTranscriptPanel, { sessionId: "session", tab: recordingTranscriptTab(recording) })));
   } finally { client.clear(); }
 };
 
@@ -106,18 +113,20 @@ test("deleting a recording closes only its transcript tabs across sessions", () 
   expect(usePanelTabStore.getState().sessions.second.tabs).toEqual([]);
 });
 
-test("opening a transcript requests the viewer and skips ephemeral dictation", () => {
+test("only workspace transcript requests open viewer tabs; global recordings and dictation do not", () => {
   const requests: unknown[] = [];
   const listener = (event: Event) => { if (event instanceof CustomEvent) requests.push(event.detail); };
   events.addEventListener(PANEL_OPEN_TAB_EVENT, listener);
   try {
-    requestRecordingTranscript({ ...recording, ephemeral: true });
+    requestRecordingTranscript({ ...recording, ephemeral: true }, "project");
     expect(requests).toHaveLength(0);
     requestRecordingTranscript(recording);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatchObject(recordingTranscriptTab(recording));
+    requestRecordingTranscript({ ...recording, projectIds: ["linked-project"] }, null);
+    requestRecordingTranscript(recording, "");
+    expect(requests).toHaveLength(0);
     requestRecordingTranscript(recording, "project");
-    expect(requests[1]).toMatchObject({ ...recordingTranscriptTab(recording), destination: { kind: "workspace", workspaceId: "project" } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ ...recordingTranscriptTab(recording), destination: { kind: "workspace", workspaceId: "project" } });
   } finally { events.removeEventListener(PANEL_OPEN_TAB_EVENT, listener); }
 });
 
@@ -145,4 +154,22 @@ test("a saved transcript stays independent of a subsequent recording or dictatio
   expect(html).not.toContain("Unrelated");
   expect(html).not.toContain("Live transcript");
   expect(html).not.toContain("<audio");
+});
+
+test("the global Recorder can display saved and live transcripts without a viewer tab", () => {
+  const requests: unknown[] = [];
+  const listener = (event: Event) => { if (event instanceof CustomEvent) requests.push(event.detail); };
+  events.addEventListener(PANEL_OPEN_TAB_EVENT, listener);
+  try {
+    const html = render({ meta: { ...recording, status: "complete" }, segments: [segment("saved", "Saved meeting", 0)] }, true);
+    expect(html).toContain("Contract review");
+    expect(html).toContain("Saved meeting");
+    setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("live", "Current meeting")], partial: { ...segment("partial", "Still speaking"), final: false } });
+    const live = render(undefined, true);
+    expect(live).toContain("Current meeting");
+    expect(live).toContain("Still speaking");
+    expect(live).toContain("Live transcript");
+    expect(requests).toHaveLength(0);
+    expect(usePanelTabStore.getState().sessions).toEqual({});
+  } finally { events.removeEventListener(PANEL_OPEN_TAB_EVENT, listener); }
 });

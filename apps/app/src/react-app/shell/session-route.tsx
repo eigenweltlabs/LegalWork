@@ -778,7 +778,7 @@ export function SessionRoute() {
   useEffect(() => {
     void useRecorderStore.getState().init();
   }, []);
-  useAutoOpenRecordingTranscript(selectedWorkspaceId);
+  useAutoOpenRecordingTranscript(showRecorder ? recorderProject?.id : routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null));
   useEffect(() => {
     registerRecorderCopilotContext({
       getClient: () => opencodeClient,
@@ -2762,7 +2762,7 @@ export function SessionRoute() {
           </div>
         ) : showRecorder ? (
           <RecorderPane
-            workspaceId={selectedWorkspaceId}
+            workspaceId={recorderProject?.id}
             project={recorderProject}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces

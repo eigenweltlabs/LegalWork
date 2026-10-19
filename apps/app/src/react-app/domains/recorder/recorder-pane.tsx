@@ -61,6 +61,7 @@ import {
 } from "./recorder-setup";
 import { revealRecording, useRecorderStore } from "./recorder-store";
 import { closeRecordingTranscriptTabs, requestRecordingTranscript } from "./recording-transcript-tabs";
+import { RecordingTranscript } from "./recording-transcript-panel";
 
 /** Shared surface for capture controls and inline progress. */
 function SectionCard(props: { className?: string; children: React.ReactNode }) {
@@ -369,6 +370,7 @@ export function RecorderPane(props: {
   const titleInputId = useId();
   const [dragActive, setDragActive] = useState(false);
   const [recordingsPage, setRecordingsPage] = useState(0);
+  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
   const [dictateInfoDismissed, setDictateInfoDismissed] = useState(() => {
     try {
       return localStorage.getItem(DICTATE_INFO_DISMISSED_KEY) === "1";
@@ -380,6 +382,11 @@ export function RecorderPane(props: {
   const [setupDemo, setSetupDemo] = useState(() => recorderSetupDemoEnabled());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
+  const transcriptWorkspaceId = props.project?.id ?? props.workspaceId;
+  const openTranscript = (recording: AudioRecordingMeta) => {
+    if (transcriptWorkspaceId) requestRecordingTranscript(recording, transcriptWorkspaceId);
+    else setSelectedRecordingId(recording.id);
+  };
 
   const dismissDictateInfo = () => {
     setDictateInfoDismissed(true);
@@ -472,6 +479,29 @@ export function RecorderPane(props: {
           <h3 className="text-sm font-medium text-ink">{t("recorder.desktop_required_title")}</h3>
           <p className="text-sm text-subtext">{t("recorder.desktop_required_body")}</p>
         </SectionCard>
+      </div>
+    );
+  }
+
+  if (selectedRecordingId && !transcriptWorkspaceId) {
+    return (
+      <div className="lw-recorder h-full w-full">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[960px] flex-col py-6">
+          <div className="flex shrink-0 items-center justify-between gap-3 px-6">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedRecordingId(null)}>
+              <ChevronLeft data-icon="inline-start" />{t("recorder.recordings_title")}
+            </Button>
+            {isRecording ? (
+              <Button size="sm" disabled={store.finalizing} onClick={() => void store.stopRecording()}>
+                {store.finalizing ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}
+                {t(store.finalizing ? "recorder.finishing" : "recorder.stop")}
+              </Button>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1">
+            <RecordingTranscript key={selectedRecordingId} recordingId={selectedRecordingId} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -675,7 +705,7 @@ export function RecorderPane(props: {
                 </div>
                 {store.recordingStartedAt ? <div className="lw-recorder-time"><RecordingTimer startedAt={store.recordingStartedAt} /></div> : null}
                 {store.transcriber.state === "loading" ? <p className="text-xs text-muted-foreground">{t("recorder.loading_model")}</p> : null}
-                <Button variant="ghost" size="sm" className="mt-2" onClick={() => { if (store.recording) requestRecordingTranscript(store.recording, props.project?.id ?? props.workspaceId); }}><FileText />{t("recorder.open_transcript")}</Button>
+                <Button variant="ghost" size="sm" className="mt-2" onClick={() => { if (store.recording) openTranscript(store.recording); }}><FileText />{t("recorder.open_transcript")}</Button>
               </div>
               {!store.finalizing ? <div className="lw-recorder-levels">
                 {store.sources.map((source) => {
@@ -726,7 +756,7 @@ export function RecorderPane(props: {
                   key={recording.id}
                   recording={recording}
                   workspaceTargets={saveTargets}
-                  onOpen={() => requestRecordingTranscript(recording, props.project?.id ?? props.workspaceId)}
+                  onOpen={() => openTranscript(recording)}
                 />
               ))
             )}

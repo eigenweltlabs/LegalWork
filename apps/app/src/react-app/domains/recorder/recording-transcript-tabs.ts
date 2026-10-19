@@ -8,9 +8,9 @@ export function recordingTranscriptTab(recording: Pick<AudioRecordingMeta, "id" 
   return { id: `recording:${recording.id}`, type: "recording", recordingId: recording.id, label: recording.title };
 }
 
-export function requestRecordingTranscript(recording: AudioRecordingMeta, workspaceId?: string): void {
-  if (recording.ephemeral) return;
-  requestPanelTab(recordingTranscriptTab(recording), workspaceId ? { kind: "workspace", workspaceId } : undefined);
+export function requestRecordingTranscript(recording: AudioRecordingMeta, workspaceId?: string | null): void {
+  if (recording.ephemeral || !workspaceId) return;
+  requestPanelTab(recordingTranscriptTab(recording), { kind: "workspace", workspaceId });
 }
 
 export function closeRecordingTranscriptTabs(recordingId: string): void {
@@ -22,13 +22,15 @@ export function closeRecordingTranscriptTabs(recordingId: string): void {
   }
 }
 
-/** Open once per retained capture. Closing or switching tabs never stops capture. */
-export function useAutoOpenRecordingTranscript(workspaceId: string): void {
+/** Open workspace transcripts once per new capture. Navigation never stops capture. */
+export function useAutoOpenRecordingTranscript(workspaceId?: string | null): void {
   const recording = useRecorderStore(state => state.recording);
   const dictationId = useRecorderStore(state => state.dictationRecordingId);
-  const opened = useRef<string | null>(null);
+  const opened = useRef<string | null>(recording?.id ?? null);
   useEffect(() => {
     if (!recording || recording.ephemeral || recording.id === dictationId || opened.current === recording.id) return;
+    // Observe global captures too, so entering a workspace later does not
+    // unexpectedly open an already-running recording there.
     opened.current = recording.id;
     requestRecordingTranscript(recording, recording.projectIds?.[0] ?? workspaceId);
   }, [recording, dictationId, workspaceId]);

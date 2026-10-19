@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, FileText, Loader2 } from "lucide-react";
 import type { AudioRecordingDetail, AudioTranscriptSegment } from "@legalwork/types/audio";
@@ -28,19 +28,31 @@ function TranscriptDuration({ startedAt, durationMs }: { startedAt: number | nul
 }
 
 export function RecordingTranscriptPanel({ sessionId, tab }: { sessionId: string; tab: RecordingPanelTab }) {
+  const updateTitle = useCallback((title: string) => {
+    usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, title);
+  }, [sessionId, tab.id]);
+  return <RecordingTranscript recordingId={tab.recordingId} title={tab.label} onTitleChange={updateTitle} />;
+}
+
+/** Transcript content shared by workspace tabs and the global Recorder. */
+export function RecordingTranscript({ recordingId, title, onTitleChange }: {
+  recordingId: string;
+  title?: string;
+  onTitleChange?: (title: string) => void;
+}) {
   const queryClient = useQueryClient();
   const recording = useRecorderStore(state => state.recording);
   const dictationId = useRecorderStore(state => state.dictationRecordingId);
-  const liveRecording = recording?.id === tab.recordingId && !recording.ephemeral && recording.id !== dictationId ? recording : null;
+  const liveRecording = recording?.id === recordingId && !recording.ephemeral && recording.id !== dictationId ? recording : null;
   const liveSegments = useRecorderStore(state => liveRecording ? state.segments : EMPTY_SEGMENTS);
   const partial = useRecorderStore(state => liveRecording ? state.partial : null);
   const startedAt = useRecorderStore(state => liveRecording ? state.recordingStartedAt : null);
   const finalizing = useRecorderStore(state => Boolean(liveRecording && state.finalizing));
-  const savedRecording = useRecorderStore(state => state.recordings.find(item => item.id === tab.recordingId));
-  const queryKey = useMemo(() => ["recorder", "transcript", tab.recordingId], [tab.recordingId]);
+  const savedRecording = useRecorderStore(state => state.recordings.find(item => item.id === recordingId));
+  const queryKey = useMemo(() => ["recorder", "transcript", recordingId], [recordingId]);
   const detail = useQuery({
     queryKey,
-    queryFn: () => audioRecordingGet(tab.recordingId),
+    queryFn: () => audioRecordingGet(recordingId),
     enabled: !liveRecording,
     retry: false,
   });
@@ -74,10 +86,10 @@ export function RecordingTranscriptPanel({ sessionId, tab }: { sessionId: string
     const timer = window.setTimeout(() => setCopied(false), 1800);
     return () => window.clearTimeout(timer);
   }, [copied]);
+  const recordingTitle = meta?.title;
   useEffect(() => {
-    if (!meta || meta.title === tab.label) return;
-    usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, meta.title);
-  }, [meta, sessionId, tab]);
+    if (recordingTitle) onTitleChange?.(recordingTitle);
+  }, [recordingTitle, onTitleChange]);
 
   const copy = async () => {
     try {
@@ -101,7 +113,7 @@ export function RecordingTranscriptPanel({ sessionId, tab }: { sessionId: string
     <div className="lw-recording-transcript">
       <header className="lw-recording-transcript-header">
         <div className="min-w-0">
-          <h1>{meta?.title ?? tab.label}</h1>
+          <h1>{meta?.title ?? title}</h1>
           {meta ? <p>{new Date(meta.createdAt).toLocaleDateString(currentLocale(), { dateStyle: "medium" })} · {new Date(meta.createdAt).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" })}</p> : null}
         </div>
         <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
