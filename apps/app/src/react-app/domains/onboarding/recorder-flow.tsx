@@ -81,7 +81,6 @@ export function RecorderFlow(props: {
             {t(section === "meetings" ? "onboarding_audio.setup_meetings" : "onboarding_audio.setup_dictation")}
           </Button> : null}
         </div>
-        <p className="text-xs leading-relaxed text-subtext">{t("onboarding_audio.subtitle")}</p>
       </div>
     </OnboardingCover>
     <Dialog open={open} onOpenChange={setDialogOpen}>
