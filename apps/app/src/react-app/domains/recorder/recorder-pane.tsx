@@ -61,7 +61,7 @@ import {
 } from "./recorder-setup";
 import { revealRecording, useRecorderStore } from "./recorder-store";
 import { closeRecordingTranscriptTabs, requestRecordingTranscript } from "./recording-transcript-tabs";
-import { RecordingTranscript } from "./recording-transcript-panel";
+import { RecordingTranscriptPage } from "./recording-transcript-page";
 
 /** Shared surface for capture controls and inline progress. */
 function SectionCard(props: { className?: string; children: React.ReactNode }) {
@@ -236,6 +236,8 @@ export function RecordingRow(props: {
   recording: AudioRecordingMeta;
   workspaceTargets: RecorderWorkspaceTarget[];
   onOpen: () => void;
+  onKeepOpen?: () => void;
+  onDragRecording?: (data: DataTransfer) => void;
   onUnlink?: () => void;
   busy?: boolean;
 }) {
@@ -255,7 +257,7 @@ export function RecordingRow(props: {
 
   return (
     <ContextMenu disabled={editing}>
-    <ContextMenuTrigger onContextMenu={(event) => event.stopPropagation()} render={<div className="lw-recorder-row" />}>
+    <ContextMenuTrigger onContextMenu={(event) => event.stopPropagation()} render={<div className="lw-recorder-row" draggable={!editing && Boolean(props.onDragRecording)} onDragStart={event => props.onDragRecording?.(event.dataTransfer)} />}>
       <RecordingPlayer recordingId={recording.id} compact />
       {editing ? (
         <div className="min-w-0 flex-1">
@@ -279,7 +281,7 @@ export function RecordingRow(props: {
           </div>
         </div>
       ) : (
-        <button type="button" className="lw-recorder-row-open min-w-0 flex-1 text-left" onClick={props.onOpen}>
+        <button type="button" className="lw-recorder-row-open min-w-0 flex-1 text-left" onClick={props.onOpen} onDoubleClick={props.onKeepOpen}>
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-ink">{recording.title}</span>
           </div>
@@ -484,26 +486,7 @@ export function RecorderPane(props: {
   }
 
   if (selectedRecordingId && !transcriptWorkspaceId) {
-    return (
-      <div className="lw-recorder h-full w-full">
-        <div className="mx-auto flex h-full min-h-0 w-full max-w-[960px] flex-col py-6">
-          <div className="flex shrink-0 items-center justify-between gap-3 px-6">
-            <Button variant="ghost" size="sm" onClick={() => setSelectedRecordingId(null)}>
-              <ChevronLeft data-icon="inline-start" />{t("recorder.recordings_title")}
-            </Button>
-            {isRecording ? (
-              <Button size="sm" disabled={store.finalizing} onClick={() => void store.stopRecording()}>
-                {store.finalizing ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}
-                {t(store.finalizing ? "recorder.finishing" : "recorder.stop")}
-              </Button>
-            ) : null}
-          </div>
-          <div className="min-h-0 flex-1">
-            <RecordingTranscript key={selectedRecordingId} recordingId={selectedRecordingId} />
-          </div>
-        </div>
-      </div>
-    );
+    return <RecordingTranscriptPage recordingId={selectedRecordingId} backLabel={t("recorder.recordings_title")} onBack={() => setSelectedRecordingId(null)} />;
   }
 
   if (showSetup) {

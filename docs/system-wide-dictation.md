@@ -21,14 +21,19 @@ blinking red recording light, elapsed time, the current microphone level, and
 shows three dots that jump individually while the final transcript and
 speaker pass finish. Dictation remains a separate, ephemeral recording.
 
-Within a workspace or project, saved recordings open as transcript-only tabs
-in the viewer. Starting an ordinary or meeting recording in that context opens
-its transcript tab automatically; finalized speech and the current partial
-appear there as they arrive. Global recordings do not open workspace tabs or
-change the current view. In the global Recorder, selecting a saved recording
-or **Open transcript** shows the transcript in place, with a back button to
-the recordings list. Entering a workspace during a global recording does not
-automatically open its transcript there. Closing
+Recordings follow the current view. In a full-page project overview, selecting
+a recording opens its transcript in place; a newly started project recording
+also fills this view live. The existing **Open as a tab** action hands that
+transcript to the project's workspace. In the tabbed workspace, recordings use
+the same preview, keep-open, drag, split, and expand/restore controls as other
+documents. A new capture opens a retained transcript tab with finalized speech
+and the current partial appearing as they arrive.
+
+Global recordings do not open workspace tabs or change the current view.
+In the global Recorder, selecting a saved recording or **Open transcript**
+shows the transcript in place, with a back button to the recordings list.
+Entering a workspace during a global recording does not automatically open
+its transcript there. Closing
 a transcript tab leaves capture running, and reopening it resumes the live
 view. Completed tabs keep the saved transcript when later recordings or
 dictation begin. Transcript tabs follow the viewer's existing split, window,

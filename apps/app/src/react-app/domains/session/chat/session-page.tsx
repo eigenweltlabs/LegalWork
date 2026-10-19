@@ -20,6 +20,9 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
+import type { AudioRecordingMeta } from "@legalwork/types/audio";
+import { RecordingTranscriptPage } from "../../recorder/recording-transcript-page";
+import { recordingTranscriptTab } from "../../recorder/recording-transcript-tabs";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
@@ -387,6 +390,8 @@ export function SessionPage(props: SessionPageProps) {
   const workspacePanel = useSessionPanelState(workspaceScope);
   const controlSessionIds = useMemo(() => workspacePanel.tabs.flatMap(tab => tab.type === "chat" ? [tab.sessionId] : []), [workspacePanel.tabs]);
   const [overviewHost, setOverviewHost] = useState<HTMLDivElement | null>(null);
+  const [overviewRecording, setOverviewRecording] = useState<{ projectId: string; recording: AudioRecordingMeta } | null>(null);
+  const selectedOverviewRecording = overviewRecording?.projectId === props.selectedWorkspaceId ? overviewRecording.recording : null;
   const [overviewVisits, setOverviewVisits] = useState<{ workspaceId: string; views: ProjectView[] }>({ workspaceId: props.selectedWorkspaceId, views: [] });
   const visitedOverviews = overviewVisits.workspaceId === props.selectedWorkspaceId ? overviewVisits.views : [];
   useEffect(() => {
@@ -1050,7 +1055,9 @@ export function SessionPage(props: SessionPageProps) {
     onRename={props.onRenameSession ? openRenameModal : undefined}
     onDelete={props.onDeleteSession ? id => { setSessionActionId(id); setDeleteOpen(true); } : undefined}
     onArchive={props.onArchiveSession}
-  /> : view === "calendar" ? props.projectCalendarView : view === "tasks" ? renderProjectTasks(false, inWorkspace) : view === "home" ? (
+  /> : view === "calendar" ? props.projectCalendarView : view === "tasks" ? renderProjectTasks(false, inWorkspace) : view === "home" && !inWorkspace && selectedOverviewRecording ? (
+    <RecordingTranscriptPage recordingId={selectedOverviewRecording.id} backLabel={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} onBack={() => setOverviewRecording(null)} />
+  ) : view === "home" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectHome
       key={props.selectedWorkspaceId}
       client={props.legalworkServerClient}
@@ -1058,6 +1065,9 @@ export function SessionPage(props: SessionPageProps) {
       projectId={props.selectedWorkspaceId}
       isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
       onStartRecording={props.onStartProjectRecording}
+      inWorkspace={inWorkspace}
+      active={active}
+      onOpenRecordingPage={recording => setOverviewRecording({ projectId: props.selectedWorkspaceId, recording })}
       name={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
       onOpenFile={openWorkspaceFileEntry}
       onBeforeDeleteNote={(entry) => {
@@ -1523,7 +1533,7 @@ export function SessionPage(props: SessionPageProps) {
             <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
             {view !== "reviews" && <div className="flex shrink-0 justify-end px-5 pt-2">
               <Button variant="ghost" size="sm" onClick={() => {
-                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
+                openTab(workspaceScope, view === "home" && selectedOverviewRecording ? recordingTranscriptTab(selectedOverviewRecording) : projectViewTab(view, projectViewLabel(view)));
                 navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
               }}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button>
             </div>}

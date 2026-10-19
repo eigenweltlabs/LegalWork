@@ -778,7 +778,8 @@ export function SessionRoute() {
   useEffect(() => {
     void useRecorderStore.getState().init();
   }, []);
-  useAutoOpenRecordingTranscript(showRecorder ? recorderProject?.id : routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null));
+  useAutoOpenRecordingTranscript(projectViewFromPath(location.pathname) ? null
+    : showRecorder ? recorderProject?.id : routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null));
   useEffect(() => {
     registerRecorderCopilotContext({
       getClient: () => opencodeClient,

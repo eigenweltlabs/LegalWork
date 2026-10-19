@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, FileText, Loader2 } from "lucide-react";
+import { Check, Copy, FileAudio, FileText, Loader2, X } from "lucide-react";
 import type { AudioRecordingDetail, AudioTranscriptSegment } from "@legalwork/types/audio";
 import { audioRecordingGet } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { type RecordingPanelTab, usePanelTabStore } from "../session/panel/panel-tab-store";
+import { ArtifactFrame } from "../session/artifacts/artifact-frame";
 import { useRecorderStore } from "./recorder-store";
 import { recordingTime, transcriptTurns } from "./recording-transcript";
 import "./recording-transcript-panel.css";
@@ -27,11 +28,15 @@ function TranscriptDuration({ startedAt, durationMs }: { startedAt: number | nul
   return <span className="tabular-nums">{recordingTime(startedAt === null ? durationMs : now - startedAt)}</span>;
 }
 
-export function RecordingTranscriptPanel({ sessionId, tab }: { sessionId: string; tab: RecordingPanelTab }) {
+export function RecordingTranscriptPanel({ sessionId, tab, onClose }: { sessionId: string; tab: RecordingPanelTab; onClose: () => void }) {
   const updateTitle = useCallback((title: string) => {
     usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, title);
   }, [sessionId, tab.id]);
-  return <RecordingTranscript recordingId={tab.recordingId} title={tab.label} onTitleChange={updateTitle} />;
+  return <ArtifactFrame title={tab.label} icon={<FileAudio className="size-5" />} expandable actions={
+    <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("panel_tabs.close_tab")} title={t("panel_tabs.close_tab")}><X /></Button>
+  }>
+    <RecordingTranscript recordingId={tab.recordingId} title={tab.label} onTitleChange={updateTitle} />
+  </ArtifactFrame>;
 }
 
 /** Transcript content shared by workspace tabs and the global Recorder. */

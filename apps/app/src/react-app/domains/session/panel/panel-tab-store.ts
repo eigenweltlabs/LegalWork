@@ -295,7 +295,7 @@ function openInSession(scope: string, session: SessionPanelState, tab: PanelTab,
   if (!id) return next;
   const destination = next.panes.find(item => item.tabIds.includes(id));
   if (!destination) return next;
-  const eligible = tab.type === "view" || tab.type === "artifact" || tab.type === "task" || tab.type === "review";
+  const eligible = tab.type === "view" || tab.type === "artifact" || tab.type === "task" || tab.type === "review" || tab.type === "recording";
   if (preview && eligible && !existing && !edge) {
     const previous = destination.previewTabId;
     if (previous && previous !== id && !hasUnsavedSessionDocument(scope, previous)) {

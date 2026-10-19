@@ -32,6 +32,6 @@ export function useAutoOpenRecordingTranscript(workspaceId?: string | null): voi
     // Observe global captures too, so entering a workspace later does not
     // unexpectedly open an already-running recording there.
     opened.current = recording.id;
-    requestRecordingTranscript(recording, recording.projectIds?.[0] ?? workspaceId);
+    if (workspaceId) requestRecordingTranscript(recording, recording.projectIds?.[0] ?? workspaceId);
   }, [recording, dictationId, workspaceId]);
 }

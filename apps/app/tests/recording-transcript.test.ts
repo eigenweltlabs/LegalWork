@@ -19,6 +19,7 @@ Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value:
 const { usePanelTabStore, PANEL_OPEN_TAB_EVENT } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { recordingTranscriptTab, requestRecordingTranscript, closeRecordingTranscriptTabs } = await import("../src/react-app/domains/recorder/recording-transcript-tabs");
 const { RecordingTranscript, RecordingTranscriptPanel } = await import("../src/react-app/domains/recorder/recording-transcript-panel");
+const { RecordingTranscriptPage } = await import("../src/react-app/domains/recorder/recording-transcript-page");
 usePanelTabStore.persist.setOptions({ storage: createJSONStorage(() => storage) });
 const initialState = { ...useRecorderStore.getInitialState() };
 const setRenderState = (state: Partial<typeof initialState>) => Object.assign(useRecorderStore.getInitialState(), state);
@@ -44,14 +45,16 @@ const recording: AudioRecordingMeta = {
 const segment = (id: string, text: string, speaker?: number | null): AudioTranscriptSegment => ({
   id, text, speaker, startMs: 1000, endMs: 2000, final: true,
 });
-const render = (detail?: AudioRecordingDetail, inline = false) => {
+const render = (detail?: AudioRecordingDetail, surface: "panel" | "inline" | "page" = "panel") => {
   const client = new QueryClient();
   if (detail) client.setQueryData(["recorder", "transcript", recording.id], detail);
   try {
     return renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
-      inline
+      surface === "page"
+        ? React.createElement(RecordingTranscriptPage, { recordingId: recording.id, backLabel: "Recordings", onBack: () => {} })
+        : surface === "inline"
         ? React.createElement(RecordingTranscript, { recordingId: recording.id })
-        : React.createElement(RecordingTranscriptPanel, { sessionId: "session", tab: recordingTranscriptTab(recording) })));
+        : React.createElement(RecordingTranscriptPanel, { sessionId: "session", tab: recordingTranscriptTab(recording), onClose: () => {} })));
   } finally { client.clear(); }
 };
 
@@ -99,6 +102,24 @@ test("recording tabs survive workspace layout persistence", () => {
   const restored = usePanelTabStore.persist.getOptions().merge?.(persisted, { ...state, sessions: {} });
   expect(restored?.sessions["workspace:project"].tabs).toEqual([tab]);
   expect(restored?.sessions["workspace:project"].activeTabId).toBe(tab.id);
+});
+
+test("recording previews replace one another and pinned or live transcript tabs stay open", () => {
+  const store = usePanelTabStore.getState();
+  const scope = "workspace:project";
+  const first = recordingTranscriptTab(recording);
+  const second = recordingTranscriptTab({ ...recording, id: "second" });
+  const live = recordingTranscriptTab({ ...recording, id: "live" });
+  store.openTab(scope, first, undefined, undefined, { preview: true });
+  expect(usePanelTabStore.getState().sessions[scope].panes[0].previewTabId).toBe(first.id);
+  store.openTab(scope, second, undefined, undefined, { preview: true });
+  expect(usePanelTabStore.getState().sessions[scope].tabs.map(tab => tab.id)).toEqual([second.id]);
+  store.keepTab(scope, second.id);
+  store.openTab(scope, live);
+  store.openTab(scope, first, undefined, undefined, { preview: true });
+  expect(usePanelTabStore.getState().sessions[scope].tabs.map(tab => tab.id)).toEqual([second.id, live.id, first.id]);
+  store.openTab(scope, first, undefined, undefined, { preview: false });
+  expect(usePanelTabStore.getState().sessions[scope].panes[0].previewTabId).toBeUndefined();
 });
 
 test("deleting a recording closes only its transcript tabs across sessions", () => {
@@ -161,15 +182,28 @@ test("the global Recorder can display saved and live transcripts without a viewe
   const listener = (event: Event) => { if (event instanceof CustomEvent) requests.push(event.detail); };
   events.addEventListener(PANEL_OPEN_TAB_EVENT, listener);
   try {
-    const html = render({ meta: { ...recording, status: "complete" }, segments: [segment("saved", "Saved meeting", 0)] }, true);
+    const html = render({ meta: { ...recording, status: "complete" }, segments: [segment("saved", "Saved meeting", 0)] }, "inline");
     expect(html).toContain("Contract review");
     expect(html).toContain("Saved meeting");
     setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("live", "Current meeting")], partial: { ...segment("partial", "Still speaking"), final: false } });
-    const live = render(undefined, true);
+    const live = render(undefined, "inline");
     expect(live).toContain("Current meeting");
     expect(live).toContain("Still speaking");
     expect(live).toContain("Live transcript");
     expect(requests).toHaveLength(0);
     expect(usePanelTabStore.getState().sessions).toEqual({});
   } finally { events.removeEventListener(PANEL_OPEN_TAB_EVENT, listener); }
+});
+
+test("transcript tabs use document expand/close controls while full-page details use back navigation", () => {
+  const detail = { meta: { ...recording, status: "complete" }, segments: [segment("saved", "Saved meeting", 0)] } satisfies AudioRecordingDetail;
+  const panel = render(detail);
+  expect(panel).toContain('data-artifact-expanded="false"');
+  expect(panel).toContain('aria-label="Expand document"');
+  expect(panel).toContain('aria-label="Close tab"');
+  const page = render(detail, "page");
+  expect(page).toContain("Recordings");
+  expect(page).toContain("Saved meeting");
+  expect(page).not.toContain('aria-label="Expand document"');
+  expect(page).not.toContain('aria-label="Close tab"');
 });
