@@ -23,7 +23,7 @@ UI checks use synthetic catalog responses; the cross-project test exercises the 
 
 ## Google and Microsoft team storage
 
-Google Drive, OneDrive, OneDrive Personal and SharePoint offer two modes per
+Google Drive, OneDrive for work or school, OneDrive Personal and SharePoint offer two modes per
 team entry. **Each member signs in** shares the location and policy; LegalWork
 reuses the member's single connector account, including own-app OAuth. **Use a
 shared team account** explicitly delegates the connected account to the firm.

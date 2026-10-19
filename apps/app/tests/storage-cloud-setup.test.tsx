@@ -21,7 +21,7 @@ test("File Storage shows a native account once and keeps unconnected providers i
   const html = renderToStaticMarkup(<QueryClientProvider client={queryClient}><FileStorageView client={client} workspaceId="workspace" /></QueryClientProvider>);
   expect(html.match(/>Google Drive</g)).toHaveLength(1);
   expect(html).toContain("/ext-googledrive.svg");
-  for (const name of ["OneDrive", "SharePoint", "Box", "Dropbox", "WebDAV", "SFTP", "FTP"]) expect(html).not.toContain(`>${name}<`);
+  for (const name of ["OneDrive for work or school", "SharePoint", "Box", "Dropbox", "WebDAV", "SFTP", "FTP"]) expect(html).not.toContain(`>${name}<`);
   expect(html).not.toContain("Edit Google Drive"); expect(html).not.toContain("Disconnect Google Drive"); expect(html).not.toMatch(/<img[^>]+src="https?:/);
   queryClient.clear();
 });
