@@ -50,6 +50,14 @@ try {
  registry('set',keys[4]+'\\UserSyncRoots',sid,join(root,'Generic cloud'));
  await check('generic registered provider without running client',join(root,'Generic cloud','Cases'),true);
  await check('generic registered provider sibling prefix',join(root,'Generic cloud-backup'),false);
+ await mkdir(join(process.env.APPDATA,'Dropbox'),{recursive:true});
+ await writeFile(join(process.env.APPDATA,'Dropbox','info.json'),'{broken before any successful read');
+ await check('cold corrupt config does not block local folders',native,false);
+ await check('cold corrupt config does not bypass a registered cloud root',join(root,'Generic cloud','Cases'),true);
+ await rm(join(process.env.APPDATA,'Dropbox','info.json'));
+ await mkdir(join(process.env.APPDATA,'Dropbox','info.json'));
+ await check('optional config read error does not block local folders',native,false);
+ await rm(join(process.env.APPDATA,'Dropbox'),{recursive:true});
  registry('set',keys[0]+'\\Share','MountPoint','X');
  await check('Google Drive live drive-letter mount','X:\\Matters',true);
  await check('Google Drive live drive root','X:\\',true);
@@ -86,8 +94,12 @@ try {
  const odd=join(native,"literal'; $(throw 'must not run'); $path");
  await check('literal PowerShell characters cannot execute',odd,false);
  await writeFile(join(process.env.LOCALAPPDATA,'Dropbox','info.json'),'{broken');
- await assert.rejects(isCloudFolder(native));
- cases.push({name:'malformed config fails closed',result:true,expected:true});
+ await check('corrupt optional config leaves ordinary folder detection working',native,false);
+ await check('corrupt optional config retains learned Dropbox root',join(root,'Local config Dropbox','Cases'),true);
+ await check('corrupt Dropbox config does not hide Nextcloud root',join(root,'Nextcloud custom','Cases'),true);
+ await check('corrupt Dropbox config does not bypass registered cloud root',join(root,'Generic cloud','Cases'),true);
+ await assert.rejects(isCloudFolder(native+'\u0000invalid'));
+ cases.push({name:'native target lookup failures still report an error',result:true,expected:true});
  console.log(JSON.stringify({platform:process.platform,node:process.version,kind:'native Windows calls with synthetic client configuration; no signed-in provider clients',cases}));
 } finally {
  for(const key of keys)registry('remove',key);
