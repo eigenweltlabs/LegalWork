@@ -3,6 +3,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolveKeyMonitorPath } from "./system-key-monitor.mjs";
 import { WindowsMeetingProbe } from "./windows-meeting-probe.mjs";
+import { macOsAtLeast } from "./mac-version.mjs";
 
 const NATIVE_APPS = [
   ["us.zoom.xos", "Zoom"], ["com.microsoft.teams2", "Microsoft Teams"],
@@ -52,8 +53,11 @@ export class MeetingMonitor {
         } catch { resolve({ supported: false, processes: [] }); }
       });
     }));
+    // Capability must be known even when the saved opt-out prevents polling.
+    // Checking the OS does not inspect meeting activity or launch a helper.
+    const detectionSupported = platform === "win32" || (platform === "darwin" && macOsAtLeast(14, 2));
     /** @type {import('@legalwork/types/audio').AudioMeetingStatus} */
-    this.value = { detectionEnabled: true, detectionSupported: false, detected: null, state: "idle", recordingId: null, startedAt: null, error: null };
+    this.value = { detectionEnabled: true, detectionSupported, detected: null, state: "idle", recordingId: null, startedAt: null, error: null };
     this.timer = null;
     this.polling = false;
     this.generation = 0;

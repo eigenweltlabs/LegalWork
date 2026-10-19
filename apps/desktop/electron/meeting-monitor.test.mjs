@@ -93,6 +93,38 @@ test("disabling detection rejects an in-flight probe and persists across restart
   await second.initialize(); assert.equal(second.status().detectionEnabled, false);
 });
 
+test("a supported device can enable detection after restarting with detection off, without probing while off", async t => {
+  const f = await fixture(t);
+  await f.monitor.setDetection(false);
+  let probes = 0;
+  const restarted = new MeetingMonitor({
+    app: { getPath: () => f.directory }, platform: "win32", onChange() {}, onStart() {},
+    probe: async () => { probes += 1; return { supported: true, processes: [zoom] }; },
+  });
+  t.after(() => restarted.dispose());
+  await restarted.initialize();
+  assert.equal(restarted.status().detectionEnabled, false);
+  assert.equal(restarted.status().detectionSupported, true, "the opt-out must not mark a supported device as unsupported");
+  await restarted.poll();
+  assert.equal(probes, 0, "capability checking must not inspect meeting activity while opted out");
+  await restarted.setDetection(true);
+  await restarted.poll();
+  assert.equal(probes, 1);
+  assert.equal(restarted.status().detectionSupported, true);
+});
+
+test("unsupported platforms remain unavailable without inspecting meeting activity", async t => {
+  const f = await fixture(t);
+  await f.monitor.setDetection(false);
+  const restarted = new MeetingMonitor({
+    app: { getPath: () => f.directory }, platform: "linux", onChange() {}, onStart() {},
+    probe: async () => { throw new Error("disabled detection must not probe"); },
+  });
+  t.after(() => restarted.dispose());
+  await restarted.initialize();
+  assert.equal(restarted.status().detectionSupported, false);
+});
+
 test("unsupported detection keeps manual meeting recording available", async t => {
   const f = await fixture(t);
   f.monitor.probe = async () => ({ supported: false, processes: [] });
