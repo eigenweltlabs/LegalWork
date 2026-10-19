@@ -71,6 +71,8 @@ Discovery now uses the same static planner with bounded manifest, connector and 
 
 On the actual installed sources, Google Contacts no longer appears. PDF, Visualize, Frontend Design, Math Olympiad and Feature Dev remain visible. Discovery completed in 153 ms for ChatGPT and 170 ms for Claude on the test machine. All 50 discovery/import/lifecycle tests across the four affected server suites and the production server build passed after this change.
 
+Identical standalone connector copies from different projects/configuration files now appear once, with the source application label rather than project names. Comparison stays on the server and uses the same effective source configuration as import, including credentials, permissions, OAuth callback settings and local working-directory context. No configuration fingerprints or secrets are sent to the client. Different setups and project-relative programs remain separate. The four actual identical Claude Linear configurations now produce one `Claude Code` entry. All 53 affected server tests and the production build pass; the duplicate regression failed before the fix.
+
 ## Repeatable regression checks
 
 ```sh
