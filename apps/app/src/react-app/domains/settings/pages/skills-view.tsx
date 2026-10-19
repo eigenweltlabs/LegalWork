@@ -24,7 +24,6 @@ import {
   FileArchive,
   FolderOpen,
   Loader2,
-  Package,
   Plus,
   RefreshCw,
   Search,
@@ -80,7 +79,7 @@ import { FirmItemNote } from "../../connections/org-policy-ui";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
-import { BuiltInSkills, ImportedPackages, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { BuiltInSkills, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
 import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
 import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
@@ -331,7 +330,6 @@ export function SkillsView(props: SkillsViewProps) {
     if (isWorkflowsView || props.busy) return;
     if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true);
   });
-  const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
   // view is provided (firm-connected + entitled).
@@ -678,7 +676,6 @@ export function SkillsView(props: SkillsViewProps) {
                 {libraryLayout ? <>
                   {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} /> : null}
                   <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
-                    <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
                     <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
                   </IntegrationMoreMenu>
                 </> : null}
@@ -703,12 +700,6 @@ export function SkillsView(props: SkillsViewProps) {
       </div>
 
       {showTeam ? props.firmDownloadView : null}
-      {libraryLayout && !isWorkflowsView ? <Dialog open={packagesOpen} onOpenChange={setPackagesOpen}>
-        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader className="pe-8"><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout.revision ?? 0)} showEmpty />
-        </DialogContent>
-      </Dialog> : null}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">

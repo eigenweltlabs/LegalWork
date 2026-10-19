@@ -108,7 +108,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
-  const [packagesOpen, setPackagesOpen] = useState(false);
   const [enginePluginsOpen, setEnginePluginsOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
@@ -181,7 +180,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             ]} />
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
             <IntegrationMoreMenu pageToolbar triggerRef={moreButton} busy={props.busy}>
-              <DropdownMenuItem disabled={props.busy || !props.skillTools} onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
               <DropdownMenuItem disabled={props.busy || props.isRemoteWorkspace || !props.skillTools} onClick={async () => {
                 if (props.busy || props.isRemoteWorkspace || !props.skillTools) return;
                 try { await props.skillTools.revealSkillsFolder(); }
@@ -197,12 +195,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           importedPackage();
           toast.success(t("plugin_create.created", { name: plugin.displayName ?? plugin.name }));
         }} /> : null}
-        {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
-          <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
-            <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} showEmpty />
-          </DialogContent>
-        </Dialog> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("extensions.engine_plugins")}</DialogTitle><DialogDescription>{t("plugins.desc")}</DialogDescription></DialogHeader>
