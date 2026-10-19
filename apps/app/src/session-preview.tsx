@@ -62,6 +62,7 @@ initLocale();
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
 const platform = previewParams.get("platform");
+const captionHeight = previewParams.has("tall-titlebar") ? 64 : 44;
 if (platform === "mac" || platform === "windows") document.documentElement.classList.add("legalwork-electron", `legalwork-platform-${platform}`);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
@@ -628,7 +629,10 @@ function SessionPreview() {
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
-      {platform === "windows" && <div data-preview-caption-controls aria-hidden className="fixed right-0 top-0 z-[2147483647] flex h-11 w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>}
+      {platform === "windows" && <>
+        {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
+        <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
+      </>}
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">

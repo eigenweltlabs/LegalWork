@@ -1,5 +1,6 @@
 // Import this check and pass a Playwright Page after opening
 // /session-preview.html?lang=en&platform=windows on the local server.
+// Add &tall-titlebar to check that fullscreen follows the normal window-bar height.
 // The fixture overlays the native caption-button area; only sample data is edited.
 export default async function checkMarkdownFullscreen(page) {
   if (!/^https?:\/\/(localhost|127\.0\.0\.1):\d+\/session-preview\.html\?/.test(await page.url())) {
@@ -33,6 +34,12 @@ export default async function checkMarkdownFullscreen(page) {
 
   await expand.click();
   if (await exit.isVisible()) throw new Error("An extra exit button was added to the Windows layout.");
+  if (!await page.locator('[data-artifact-expanded="true"]').evaluate(frame => {
+    const windowFrame = frame.closest(".lw-window-frame");
+    const bar = windowFrame?.querySelector(".lw-window-topbar");
+    // The fixture adds a sample-data banner above the app; fullscreen remains viewport-relative.
+    return Boolean(bar) && Math.abs(frame.getBoundingClientRect().top - bar.getBoundingClientRect().height) <= 1;
+  })) throw new Error("The expanded document does not use the normal window-bar height.");
   if (!await restore.evaluate(button => {
     const box = button.getBoundingClientRect();
     return box.left >= 0 && box.right <= innerWidth && box.top >= 0
