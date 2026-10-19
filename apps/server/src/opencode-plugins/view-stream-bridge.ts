@@ -4,13 +4,12 @@ import type { ViewGenerationChunk } from "../views/generation-stream.js";
 
 const HEADER = "x-legalwork-view-stream";
 const requests = new Map<string, { at: number; publish: (chunk: ViewGenerationChunk) => Promise<void> }>();
-let installed = false;
+let installed: typeof fetch | undefined;
 
 /** Compatibility for engines that discard tool-input-delta (including bundled OpenCode 1.18.29).
  * Local request correlation is stripped before the request reaches the model provider. */
 export function installViewStreamBridge() {
-  if (!installed) {
-    installed = true;
+  if (globalThis.fetch !== installed) {
     const base = globalThis.fetch;
     const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
@@ -47,6 +46,7 @@ export function installViewStreamBridge() {
       return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     };
     globalThis.fetch = Object.assign(patched, base);
+    installed = globalThis.fetch;
   }
 }
 

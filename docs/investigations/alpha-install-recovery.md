@@ -55,3 +55,29 @@ the CI signing environment. No successful end-to-end install video is available.
 After building the next alpha, run its packaged startup/security checks, install
 it from 0.2.10, and verify both the current version and engine startup. The
 after-pack check now rejects the incomplete SDK before signing or publishing.
+
+## Repeated Linux CI failures
+
+The Linux job failed twice in three existing server tests, before desktop tests:
+
+- The view-stream bridge remembered only that it had once installed its fetch
+  wrapper. Another plugin/test could restore or replace fetch afterward. The
+  bridge then failed to reinstall, so local correlation headers reached the
+  provider and streamed previews were not intercepted. Track the actual installed
+  function instead, preserve intervening wrappers, and restore test fetch state.
+  A regression deliberately replaces fetch and failed before this change.
+- The PDF integration fixture compared a partial text run against Helvetica
+  metrics while the canvas measured it with a host-specific fallback font.
+  Keep exact native PDF run bounds in that integration fixture, including the
+  existing rotation, crop and negative-citation assertions. A separate geometry
+  test verifies partial-run proportional glyph widths to ten decimal places.
+  No production PDF rendering behavior or assertion tolerance is changed.
+
+With Bun 1.4.2 on an isolated Ubuntu 24.04 VM, the final PDF fixture also passes
+when only a deliberately mismatched monospace fallback font is available; the
+old fixture fails in that same environment. Targeted Linux checks passed. The
+full Mac server suite with Bun 1.4.2 passed 2,382 tests (69 skips), and server
+typecheck passed. The first full Linux VM run encountered four different
+synchronization/timing failures plus a missing-npx fixture; a follow-up uses
+temporary RAM-backed test files and the complete Node tool directory. The
+GitHub Linux job remains the required platform check.
