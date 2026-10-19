@@ -22,6 +22,8 @@ import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
+  legalworkChromeDevtoolsPluginPath,
+  legalworkAnthropicAuthPluginPath,
   legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
@@ -305,11 +307,11 @@ export async function buildLegalworkRuntimeConfigObject(
       },
     },
     plugin: (await Promise.all([
-      "opencode-chrome-devtools",
+      bundledPluginSpec(legalworkChromeDevtoolsPluginPath(), config),
       // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
       // OAuth + "Create an API Key" console OAuth) to the provider list. Without
       // this plugin the engine only offers manual Anthropic API-key entry.
-      "opencode-anthropic-auth",
+      bundledPluginSpec(legalworkAnthropicAuthPluginPath(), config),
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),
       bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),

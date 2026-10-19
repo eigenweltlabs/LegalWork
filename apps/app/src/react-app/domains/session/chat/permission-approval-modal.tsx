@@ -37,6 +37,7 @@ type PermissionApprovalModalProps = {
   permission: PendingPermission;
   onOpenSession?: (sessionId: string) => void;
   busy?: boolean;
+  onRetryInput?: () => void;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   safeStringify?: (value: unknown) => string;
 };
@@ -404,6 +405,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const Icon = network?.search ? Search : network ? Globe : presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
+  const input = props.permission.toolInput;
+  const inputUnavailable = input && input.status !== "ready";
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -439,7 +442,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               type="button"
               size="sm"
               onClick={() => props.respondPermission?.(props.permission.id, "once")}
-              disabled={props.busy || !props.respondPermission}
+              disabled={props.busy || !props.respondPermission || inputUnavailable}
             >
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
@@ -449,7 +452,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               variant="outline"
               size="sm"
               onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
+              disabled={props.busy || !props.respondPermission || inputUnavailable}
             >
               <Check data-icon="inline-start" />
               {t("session.allow_for_session")}
@@ -458,6 +461,19 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         </div>
 
         <div className="border-t border-dls-border px-4 py-3">
+          {input ? <div className="mb-3 text-[12px] leading-5">
+            <div className="mb-1.5 font-medium text-dls-secondary">{t("session.permission_review_label")}</div>
+            {input.status === "ready" ? <dl className="max-h-48 overflow-auto rounded-lg border border-dls-border divide-y divide-dls-border">
+              {Object.entries(input.value).map(([key, value]) => <div key={key} className="grid gap-1 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-4">
+                <dt className="break-words text-dls-secondary">{key === "query" ? t("session.permission_detail_query") : key}</dt>
+                <dd className="min-w-0 whitespace-pre-wrap break-words text-dls-text">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd>
+              </div>)}
+              {!Object.keys(input.value).length ? <div className="px-3 py-2 font-mono text-dls-text">{"{}"}</div> : null}
+            </dl> : <div className="flex flex-wrap items-center gap-2">
+              <p role="status" className="text-dls-secondary">{t(input.status === "loading" ? "common.loading" : "session.permission_input_unavailable")}</p>
+              {input.status === "unavailable" && props.onRetryInput ? <Button type="button" variant="outline" size="sm" onClick={props.onRetryInput}>{t("session.permission_retry_details")}</Button> : null}
+            </div>}
+          </div> : null}
           {network ? <div className="space-y-3 text-[12px] leading-5">
             {network.search ? <div>
               <div className="mb-1.5 font-medium text-dls-secondary">{t("sandbox.approval_search_query")}</div>

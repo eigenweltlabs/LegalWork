@@ -11,6 +11,7 @@ import {
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
+  bundledOpencodeSdkDirectory,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -19,6 +20,15 @@ import {
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
 } from "./runtime.mjs";
+
+describe("bundled OpenCode SDK location", () => {
+  it("uses the staged desktop SDK in development even when Electron has a resourcesPath", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: false, resourcesPath: "/Electron.app/Contents/Resources", desktopRoot: "/checkout/apps/desktop" }), path.join("/checkout/apps/desktop/resources/opencode-sdk"));
+  });
+  it("uses only the application resources in a packaged build", () => {
+    assert.equal(bundledOpencodeSdkDirectory({ isPackaged: true, resourcesPath: "/LegalWork.app/Contents/Resources", desktopRoot: "/unrelated/checkout" }), path.join("/LegalWork.app/Contents/Resources/opencode-sdk"));
+  });
+});
 
 describe("alignWindowsOpencodeConfigEnv", () => {
   it("keeps the engine and LegalWork on OpenCode's existing Windows config root", () => {

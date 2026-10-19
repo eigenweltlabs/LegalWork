@@ -15,6 +15,10 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/licenses
+    to: licenses
+  - from: resources/opencode-sdk
+    to: opencode-sdk
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
