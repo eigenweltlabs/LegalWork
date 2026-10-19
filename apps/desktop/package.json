@@ -59,6 +59,7 @@
     "polygon-clipping": "0.15.7",
     "postal-mime": "4.0.1",
     "reflect-metadata": "^0.2.2",
+    "semver": "^7.8.5",
     "sherpa-onnx-node": "1.13.3",
     "smb3-client": "0.2.0",
     "smol-toml": "1.8.0",

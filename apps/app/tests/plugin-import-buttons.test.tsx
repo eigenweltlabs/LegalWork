@@ -64,5 +64,5 @@ test("skill imports remain available when plugin editing is read-only, with one 
 test("legacy MCP links select Plugins and keep the connector library visible", () => {
   const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="mcp" />);
   expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>)[\s\S])*Plugins<\/button>/);
-  expect(html).toContain("<div><p>Connectors</p></div>");
+  expect(html).toMatch(/<div(?![^>]*\bhidden)[^>]*><p>Connectors<\/p>/);
 });

@@ -731,6 +731,7 @@ export type LegalworkClaudePluginComponent = {
 };
 
 export type LegalworkClaudePluginPreview = {
+  review?: PluginImportPreview;
   pluginId: string;
   name: string;
   description: string | null;
@@ -2376,6 +2377,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<{ source: PluginImportRequest["source"]; scope: PluginImportRequest["scope"]; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
     pluginCreateOptions: (workspaceId: string) =>
@@ -2383,7 +2386,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>
       requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
-      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: 30_000 }),
     previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
       requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>
@@ -2396,7 +2399,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: { ...payload, dryRun: true },
         timeoutMs: timeouts.config,
       }),
-    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string }) =>
+    installClaudePlugin: (workspaceId: string, payload: { url: string; ref?: string; digest?: string; validationId?: string; acknowledgePartial?: boolean }) =>
       requestJson<LegalworkCloudPluginInstallResult & { preview: LegalworkClaudePluginPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/claude-plugins`, {
         token,
         hostToken,
