@@ -56,3 +56,12 @@ The normal connector review now shows the item name, type and one “Import and 
 Verified the actual Claude Discord review in the regular Electron preview, including expanding and collapsing its technical details. No import, program execution or provider authorization was performed in this follow-up. The focused app suite passes **60 tests across seven files**, including new regressions for setup, blockers, partial imports and unreviewed sources. App type checks, production build, **6,824 translation keys in both languages** and `git diff --check` pass.
 
 ![Compact Discord connector review](images/import-review-discord-simple.png)
+
+## Automatic review refresh follow-up
+
+An expired or invalidated server review now triggers a fresh preview and one automatic install retry while the existing loading state stays active. Unchanged contents use the new server token; changes to the source, components, permissions, requirements or omitted behavior return to the refreshed review and clear partial-import consent. Other failures are not retried, preventing duplicate writes after an ambiguous timeout. Repeated review invalidation is bounded and leaves the refreshed review visible.
+
+- Regression first reproduced: the new refresh suite had **one passing and five failing tests** with the original install behavior. All six now pass; the combined import/integration suite passes **66 tests across eight files**.
+- Command: `pnpm --filter @legalwork/app exec bun test tests/plugin-import-refresh.test.ts tests/plugin-import-checks.test.tsx tests/plugin-import-readiness.test.ts tests/plugin-import-presentation.test.ts tests/plugin-import-buttons.test.tsx tests/integration-libraries.test.tsx tests/mcp-library.test.tsx tests/plugin-create-connector.test.tsx`.
+- Actual HTTP API reproduction for **both Claude and ChatGPT** in a disposable global library: advance the server clock sixteen minutes after preview, then invoke the same recovery function used by the dialog. The first install returns `connector_review_expired`; a new preview and second install succeed. Each installed record has exactly one history entry and one connector. No program is executed or provider contacted.
+- App type checks, production build, **6,825 translation keys in both languages** and `git diff --check` pass. The visible review design remains the compact screen above.

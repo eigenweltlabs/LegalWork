@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
 import { pickDirectory } from "@/app/lib/desktop";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
@@ -24,6 +25,25 @@ export type PluginImportStore = {
   checkPluginImportUpdate?: (pluginId: string) => Promise<{ source: PluginImportSource; scope: PluginImportScope; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>;
   rollbackPluginImport?: (pluginId: string) => Promise<void>;
 };
+
+export async function installReviewedPluginImport(store: Pick<PluginImportStore, "installPluginImport" | "previewPluginImports">, request: PluginImportRequest, reviewed: PluginImportPreview, onReview: (items: PluginImportPreview[]) => void): Promise<PluginImportPreview | null> {
+  let current = reviewed;
+  // Recover rejected reviews only; retrying a timeout could duplicate a saved import.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await store.installPluginImport({ ...request, root: current.root, digest: current.digest, validationId: current.validationId });
+    } catch (cause) {
+      if (!(cause instanceof LegalworkServerError) || !["connector_review_expired", "plugin_preview_changed"].includes(cause.code)) throw cause;
+      const items = await store.previewPluginImports({ ...request, root: current.root, recheck: true });
+      onReview(items);
+      const fresh = items.find(item => item.root === current.root);
+      // Only the server token may change without requiring a new user decision.
+      if (!fresh || JSON.stringify({ ...current, validationId: undefined }) !== JSON.stringify({ ...fresh, validationId: undefined })) return null;
+      current = fresh;
+    }
+  }
+  return null;
+}
 const componentTypes: PluginImportPreview["components"][number]["type"][] = ["skill", "mcp", "agent", "command"];
 type ImportFilter = "all" | "plugin" | "skill" | "connector";
 const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal };
@@ -198,7 +218,15 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalling(true);
     setError(null);
     try {
-      const result = installed ?? await props.store.installPluginImport({ source, scope, detectFormat: sourceMode !== null, asWorkflow: props.initialAsWorkflow, root: selected.root, digest: selected.digest, validationId: selected.validationId, acknowledgePartial });
+      const result = installed ?? await installReviewedPluginImport(props.store, { source, scope, detectFormat: sourceMode !== null, asWorkflow: props.initialAsWorkflow, acknowledgePartial }, selected, items => {
+        if (!mounted.current) return;
+        setPreviews(items);
+        setSelectedRoot(items.find(item => item.root === selected.root)?.root ?? items[0]?.root ?? "");
+      });
+      if (!result) {
+        if (mounted.current) { setAcknowledgePartial(false); toast.info(t("extensions.import_review_updated")); }
+        return;
+      }
       setInstalled(result);
       await props.store.refreshPluginImport(result);
       await props.onImported(result);

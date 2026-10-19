@@ -2640,6 +2640,7 @@ export default {
   "extensions.import_claude": "Import from Claude",
   "extensions.import_description": "Bring your plugins, skills, and connectors into LegalWork.",
   "extensions.import_review_description": "Review what will be added to your library.",
+  "extensions.import_review_updated": "Review the refreshed import before continuing.",
   "extensions.import_all_projects": "Available in all projects",
   "extensions.import_choose_folder": "Choose folder",
   "extensions.import_choose_zip": "Choose archive",

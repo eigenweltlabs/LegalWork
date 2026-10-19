@@ -2711,6 +2711,7 @@ const de = {
   "extensions.import_claude": "Aus Claude importieren",
   "extensions.import_description": "Übernehmen Sie Ihre Plugins, Skills und Konnektoren in LegalWork.",
   "extensions.import_review_description": "Prüfen Sie, was Ihrer Bibliothek hinzugefügt wird.",
+  "extensions.import_review_updated": "Prüfen Sie den aktualisierten Import, bevor Sie fortfahren.",
   "extensions.import_all_projects": "In allen Projekten verfügbar",
   "extensions.import_choose_folder": "Ordner wählen",
   "extensions.import_choose_zip": "Archiv wählen",
