@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "b
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import * as os from "node:os";
 import { join } from "node:path";
 import type { ProjectField, ProjectSyncSettings } from "@legalwork/types/workspace";
 
@@ -254,6 +255,40 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test.skipIf(process.platform === "win32")("broken provider settings preserve ordinary sync and keep a learned cloud project blocked", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const local = await localProject(owner.config, "Ordinary project");
+    const cloud = await localProject(owner.config, "Existing cloud project");
+    // Old Documents=true settings exist before this folder is detected as cloud.
+    await saveProjectSyncSettings(owner.config, local, settings({ memberIds: [member.userId] }));
+    await saveProjectSyncSettings(owner.config, cloud, settings());
+    await write(local, "contract.txt", "Original document");
+    await write(cloud, "cloud-private.txt", "Must not be uploaded");
+    const userHome = join(owner.dir, "profile");
+    const providerConfig = join(userHome, ".dropbox", "info.json");
+    await mkdir(join(userHome, ".dropbox"), { recursive: true });
+    await writeFile(providerConfig, JSON.stringify({ personal: { path: cloud.path } }));
+    const profile = spyOn(os, "homedir").mockReturnValue(userHome);
+    try {
+      expect(await projectSyncStatus(owner.config, cloud)).toMatchObject({ fileSharingDisabledReason: "cloud_folder" });
+      await writeFile(providerConfig, "{provider update interrupted");
+      expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
+      expect((await runProjectSync(member.config, { platform })).error).toBeNull();
+      const [copy] = projectsOf(member.config);
+      expect(await read(copy, "contract.txt")).toBe("Original document");
+      await write(copy, "contract.txt", "Colleague's edit");
+      expect((await runProjectSync(member.config, { platform })).error).toBeNull();
+      expect((await runProjectSync(owner.config, { platform })).error).toBeNull();
+      expect(await read(local, "contract.txt")).toBe("Colleague's edit");
+      expect([...projects.values()].some(project => project.files.has("cloud-private.txt"))).toBe(false);
+      expect((await projectSyncStore(owner.config)).linkByWorkspace(cloud.id)?.settings.scope.documents).toBe(true);
+      expect(await projectSyncStatus(owner.config, cloud)).toMatchObject({ settings: { scope: { documents: false } } });
+      expect(await projectSyncStatus(owner.config, local)).toMatchObject({ state: "synced", settings: { scope: { documents: true } } });
+    } finally { profile.mockRestore(); }
+  });
+
   test("cloud folders show file sharing disabled and reject enabling it through the API", async () => {
     const owner = await machine("user_anna", "Anna");
     const project = await localProject(owner.config, "Cloud project");

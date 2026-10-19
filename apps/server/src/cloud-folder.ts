@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { posix, resolve, win32 } from "node:path";
+import { basename, posix, resolve, win32 } from "node:path";
 import { promisify } from "node:util";
 import { isWindowsCloudFolder } from "./cloud-folder-windows.js";
 
 const exec = promisify(execFile);
+const knownConfigRoots = new Map<string, string[]>();
+const configWarnings = new Set<string>();
 
 export function isWithinCloudRoot(path: string, roots: string[], platform = process.platform): boolean {
   const paths = platform === "win32" ? win32 : posix;
@@ -35,6 +37,26 @@ function dropboxRoots(source: string): string[] {
   const data: unknown = JSON.parse(source);
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid Dropbox folder configuration");
   return Object.values(data).flatMap(account => account && typeof account === "object" && "path" in account && typeof account.path === "string" ? [account.path] : []);
+}
+
+async function optionalConfigRoots(path: string, parse: (source: string) => string[]): Promise<string[]> {
+  try {
+    const source = await readConfig(path);
+    // Clients may briefly remove their settings during an atomic replacement.
+    if (source === undefined) return knownConfigRoots.get(path) ?? [];
+    const roots = parse(source);
+    knownConfigRoots.set(path, roots);
+    configWarnings.delete(path);
+    return roots;
+  } catch {
+    // One broken hint must not cancel the OS probe or other clients' roots.
+    // Keep positives already learned in this process during transient failures.
+    if (!configWarnings.has(path)) {
+      console.warn(`[cloud-folder] Could not inspect ${basename(path)}; retaining known roots and continuing other cloud checks.`);
+      configWarnings.add(path);
+    }
+    return knownConfigRoots.get(path) ?? [];
+  }
 }
 
 // QSettings INI strings can quote commas/spaces and escape Unicode or slashes.
@@ -75,8 +97,8 @@ export async function configuredCloudRoots(platform: NodeJS.Platform, userHome: 
     : [platform === "win32" ? env.APPDATA || paths.join(userHome, "AppData", "Roaming") : env.XDG_CONFIG_HOME || paths.join(userHome, ".config")];
   const clients = config.flatMap(root => [paths.join(root, "Nextcloud", "nextcloud.cfg"), paths.join(root, "ownCloud", "owncloud.cfg"), paths.join(root, "ownCloud", "ownCloud.cfg")]);
   const results = await Promise.all([
-    ...dropbox.map(async path => { const value = await readConfig(path); return value === undefined ? [] : dropboxRoots(value); }),
-    ...clients.map(async path => { const value = await readConfig(path); return value === undefined ? [] : syncClientRoots(value); }),
+    ...dropbox.map(path => optionalConfigRoots(path, dropboxRoots)),
+    ...clients.map(path => optionalConfigRoots(path, syncClientRoots)),
   ]);
   return [...new Set(results.flat())].filter(path => paths.isAbsolute(path));
 }
