@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AudioStep } from "../src/react-app/domains/onboarding/audio-step";
 import { useRecorderStore } from "../src/react-app/domains/recorder/recorder-store";
 
-test("Recorder setup does not ask for Dictate Anywhere permissions", () => {
+test("Recorder introduction keeps setup and permissions inside its dialog", () => {
   const initial = useRecorderStore.getInitialState();
   const previous = { ...initial };
   Object.assign(initial, {
@@ -19,9 +19,11 @@ test("Recorder setup does not ask for Dictate Anywhere permissions", () => {
         <AudioStep legalworkClient={null} workspaceId={null} onBack={() => {}} onDone={() => {}} />
       </QueryClientProvider>,
     );
-    expect(html).toContain("Microphone");
-    expect(html).toContain("System &amp; app audio");
-    expect(html).toContain("Speech model");
+    expect(html).toContain("Set up meeting recording");
+    expect(html).toContain("Skip for now");
+    expect(html).not.toContain("Allow microphone access");
+    expect(html).not.toContain("Allow system audio access");
+    expect(html).not.toContain("Download the speech model");
     expect(html).not.toContain("Input Monitoring");
     expect(html).not.toContain("Accessibility");
     expect(html).not.toContain("Insert dictated text");

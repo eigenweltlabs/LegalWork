@@ -1,10 +1,10 @@
 /** @jsxImportSource react */
 /**
- * Recorder onboarding stays one main step: device permissions/model first,
- * then explicit dictation, shortcut/test and meeting-detection choices.
+ * Meeting recording and Dictate Anywhere share device setup, while each
+ * feature requests its own missing access in an in-app setup dialog.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -18,9 +18,9 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalwork/types/audio";
 
-import { RecorderFlow } from "./recorder-flow";
+import { RecorderFlow, type RecorderSetupRequirement } from "./recorder-flow";
 import { dictationPermissionReady, dictationPermissionsReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
-import { MODEL_TIERS, tierName } from "../recorder/model-tiers";
+import { MODEL_TIERS } from "../recorder/model-tiers";
 import { recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore } from "../recorder/recorder-store";
 import { onboardingDemoActive } from "./onboarding-cover";
@@ -134,9 +134,9 @@ export function AudioStep(props: {
   const extraPermissions = demo ? dictationSetupPermissions : onboardingDictationPermissions(readiness);
   const nativeDictationReady = demo ? dictationSetupPermissions.every(kind => sim.dictationPermissions[kind]) : dictationPermissionsReady(readiness);
   const permissionViews: Record<DictationSetupPermission, { title: string; body: string }> = {
-    inputMonitoring: { title: t("onboarding_audio.permission_monitor_title"), body: t("onboarding_audio.permission_shortcut") },
-    accessibility: { title: t("onboarding_audio.permission_a11y_title"), body: t("onboarding_audio.permission_insert") },
-    automation: { title: t("onboarding_audio.permission_automation_title"), body: t("onboarding_audio.permission_paste") },
+    inputMonitoring: { title: t("onboarding_audio.shortcut_access_title"), body: t("onboarding_audio.shortcut_access_description") },
+    accessibility: { title: t("onboarding_audio.insert_access_title"), body: t("onboarding_audio.insert_access_description") },
+    automation: { title: t("onboarding_audio.permission_automation_title"), body: t("onboarding_audio.paste_access_description") },
   };
   const allDone = micDone && (!sysApplies || sysGranted) && nativeDictationReady && modelInstalled;
 
@@ -144,7 +144,7 @@ export function AudioStep(props: {
   // (focus), plus a slow poll while anything is still missing.
   useEffect(() => {
     if (demo) return;
-    const refresh = () => { void store.refreshPermissions(); void store.refreshDictationReadiness(); void store.refreshSystemDictation(); void store.refreshMeeting(); };
+    const refresh = () => { void Promise.all([store.refreshPermissions(), store.refreshDictationReadiness(), store.refreshSystemDictation(), store.refreshMeeting()]).finally(() => setSysWaiting(false)); };
     const onFocus = refresh;
     window.addEventListener("focus", onFocus);
     const timer = window.setInterval(refresh, PERMISSION_POLL_MS);
@@ -214,66 +214,65 @@ export function AudioStep(props: {
     recommendedModel?.installedSizeBytes ?? recommendedModel?.approxSizeBytes ?? DEMO_MODEL_BYTES,
   );
 
-  return (
-    <RecorderFlow
-      demo={demo}
-      loading={checkingReadiness}
-      microphoneReady={micDone}
-      permissionsReady={nativeDictationReady}
-      modelReady={modelInstalled}
-      onBack={props.onBack}
-      onDone={() => props.onDone(modelDownloading ? "background" : allDone ? "enabled" : "skipped")}
-      recorderPermissions={
-        <div className="divide-y divide-dls-border" data-testid="onboarding-recorder-grants">
-          <PermissionRow title={t("recorder.perm_microphone")} description={t("onboarding_audio.permission_microphone")} done={micDone} hint={micBlocked ? t("recorder.perm_microphone_instructions") : null}>
-            <Button size="sm" variant="outline" disabled={requestingMic} onClick={allowMicrophone}>
-              {requestingMic ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {t(micBlocked ? "recorder.perm_open_settings" : "recorder.perm_allow")}
-            </Button>
-          </PermissionRow>
-          {sysApplies ? <PermissionRow title={t("recorder.perm_system_audio")} description={t("onboarding_audio.permission_system")} done={sysGranted}>
-            <Button size="sm" variant="outline" onClick={openSystemAudioSettings}>
-              {waitingForSettings ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {t("recorder.perm_allow")}
-            </Button>
-          </PermissionRow> : null}
-          <PermissionRow title={t("onboarding_audio.model_title")} description={modelDownloading ? `${pct}% · ${t("onboarding_audio.background_note")}` : modelInstalled ? t("onboarding_audio.model_local") : `${tierName(recommended.key)} · ${modelSize}`} done={modelInstalled} hint={!demo && recommendedModel?.state === "error" ? recommendedModel.error : null}>
-            {modelDownloading ? <div className="flex w-full items-center gap-2">
-              <Progress value={pct} className="h-1 flex-1" />
-              <span className="text-xs tabular-nums text-subtext">{pct}%</span>
-              <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
-            </div> : <Button size="sm" variant="outline" onClick={startDownload}>{t("recorder.model_download")}</Button>}
-          </PermissionRow>
-        </div>
-      }
-      dictationPermissions={
-        <div className="divide-y divide-dls-border" data-testid="onboarding-dictation-permissions">
-          {extraPermissions.map(kind => <PermissionRow key={kind} title={permissionViews[kind].title} description={permissionViews[kind].body} done={demo ? sim.dictationPermissions[kind] : dictationPermissionReady(readiness?.[kind] ?? "not-determined")} hint={readiness?.[kind] === "broken" ? t("recorder.dictation_step_monitor_broken") : null}>
-            <Button size="sm" variant="outline" disabled={requestingDictation !== null} onClick={() => {
-              if (demo) { setSim(state => ({ ...state, dictationPermissions: { ...state.dictationPermissions, [kind]: true } })); return; }
-              setRequestingDictation(kind);
-              void store.requestDictationPermission(kind).finally(() => setRequestingDictation(null));
-            }}>
-              {requestingDictation === kind ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {t("recorder.perm_allow")}
-            </Button>
-          </PermissionRow>)}
-          {!demo && extraPermissions.length > 0 ? <p className="pt-3 text-xs leading-relaxed text-subtext">{t("recorder.perm_recheck_hint")}</p> : null}
-        </div>
-      }
-    />
-  );
-}
-
-function PermissionRow(props: { title: string; description: string; done: boolean; hint?: string | null; children: ReactNode }) {
-  return <div className="py-3">
-    <div className="flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <h2 className="text-sm font-medium text-foreground">{props.title}</h2>
-        <p className="mt-0.5 text-xs leading-relaxed text-subtext">{props.description}</p>
+  const microphone: RecorderSetupRequirement = {
+    id: "microphone",
+    title: t("onboarding_audio.mic_access_title"),
+    description: t("onboarding_audio.mic_access_description"),
+    ready: micDone,
+    hint: micBlocked ? t("recorder.perm_microphone_instructions") : null,
+    action: <Button disabled={requestingMic} onClick={allowMicrophone}>
+      {requestingMic ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t(micBlocked ? "recorder.perm_open_settings" : "recorder.perm_allow")}
+    </Button>,
+  };
+  const systemAudio: RecorderSetupRequirement = {
+    id: "systemAudio",
+    title: t("onboarding_audio.system_access_title"),
+    description: t("onboarding_audio.system_access_description"),
+    ready: sysGranted,
+    hint: waitingForSettings ? t("recorder.perm_recheck_hint") : null,
+    action: <Button onClick={openSystemAudioSettings}>
+      {waitingForSettings ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t("recorder.perm_allow")}
+    </Button>,
+  };
+  const model: RecorderSetupRequirement = {
+    id: "model",
+    title: t("onboarding_audio.local_transcription_title"),
+    description: t("onboarding_audio.local_transcription_description", { size: modelSize }),
+    ready: modelInstalled,
+    hint: !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
+    action: modelDownloading ? <div className="space-y-3" role="status">
+      <div className="flex items-center gap-3">
+        <Progress value={pct} className="h-1.5 flex-1" />
+        <span className="text-xs tabular-nums text-subtext">{pct}%</span>
+        <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
       </div>
-      {props.done ? <Check aria-label={t("recorder.perm_status_granted")} className="size-4 shrink-0 text-success" /> : <div className="flex max-w-[52%] shrink-0 flex-wrap items-center justify-end gap-2">{props.children}</div>}
-    </div>
-    {!props.done && props.hint ? <p className="mt-2 text-xs leading-relaxed text-subtext">{props.hint}</p> : null}
-  </div>;
+      <p className="text-xs text-subtext">{t("onboarding_audio.background_note")}</p>
+    </div> : <Button onClick={startDownload}>{t("recorder.model_download")}</Button>,
+  };
+  const dictationAccess: RecorderSetupRequirement[] = extraPermissions.map(kind => ({
+    id: kind,
+    title: permissionViews[kind].title,
+    description: permissionViews[kind].body,
+    ready: demo ? sim.dictationPermissions[kind] : dictationPermissionReady(readiness?.[kind] ?? "not-determined"),
+    hint: readiness?.[kind] === "broken" ? t("recorder.dictation_step_monitor_broken") : !demo ? t("recorder.perm_recheck_hint") : null,
+    action: <Button disabled={requestingDictation !== null} onClick={() => {
+      if (demo) { setSim(state => ({ ...state, dictationPermissions: { ...state.dictationPermissions, [kind]: true } })); return; }
+      setRequestingDictation(kind);
+      void store.requestDictationPermission(kind).finally(() => setRequestingDictation(null));
+    }}>
+      {requestingDictation === kind ? <Loader2 className="size-3.5 animate-spin" /> : null}
+      {t("recorder.perm_allow")}
+    </Button>,
+  }));
+
+  return <RecorderFlow
+    demo={demo}
+    loading={checkingReadiness}
+    meetingRequirements={[microphone, ...(sysApplies ? [systemAudio] : []), model]}
+    dictationRequirements={[microphone, ...dictationAccess, model]}
+    onBack={props.onBack}
+    onDone={() => props.onDone(modelDownloading ? "background" : allDone ? "enabled" : "skipped")}
+  />;
 }
