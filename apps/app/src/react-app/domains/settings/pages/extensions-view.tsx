@@ -148,8 +148,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const canImportPlugins = props.canEditPlugins && props.canUseGlobalScope;
   const canImportSkills = Boolean(props.skillImports && props.canImportSkills);
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
-  const packageRemoved = (pluginId: string) => {
-    setPackageLibrary(current => current ? { ...current, items: current.items.filter(item => item.pluginId !== pluginId) } : null);
+  const packageRemoved = (_pluginId: string) => {
+    setPackageLibrary(null);
     refresh();
   };
   const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
@@ -200,7 +200,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} showEmpty />
+            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} showEmpty />
           </DialogContent>
         </Dialog> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
@@ -263,7 +263,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} library showEmpty /> : null}
+          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library showEmpty /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>

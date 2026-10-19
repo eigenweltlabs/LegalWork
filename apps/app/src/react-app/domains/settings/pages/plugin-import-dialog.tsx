@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import JSZip from "jszip";
 import { ArrowLeft, Blocks, Bot, ChevronRight, FileArchive, FolderOpen, Github, Loader2, Package, Plug, RefreshCw, Search, Terminal, TriangleAlert } from "lucide-react";
-import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportSource } from "@legalwork/types/plugin-import";
+import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportSource, PluginImportScope } from "@legalwork/types/plugin-import";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +13,7 @@ import { ChatGptLogo } from "../../connections/provider-auth/chatgpt-plan-card";
 import claudeLogo from "@/assets/claude-logo.svg";
 import { HubTabs } from "../segmented-tabs";
 import { groupPluginImportCandidates, pluginImportCandidateKey, pluginImportDestination, pluginImportName } from "./plugin-import-presentation";
-import { packageParts } from "./skill-packages";
+import { packageParts } from "./plugin-package-contents";
 import type { SkillImportSource } from "./skills-view";
 
 export type PluginImportStore = {
@@ -21,16 +21,20 @@ export type PluginImportStore = {
   previewPluginImports(request: PluginImportRequest): Promise<PluginImportPreview[]>;
   installPluginImport(request: PluginImportRequest): Promise<PluginImportPreview>;
   refreshPluginImport(preview: PluginImportPreview): Promise<void>;
+  checkPluginImportUpdate?: (pluginId: string) => Promise<{ source: PluginImportSource; scope: PluginImportScope; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>;
+  rollbackPluginImport?: (pluginId: string) => Promise<void>;
 };
 const componentTypes: PluginImportPreview["components"][number]["type"][] = ["skill", "mcp", "agent", "command"];
 type ImportFilter = "all" | "plugin" | "skill" | "connector";
 const componentIcons = { skill: Blocks, mcp: Plug, agent: Bot, command: Terminal };
 const connectionStatusLabels = { compatible: "extensions.import_connection_compatible", setup: "extensions.import_connection_setup", unchecked: "extensions.import_connection_unchecked", blocked: "extensions.import_connection_blocked" };
+const readinessLabels = { ready: "extensions.import_ready", setup: "extensions.import_setup", partial: "extensions.import_partial", unsupported: "extensions.import_unsupported" };
+const sourceStateLabels = { installed: "extensions.import_source_installed", disabled: "extensions.import_source_disabled", available: "extensions.import_source_available", synced: "extensions.import_source_synced" };
 const componentLabel = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "extensions.import_skill" : type === "mcp" ? "integrations.connector" : type === "agent" ? "composer.agent_label" : "session.permission_detail_command");
 
-export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null> }) {
-  const [provider, setProvider] = useState<PluginImportProvider | null>(null);
+export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSource?: PluginImportSource; initialRoot?: string; initialScope?: PluginImportScope; initialAsWorkflow?: boolean }) {
+  const [provider, setProvider] = useState<PluginImportProvider | null>(props.initialSource?.provider || null);
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
   const [discovering, setDiscovering] = useState(true);
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
@@ -46,6 +50,9 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installed, setInstalled] = useState<PluginImportPreview | null>(null);
+  const [scope, setScope] = useState<PluginImportScope>(props.initialScope || (isDesktopRuntime() ? "global" : "project"));
+  const [acknowledgePartial, setAcknowledgePartial] = useState(false);
+  const [repositoryUrl, setRepositoryUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
   const zipInput = useRef<HTMLInputElement>(null);
@@ -54,8 +61,8 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const providerButton = useRef<HTMLButtonElement>(null);
   const selected = previews.find(item => item.root === selectedRoot);
   const excluded = selected?.connectors?.filter(check => check.status === "blocked") ?? [];
-  const needsCheck = Boolean(selected?.connectors?.length && !selected.validationId);
-  const importable = selected !== undefined && selected.components.length > 0 && !needsCheck;
+  const needsCheck = Boolean((selected?.connectors?.length || selected?.provenance) && !selected.validationId);
+  const importable = selected !== undefined && selected.components.length > 0 && !needsCheck && selected.readiness !== "unsupported";
   const singleComponent = selected?.components.length === 1 ? selected.components[0] : undefined;
   const destination = selected ? pluginImportDestination(selected) : null;
   const wholePlugin = destination?.tab === "plugins";
@@ -97,6 +104,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   }, [provider]);
 
   const preview = async (nextSource: PluginImportSource, label: string) => {
+    setAcknowledgePartial(false);
     setInstalled(null);
     setBusy(true);
     setError(null);
@@ -105,7 +113,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setSourceLabel(label);
     setStep("review");
     try {
-      const items = await props.store.previewPluginImports({ source: nextSource, scope: "global" });
+      const items = await props.store.previewPluginImports({ source: nextSource, scope, asWorkflow: props.initialAsWorkflow, ...(props.initialSource === nextSource ? { root: props.initialRoot } : {}) });
       if (!mounted.current) return;
       if (!items.length) throw new Error(t("extensions.import_failed"));
       setSource(nextSource);
@@ -115,6 +123,8 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
       if (mounted.current) { setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); setStep("choose"); }
     } finally { if (mounted.current) setBusy(false); }
   };
+
+  useEffect(() => { if (props.initialSource) void preview(props.initialSource, "url" in props.initialSource ? props.initialSource.url : "path" in props.initialSource ? props.initialSource.path : ""); }, [props.initialSource]);
 
   const chooseFolder = async () => {
     if (!provider) return;
@@ -153,7 +163,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
         for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
         zipBase64 = btoa(binary);
       }
-      if (mounted.current) await preview({ provider, zipBase64 }, label);
+      if (mounted.current) await preview({ provider, zipBase64, filename: label }, label);
     } catch (cause) {
       if (mounted.current) { setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); setBusy(false); setStep("choose"); }
     }
@@ -164,7 +174,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalling(true);
     setError(null);
     try {
-      const result = installed ?? await props.store.installPluginImport({ source, scope: "global", root: selected.root, digest: selected.digest, validationId: selected.validationId });
+      const result = installed ?? await props.store.installPluginImport({ source, scope, asWorkflow: props.initialAsWorkflow, root: selected.root, digest: selected.digest, validationId: selected.validationId, acknowledgePartial });
       setInstalled(result);
       await props.store.refreshPluginImport(result);
       await props.onImported(result);
@@ -181,7 +191,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalled(null);
     setError(null);
     try {
-      const checked = await props.store.previewPluginImports({ source, scope: "global", root, recheck });
+      const checked = await props.store.previewPluginImports({ source, scope, asWorkflow: props.initialAsWorkflow, root, recheck });
       if (mounted.current) setPreviews(items => items.map(item => checked.find(result => result.root === item.root) ?? item));
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); }
     finally { if (mounted.current) setBusy(false); }
@@ -244,6 +254,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
                   <Icon className="size-5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.bundledIn ? t("extensions.import_bundled_connector", { name: pluginImportName(item.bundledIn) }) : item.description || t(item.kind === "skill" ? "extensions.import_skill" : item.kind === "connector" ? "integrations.connector" : "extensions.import_plugin")}</span></span>
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
+                  {item.state ? <span className="text-xs text-muted-foreground">{t(sourceStateLabels[item.state])}</span> : null}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Button>;
               })}</div> : <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"><Package className="size-6 text-muted-foreground" /><p className="font-medium">{t(narrowed ? "extensions.import_no_matches" : "extensions.import_none_found")}</p><p className="text-sm text-muted-foreground">{t(narrowed ? "extensions.import_search_hint" : "extensions.import_file_hint")}</p></div>}
@@ -252,6 +263,8 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             <span className="text-sm text-muted-foreground">{t("extensions.import_file_source")}</span>
             <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void chooseFolder()}><FolderOpen />{t("extensions.import_choose_folder")}</Button><Button variant="outline" size="sm" onClick={() => zipInput.current?.click()}><FileArchive />{t("extensions.import_choose_zip")}</Button></div>
           </div>
+          <div className="flex items-center gap-2"><Input aria-label={t("extensions.import_repository_url")} placeholder="https://github.com/owner/repository" value={repositoryUrl} onChange={event => setRepositoryUrl(event.target.value)} /><Button variant="outline" disabled={!repositoryUrl.trim()} onClick={() => void preview({ provider, url: repositoryUrl.trim() }, repositoryUrl.trim())}>{t("extensions.import_review")}</Button></div>
+          <HubTabs items={[{ id: "global", label: t("extensions.import_scope_global") }, { id: "project", label: t("extensions.import_scope_project") }]} value={scope} onChange={value => { if (value === "global" || value === "project") setScope(value); }} />
         </> : busy ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
           {previews.length > 1 ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("extensions.import_select_package")}</p><div className="flex flex-wrap gap-2">{previews.map(item => <Button key={item.root} size="sm" variant={selectedRoot === item.root ? "secondary" : "outline"} disabled={installing} aria-pressed={selectedRoot === item.root} onClick={() => void checkPackage(item.root)}>{pluginImportName(item)}</Button>)}</div></div> : null}
           <div className="space-y-3">
@@ -266,6 +279,9 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             {wholePlugin && differentComponentName ? <p className="text-sm text-muted-foreground">{componentName}</p> : null}
             {destination?.connectorName ? <p className="text-sm text-muted-foreground">{t("extensions.import_connector_setup")}</p> : null}
           </div>
+          {selected.readiness ? <p role="status" className={selected.readiness === "unsupported" ? "text-sm font-medium text-destructive" : "text-sm font-medium"}>{t(readinessLabels[selected.readiness])}</p> : null}
+          {selected.requirements?.length ? <div className="space-y-3 rounded-xl border border-border p-4">{selected.requirements.map((item, index) => <div key={`${item.code}:${index}`} className="space-y-1"><p className="text-sm font-medium">{item.name}</p><p className="text-sm leading-relaxed text-muted-foreground">{item.message}</p></div>)}</div> : null}
+          {selected.readiness === "partial" ? <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={acknowledgePartial} onChange={event => setAcknowledgePartial(event.target.checked)} className="mt-1" />{t("extensions.import_accept_partial")}</label> : null}
           {selected.components.length > 1 ? <div className="max-h-80 overflow-y-auto rounded-xl border border-border divide-y divide-border">
             {componentTypes.map(type => {
               const items = selected.components.filter(item => item.type === type);
@@ -291,10 +307,10 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
         {error ? <div role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div> : null}
       </div>
 
-      <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden" aria-label={t("extensions.import_choose_zip")} onChange={event => { void upload(event.target.files, false); event.target.value = ""; }} />
+      <input ref={zipInput} type="file" accept=".zip,.plugin,application/zip" className="hidden" aria-label={t("extensions.import_choose_zip")} onChange={event => { void upload(event.target.files, false); event.target.value = ""; }} />
       <input ref={element => { folderInput.current = element; element?.setAttribute("webkitdirectory", ""); }} type="file" multiple className="hidden" aria-label={t("extensions.import_choose_folder")} onChange={event => { void upload(event.target.files, true); event.target.value = ""; }} />
       {step === "review" ? <DialogFooter className="mx-0 mb-0 shrink-0 flex-row items-center justify-between gap-3 px-6 py-4 sm:justify-between">
-        <Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !importable || !source} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : installed ? "extensions.import_retry" : excluded.length && importable ? "extensions.import_supported_items" : "extensions.import_install")}</Button>
+        <Button variant="ghost" disabled={busy || installing} onClick={() => { setStep("choose"); setError(null); }}><ArrowLeft />{t("common.back")}</Button><Button disabled={busy || installing || !importable || !source || selected?.readiness === "partial" && !acknowledgePartial} aria-busy={installing} onClick={() => void install()}>{installing ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}{t(installing ? "extensions.import_installing" : installed ? "extensions.import_retry" : excluded.length && importable ? "extensions.import_supported_items" : props.initialSource ? "extensions.import_update" : "extensions.import_install")}</Button>
       </DialogFooter> : null}
       </>}
     </DialogContent>

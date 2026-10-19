@@ -12,6 +12,8 @@ import { ensureDir } from "./utils.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { connectorConfigVariables } from "./connector-config.js";
+import type { PluginImportProvenance, PluginImportHistory, PluginImportReadiness, PluginImportRequirement } from "@legalwork/types/plugin-import";
+import { provenanceSchema, importStateSchema, importHistorySchema } from "./plugin-import-state.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -43,6 +45,8 @@ type CloudPluginMembership = {
 
 export type CloudPluginResolved = {
   plugin: {
+    provenance?: PluginImportProvenance;
+    importState?: { readiness: PluginImportReadiness; requirements: PluginImportRequirement[] };
     id: string;
     name: string;
     displayName?: string;
@@ -66,6 +70,11 @@ export type CloudImportedPluginFile = {
 };
 
 export type CloudImportedPlugin = {
+  provenance?: PluginImportProvenance;
+  importState?: { readiness: PluginImportReadiness; requirements: PluginImportRequirement[] };
+  history?: PluginImportHistory[];
+  fileHashes?: Record<string, string>;
+  snapshots?: string[];
   excludedConnectors?: Array<{ name: string; message: string }>;
   scope?: "global";
   sourceKind?: "plugin" | "skill" | "connector";
@@ -493,6 +502,11 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       }];
     }) : [];
     const plugin: CloudImportedPlugin = {
+      ...(provenanceSchema.safeParse(value.provenance).success ? { provenance: provenanceSchema.parse(value.provenance) } : {}),
+      ...(importStateSchema.safeParse(value.importState).success ? { importState: importStateSchema.parse(value.importState) } : {}),
+      ...(importHistorySchema.safeParse(value.history).success ? { history: importHistorySchema.parse(value.history) } : {}),
+      ...(isRecord(value.fileHashes) ? { fileHashes: Object.fromEntries(Object.entries(value.fileHashes).filter((entry): entry is [string, string] => typeof entry[1] === "string")) } : {}),
+      ...(Array.isArray(value.snapshots) ? { snapshots: value.snapshots.filter((entry): entry is string => typeof entry === "string") } : {}),
       ...(Array.isArray(value.excludedConnectors) ? { excludedConnectors: value.excludedConnectors.flatMap(entry => isRecord(entry) && typeof entry.name === "string" && typeof entry.message === "string" ? [{ name: entry.name, message: entry.message }] : []) } : {}),
       ...(value.scope === "global" ? { scope: "global" } : {}),
       ...(value.sourceKind === "plugin" || value.sourceKind === "skill" || value.sourceKind === "connector" ? { sourceKind: value.sourceKind } : {}),
@@ -514,6 +528,11 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
     marketplaces,
     plugins,
   };
+}
+
+export function readStoredPlugin(value: unknown): CloudImportedPlugin | undefined {
+  if (!isRecord(value) || typeof value.pluginId !== "string") return undefined;
+  return readCloudImports({ cloudImports: { plugins: { [value.pluginId]: value } } }).plugins[value.pluginId];
 }
 
 function runtimeDbPath(config: ServerConfig): string {
@@ -768,6 +787,8 @@ export async function installCloudPlugin(input: {
   await Promise.all(removedMcpNames.map((name) => removeMcp(input.serverConfig, input.workspaceId, name)));
 
   const imported: CloudImportedPlugin = {
+    ...(input.resolved.plugin.provenance ? { provenance: input.resolved.plugin.provenance } : {}),
+    ...(input.resolved.plugin.importState ? { importState: input.resolved.plugin.importState } : {}),
     ...(input.resolved.plugin.excludedConnectors ? { excludedConnectors: input.resolved.plugin.excludedConnectors } : {}),
     ...(input.global ? { scope: "global" } : {}),
     ...(input.resolved.plugin.sourceKind ? { sourceKind: input.resolved.plugin.sourceKind } : {}),

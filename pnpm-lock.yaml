@@ -688,6 +688,9 @@ importers:
       postal-mime:
         specifier: 4.0.1
         version: 4.0.1
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       smb3-client:
         specifier: 0.2.0
         version: 0.2.0(patch_hash=6750c79b7b43bafb5401de9ce8b3aaddd1332b0bc77dccc00e118c2e1d064a9d)
@@ -722,6 +725,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.7
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       '@types/ssh2-sftp-client':
         specifier: ^9.0.6
         version: 9.0.6
@@ -4364,6 +4370,9 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/set-cookie-parser@2.4.10':
     resolution: {integrity: sha512-GGmQVGpQWUe5qglJozEjZV/5dyxbOOZ0LHe/lqyWssB88Y4svNfst0uqBVscdDeIKl5Jy5+aPSvy7mI9tYRguw==}
@@ -8180,6 +8189,11 @@ packages:
 
   semver@7.7.4:
     resolution: {integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==}
+    engines: {node: '>=10'}
+    hasBin: true
+
+  semver@7.8.5:
+    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -13237,6 +13251,8 @@ snapshots:
 
   '@types/retry@0.12.0': {}
 
+  '@types/semver@7.8.0': {}
+
   '@types/set-cookie-parser@2.4.10':
     dependencies:
       '@types/node': 25.6.0
@@ -17726,6 +17742,8 @@ snapshots:
   semver@6.3.1: {}
 
   semver@7.7.4: {}
+
+  semver@7.8.5: {}
 
   send@1.2.1:
     dependencies:

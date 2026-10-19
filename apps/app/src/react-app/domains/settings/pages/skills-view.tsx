@@ -123,7 +123,7 @@ export type GithubSkillItem = { dir: string; name: string; description: string }
 export type SkillsExtensionsStore = SkillResourcesStore & SkillPackagesStore & {
   /** A GitHub repo that is a package (skills, connectors and commands together): what it would bring, and importing it. */
   previewClaudePlugin: (url: string) => Promise<LegalworkClaudePluginPreview>;
-  installClaudePlugin: (url: string) => Promise<{ ok: boolean; message: string }>;
+  installClaudePlugin: (url: string, acknowledgePartial?: boolean) => Promise<{ ok: boolean; message: string }>;
   /** A file of one of the firm's skills or workflows, to read (they cannot be changed here). */
   readFirmSkill: (name: string, path?: string) => Promise<FirmHubSkillFile>;
   skills: () => SkillCard[];
@@ -1567,6 +1567,7 @@ export function ImportSkillsButton(props: {
   // A repo that is a package is offered whole, where the firm lets members import packages.
   const offerPackages = !asWorkflow && !useOrgPolicyForbids("plugins.allowCustom");
   const [found, setFound] = useState<{ url: string; preview: LegalworkClaudePluginPreview } | null>(null);
+  const [partialAccepted, setPartialAccepted] = useState(false);
   const noun = asWorkflow ? "workflow" : "skill";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = props.open ?? internalOpen;
@@ -1595,6 +1596,7 @@ export function ImportSkillsButton(props: {
     setImporting(false);
     setStatus(null);
     setFound(null);
+    setPartialAccepted(false);
   };
 
   const finalNameFor = (item: GithubSkillItem) => {
@@ -1613,6 +1615,7 @@ export function ImportSkillsButton(props: {
     setStatus(null);
     setFilter("");
     setFound(null);
+    setPartialAccepted(false);
     try {
       const [result, preview] = await Promise.all([
         extensions.scanGithubSkills(trimmed, sourceRef.trim() || undefined),
@@ -1697,7 +1700,7 @@ export function ImportSkillsButton(props: {
     setImporting(true);
     setError(null);
     try {
-      const result = await extensions.installClaudePlugin(found.url);
+      const result = await extensions.installClaudePlugin(found.url, partialAccepted);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -1798,7 +1801,10 @@ export function ImportSkillsButton(props: {
                     <div className="text-sm font-medium text-dls-text">{t("skills.package_found", { name: found.preview.name })}</div>
                     <div className="mt-1 text-xs text-dls-secondary">{packageParts(found.preview.components.map((component) => component.type))}</div>
                   </div>
-                  <Button type="button" disabled={importing} onClick={() => void runPackageImport()}>
+                  {found.preview.review?.requirements?.map((item, index) => <p key={`${item.code}:${index}`} className="text-sm text-muted-foreground">{item.message}</p>)}
+                  {found.preview.review?.connectors?.map(item => <p key={item.installedName} className="text-sm text-muted-foreground">{item.name}: {item.message}</p>)}
+                  {found.preview.review?.readiness === "partial" ? <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={partialAccepted} onChange={event => setPartialAccepted(event.target.checked)} />{t("extensions.import_accept_partial")}</label> : null}
+                  <Button type="button" disabled={importing || found.preview.review?.readiness === "unsupported" || found.preview.review?.readiness === "partial" && !partialAccepted} onClick={() => void runPackageImport()}>
                     {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     {t("skills.package_import")}
                   </Button>

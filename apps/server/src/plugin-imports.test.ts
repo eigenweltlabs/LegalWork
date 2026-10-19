@@ -142,10 +142,10 @@ describe("complete plugin imports", () => {
     const notes = plan!.preview.warnings.join("\n");
     expect(notes).toContain("runtime substitutions and dynamic commands will not run");
     expect(notes).toContain('source model "sonnet" will not be selected automatically');
-    expect(notes).toContain("tool restrictions, separate execution context will not carry over");
+    expect(plan!.preview.requirements).toEqual(expect.arrayContaining([expect.objectContaining({ code: "execution_semantics", required: true, status: "blocked" })]));
     expect(plan!.preview.connectors).toEqual(expect.arrayContaining([expect.objectContaining({ name: "helper", status: "blocked", code: "credential_helper" }), expect.objectContaining({ name: "customAuth", status: "blocked", code: "oauth_override" })]));
     expect(plan!.preview.components.some(component => component.type === "mcp")).toBe(false);
-    expect(notes).toContain("Automatic hooks (hooks) will not run");
+    expect(plan!.preview.requirements?.some(item => item.code === "unsupported_hooks")).toBe(true);
     expect(notes).not.toMatch(/review .*settings|configure .*before connecting|metadata is preserved/);
   });
 
@@ -168,7 +168,7 @@ describe("complete plugin imports", () => {
     const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", path: source }, scope: "global" }, root);
     expect(plan!.preview.name).toBe("app-internal");
     expect(plan!.preview.displayName).toBe("Clerk");
-    expect(plan!.preview.id).toBe("import:chatgpt:app-internal:global");
+    expect(plan!.preview.id).toMatch(/^import:chatgpt:app-internal:[a-f0-9]{16}:global$/);
     await installPluginImport(config, "test", root, plan!, true);
     const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[plan!.preview.id];
     expect(installed?.name).toBe("app-internal");
@@ -182,7 +182,7 @@ describe("complete plugin imports", () => {
     const mcp = plan!.resolved.memberships.find(m => m.configObject?.objectType === "mcp")?.configObject?.latestVersion?.normalizedPayloadJson;
     expect(JSON.stringify(mcp)).toContain("override.example");
     expect(JSON.stringify(mcp)).not.toContain("default.example");
-    expect(plan!.preview.warnings.join(" ")).toContain("hooks");
+    expect(plan!.preview.requirements?.some(item => item.code === "unsupported_hooks")).toBe(true);
     expect(plan!.preview.warnings.join(" ")).not.toContain("configure its environment");
     expect(plan!.resourceFiles.some(file => file.path.endsWith("assets/icon.png") && file.bytes[1] === 255)).toBe(true);
     const content = plan!.resolved.memberships.find(m => m.configObject?.objectType === "command")?.configObject?.latestVersion?.rawSourceText;
@@ -199,7 +199,16 @@ describe("complete plugin imports", () => {
     expect(plan!.resourceFiles.some(f => f.path.endsWith("scripts/shared.py"))).toBe(true);
   });
   test("portable metadata stays canonical and inline OpenAI extension replaces legacy overlay", async () => {
-    const files = { "plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "canonical", version: "2", extensions: { "com.openai": { apps: "./.app.json" } } }), ".codex-plugin/plugin.json": '{"name":"legacy","version":"1","mcpServers":"./missing.json"}', "skills/search/SKILL.md": skill, "mcp.json": JSON.stringify({ mcpServers: { public: { type: "streamable-http", url: "https://public.example/mcp", extensions: { "com.openai": { auth: { type: "none" } } } }, private: { url: "https://private.example/mcp", extensions: { "com.openai": { auth: { type: "oauth", client: { mode: "provided", clientId: "client" }, baseScopes: ["read"] } } } } } }) };
+    const files = {
+      "plugin.json": JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "canonical", version: "2",
+        extensions: { "com.openai": { apps: "./.app.json", mcpServers: {
+          public: { url: "https://public.example/mcp", extensions: { "com.openai": { auth: { type: "none" } } } },
+          private: { url: "https://private.example/mcp", extensions: { "com.openai": { auth: { type: "oauth", client: { mode: "provided", clientId: "client" }, baseScopes: ["read"] } } } },
+        } } },
+      }),
+      ".app.json": '{"apps":{}}', ".codex-plugin/plugin.json": '{"name":"legacy","version":"1","mcpServers":"./missing.json"}', "skills/search/SKILL.md": skill,
+    };
     const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive(files) }, scope: "project" }, "/project");
     expect(plan!.preview.name).toBe("canonical"); expect(plan!.preview.version).toBe("2"); expect(plan!.preview.format).toBe("portable");
     expect(JSON.stringify(plan!.resolved)).toContain('"oauth":false'); expect(JSON.stringify(plan!.resolved)).toContain('"clientId":"client"');
@@ -333,7 +342,7 @@ describe("complete plugin imports", () => {
     }
   }));
   test("recognizes root manifests without optional fields and rejects using the wrong provider", async () => {
-    const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive({ "plugin.json": '{"name":"plain"}', "skills/search/SKILL.md": skill, "mcp.json": '{"mcpServers":{"remote":{"url":"https://example.com/mcp"}}}' }) }, scope: "project" }, "/project");
+    const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", zipBase64: archive({ "plugin.json": '{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"plain"}', "skills/search/SKILL.md": skill, "mcp.json": '{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"remote":{"type":"streamable-http","url":"https://example.com/mcp"}}}' }) }, scope: "project" }, "/project");
     expect(plan!.preview.components).toHaveLength(2);
     await expect(resolvePluginImports({ ...request(), source: { provider: "chatgpt", zipBase64: archive(fixtures) } }, "/project")).rejects.toThrow("matching import button");
   });
@@ -423,7 +432,7 @@ test("import API previews, enforces ownership, rejects stale sources and manages
     const stale = await fetch(`${base}/plugin-imports/install`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ ...payload, root: reviewed.root, digest: reviewed.digest }) });
     expect(stale.status).toBe(409);
     const fresh = await (await fetch(`${base}/plugin-imports/preview`, { method: "POST", headers: ownerHeaders, body: JSON.stringify(payload) })).json();
-    const imported = await fetch(`${base}/plugin-imports/install`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ ...payload, root: fresh.items[0].root, digest: fresh.items[0].digest }) });
+    const imported = await fetch(`${base}/plugin-imports/install`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ ...payload, root: fresh.items[0].root, digest: fresh.items[0].digest, validationId: fresh.items[0].validationId, acknowledgePartial: true }) });
     expect(imported.status).toBe(200);
     const installed = await imported.json();
     expect(installed.item.scope).toBe("global");
@@ -439,6 +448,6 @@ test("import API previews, enforces ownership, rejects stale sources and manages
     const projectPreview = await fetch(`${base}/plugin-imports/preview`, { method: "POST", headers, body: JSON.stringify(zippedPayload) });
     expect(projectPreview.status).toBe(200);
     const project = await projectPreview.json();
-    expect((await fetch(`${base}/plugin-imports/install`, { method: "POST", headers, body: JSON.stringify({ ...zippedPayload, root: project.items[0].root, digest: project.items[0].digest }) })).status).toBe(200);
+    expect((await fetch(`${base}/plugin-imports/install`, { method: "POST", headers, body: JSON.stringify({ ...zippedPayload, root: project.items[0].root, digest: project.items[0].digest, validationId: project.items[0].validationId }) })).status).toBe(200);
   } finally { await server.stop(); engine.stop(true); }
 }), 30000);

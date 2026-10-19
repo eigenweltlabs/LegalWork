@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { PluginImportPreview } from "@legalwork/types/plugin-import";
+import type { PluginImportRequest, PluginImportPreview } from "@legalwork/types/plugin-import";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { createLegalworkServerStore } from "../src/react-app/domains/connections/legalwork-server-store";
 import { createExtensionsStore } from "../src/react-app/domains/settings/state/extensions-store";
@@ -18,6 +18,7 @@ let importWrites = 0;
 let finishConnectors: (() => void) | undefined;
 let connectorWait: Promise<void> | undefined;
 let connectorNames: readonly string[] = [];
+let importRequests: PluginImportRequest[] = [];
 
 function makeStore() {
   const legalworkServer = createLegalworkServerStore({
@@ -34,7 +35,7 @@ function makeStore() {
 }
 
 beforeEach(() => {
-  skillReads = 0; imported = false; importWrites = 0; skillReadStarted = undefined; skillReadWait = undefined; finishConnectors = undefined; connectorWait = undefined; connectorNames = [];
+  importRequests = []; skillReads = 0; imported = false; importWrites = 0; skillReadStarted = undefined; skillReadWait = undefined; finishConnectors = undefined; connectorWait = undefined; connectorNames = [];
   Object.defineProperty(globalThis, "window", { configurable: true, value: { __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string) => {
       if (command !== "listLocalSkills") throw new Error(`Unexpected desktop command: ${command}`);
@@ -48,7 +49,8 @@ beforeEach(() => {
   globalThis.fetch = async (input, init) => {
     const request = new Request(input, init);
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/plugin-imports/install")) { imported = true; importWrites += 1; return Response.json({ preview }); }
+    if (path.endsWith("/plugin-imports/preview")) { importRequests.push(await request.json()); return Response.json({ items: [{ ...preview, format: "skills", readiness: "ready", validationId: "reviewed-on-server", components: preview.components.filter(item => item.type === "skill") }] }); }
+    if (path.endsWith("/plugin-imports/install")) { importRequests.push(await request.json()); imported = true; importWrites += 1; return Response.json({ preview }); }
     if (path.endsWith("/firm-hub/skills")) return Response.json({ items: [] });
     throw new Error(`Unexpected request: ${request.url}`);
   };
@@ -107,6 +109,18 @@ test("missing imported skills reject completion, and retry updates the library w
   imported = true;
   await store.refreshPluginImport(result);
   expect(store.skills().map(skill => skill.name)).toEqual(["github-review"]);
+  expect(importWrites).toBe(1);
+  store.dispose();
+});
+
+
+test("standalone GitHub skills use shared review and installation without a desktop copy or the old content-download route", async () => {
+  const store = makeStore();
+  const result = await store.importGithubSkills({ url: "https://github.com/team/skills", ref: "release/v1", paths: ["skills/review"], asWorkflow: true });
+  expect(result.ok).toBe(true);
+  expect(importRequests).toHaveLength(2);
+  expect(importRequests[0]).toMatchObject({ source: { provider: "claude", url: "https://github.com/team/skills", directory: "skills/review", ref: "release/v1" }, scope: "global", asWorkflow: true });
+  expect(importRequests[1]).toMatchObject({ digest: "reviewed", validationId: "reviewed-on-server" });
   expect(importWrites).toBe(1);
   store.dispose();
 });
