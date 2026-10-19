@@ -28,8 +28,11 @@ function normalizedPlatform(platform) {
 }
 
 function candidateAccelerators(platform) {
+  if (platform === "darwin") {
+    return ["Control+Alt", "CommandOrControl+Shift+D", "F8", "F9"];
+  }
   if (platform === "windows") {
-    return ["Control+Super+D", "CommandOrControl+Shift+D", "F8", "F9"];
+    return ["Control+Super", "Control+Super+D", "CommandOrControl+Shift+D", "F8", "F9"];
   }
   return ["CommandOrControl+Shift+D", "F8", "F9"];
 }
@@ -151,6 +154,10 @@ export class SystemDictationService {
       if (typeof parsed?.accelerator === "string" && parsed.accelerator.trim()) {
         this.accelerator = parsed.accelerator.trim();
         this.customAccelerator = parsed.customAccelerator === true;
+        // Upgrade saved defaults and automatic fallbacks, preserving chosen shortcuts.
+        if (parsed.customAccelerator === false && candidateAccelerators(this.platform).includes(this.accelerator)) {
+          this.accelerator = this.defaultAccelerator;
+        }
       }
     } catch {
       this.enabled = false;

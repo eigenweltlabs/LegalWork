@@ -15,8 +15,8 @@ async function streamLevel(hud, level, duration = 100) {
   } while (Date.now() < until);
 }
 const status = {
-  enabled: true, registered: true, shortcutCaptureActive: false, accelerator: "CommandOrControl+Shift+D",
-  defaultAccelerator: "CommandOrControl+Shift+D", customAccelerator: false, mode: "hold", supportsHold: true,
+  enabled: true, registered: true, shortcutCaptureActive: false, accelerator: "Control+Alt",
+  defaultAccelerator: "Control+Alt", customAccelerator: false, mode: "hold", supportsHold: true,
   platform: "darwin", accessibility: "granted", error: null,
 };
 
@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
     // Only this HUD's renderer can invoke its controls.
     ipcMain.emit("legalwork:dictation-hud:action", { sender: {} }, "start");
     assert.deepEqual(actions, []);
-    for (const [locale, message] of [["en", "Hold ⌘ ⇧ D and speak"], ["de", "Halten Sie ⌘ ⇧ D und sprechen Sie"]]) {
+    for (const [locale, message] of [["en", "Hold ⌃ ⌥ and speak"], ["de", "Halten Sie ⌃ ⌥ und sprechen Sie"]]) {
       await hud.setState("idle", message, locale);
       await delay(220);
       const hint = await window.webContents.executeJavaScript(`({

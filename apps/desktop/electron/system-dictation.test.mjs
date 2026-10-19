@@ -98,7 +98,7 @@ async function tempDir() {
 
 test("system dictation persists, registers fallback shortcut, and handles cancel", async () => {
   const userDataDir = await tempDir();
-  const shortcuts = new FakeShortcuts(["Control+Super+D", "Control+Alt+Q"]);
+  const shortcuts = new FakeShortcuts(["Control+Super", "Control+Super+D", "Control+Alt+Q"]);
   let toggles = 0;
   let cancels = 0;
   const service = new SystemDictationService({
@@ -334,7 +334,7 @@ test("a monitor reset releases a latched hold and clears chord state", async (t)
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-async function gestureService(t) {
+async function gestureService(t, platform = "darwin", accelerator = "Fn") {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
   const keyMonitor = new FakeKeyMonitor();
@@ -342,7 +342,7 @@ async function gestureService(t) {
   const events = [];
   const cancelReasons = [];
   const service = new SystemDictationService({
-    userDataDir, platform: "darwin", globalShortcut: shortcuts, keyMonitor,
+    userDataDir, platform, globalShortcut: shortcuts, keyMonitor,
     clipboard: new FakeClipboard(), systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
     onPress: () => { events.push("start"); service.setRuntimeState("starting"); },
@@ -353,8 +353,58 @@ async function gestureService(t) {
   t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
   await service.initialize();
   await service.setEnabled(true);
-  await service.setShortcut("Fn");
+  if (accelerator) await service.setShortcut(accelerator);
   return { service, keyMonitor, shortcuts, events, cancelReasons };
+}
+
+for (const { platform, keys, previousDefault } of [
+  { platform: "darwin", keys: ["Control", "Alt"], previousDefault: "CommandOrControl+Shift+D" },
+  { platform: "win32", keys: ["Control", "Super"], previousDefault: "Control+Super+D" },
+]) {
+  test(`${platform} default supports hold and double-tap without a letter key`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t, platform, null);
+    const press = async () => {
+      for (const key of keys) await keyMonitor.emit("down", key);
+    };
+    const release = async () => {
+      for (const key of [...keys].reverse()) await keyMonitor.emit("up", key);
+    };
+    assert.equal(service.status().accelerator, keys.join("+"));
+    assert.equal(service.status().customAccelerator, false);
+    await keyMonitor.emit("down", keys[0]);
+    assert.deepEqual(events, [], "one modifier alone does not start dictation");
+    await press();
+    t.mock.timers.tick(500);
+    await release();
+    assert.deepEqual(events, ["start", "finish"]);
+
+    service.setRuntimeState("success");
+    t.mock.timers.tick(250);
+    await press();
+    t.mock.timers.tick(60);
+    await release();
+    t.mock.timers.tick(150);
+    await press();
+    await release();
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, ["start", "finish", "start"]);
+    assert.equal(service.status().mode, "tap");
+    await press();
+    await release();
+    assert.deepEqual(events, ["start", "finish", "start", "finish"]);
+  });
+
+  test(`${platform} updates the saved default while preserving an explicitly chosen shortcut`, async (t) => {
+    const { service } = await gestureService(t, platform, null);
+    await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: previousDefault, customAccelerator: false }));
+    const upgraded = await service.initialize();
+    assert.equal(upgraded.accelerator, keys.join("+"));
+    assert.equal(upgraded.registered, true);
+    await writeFile(service.settingsPath, JSON.stringify({ enabled: true, accelerator: previousDefault, customAccelerator: true }));
+    const customized = await service.initialize();
+    assert.equal(customized.accelerator, previousDefault);
+    assert.equal(customized.customAccelerator, true);
+  });
 }
 
 test("double-tap during microphone startup starts once and finishes with one press", async (t) => {

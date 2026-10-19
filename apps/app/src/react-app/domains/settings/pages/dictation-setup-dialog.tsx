@@ -58,7 +58,7 @@ export function DictationShortcutControl(props: { compact?: boolean; disabled?: 
   const dictation = store.systemDictation;
   const [saving, setSaving] = useState(false);
   const [demoCapturing, setDemoCapturing] = useState(false);
-  const [demoAccelerator, setDemoAccelerator] = useState("Control+Shift+Space");
+  const [demoAccelerator, setDemoAccelerator] = useState("Control+Alt");
   const capturing = props.demo ? demoCapturing : dictation?.shortcutCaptureActive === true;
   const wasCapturing = useRef(false);
   useEffect(() => {
