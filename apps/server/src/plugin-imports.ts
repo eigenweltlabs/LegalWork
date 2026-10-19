@@ -12,7 +12,7 @@ import { connectorImportBundle, discoverConnectorImports, normalizeImportedConne
 import { connectorConfigVariables } from "./connector-config.js";
 import { assessImportedConnector } from "./connector-import-compatibility.js";
 import { validatePortableManifest, validatePortableMcp, portableEntryError } from "./plugin-import-format.js";
-import { evaluateImportRequirements, pluginRequirements } from "./plugin-import-requirements.js";
+import { evaluateImportRequirements, pluginRequirements, instructionRequirements } from "./plugin-import-requirements.js";
 import { githubPluginSource } from "./plugin-import-source.js";
 import { sourceInstallationStates } from "./plugin-import-discovery.js";
 
@@ -316,6 +316,7 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
     const ignored = Object.entries(unsupportedExecution).filter(([field]) => parsed.data[field]).map(([, label]) => label);
     if (target.provider === "legalwork" && ignored.length) warnings.push(`${type} ${originalName}: ${ignored.join(", ")} will not carry over. LegalWork's own execution and tool permissions apply.`);
     if (target.provider !== "legalwork" && ignored.length) requirements.push({ kind: "permission", name: originalName, code: "execution_semantics", required: Boolean(parsed.data["allowed-tools"] || parsed.data["disable-model-invocation"] || parsed.data.context), status: parsed.data["allowed-tools"] || parsed.data["disable-model-invocation"] || parsed.data.context ? "blocked" : "changed", message: `${originalName} requires ${ignored.join(", ")}. LegalWork cannot preserve this behavior; adapt the skill before using it here.` });
+    if (target.provider !== "legalwork") requirements.push(...instructionRequirements(originalName, raw, type));
     const content = buildFrontmatter({ ...parsed.data, name: installedName }) + "\n" + body;
     memberships.push({ configObjectId: key, configObject: { id: key, objectType: type, title: installedName, description: str(parsed.data.description) ?? originalName, currentRelativePath: destination, status: "active", updatedAt: null, latestVersion: { id: createHash("sha256").update(raw).digest("hex"), rawSourceText: content, normalizedPayloadJson: null } } });
     components.push({ type, name: originalName, installedName: type === "agent" ? `${namespace}/${installedName}` : installedName });
@@ -336,7 +337,8 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
       const selected = path === "." || path === "./" ? "" : safePath(path);
       if (files.has(selected) && selected.endsWith(".md")) { addDocument(type, selected); continue; }
       const matches = [...files.keys()].filter(entry => (!selected || entry.startsWith(`${selected}/`)) && (type === "skill" ? portable && target.provider !== "legalwork" ? new RegExp(`^${selected}/[^/]+/SKILL\\.md$`).test(entry) : /(^|\/)SKILL\.md$/.test(entry) : entry.endsWith(".md")));
-      if (!matches.length && !defaults.includes(path)) fail(`No ${type} files found at ${path}`);
+      const defaultLocation = defaults.some(path => (path === "." || path === "./" ? "" : safePath(path)) === selected);
+      if (!matches.length && !defaultLocation) fail(`No ${type} files found at ${path}`);
       for (const entry of matches) addDocument(type, entry);
     }
   };

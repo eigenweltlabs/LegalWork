@@ -28,3 +28,11 @@ test("GitHub folder sources pin snapshots, distinguish subdirectories and preser
     expect(paths.some(path => path.includes("zipball/release"))).toBe(false);
   } finally { server.stop(true); if (previous === undefined) delete process.env.LEGALWORK_GITHUB_API_BASE; else process.env.LEGALWORK_GITHUB_API_BASE = previous; }
 });
+
+test("rate-limited real-source downloads explain retry instead of suggesting broken credentials", async () => {
+  const previous = process.env.LEGALWORK_GITHUB_API_BASE;
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("Retry later", { status: 429 }) });
+  process.env.LEGALWORK_GITHUB_API_BASE = `http://127.0.0.1:${server.port}`;
+  try { await expect(resolvePluginImports({ source: { provider: "chatgpt", url: "https://github.com/team/plugins" }, scope: "project" }, "/import-test")).rejects.toThrow("rate limiting"); }
+  finally { server.stop(true); if (previous === undefined) delete process.env.LEGALWORK_GITHUB_API_BASE; else process.env.LEGALWORK_GITHUB_API_BASE = previous; }
+});

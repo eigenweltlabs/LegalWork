@@ -17,6 +17,14 @@ export function pluginRequirements(manifest: Record<string, unknown>): PluginImp
   return result;
 }
 
+/** Identify explicit commands and APIs supplied by the source host. */
+export function instructionRequirements(name: string, source: string, kind: "skill" | "agent" | "command"): PluginImportRequirement[] {
+  if (kind === "command" && /\b(?:claude|codex)\s+mcp\s+(?:add|remove|import)\b/.test(source)) return [{ kind: "runtime", name, code: "source_app_setup", required: true, status: "blocked", message: "This setup workflow changes connector settings in its original app. It cannot configure LegalWork. Add a standalone connector using the provider's configuration instead." }];
+  if (source.includes("@oai/artifact-tool") || /Codex workspace dependencies/i.test(source) && source.includes("load_workspace_dependencies")) return [{ kind: "runtime", name, code: "source_runtime", required: true, status: "blocked", message: "These instructions require OpenAI's artifact runtime or workspace dependency loader. Those dependencies are not included in this package or provided by LegalWork. Adapt the skill to a portable runtime before importing." }];
+  if (/\bmcp__codex_(?:app|apps)__/.test(source)) return [{ kind: "runtime", name, code: "source_tool_references", required: false, status: "changed", message: "These instructions reference tools exposed by the original ChatGPT/Codex host. The named tools do not transfer with the skill; adapt those calls to LegalWork connectors before relying on this workflow." }];
+  return [];
+}
+
 export function evaluateImportRequirements(preview: PluginImportPreview, installed: CloudImportedPlugin[] = []): void {
   const requirements = (preview.requirements ?? []).map((requirement): PluginImportRequirement => {
     if (requirement.kind !== "dependency") return requirement;

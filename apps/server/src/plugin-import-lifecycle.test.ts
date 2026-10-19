@@ -137,3 +137,30 @@ test("portable connectors isolate invalid entries and reserve persistent environ
   const config = checked.connectorConfigs?.[checked.preview.components.find(item => item.type === "mcp")!.installedName];
   expect(config?.env).toMatchObject({ PLUGIN_ROOT: expect.stringContaining("imported-plugins"), PLUGIN_DATA: expect.stringContaining("plugin-data") });
 }));
+
+
+test("real bundled manifest shapes allow absent optional skills directories and expose unsupported source hosts", () => fixture(async root => {
+  const source = join(root, "host-plugin");
+  await files(source, { ".codex-plugin/plugin.json": JSON.stringify({ name: "host-plugin", skills: "./skills/", mcpServers: "./.mcp.json" }), ".mcp.json": JSON.stringify({ mcpServers: { desktop: { command: "node", args: ["server.mjs"], env_vars: ["CODEX_APP_TOOLS_PIPE_PATH"] } } }) });
+  const [checked] = await resolvePluginImports({ source: { provider: "chatgpt", path: source }, scope: "project" }, root);
+  expect(checked?.preview.readiness).toBe("unsupported");
+  expect(checked?.preview.connectors?.[0]).toMatchObject({ status: "blocked", code: "source_runtime" });
+  expect(checked?.preview.components).toEqual([]);
+}));
+
+test("connector tool approval rules are blocked before normalization can widen access", () => fixture(async root => {
+  const source = join(root, "policy-plugin");
+  await files(source, { ".claude-plugin/plugin.json": '{"name":"policy-plugin"}', ".mcp.json": JSON.stringify({ mcpServers: { restricted: { url: "https://example.com/mcp", enabled_tools: ["read"] }, approvals: { url: "https://example.com/mcp", tools: { write: { approval_mode: "prompt" } } } } }) });
+  const checked = await plan(source, root);
+  expect(checked.preview.connectors?.every(item => item.status === "blocked" && item.code === "tool_policy")).toBe(true);
+  expect(checked.preview.readiness).toBe("unsupported");
+}));
+
+test("source-app setup commands and private artifact runtimes never appear ready", () => fixture(async root => {
+  const source = join(root, "runtime-plugin");
+  await files(source, { ".claude-plugin/plugin.json": '{"name":"runtime-plugin"}', "commands/setup.md": "---\ndescription: Configure the original app\n---\nRun `claude mcp add --transport http service https://example.com/mcp`.", "skills/deck/SKILL.md": "---\nname: deck\ndescription: Create slides\n---\nAuthor with `@oai/artifact-tool`." });
+  const checked = await plan(source, root);
+  expect(checked.preview.requirements?.map(item => item.code).sort()).toEqual(["source_app_setup", "source_runtime"]);
+  expect(checked.preview.readiness).toBe("unsupported");
+  expect(() => assertImportable(checked, true)).toThrow();
+}));

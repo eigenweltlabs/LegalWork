@@ -78,7 +78,7 @@ test("discovers custom Codex config and current-project TOML alongside existing 
 
 test("maps Codex environment and HTTP authentication fields without reading environment secrets", async () => fixture(async root => {
   const configPath = join(root, "config.toml");
-  await write(configPath, '[mcp_servers.search]\nurl = "https://search.example/mcp"\nbearer_token_env_var = "IMPORT_TOKEN"\nenabled_tools = ["search"]\ntool_timeout_sec = 30\nhttp_headers = { "X-Region" = "eu" }\nenv_http_headers = { "X-Key" = "IMPORT_KEY" }\n[mcp_servers.search.oauth]\nclient_id = "registered-client"\n[mcp_servers.local]\ncommand = "node"\nargs = ["server.js", "argument with spaces"]\nenv_vars = ["IMPORT_TOKEN"]\n[mcp_servers.local.env]\nFIXED = "literal"\n');
+  await write(configPath, '[mcp_servers.search]\nurl = "https://search.example/mcp"\nbearer_token_env_var = "IMPORT_TOKEN"\ntool_timeout_sec = 30\nhttp_headers = { "X-Region" = "eu" }\nenv_http_headers = { "X-Key" = "IMPORT_KEY" }\n[mcp_servers.search.oauth]\nclient_id = "registered-client"\n[mcp_servers.local]\ncommand = "node"\nargs = ["server.js", "argument with spaces"]\nenv_vars = ["IMPORT_TOKEN"]\n[mcp_servers.local.env]\nFIXED = "literal"\n');
   const request = { source: { provider: "chatgpt", path: configPath, connector: { name: "search" } }, scope: "global" } satisfies Parameters<typeof resolvePluginImports>[0];
   const [remote] = await resolvePluginImports(request, root);
   const text = JSON.stringify(remote!.resolved);
@@ -89,7 +89,7 @@ test("maps Codex environment and HTTP authentication fields without reading envi
   expect(text).toContain('"enabled":false');
   expect(remote!.preview.format).toBe("connectors");
   expect(remote!.resolved.plugin.sourceKind).toBe("connector");
-  expect(remote!.preview.warnings.some(warning => warning.includes("tool restrictions"))).toBe(true);
+  expect(remote!.preview.connectors?.[0]?.status).not.toBe("blocked");
   const [local] = await resolvePluginImports({ ...request, source: { ...request.source, connector: { name: "local" } } }, root);
   expect(JSON.stringify(local!.resolved)).toContain('"args":["server.js","argument with spaces"]');
   expect(JSON.stringify(local!.resolved)).toContain('"IMPORT_TOKEN":"${IMPORT_TOKEN}"');

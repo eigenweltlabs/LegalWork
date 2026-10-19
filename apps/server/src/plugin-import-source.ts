@@ -3,6 +3,7 @@ import { ApiError } from "./errors.js";
 import { parseClaudePluginSource } from "./claude-plugin-bundle.js";
 
 async function bytes(response: Response, limit: number): Promise<Uint8Array> {
+  if (response.status === 429) throw new ApiError(429, "plugin_source_rate_limited", "GitHub is rate limiting this download. Try again later, or import a local copy of the plugin folder or archive.");
   if (!response.ok) throw new ApiError(400, "plugin_source_unavailable", `The plugin source could not be read (${response.status}). Check repository access and its revision.`);
   const reader = response.body?.getReader();
   if (!reader) throw new ApiError(400, "plugin_source_empty", "The repository returned an empty plugin package.");
