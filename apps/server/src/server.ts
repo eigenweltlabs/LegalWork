@@ -2200,7 +2200,7 @@ function createRoutes(
     await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const input = parsePluginCreateRequest(await readJsonBody(ctx.request));
     if (input.skills.length) await requireOrgPolicyAllows(config, "skills.allowCustom");
-    if (input.connectors.length) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+    if (input.connectors.length || input.newConnector) await requireOrgPolicyAllows(config, "connectors.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const item = await withPluginImportLock(async () => {
       const installed = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);

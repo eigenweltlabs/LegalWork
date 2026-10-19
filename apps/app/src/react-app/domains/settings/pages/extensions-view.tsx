@@ -2,7 +2,7 @@ import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dial
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Loader2, Package, Plug } from "lucide-react";
+import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Loader2, Package } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { toast } from "@/components/ui/sonner";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
-import { IntegrationAddMenu, IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
+import { IntegrationAddMenu, IntegrationSearch, IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
 import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 import { ImportedPackages } from "./skill-packages";
@@ -26,7 +26,7 @@ import { pluginImportDestination } from "./plugin-import-presentation";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
-type ExtensionsTab = "connectors" | "skills" | "plugins" | "storage";
+type ExtensionsTab = "skills" | "plugins" | "storage";
 
 type SuggestedPlugin = {
   name: string;
@@ -89,7 +89,6 @@ export type ExtensionsViewProps = {
 const tabs = (): HubTab<ExtensionsTab>[] => {
   const items: HubTab<ExtensionsTab>[] = [
     { id: "plugins", label: t("extensions.filter_plugins"), icon: Package },
-    { id: "connectors", label: t("extensions.connectors_label"), icon: Plug },
     { id: "skills", label: "Skills", icon: Blocks },
     { id: "storage", label: t("storage.tab"), icon: HardDrive },
   ];
@@ -102,7 +101,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       ? "plugins"
       : props.initialSection === "skills"
         ? "skills"
-        : props.initialSection === "mcp" ? "connectors" : "plugins";
+        : "plugins";
   const [importOpen, setImportOpen] = useState(false);
   const [createPluginOpen, setCreatePluginOpen] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -126,11 +125,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     return () => { stopped = true; };
   }, [props.skillTools, packageTarget, props.isRemoteWorkspace, props.libraryConnection, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
+  const [pluginSearch, setPluginSearch] = useState("");
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
   const [connectorToOpen, setConnectorToOpen] = useState<string | null>(null);
   const onConnectorOpened = useCallback(() => setConnectorToOpen(null), []);
-  useEffect(() => setConnectorToOpen(null), [packageTarget]);
+  useEffect(() => { setConnectorToOpen(null); setPluginSearch(""); }, [packageTarget]);
   const addSequence = useRef(0);
   const onAddHandled = useCallback(() => setAddRequest(null), []);
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
@@ -143,7 +143,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   useEffect(() => setTab(initialTab), [initialTab]);
   const selectTab = (next: ExtensionsTab) => {
     setTab(next);
-    props.setSectionRoute?.(next === "connectors" ? "mcp" : next);
+    props.setSectionRoute?.(next);
   };
 
   const TABS = tabs();
@@ -155,14 +155,22 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     refresh();
   };
   const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
-  const importedPackage = () => { setSource("all"); selectTab("plugins"); refresh(); };
+  const importedPackage = () => { setPluginSearch(""); setSource("all"); selectTab("plugins"); refresh(); };
   const requestAdd = (kind: IntegrationLibraryKind) => {
+    setPluginSearch("");
     setSource("all");
-    selectTab(kind === "connector" ? "connectors" : kind === "skill" ? "skills" : "storage");
+    selectTab(kind === "connector" ? "plugins" : kind === "skill" ? "skills" : "storage");
     setAddRequest({ kind, id: ++addSequence.current });
   };
   const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
-  const libraryLayout = { actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined, connectorState: props.connectorState };
+  const directoryActions = <Button
+    variant="outline"
+    className="h-9"
+    size="sm"
+    disabled={props.busy || !props.pluginCreation || !canImportPlugins || pluginsForbidden || (skillsForbidden && connectorsForbidden)}
+    onClick={async () => { if (await orgPolicyAllows("plugins.allowCustom")) setCreatePluginOpen(true); }}
+  >{t("integrations.custom")}</Button>;
+  const libraryLayout = { directoryActions, customPluginOpen: createPluginOpen, pluginSearch, actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined, connectorState: props.connectorState };
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={libraryLayout}>
@@ -173,12 +181,10 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryRequest(value => value + 1)}>{t("mcp.browse_directory")}</Button>
             {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <IntegrationAddMenu triggerRef={addButton} disabled={props.busy} actions={[
-              { label: t("plugin_create.kind"), icon: Package, disabled: !props.pluginCreation || !canImportPlugins || pluginsForbidden || (skillsForbidden && connectorsForbidden), onClick: async () => { if (await orgPolicyAllows("plugins.allowCustom")) setCreatePluginOpen(true); } },
-              { label: t("integrations.connector"), icon: Plug, disabled: props.canAddConnector === false || connectorsForbidden, onClick: () => requestAdd("connector") },
-              { label: t("skills.eyebrow_skill"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
+              { label: t("extensions.filter_plugins"), icon: Package, onClick: () => setDirectoryRequest(value => value + 1) },
+              { label: t("skills.title"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
             ]} />
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
@@ -214,7 +220,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           const destination = pluginImportDestination(preview);
           setImportVersion(value => value + 1);
           setSource("all");
-          selectTab(destination.tab);
+          setPluginSearch("");
+          selectTab(destination.tab === "connectors" ? "plugins" : destination.tab);
           setConnectorToOpen(destination.connectorName);
         }}
           returnFocus={importButton}
@@ -233,7 +240,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div className="flex w-full items-center gap-2 sm:w-auto">
-            <div ref={setSearchTarget} className="h-9 min-w-0 flex-1 sm:w-64 sm:flex-none" />
+            {tab === "plugins" ? <IntegrationSearch value={pluginSearch} onChange={setPluginSearch} label={t("integrations.search_plugins")} /> : null}
+            <div ref={setSearchTarget} className={tab === "plugins" ? "hidden" : "h-9 min-w-0 flex-1 sm:w-64 sm:flex-none"} />
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
                 <ListFilter className="size-3.5" />{source === "all" ? t("integrations.filter") : source === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
@@ -250,15 +258,15 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
 
         <HubScopeContext.Provider value="local">
-          <IntegrationLibraryLayoutContext.Provider value={tab === "connectors" ? libraryLayout : { ...libraryLayout, actions: null, search: null }}>
-            <div hidden={tab !== "connectors"}>{props.mcpView}</div>
+          <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
+            <div hidden={tab !== "plugins"}>{props.mcpView}</div>
           </IntegrationLibraryLayoutContext.Provider>
 
           {tab === "storage" ? props.storageView : null}
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library showEmpty /> : null}
+          {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library searchQuery={pluginSearch} /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>

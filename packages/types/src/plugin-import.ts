@@ -42,6 +42,11 @@ export type PluginImportPreview = {
 };
 export type PluginImportRequest = { source: PluginImportSource; root?: string; scope: PluginImportScope; detectFormat?: boolean; digest?: string; validationId?: string; recheck?: boolean; acknowledgePartial?: boolean; asWorkflow?: boolean };
 
-/** A personal bundle composed from items already in LegalWork's library. */
-export type PluginCreateRequest = { name: string; description?: string; skills: string[]; connectors: string[] };
+/** A new MCP connection, optionally bundled with existing skills and connectors. */
+export type PluginCreateConnector =
+  | { type: "remote"; url: string; headers?: Record<string, string>; oauth: false | { clientId?: string; clientSecret?: string; scope?: string } }
+  | { type: "local"; command: string[]; environment?: Record<string, string> };
+
+/** A personal bundle with optional new MCP configuration. */
+export type PluginCreateRequest = { name: string; description?: string; skills: string[]; connectors: string[]; newConnector?: PluginCreateConnector };
 export type PluginCreateOptions = { skills: Array<{ name: string; path: string; description: string }>; connectors: Array<{ name: string }> };
