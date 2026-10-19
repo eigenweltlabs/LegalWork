@@ -67,6 +67,7 @@ test("discovers custom Codex config and current-project TOML alongside existing 
     await write(join(workspace, ".codex/config.toml"), '[mcp_servers.literature]\nurl = "https://literature.example/mcp"\n');
     await write(join(knownProject, ".codex/config.toml"), '[mcp_servers.docket]\nurl = "https://docket.example/mcp"\n');
     await write(join(codex, "plugins/patent/.codex-plugin/plugin.json"), { name: "patent" });
+    await write(join(codex, "plugins/patent/skills/review/SKILL.md"), "---\nname: review\ndescription: Review\n---\nReview.");
     const items = await discoverPluginImports("chatgpt", workspace);
     expect(items.map(item => item.name).sort()).toEqual(["docket", "literature", "patent", "patent_search"]);
     expect(items.filter(item => item.kind === "connector")).toHaveLength(3);

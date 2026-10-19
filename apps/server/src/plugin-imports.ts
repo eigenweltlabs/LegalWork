@@ -528,9 +528,12 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
             const plugin = { name: str(base.name) ?? basename(path), displayName: str(ui.displayName) ?? undefined };
             const version = str(metadata.version);
             results.set(path, { ...plugin, path, version, description: str(ui.shortDescription) ?? str(base.description) ?? str(metadata.description), kind: "plugin" });
+            const { preview } = planPluginFiles(files, "", { provider, scope: "project", path }, workspaceRoot);
+            if (!preview.components.length || preview.requirements?.some(item => item.required && item.status === "blocked" && item.kind !== "dependency")) results.delete(path);
             const { servers } = packageConnectors(files, metadata, portable, []);
             for (const [name, definition] of Object.entries(servers)) {
               if (name === "$schema" || !record(definition)) continue;
+              if (preview.connectors?.some(item => item.name === name && item.status === "blocked")) continue;
               results.set(JSON.stringify([path, name]), { path, name, version, kind: "connector", connector: { name, pluginRoot: "" }, bundledIn: plugin });
             }
           } catch { /* Keep the whole plugin discoverable; its preview reports invalid or unsupported MCP configuration. */ }
@@ -577,7 +580,7 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
   return [...results.values(), ...await discoverConnectorImports(provider, workspaceRoot, home, codex, claude)].map(installationState).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Discovery reads small manifests/configs only, without loading scripts or binary assets. */
+/** Reuse the planner with bounded metadata/documents, without reading executable or binary assets. */
 async function discoveryPackageFiles(root: string, provider: PluginImportProvider): Promise<PackageFiles> {
   const files: PackageFiles = new Map();
   let bytes = 0;
@@ -600,13 +603,25 @@ async function discoveryPackageFiles(root: string, provider: PluginImportProvide
       }
     }
   };
-  for (const path of ["plugin.json", provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json", ".mcp.json", "mcp.json"]) await load(path);
+  for (const path of ["plugin.json", provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json", ".mcp.json", "mcp.json", ".app.json"]) await load(path);
   const { manifest } = packageManifest(files, provider);
   const loadReferences = async (value: unknown): Promise<void> => {
     if (typeof value === "string" && !/\.(mcpb|dxt)$|^https?:/i.test(value)) await load(value);
     else if (Array.isArray(value)) for (const entry of value) await loadReferences(entry);
   };
   await loadReferences(manifest.mcpServers);
+  await loadReferences(manifest.apps);
+  let visited = 0;
+  const documents = async (directory: string, prefix = "", depth = 0): Promise<void> => {
+    if (depth > 24 || visited++ > MAX_FILES) fail("Plugin discovery documents are too large.");
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if ([".git", "node_modules", ".DS_Store"].includes(entry.name)) continue;
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await documents(join(directory, entry.name), relative, depth + 1);
+      else if (entry.name.endsWith(".md")) await load(relative);
+    }
+  };
+  await documents(root);
   return files;
 }
 

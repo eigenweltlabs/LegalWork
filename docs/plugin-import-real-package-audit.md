@@ -65,6 +65,12 @@ The real-engine automated OAuth tests exercise PKCE, callback, token exchange an
 
 Instruction checks recognize explicit APIs, commands and declared requirements. They are conservative checks, not a semantic proof that arbitrary natural-language instructions are portable.
 
+## Import list visibility
+
+Discovery now uses the same static planner with bounded manifest, connector and Markdown reads, without loading executable/binary assets or contacting providers. Packages with no supported components or a known required host/permission incompatibility are omitted. Blocked bundled connectors are omitted independently; mixed packages with usable components remain visible for partial-import review. Dependency availability and live connection prerequisites are still checked during review.
+
+On the actual installed sources, Google Contacts no longer appears. PDF, Visualize, Frontend Design, Math Olympiad and Feature Dev remain visible. Discovery completed in 153 ms for ChatGPT and 170 ms for Claude on the test machine. All 50 discovery/import/lifecycle tests across the four affected server suites and the production server build passed after this change.
+
 ## Repeatable regression checks
 
 ```sh

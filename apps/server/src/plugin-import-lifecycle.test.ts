@@ -70,13 +70,30 @@ test("discovery skips trash, resolves canonical skill links and reports disabled
   await files(plugin, { ".claude-plugin/plugin.json": '{"name":"review"}', "skills/review/SKILL.md": skill });
   await files(join(home, ".claude"), { "plugins/installed_plugins.json": JSON.stringify({ plugins: { "review@team": [{ installPath: plugin }] } }), "settings.json": '{"enabledPlugins":{"review@team":false}}' });
   const cached = join(home, ".claude/plugins/cache/other/review/1");
-  await files(cached, { ".claude-plugin/plugin.json": '{"name":"review"}' });
-  await files(join(home, ".claude/plugins/cache/synced/synced-plugin/1"), { ".claude-plugin/plugin.json": '{"name":"synced-plugin"}' });
+  await files(cached, { ".claude-plugin/plugin.json": '{"name":"review"}', "skills/review/SKILL.md": skill });
+  await files(join(home, ".claude/plugins/cache/synced/synced-plugin/1"), { ".claude-plugin/plugin.json": '{"name":"synced-plugin"}', "skills/review/SKILL.md": skill });
   const items = await discoverPluginImports("claude", root);
   expect(items.find(item => item.path === cached)?.state).toBe("available");
   expect(items.find(item => item.name === "synced-plugin")?.state).toBe("synced");
   expect(items.some(item => item.name === "removed")).toBe(false); const canonical = await realpath(source); expect(items.some(item => item.path === canonical)).toBe(true);
   expect(items.find(item => item.path === plugin)?.state).toBe("disabled");
+}));
+
+test("discovery hides unusable packages and bundled connectors while retaining usable parts for both providers", () => fixture(async root => {
+  for (const provider of ["chatgpt", "claude"] satisfies Array<"chatgpt" | "claude">) {
+    const plugins = join(root, provider === "chatgpt" ? ".agents/plugins" : ".claude/plugins");
+    const manifest = provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
+    await files(join(plugins, "contacts"), { [manifest]: '{"name":"contacts","apps":"./.app.json"}', ".app.json": '{"apps":{"contacts":"app_google_contacts"}}' });
+    await files(join(plugins, "empty"), { [manifest]: '{"name":"empty"}', "README.md": "No runnable components." });
+    await files(join(plugins, "unsupported"), { [manifest]: '{"name":"unsupported"}', ".mcp.json": '{"mcpServers":{"private":{"type":"sdk"}}}' });
+    await files(join(plugins, "mixed"), { [manifest]: '{"name":"mixed"}', "skills/review/SKILL.md": skill, ".mcp.json": '{"mcpServers":{"private":{"type":"sdk"},"search":{"url":"https://search.example/mcp"}}}' });
+    await files(join(plugins, "custom"), { [manifest]: '{"name":"custom","skills":"./custom-skills/"}', "custom-skills/review/SKILL.md": skill });
+    const items = await discoverPluginImports(provider, root);
+    const own = items.filter(item => item.path.startsWith(plugins));
+    expect(own.filter(item => item.kind === "plugin").map(item => item.name).sort()).toEqual(["custom", "mixed"]);
+    expect(own.filter(item => item.kind === "connector").map(item => item.name)).toEqual(["search"]);
+    expect((await resolvePluginImports({ source: { provider, path: join(plugins, "mixed") }, scope: "project" }, root))[0]?.preview.readiness).toBe("partial");
+  }
 }));
 
 test("Cowork plugin archives accept their native file extension", () => fixture(async root => {
