@@ -7,7 +7,7 @@ import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
-import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { createServerLogger, startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
@@ -122,13 +122,6 @@ const server = await startServer(config, { onListening: async (port) => {
   throw error;
 });
 
-
-// The runtime config file above only covers workspaces[0]. Push every
-// workspace's runtime-DB MCPs into the engine so they aren't invisible
-// until a manual reload. Best-effort.
-if (managedOpencode) {
-  void syncAllWorkspacesRuntimeMcpToEngine(config);
-}
 
 const url = `http://${config.host}:${server.port}`;
 logger.log("info", `LegalWork server listening on ${url}`);

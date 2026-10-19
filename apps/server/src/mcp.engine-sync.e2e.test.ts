@@ -66,6 +66,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
 
 async function startLegalworkServer(workspaceRoot: string, opencodeBaseUrl: string) {
   const config: ServerConfig = {
+    mcpVaultKey: () => Buffer.alloc(32, 12),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -108,6 +109,7 @@ const POSTHOG_CONFIG = {
 
 async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseUrl: string) {
   const config: ServerConfig = {
+    mcpVaultKey: () => Buffer.alloc(32, 12),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -153,7 +155,7 @@ describe("runtime MCP engine sync", () => {
       expect(response.status).toBe(200);
       const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       expect(adds.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
-      expect(adds.every((entry) => JSON.stringify(entry.body) === JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG }))).toBe(true);
+      for (const entry of adds) expect(entry.body).toMatchObject({ name: "posthog", config: { type: "remote", enabled: true, oauth: false, url: expect.stringContaining("/mcp/gateway/"), headers: { Authorization: expect.stringMatching(/^Bearer /) } } });
 
       mock.requests.length = 0;
       const removal = await fetch(`${legalwork.base}/workspace/ws_2/mcp/posthog`, {
@@ -226,7 +228,7 @@ describe("runtime MCP engine sync", () => {
 
       const addRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       expect(addRequest).toBeDefined();
-      expect(addRequest?.body).toEqual({ name: "posthog", config: POSTHOG_CONFIG });
+      expect(addRequest?.body).toMatchObject({ name: "posthog", config: { type: "remote", oauth: false, url: expect.stringContaining("/mcp/gateway/ws_1/") } });
       expect(addRequest?.search).toContain(`directory=${encodeURIComponent(workspaceRoot)}`);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
@@ -260,7 +262,7 @@ describe("runtime MCP engine sync", () => {
       const syncIndex = mock.requests.findIndex((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       expect(disposeIndex).toBeGreaterThanOrEqual(0);
       expect(syncIndex).toBeGreaterThan(disposeIndex);
-      expect(mock.requests[syncIndex]?.body).toEqual({ name: "posthog", config: POSTHOG_CONFIG });
+      expect(mock.requests[syncIndex]?.body).toMatchObject({ name: "posthog", config: { type: "remote", oauth: false, url: expect.stringContaining("/mcp/gateway/ws_1/") } });
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -292,7 +294,7 @@ describe("runtime MCP engine sync", () => {
 
       const syncRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/mcp");
       expect(syncRequest).toBeDefined();
-      expect(syncRequest?.body).toEqual({ name: "posthog", config: { ...POSTHOG_CONFIG, enabled: false } });
+      expect(syncRequest?.body).toMatchObject({ name: "posthog", config: { enabled: false, oauth: false, url: expect.stringContaining("/mcp/gateway/ws_1/") } });
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -442,6 +444,7 @@ describe("runtime MCP engine sync", () => {
       const mock = startMockOpencode();
       const baseUrl = `http://127.0.0.1:${mock.server.port}`;
       const config: ServerConfig = {
+    mcpVaultKey: () => Buffer.alloc(32, 12),
         host: "127.0.0.1",
         port: 0,
         token: "owt_test_token",

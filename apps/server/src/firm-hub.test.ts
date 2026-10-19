@@ -20,6 +20,9 @@ import {
 } from "./firm-hub.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import type { ServerConfig } from "./types.js";
+import { initializeMcpManager, stopMcpManager } from "./mcp-manager.js";
+import { McpManagerStore } from "./mcp-manager-store.js";
+import { z } from "zod";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -84,6 +87,37 @@ async function setup() {
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
 describe("the firm's Knowledge Hub", () => {
+  test("firm MCPs use the local gateway without persisting the firm's secret, and revoke on sign-out", async () => {
+    const { config, hub, signIn, signOut, sync } = await setup();
+    config.mcpVaultKey = () => Buffer.alloc(32, 9);
+    config.port = 40123;
+    const firmSecret = "firm-private-api-key";
+    hub.items = [{ id: "managed-firm", kind: "mcp", name: "research", version: 1, installation: "automatic", payload: remote("research", { by: "firm" }),
+      secret: JSON.stringify({ type: "remote", url: "https://research.example.com/mcp", oauth: false, headers: { Authorization: `Bearer ${firmSecret}` } }) }];
+    await signIn(); await sync();
+    const manager = initializeMcpManager(config);
+    cleanups.push(() => stopMcpManager(config));
+    const blocks = z.record(z.string(), z.record(z.string(), z.unknown())).parse(await firmHubConnectorBlocks(config));
+    const entries = await manager.engineEntries("ws_firm", blocks);
+    expect(entries.research).toMatchObject({ type: "remote", oauth: false, url: expect.stringContaining("/mcp/gateway/ws_firm/") });
+    expect(JSON.stringify(entries)).not.toContain(firmSecret);
+    const before = manager.store.all()[0];
+    expect(before?.config.headers?.Authorization).toBe(`Bearer ${firmSecret}`);
+    await stopMcpManager(config);
+    // Inspect decrypted persistence without fetching the source's secret again.
+    const store = new McpManagerStore(config);
+    await store.open();
+    expect(store.all()[0]?.config.headers).toBeUndefined();
+    expect(JSON.stringify(store.all())).not.toContain(firmSecret);
+    store.close();
+    const restarted = initializeMcpManager(config);
+    const refreshed = await restarted.engineEntries("ws_firm", blocks);
+    expect(String(refreshed.research?.url).split("/").at(-1)).toBe(before?.id);
+    await signOut(); await sync();
+    for (let attempt = 0; attempt < 50 && restarted.store.all().length; attempt++) await Bun.sleep(10);
+    expect(restarted.store.all()).toHaveLength(0);
+  });
+
   test("installs what everyone gets, offers the rest, and takes it all away on sign-out", async () => {
     const { config, hub, signIn, signOut, sync, skillDir } = await setup();
     hub.items = [

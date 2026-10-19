@@ -58,6 +58,14 @@ function mcpMapOf(value: unknown): McpMap {
 
 /** An entry the engine would refuse must not poison the shared row. */
 function usable(name: string, entry: Record<string, unknown>): boolean {
+  // The current runtime file contains ephemeral local gateway capabilities,
+  // not provider configuration. Never import it as a new upstream connector.
+  if (entry.type === "remote" && typeof entry.url === "string") {
+    try {
+      const url = new URL(entry.url);
+      if (["127.0.0.1", "localhost"].includes(url.hostname) && url.pathname.startsWith("/mcp/gateway/")) return false;
+    } catch { /* The ordinary config validator reports malformed URLs. */ }
+  }
   try {
     validateMcpName(name);
     validateMcpConfig(entry);
@@ -100,12 +108,12 @@ export async function importConnectorsIntoSharedRow(
     const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));
     if (Object.keys(row).length === 0) continue;
     const pluginOwned = await installedCloudPluginMcpNames(config, workspace.id);
-    const moving = Object.entries(row).filter(([name, entry]) => !pluginOwned.has(name) || retiredComputerUse(name, entry));
+    const moving = Object.entries(row).filter(([name, entry]) => !entry.managedConnectionId && (!pluginOwned.has(name) || retiredComputerUse(name, entry)));
     if (moving.length === 0) continue;
     for (const [name, entry] of moving) take(name, entry);
     await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
       const next = { ...current };
-      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => pluginOwned.has(name) && !retiredComputerUse(name, entry)));
+      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => Boolean(entry.managedConnectionId) || (pluginOwned.has(name) && !retiredComputerUse(name, entry))));
       if (Object.keys(kept).length) next.mcp = kept;
       else delete next.mcp;
       return next;

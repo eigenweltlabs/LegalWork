@@ -117,6 +117,8 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** Desktop-owned secure key. Never accepted from API configuration. */
+  mcpVaultKey?: () => Uint8Array | Promise<Uint8Array>;
   /** Read-only migration from the previous desktop safeStorage connector store. */
   decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   host: string;

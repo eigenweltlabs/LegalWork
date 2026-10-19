@@ -19,6 +19,7 @@ try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
 fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
+fs.writeFileSync(counter + ".vault-key", process.env.LEGALWORK_ENCRYPTION_KEY || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -75,6 +76,7 @@ test("waits for the HTTP listener even when the child announces readiness early"
     cwd: dir!,
     env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_LISTEN_DELAY_MS: "300" },
   });
+
   try {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
     expect((await fetch(`${server.url}/health`)).status).toBe(200);
@@ -82,6 +84,13 @@ test("waits for the HTTP listener even when the child announces readiness early"
     await server.close();
   }
 }, 20000);
+
+test("the engine never inherits the server's credential-vault encryption key", async () => {
+  const { bin, counter } = fakeBin(0);
+  const server = await createManagedOpencodeServer({ bin, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter, LEGALWORK_ENCRYPTION_KEY: "server-only-test-key" } });
+  try { expect(readFileSync(counter + ".vault-key", "utf8")).toBe(""); }
+  finally { await server.close(); }
+});
 
 test("does NOT retry a non-lock start failure (fails fast)", async () => {
   // fail "forever" but with a lock message would retry; use a bin that exits

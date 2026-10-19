@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
-import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
@@ -34,6 +34,7 @@ import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
+  mcpVaultKey?: ServerConfig["mcpVaultKey"];
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
@@ -70,6 +71,7 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
+  config.mcpVaultKey = options.mcpVaultKey;
   config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
@@ -195,13 +197,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await managed.catalog?.stop();
     throw error;
   });
-
-  // The runtime config file above only covers workspaces[0]. Push every
-  // workspace's runtime-DB MCPs into the engine so they aren't invisible
-  // until a manual reload. Best-effort.
-  if (managed.engine) {
-    void syncAllWorkspacesRuntimeMcpToEngine(config);
-  }
 
   return {
     port: server.port,

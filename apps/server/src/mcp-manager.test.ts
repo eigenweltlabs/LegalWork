@@ -1,0 +1,391 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { spawn, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { z } from "zod";
+import { LocalMcpGateway } from "./mcp-gateway.js";
+import { initializeMcpManager, McpConnectorManager, stopMcpManager } from "./mcp-manager.js";
+import { addMcp, removeMcp, listMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "./mcp.js";
+import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, readGlobalMcpMap, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
+import type { ServerConfig } from "./types.js";
+
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+const statsSchema = z.object({ authorizationGrants: z.number(), refreshGrants: z.number(), rejectedRefreshGrants: z.number(), revokedFamilies: z.number(), refreshAttempts: z.number(), toolCalls: z.number(), cancelledCalls: z.number() });
+const entrySchema = z.object({ url: z.string(), headers: z.record(z.string(), z.string()), oauth: z.literal(false) });
+const name = "mock";
+async function until(check: () => Promise<boolean>, label: string) {
+  for (let i = 0; i < 100; i++) { if (await check().catch(() => false)) return; await Bun.sleep(50); }
+  throw new Error(`Timed out: ${label}`);
+}
+function freePort() {
+  const server = Bun.serve({ port: 0, fetch: () => new Response() });
+  const port = server.port;
+  server.stop(true);
+  if (!port) throw new Error("Missing port");
+  return port;
+}
+
+export async function managedMcpFixture(env: Record<string, string> = {}) {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-managed-mcp-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const workspaces = [{ id: "ws_a", path: join(root, "a") }, { id: "ws_b", path: join(root, "b") }];
+  await Promise.all(workspaces.map(item => mkdir(item.path)));
+  const providerPort = freePort();
+  const providerUrl = `http://127.0.0.1:${providerPort}`;
+  const provider = spawn("node", [resolve(import.meta.dir, "../../../scripts/mock-oauth-mcp-server.mjs")], {
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(providerPort), ISSUER: providerUrl, AUTO_APPROVE: "1", CLIENT_ID: "", CLIENT_SECRET: "",
+      DYNAMIC_REGISTRATION: "1", ACCESS_TOKEN_TTL_SECONDS: "3600", ROTATE_REFRESH_TOKENS: "1", REFRESH_REUSE_REVOKES_FAMILY: "1", REFRESH_DELAY_MS: "100", ...env },
+    stdio: "ignore",
+  });
+  cleanups.push(async () => {
+    if (provider.exitCode !== null || provider.signalCode !== null) return;
+    const stopped = new Promise<void>(done => provider.once("exit", () => done()));
+    provider.kill("SIGKILL");
+    await stopped;
+  });
+  await until(async () => z.object({ issuer: z.string() }).parse(await (await fetch(`${providerUrl}/health`)).json()).issuer === providerUrl, "provider startup");
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "app-only-token", hostToken: "host-only-token", configPath: join(root, "server.json"),
+    mcpVaultKey: () => Buffer.alloc(32, 7), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
+    workspaces: workspaces.map(item => ({ ...item, name: item.id, preset: "starter", workspaceType: "local" })), authorizedRoots: [root],
+    readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+  };
+  const manager = initializeMcpManager(config);
+  cleanups.push(() => closeRuntimeOpencodeConfig(config));
+  cleanups.push(() => stopMcpManager(config));
+  const gateway = new LocalMcpGateway(manager);
+  cleanups.push(() => gateway.close());
+  const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const match = new URL(request.url).pathname.match(/^\/mcp\/gateway\/([^/]+)\/([^/]+)$/);
+    if (!match) return new Response(null, { status: 404 });
+    try { return await gateway.handle(request, match[1], match[2]); }
+    catch (error) { return Response.json({ error: error instanceof Error ? error.message : "failed" }, { status: 503 }); }
+  } });
+  config.port = listener.port ?? 0;
+  cleanups.push(() => listener.stop(true));
+  const settings = { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: {} };
+  await addMcp(config, "ws_a", name, settings);
+  const entries = async (workspaceId: string) => manager.engineEntries(workspaceId, await runtimeMcpMapForWorkspace(config, workspaceId));
+  const gatewayEntry = async (workspaceId = "ws_a") => entrySchema.parse((await entries(workspaceId))[name]);
+  const stats = async () => statsSchema.parse(await (await fetch(`${providerUrl}/stats`)).json());
+  const signIn = async (workspaceId = "ws_a", connectionName = name) => {
+    const start = await manager.startAuthorization(workspaceId, connectionName);
+    const approval = await fetch(start.authorizationUrl, { redirect: "manual" });
+    const redirect = approval.headers.get("location");
+    if (!redirect) throw new Error("Provider did not approve sign-in");
+    const callback = new URL(redirect);
+    const code = callback.searchParams.get("code");
+    if (!code) throw new Error("Provider omitted code");
+    await manager.finishAuthorization(workspaceId, connectionName, code, start.oauthState);
+    return { code, state: start.oauthState };
+  };
+  const connect = async (workspaceId = "ws_a") => {
+    const entry = await gatewayEntry(workspaceId);
+    const client = new Client({ name: workspaceId, version: "1" });
+    cleanups.push(() => client.close());
+    await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers } }));
+    return client;
+  };
+  const expire = () => fetch(`${providerUrl}/expire`, { method: "POST" });
+  return { root, workspaces, config, manager, gateway, listener, providerUrl, settings, entries, gatewayEntry, signIn, stats, connect, expire };
+}
+
+describe("server-owned MCP connections", () => {
+  test("one shared connection, encrypted provider configuration, runtime-only gateway credentials", async () => {
+    const f = await managedMcpFixture({ CLIENT_ID: "client", CLIENT_SECRET: "provider-client-secret" });
+    await addMcp(f.config, "ws_a", name, { ...f.settings, oauth: { clientId: "client", clientSecret: "provider-client-secret" } });
+    const { code, state } = await f.signIn();
+    const a = await f.gatewayEntry("ws_a"), b = await f.gatewayEntry("ws_b");
+    expect(a.url.split("/").at(-1)).toBe(b.url.split("/").at(-1));
+    expect(a.headers.Authorization).not.toBe(b.headers.Authorization);
+    expect(a.oauth).toBe(false);
+    expect(JSON.stringify(await readGlobalMcpMap(f.config))).not.toContain("provider-client-secret");
+    const record = f.manager.store.all()[0];
+    expect(record?.tokens?.access_token).toBeDefined();
+    const disk = await readFile(f.manager.store.path, "utf8");
+    expect(disk).not.toContain("provider-client-secret");
+    expect(disk).not.toContain(record?.tokens?.access_token ?? "missing");
+    expect(JSON.stringify(a)).not.toContain(record?.tokens?.access_token ?? "missing");
+    await expect(f.manager.finishAuthorization("ws_a", name, code, state)).rejects.toThrow("expired or changed");
+    const client = await f.connect("ws_b");
+    expect((await client.listTools()).tools.map(tool => tool.name)).toEqual(["mock_echo"]);
+    expect((await client.callTool({ name: "mock_echo", arguments: { text: "from workspace B" } })).content).toEqual([{ type: "text", text: "from workspace B" }]);
+    expect((await client.listResources()).resources[0]?.uri).toBe("mock://resource");
+    expect((await client.readResource({ uri: "mock://resource" })).contents[0]).toMatchObject({ text: "MOCK_RESOURCE_CONTENT" });
+    expect((await client.listPrompts()).prompts[0]?.name).toBe("mock_prompt");
+    expect(JSON.stringify(await client.getPrompt({ name: "mock_prompt" }))).toContain("MOCK_PROMPT_CONTENT");
+    expect((await listMcp(f.config, "ws_b", f.workspaces[1]!.path))[0]?.config.url).toBe(f.settings.url);
+  });
+
+  test("concurrent workspace requests rotate a refresh token exactly once", async () => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const a = await f.connect("ws_a"), b = await f.connect("ws_b");
+    await f.expire();
+    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) => (index % 2 ? a : b).callTool({ name: "mock_echo", arguments: { text: String(index) } })));
+    expect(responses).toHaveLength(12);
+    expect(await f.stats()).toMatchObject({ authorizationGrants: 1, refreshGrants: 1, rejectedRefreshGrants: 0, revokedFamilies: 0 });
+    await f.expire();
+    await Promise.all([a.listResources(), b.listResources()]);
+    expect((await f.stats()).refreshGrants).toBe(2);
+  });
+
+  test("a successful refresh that omits a replacement preserves the refresh token", async () => {
+    const f = await managedMcpFixture({ OMIT_REFRESH_TOKEN_ON_REFRESH: "1", ROTATE_REFRESH_TOKENS: "0" });
+    await f.signIn();
+    const before = f.manager.store.all()[0]?.tokens?.refresh_token;
+    const client = await f.connect();
+    await f.expire(); await client.listTools();
+    expect(f.manager.store.all()[0]?.tokens?.refresh_token).toBe(before);
+    await f.expire(); await client.listTools();
+    expect((await f.stats()).refreshGrants).toBe(2);
+  });
+
+  test("legacy SSE providers use the same gateway and shared refresh coordinator", async () => {
+    const f = await managedMcpFixture({ LEGACY_SSE: "1" }); await f.signIn();
+    const client = await f.connect();
+    expect((await client.callTool({ name: "mock_echo", arguments: { text: "legacy SSE" } })).content).toEqual([{ type: "text", text: "legacy SSE" }]);
+    await f.expire(); await client.listResources();
+    expect(await f.stats()).toMatchObject({ authorizationGrants: 1, refreshGrants: 1, rejectedRefreshGrants: 0 });
+  });
+
+  test("short-lived tokens are usable and expiry coordinates one proactive refresh", async () => {
+    const f = await managedMcpFixture({ ACCESS_TOKEN_TTL_SECONDS: "1" }); await f.signIn();
+    const a = await f.connect(), b = await f.connect("ws_b");
+    await Promise.all([a.listTools(), b.listTools()]);
+    expect((await f.stats()).refreshGrants).toBe(0);
+    await Bun.sleep(1100);
+    await Promise.all([a.listTools(), b.listTools(), a.listResources(), b.listResources()]);
+    expect(await f.stats()).toMatchObject({ refreshGrants: 1, rejectedRefreshGrants: 0 });
+  });
+
+  test("workspace overrides use independent accounts and runtime bindings survive directory selection", async () => {
+    const f = await managedMcpFixture(); await f.signIn();
+    await addMcp(f.config, "ws_b", name, f.settings, "workspace");
+    const a = await f.gatewayEntry(), b = await f.gatewayEntry("ws_b");
+    expect(a.url.split("/").at(-1)).not.toBe(b.url.split("/").at(-1));
+    await f.signIn("ws_b");
+    expect((await f.stats()).authorizationGrants).toBe(2);
+    const own = await f.manager.engineConfiguration(f.workspaces[1]!.path);
+    expect(own.mcp.mock).toMatchObject({ url: b.url, oauth: false });
+    expect((await f.manager.engineConfiguration(tmpdir())).mcp).toEqual({});
+    expect((await (await f.connect()).listTools()).tools).toHaveLength(1);
+    expect((await (await f.connect("ws_b")).listTools()).tools).toHaveLength(1);
+  });
+
+  test("concurrent configuration changes cannot leave a stale vault reference", async () => {
+    const f = await managedMcpFixture();
+    await Promise.all([
+      addMcp(f.config, "ws_a", name, { ...f.settings, url: "https://first.example.com/mcp" }),
+      addMcp(f.config, "ws_a", name, f.settings),
+    ]);
+    await f.signIn();
+    const tokens = f.manager.store.all()[0]?.tokens;
+    await addMcp(f.config, "ws_a", name, { ...f.settings, timeout: 25_000 });
+    expect(f.manager.store.all()[0]?.tokens).toEqual(tokens);
+    expect((await f.stats()).authorizationGrants).toBe(1);
+    await Promise.all([removeMcp(f.config, "ws_a", name), addMcp(f.config, "ws_a", name, f.settings)]);
+    expect((await readGlobalMcpMap(f.config)).mock?.managedConnectionId).toBe(f.manager.store.all()[0]?.id);
+    expect((await f.gatewayEntry()).url).toContain(f.manager.store.all()[0]!.id);
+  });
+
+  test("disconnect during refresh cancels it and a late response cannot restore credentials", async () => {
+    const f = await managedMcpFixture({ REFRESH_DELAY_MS: "600" });
+    await f.signIn();
+    const client = await f.connect();
+    await f.expire();
+    const pending = client.listTools().then(() => "completed", () => "cancelled");
+    await until(async () => (await f.stats()).refreshGrants === 1, "refresh began");
+    await f.manager.logout("ws_b", name);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect(await pending).toBe("cancelled");
+    await Bun.sleep(650);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "needs_auth" });
+    expect(await f.manager.status("ws_b", name)).toMatchObject({ status: "needs_auth" });
+    await f.signIn();
+    expect((await (await f.connect()).listTools()).tools).toHaveLength(1);
+  });
+
+  test("gateway authorization binds workspace and connection and does not grant app access", async () => {
+    const f = await managedMcpFixture();
+    const a = await f.gatewayEntry(), b = await f.gatewayEntry("ws_b");
+    expect((await fetch(a.url)).status).toBe(401);
+    expect((await fetch(a.url, { headers: { Authorization: `Bearer ${f.config.token}` } })).status).toBe(401);
+    expect((await fetch(b.url, { headers: a.headers })).status).toBe(401);
+    expect(f.manager.authorize(new Request(a.url, { headers: a.headers }), "ws_b", a.url.split("/").at(-1) ?? "")).toBe(false);
+  });
+
+  test("disable and remove reject existing gateway credentials immediately", async () => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const entry = await f.gatewayEntry();
+    await setMcpEnabled(f.config, "ws_a", name, false);
+    expect((await fetch(entry.url, { headers: entry.headers })).status).toBe(503);
+    await setMcpEnabled(f.config, "ws_a", name, true);
+    expect((await (await f.connect()).listTools()).tools).toHaveLength(1);
+    await removeMcp(f.config, "ws_a", name);
+    expect(f.manager.store.all()).toHaveLength(0);
+    expect((await fetch(entry.url, { headers: entry.headers })).status).toBe(503);
+  });
+
+  test("restart preserves provider credentials and rotates the gateway bearer", async () => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const before = await f.gatewayEntry();
+    const access = f.manager.store.all()[0]?.tokens?.access_token;
+    await stopMcpManager(f.config);
+    const next = initializeMcpManager(f.config);
+    await next.reconcile();
+    const entries = await next.engineEntries("ws_a", await runtimeMcpMapForWorkspace(f.config, "ws_a"));
+    const after = entrySchema.parse(entries[name]);
+    expect(after.headers.Authorization).not.toBe(before.headers.Authorization);
+    expect(next.authorize(new Request(before.url, { headers: before.headers }), "ws_a", after.url.split("/").at(-1) ?? "")).toBe(false);
+    expect(next.store.all()[0]?.tokens?.access_token).toBe(access);
+    expect((await next.client(next.store.all()[0]!)).getServerCapabilities()?.tools).toBeDefined();
+    expect((await f.stats()).authorizationGrants).toBe(1);
+  });
+
+  test("a second manager cannot consume the same credential store", async () => {
+    const f = await managedMcpFixture();
+    const second = new McpConnectorManager(f.config);
+    cleanups.push(() => second.close());
+    await expect(second.reconcile()).rejects.toThrow("Another LegalWork server owns");
+    const moduleUrl = pathToFileURL(resolve(import.meta.dir, "mcp-manager.ts")).href;
+    const script = `import { McpConnectorManager } from ${JSON.stringify(moduleUrl)};
+      const manager = new McpConnectorManager({ configPath: ${JSON.stringify(f.config.configPath)}, workspaces: [], mcpVaultKey: () => Buffer.alloc(32, 7) });
+      try { await manager.configure("child", "child", { type: "remote", url: "https://example.com/mcp" }); process.exitCode = 1; }
+      catch (error) { if (error.code !== "mcp_manager_in_use") throw error; process.stdout.write(error.code); }
+      finally { await manager.close(); }`;
+    const child = spawnSync(process.execPath, ["--eval", script], { encoding: "utf8", timeout: 5000 });
+    expect(child.status).toBe(0);
+    expect(child.stdout).toBe("mcp_manager_in_use");
+  });
+
+  test("migration moves remote config secrets to the vault, preserving local MCPs", async () => {
+    const f = await managedMcpFixture();
+    const local = { type: "local", command: ["example-mcp"] };
+    await writeRuntimeOpencodeConfig(f.config, GLOBAL_MCP_ID, () => ({ mcp: { imported: { type: "remote", url: f.settings.url, headers: { Authorization: "Bearer old-static-secret" }, oauth: false }, local } }));
+    await f.manager.reconcile();
+    const stored = await readGlobalMcpMap(f.config);
+    expect(JSON.stringify(stored)).not.toContain("old-static-secret");
+    const entries = await f.manager.engineEntries("ws_a", stored);
+    expect(entries.local).toEqual(local);
+    expect(JSON.stringify(entries)).not.toContain("old-static-secret");
+    expect((await listMcp(f.config, "ws_a", f.workspaces[0]!.path)).find(item => item.name === "imported")?.config.headers).toEqual({ Authorization: "Bearer old-static-secret" });
+  });
+
+  test("restart migration preserves managed workspace overrides and ignores stale derived gateway entries", async () => {
+    const f = await managedMcpFixture();
+    await addMcp(f.config, "ws_b", name, f.settings, "workspace");
+    const scoped = (await f.gatewayEntry("ws_b")).url;
+    const stale = await f.entries("ws_a");
+    await removeMcp(f.config, "ws_a", name);
+    const runtimeConfigFile = join(f.root, "runtime-config.json");
+    await writeFile(runtimeConfigFile, JSON.stringify({ mcp: stale }));
+    const imported = await importConnectorsIntoSharedRow(f.config, { runtimeConfigFile, globalOpencodeConfigFile: join(f.root, "old-config.json") });
+    expect(imported.imported).toEqual([]);
+    expect(await readGlobalMcpMap(f.config)).toEqual({});
+    expect((await readRuntimeOpencodeConfig(f.config, "ws_b")).mcp?.mock?.managedConnectionId).toBeDefined();
+    expect((await f.gatewayEntry("ws_b")).url).toBe(scoped);
+  });
+
+  test("opaque provider URLs are encrypted rather than copied into public metadata", async () => {
+    const f = await managedMcpFixture();
+    await addMcp(f.config, "ws_a", "private-url", { type: "remote", url: "https://provider.example.com/private-path-token/mcp?api_key=secret-query", oauth: false });
+    const metadata = JSON.stringify(await readGlobalMcpMap(f.config));
+    expect(metadata).not.toContain("private-path-token");
+    expect(metadata).not.toContain("secret-query");
+    const config = await f.manager.engineConfiguration(f.workspaces[0]!.path);
+    expect(JSON.stringify(config)).not.toContain("secret-query");
+  });
+
+  test("OAuth state must match and callback expires on a superseding login", async () => {
+    const f = await managedMcpFixture();
+    const first = await f.manager.startAuthorization("ws_a", name);
+    const approval = await fetch(first.authorizationUrl, { redirect: "manual" });
+    const code = new URL(approval.headers.get("location")!).searchParams.get("code")!;
+    await expect(f.manager.finishAuthorization("ws_a", name, code, "wrong-state")).rejects.toThrow("expired or changed");
+    await f.manager.startAuthorization("ws_a", name);
+    await expect(f.manager.finishAuthorization("ws_a", name, code, first.oauthState)).rejects.toThrow("expired or changed");
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+  });
+
+  test("progress and cancellation reach the provider without cancelling another workspace", async () => {
+    const f = await managedMcpFixture(); await f.signIn();
+    const a = await f.connect(), b = await f.connect("ws_b");
+    const progress: number[] = [];
+    await a.callTool({ name: "mock_echo", arguments: { text: "REPORT_PROGRESS" } }, undefined, { onprogress: value => { progress.push(value.progress); } });
+    expect(progress).toEqual([1]);
+    const controller = new AbortController();
+    const pending = a.callTool({ name: "mock_echo", arguments: { text: "WAIT_FOR_CANCEL" } }, undefined, { signal: controller.signal }).catch(() => "cancelled");
+    await until(async () => (await f.stats()).toolCalls === 2, "long tool call");
+    controller.abort();
+    expect(await pending).toBe("cancelled");
+    await until(async () => (await f.stats()).cancelledCalls === 1, "provider cancellation");
+    expect((await b.callTool({ name: "mock_echo", arguments: { text: "other workspace" } })).content).toEqual([{ type: "text", text: "other workspace" }]);
+  });
+
+  test("provider errors and ambiguous network failures never replay a tool operation", async () => {
+    const f = await managedMcpFixture(); await f.signIn();
+    const client = await f.connect();
+    const result = await client.callTool({ name: "mock_echo", arguments: { text: "PROVIDER_ERROR" } });
+    expect(result.isError).toBe(true);
+    expect((await f.stats()).toolCalls).toBe(1);
+    await expect(client.callTool({ name: "mock_echo", arguments: { text: "DROP_AFTER_EXECUTION" } })).rejects.toThrow();
+    expect((await f.stats()).toolCalls).toBe(2);
+    await Bun.sleep(3100);
+    expect((await client.listTools()).tools).toHaveLength(1);
+    expect(await f.stats()).toMatchObject({ toolCalls: 2, authorizationGrants: 1 });
+  });
+
+  test("transient token errors preserve credentials and back off concurrent refresh attempts", async () => {
+    const f = await managedMcpFixture(); await f.signIn(); const client = await f.connect();
+    const saved = f.manager.store.all()[0]?.tokens;
+    await fetch(`${f.providerUrl}/refresh-mode`, { method: "POST", body: JSON.stringify({ mode: "unavailable" }) });
+    await f.expire();
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => client.listTools()));
+    expect(results.every(result => result.status === "rejected")).toBe(true);
+    expect((await f.stats()).refreshAttempts).toBe(1);
+    expect(f.manager.store.all()[0]?.tokens).toEqual(saved);
+  });
+
+  test("a rejected refresh requires one shared reconnect instead of repeated automatic logins", async () => {
+    const f = await managedMcpFixture(); await f.signIn(); const a = await f.connect(), b = await f.connect("ws_b");
+    await fetch(`${f.providerUrl}/refresh-mode`, { method: "POST", body: JSON.stringify({ mode: "invalid_grant" }) });
+    await f.expire();
+    await Promise.allSettled([a.listTools(), b.listTools()]);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    for (const workspace of ["ws_a", "ws_b"]) expect(await f.manager.status(workspace, name)).toMatchObject({ status: "needs_auth" });
+    expect(await f.stats()).toMatchObject({ refreshAttempts: 1, authorizationGrants: 1 });
+  });
+
+  test("an unsuccessful new sign-in preserves an existing usable grant", async () => {
+    const f = await managedMcpFixture(); await f.signIn();
+    const saved = f.manager.store.all()[0]?.tokens;
+    const flow = await f.manager.startAuthorization("ws_a", name);
+    await expect(f.manager.finishAuthorization("ws_a", name, "invalid-code", flow.oauthState)).rejects.toThrow();
+    expect(f.manager.store.all()[0]?.tokens).toEqual(saved);
+  });
+
+  test("locked or unreadable vaults preserve data and never give engines provider credentials", async () => {
+    const f = await managedMcpFixture(); await f.signIn();
+    const contents = await readFile(f.manager.store.path, "utf8");
+    await stopMcpManager(f.config);
+    f.config.mcpVaultKey = () => Buffer.alloc(32, 99);
+    const manager = initializeMcpManager(f.config);
+    await expect(manager.reconcile()).rejects.toMatchObject({ code: "mcp_secure_storage_unreadable" });
+    const entries = await manager.engineEntries("ws_a", await runtimeMcpMapForWorkspace(f.config, "ws_a"));
+    expect(entries.mock).toMatchObject({ enabled: false, oauth: false });
+    expect(await readFile(manager.store.path, "utf8")).toBe(contents);
+    f.config.mcpVaultKey = () => Buffer.alloc(32, 7);
+    await manager.reconcile();
+    expect(manager.store.all()[0]?.tokens).toBeDefined();
+  });
+});

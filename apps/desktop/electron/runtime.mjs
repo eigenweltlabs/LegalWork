@@ -12,6 +12,7 @@ import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
+import { createMcpVaultKeyProvider } from "./mcp-vault-key.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1432,6 +1433,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      mcpVaultKey: createMcpVaultKeyProvider(path.dirname(serverConfigPath), (await import("electron")).safeStorage),
       decryptLegacyConnectorSecrets: async (value) => {
         const { safeStorage } = await import("electron");
         return safeStorage.decryptString(Buffer.from(value, "base64"));

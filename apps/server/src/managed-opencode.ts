@@ -195,20 +195,22 @@ export async function createManagedOpencodeServer(options: {
   // LegalWork supplies its deduplicated skill catalog explicitly. The engine's
   // recursive external scan also picks up nested packages for other agent apps.
   const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     ...features,
     ...options.env,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
+  // Credential-vault keys belong to the LegalWork server, never its engine.
+  delete env.LEGALWORK_ENCRYPTION_KEY;
   const injectedEnv = Object.entries({
     ...features,
     ...(options.env ?? {}),
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })
-    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .filter((entry): entry is [string, string] => entry[0] !== "LEGALWORK_ENCRYPTION_KEY" && typeof entry[1] === "string")
     .map(([name, value]) => ({
       name,
       value: SECRET_ENV_PATTERN.test(name) ? "<redacted>" : value,
