@@ -1,7 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, stat } from "node:fs/promises";
-import { constants } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
 import type { ConnectorImportCheck, PluginImportScope } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
 import { connectorConfigVariables, isCredentialHeader } from "./connector-config.js";
@@ -12,6 +9,7 @@ import type { ServerConfig } from "./types.js";
 import { probeMcpServer, registerMcpClient, legalworkMcpClientIdentity, type McpProbeOptions } from "./mcp-probe.js";
 import type { PluginImportPlan } from "./plugin-imports.js";
 import { evaluateImportRequirements } from "./plugin-import-requirements.js";
+import { connectorProgramAvailable } from "./connector-program.js";
 
 type ImportTarget = { workspace: string; scope: PluginImportScope; current: Record<string, unknown>; installed?: CloudImportedPlugin; available?: CloudImportedPlugin[] };
 export async function currentPluginImportTarget(config: ServerConfig, workspaceId: string, workspace: string, scope: PluginImportScope, pluginId: string): Promise<ImportTarget> {
@@ -108,12 +106,7 @@ async function checkLocal(check: ConnectorImportCheck, config: Record<string, un
   if (connectorConfigVariables(config).length) return { ...check, status: "setup", code: "inputs", inputs: connectorConfigVariables(config) };
   const program = Array.isArray(config.command) && typeof config.command[0] === "string" ? config.command[0] : "";
   const packaged = plan.resourceFiles.some(file => resolveWorkspaceInstallPath(target.workspace, file.path, target.scope === "global") === program && (process.platform === "win32" || (file.mode & 0o111) !== 0));
-  const paths = isAbsolute(program) ? [program] : (process.env.PATH ?? "").split(delimiter).filter(Boolean).flatMap(path => process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").map(extension => join(path, `${program}${extension}`)) : [join(path, program)]);
-  let available = packaged;
-  for (const path of paths) {
-    if (available) break;
-    available = await stat(path).then(info => info.isFile() ? access(path, constants.X_OK).then(() => true, () => false) : false, () => false);
-  }
+  const available = packaged || await connectorProgramAvailable(program);
   if (!available) return { ...check, status: "blocked", code: "program_missing", message: `The program “${program}” is not available on the LegalWork server. Install it there or correct the source configuration, then check again.`, retryable: true };
   return { ...check, status: "setup", code: "local_program", message: "The program is available on the LegalWork server. Configure any dependencies and enable the connector after importing. Import checks do not execute the program." };
 }

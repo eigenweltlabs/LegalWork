@@ -2386,7 +2386,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     createWorkflowPlugin: (workspaceId: string, payload: PluginCreateRequest) =>
       requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/workflow-plugins`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     discoverPluginImports: (workspaceId: string, provider: PluginImportProvider) =>
-      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: timeouts.config }),
+      requestJson<{ items: PluginImportCandidate[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/discover?provider=${provider}`, { token, hostToken, timeoutMs: 30_000 }),
     previewPluginImports: (workspaceId: string, payload: PluginImportRequest) =>
       requestJson<{ items: PluginImportPreview[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/preview`, { token, hostToken, method: "POST", body: payload, timeoutMs: 120000 }),
     installPluginImport: (workspaceId: string, payload: PluginImportRequest) =>

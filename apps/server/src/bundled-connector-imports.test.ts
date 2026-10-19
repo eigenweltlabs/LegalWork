@@ -153,6 +153,6 @@ test("bundled selectors validate roots, missing connectors and links without hid
   await write(join(valid, ".claude-plugin/plugin.json"), { name: "valid", mcpServers: { visible: { url: "https://visible.example/mcp" } } });
   const items = await discoverPluginImports("claude", root);
   expect(items.filter(item => item.kind === "connector").map(item => item.name)).toEqual(["visible"]);
-  expect(items.some(item => item.name === "broken" && item.kind === "plugin")).toBe(true);
+  expect(items.some(item => item.name === "broken" && item.kind === "plugin")).toBe(false);
   await expect(resolvePluginImports(selectedRequest("claude", broken, "hidden"), root)).rejects.toThrow("link");
 }));

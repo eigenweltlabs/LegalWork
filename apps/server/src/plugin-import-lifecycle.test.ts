@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
-import { resolvePluginImports, discoverPluginImports } from "./plugin-imports.js";
+import { resolvePluginImports, discoverPluginImports, parsePluginImportRequest } from "./plugin-imports.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable } from "./plugin-import-checks.js";
 import { installPluginImport, rollbackPluginImport } from "./plugin-import-install.js";
 import { readInstalledCloudPlugins, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
@@ -100,6 +100,32 @@ test("Cowork plugin archives accept their native file extension", () => fixture(
   const path = join(root, "review.plugin");
   await writeFile(path, zipSync({ ".claude-plugin/plugin.json": strToU8('{"name":"review"}'), "skills/review/SKILL.md": strToU8(skill) }));
   expect((await plan(path, root)).preview.components).toHaveLength(1);
+}));
+
+test("generic file imports detect each package format and retain its provider identity", () => fixture(async root => {
+  const entries = {
+    "claude/.claude-plugin/plugin.json": '{"name":"review-claude"}',
+    "claude/skills/review/SKILL.md": skill,
+    "codex/.codex-plugin/plugin.json": '{"name":"review-codex"}',
+    "codex/skills/review/SKILL.md": skill,
+  };
+  await files(root, entries);
+  const source = { provider: "claude", zipBase64: Buffer.from(zipSync(Object.fromEntries(Object.entries(entries).map(([path, content]) => [path, strToU8(content)])))).toString("base64") };
+  const request = parsePluginImportRequest({ source, scope: "global", detectFormat: true });
+  const previews = (await resolvePluginImports(request, root)).map(plan => plan.preview);
+  expect(previews.map(item => item.provenance?.provider)).toEqual(["claude", "chatgpt"]);
+  expect(previews.map(item => item.format)).toEqual(["claude", "codex"]);
+  expect(previews[1]?.id).toMatch(/^import:chatgpt:/);
+}));
+
+test("large document collections cannot bypass discovery compatibility checks", () => fixture(async root => {
+  const plugins = join(root, ".agents/plugins");
+  const documents = Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`skills/review/references/${index}.md`, "Reference"]));
+  await files(join(plugins, "portable"), { ".codex-plugin/plugin.json": '{"name":"portable"}', "skills/review/SKILL.md": skill, ...documents });
+  await files(join(plugins, "hosted-only"), { ".codex-plugin/plugin.json": '{"name":"hosted-only","apps":"./.app.json"}', ".app.json": '{"apps":{"contacts":"app_contacts"}}', "skills/review/SKILL.md": skill, ...documents });
+  await files(join(plugins, "malformed"), { ".codex-plugin/plugin.json": '{"name":"malformed","skills":"missing"}' });
+  const items = (await discoverPluginImports("chatgpt", root)).filter(item => item.path.startsWith(plugins));
+  expect(items.map(item => item.name)).toEqual(["portable"]);
 }));
 
 test("tracked updates preserve history and can restore complete files without overwriting local edits", () => fixture(async (root, config) => {

@@ -20,7 +20,7 @@ const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
 const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional(), pluginRoot: z.string().max(4096).optional() });
 const sourceSchema = z.object({ provider: z.enum(["chatgpt", "claude"]), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), filename: z.string().max(256).optional(), connector: connectorSchema.optional(), url: z.string().max(2048).optional(), ref: z.string().max(256).optional(), directory: z.string().max(4096).optional() });
-const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional() });
+const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const parsed = requestSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
@@ -145,11 +145,11 @@ function jsonFile(files: PackageFiles, path: string): Record<string, unknown> {
   if (!record(parsed)) fail(`Expected an object in ${path}`);
   return parsed;
 }
-function packageRoots(files: PackageFiles, provider: PluginImportProvider): string[] {
-  const suffix = provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json";
+function packageRoots(files: PackageFiles, provider: PluginImportProvider, detectFormat = false): string[] {
+  const suffixes = detectFormat ? [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"] : [provider === "chatgpt" ? ".codex-plugin/plugin.json" : ".claude-plugin/plugin.json"];
   const roots = new Set<string>();
   for (const path of files.keys()) {
-    if (path === suffix || path.endsWith(`/${suffix}`)) roots.add(path.slice(0, -suffix.length).replace(/\/$/, ""));
+    for (const manifest of suffixes) if (path === manifest || path.endsWith(`/${manifest}`)) roots.add(path.slice(0, -manifest.length).replace(/\/$/, ""));
     if ((path === "plugin.json" || path.endsWith("/plugin.json")) && !path.includes(".claude-plugin/") && !path.includes(".codex-plugin/")) {
       const manifest = jsonFile(files, path);
       if (str(manifest.name)) roots.add(path.slice(0, -"plugin.json".length).replace(/\/$/, ""));
@@ -477,7 +477,7 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     if (!wrapper || ![...files.keys()].every(path => path.startsWith(`${wrapper}/`))) fail("The repository archive has an invalid package root.");
     files = subFiles(files, [wrapper, remote.directory].filter(Boolean).join("/"));
   }
-  const roots = packageRoots(files, request.source.provider);
+  const roots = packageRoots(files, request.source.provider, request.detectFormat);
   if (!roots.length) fail("No plugin manifest or SKILL.md found. Choose a plugin folder, skills folder, or their ZIP export.");
   if ("path" in request.source && request.source.connector?.pluginRoot !== undefined) {
     const root = request.source.connector.pluginRoot;
@@ -486,9 +486,13 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     return [planPackage(selectedFiles, root, request, workspaceRoot)];
   }
   if (request.root !== undefined && !roots.includes(request.root)) fail("Selected plugin root was not found.");
-  return roots.filter(root => request.root === undefined || root === request.root).map(root => remote
-    ? planPluginFiles(subFiles(files, root), root, { provider: request.source.provider, scope: request.scope, asWorkflow: request.asWorkflow, origin: { provider: request.source.provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(request.asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot)
-    : planPackage(subFiles(files, root), root, request, workspaceRoot));
+  return roots.filter(root => request.root === undefined || root === request.root).map(root => {
+    const selected = subFiles(files, root);
+    const provider = request.detectFormat ? selected.has(".codex-plugin/plugin.json") ? "chatgpt" : selected.has(".claude-plugin/plugin.json") ? "claude" : request.source.provider : request.source.provider;
+    return remote
+      ? planPluginFiles(selected, root, { provider, scope: request.scope, asWorkflow: request.asWorkflow, origin: { provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(request.asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot)
+      : planPackage(selected, root, { ...request, source: { ...request.source, provider } }, workspaceRoot);
+  });
 }
 
 export async function discoverPluginImports(provider: PluginImportProvider, workspaceRoot: string): Promise<PluginImportCandidate[]> {
@@ -536,7 +540,7 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
               if (preview.connectors?.some(item => item.name === name && item.status === "blocked")) continue;
               results.set(JSON.stringify([path, name]), { path, name, version, kind: "connector", connector: { name, pluginRoot: "" }, bundledIn: plugin });
             }
-          } catch { /* Keep the whole plugin discoverable; its preview reports invalid or unsupported MCP configuration. */ }
+          } catch { results.delete(path); /* Invalid packages cannot produce an installable review. Other sources remain available. */ }
           return;
         }
       } catch { /* Other valid installations remain discoverable. */ }
@@ -584,6 +588,8 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
 async function discoveryPackageFiles(root: string, provider: PluginImportProvider): Promise<PackageFiles> {
   const files: PackageFiles = new Map();
   let bytes = 0;
+  let metadataBytes = 0;
+  let metadataFiles = 0;
   const load = async (value: string) => {
     const path = safePath(value);
     if (files.has(path)) return;
@@ -596,7 +602,12 @@ async function discoveryPackageFiles(root: string, provider: PluginImportProvide
       if (info.isSymbolicLink() || (index < parts.length - 1 ? !info.isDirectory() : !info.isFile())) fail("Plugin metadata must use ordinary files and folders.");
       if (index === parts.length - 1) {
         bytes += info.size;
-        if (info.size > 1024 * 1024 || bytes > 4 * 1024 * 1024 || files.size >= 64) fail("Plugin discovery metadata is too large.");
+        if (path.endsWith(".md")) {
+          if (bytes > MAX_BYTES || files.size >= MAX_FILES) fail("Plugin discovery documents are too large.");
+        } else {
+          metadataBytes += info.size;
+          if (info.size > 1024 * 1024 || metadataBytes > 4 * 1024 * 1024 || metadataFiles++ >= 64) fail("Plugin discovery metadata is too large.");
+        }
         const content = await readFile(absolute);
         if (content.length !== info.size) fail("Plugin changed during discovery. Scan again.");
         files.set(path, { path, bytes: content, mode: info.mode & 0o777 });

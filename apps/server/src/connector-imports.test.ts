@@ -94,19 +94,33 @@ test("identical remote connectors across Claude and Codex projects appear once w
   }
 }));
 
-test("deduplication retains different credentials, restrictions and project-relative programs", async () => fixture(async home => {
+test("deduplication retains different credentials, endpoints and project-relative programs", async () => fixture(async home => {
   const workspace = join(home, "project");
   const other = join(home, "other");
   const remote = { url: "https://linear.example/mcp", headers: { Authorization: "Bearer first-secret" } };
   const local = { command: "node", args: ["server.js"] };
   await write(join(home, ".claude.json"), { mcpServers: { linear: remote }, projects: {
     [workspace]: { mcpServers: { linear: { ...remote, headers: { Authorization: "Bearer second-secret" } }, local } },
-    [other]: { mcpServers: { linear: { ...remote, enabled_tools: ["read"] }, local } },
+    [other]: { mcpServers: { linear: { ...remote, url: "https://other.example/mcp" }, local } },
   } });
   const items = await discoverConnectorImports("claude", workspace, home, join(home, ".codex"), join(home, ".claude"));
   expect(items.filter(item => item.name === "linear")).toHaveLength(3);
   expect(items.filter(item => item.name === "local")).toHaveLength(2);
   expect(JSON.stringify(items)).not.toMatch(/first-secret|second-secret|enabled_tools/);
+}));
+
+test("discovery hides unsupported source runtimes, permission rules and missing programs without hiding credential setup", async () => fixture(async home => {
+  const workspace = join(home, "project");
+  await write(join(home, ".claude.json"), { mcpServers: {
+    hosted: { url: "https://mcp.figma.com/mcp" },
+    session: { url: "https://example.com/mcp", auth: "chatgpt" },
+    policy: { url: "https://example.com/mcp", disabled_tools: ["delete"] },
+    missing: { command: join(home, "missing-program") },
+    setup: { url: "https://example.com/mcp", headers: { Authorization: "Bearer ${TOKEN}" } },
+    local: { command: process.execPath, args: ["server.js"] },
+  } });
+  const items = await discoverConnectorImports("claude", workspace, home, join(home, ".codex"), join(home, ".claude"));
+  expect(items.map(item => item.name).sort()).toEqual(["local", "setup"]);
 }));
 
 test("Codex callback settings remain part of the imported connector identity", async () => fixture(async home => {

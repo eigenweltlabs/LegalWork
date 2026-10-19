@@ -5,7 +5,9 @@ import { isDeepStrictEqual } from "node:util";
 import { parse as parseToml } from "smol-toml";
 import type { PluginImportCandidate, PluginImportConnector, PluginImportProvider } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
-import { isCredentialHeader } from "./connector-config.js";
+import { connectorConfigVariables, isCredentialHeader } from "./connector-config.js";
+import { assessImportedConnector } from "./connector-import-compatibility.js";
+import { connectorProgramAvailable } from "./connector-program.js";
 
 const MAX_CONFIG_BYTES = 16 * 1024 * 1024;
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -64,13 +66,17 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
     seen.add(absolute);
     try {
       const config = await readConfig(absolute);
-      const add = (project?: string) => {
+      const add = async (project?: string) => {
         const entries = servers(config, provider, project);
         if (!record(entries)) return;
         for (const [name, entry] of Object.entries(entries)) {
           if (candidates.length >= 100) return;
           if (!record(entry)) continue;
           const imported = importedConnectorConfig(provider, config, entry, absolute, project);
+          const normalized = normalizeImportedConnector(imported, [], provider);
+          if (assessImportedConnector(name, name, imported, normalized).status === "blocked") continue;
+          const program = typeof normalized.command === "string" ? normalized.command : Array.isArray(normalized.command) && typeof normalized.command[0] === "string" ? normalized.command[0] : null;
+          if (!normalized.url && program && !connectorConfigVariables(normalized).length && !await connectorProgramAvailable(program)) continue;
           const directory = typeof imported.url === "string" ? null : typeof imported.cwd === "string" && isAbsolute(imported.cwd) ? imported.cwd : project ?? dirname(absolute);
           const comparison = { name, config: imported, directory };
           if (configurations.some(previous => isDeepStrictEqual(previous, comparison))) continue;
@@ -78,10 +84,10 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
           candidates.push({ path: absolute, name, version: null, kind: "connector", connector: { name, ...(project !== undefined ? { project } : {}) }, description: label.split(" · ")[0] });
         }
       };
-      add();
+      await add();
       if (record(config.projects)) for (const project of Object.keys(config.projects).slice(0, 100)) {
         if (!isAbsolute(project)) continue;
-        if (provider === "claude") add(project);
+        if (provider === "claude") await add(project);
         sources.push({ path: join(project, provider === "chatgpt" ? ".codex/config.toml" : ".mcp.json"), label: `${provider === "chatgpt" ? "Codex" : "Claude Code"} · ${basename(project)}` });
       }
     } catch { /* Missing or malformed source configs must not hide other imports. */ }

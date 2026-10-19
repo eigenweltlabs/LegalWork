@@ -2,7 +2,7 @@ import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dial
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Package, Plug } from "lucide-react";
+import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Loader2, Package, Plug } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,8 @@ export type ExtensionsViewProps = {
   developerMode: boolean;
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
+  /** Re-read the library when the server starts or reconnects. */
+  libraryConnection?: object | null;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
   canUseGlobalScope: boolean;
@@ -117,11 +119,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   useEffect(() => setCreatePluginOpen(false), [packageTarget]);
   useEffect(() => {
     let stopped = false;
+    if (props.libraryConnection === null) { setPackageLibrary(null); return; }
     if (props.skillTools) void props.skillTools.importedPackages()
       .then(items => { if (!stopped) setPackageLibrary({ target: packageTarget, items }); })
       .catch(error => { if (!stopped) toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); });
     return () => { stopped = true; };
-  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, importVersion]);
+  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, props.libraryConnection, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
@@ -255,7 +258,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library showEmpty /> : null}
+          {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library showEmpty /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>
