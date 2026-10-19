@@ -35,7 +35,10 @@ const noop = () => {};
 function StoragePreview() {
   const [scope, setScope] = useState<HubScope>("local");
   const roots = useQuery({ queryKey: ["storage-roots", "fixture-project"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
-  return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
+  return <PlatformProvider value={{ ...createDefaultPlatform(), openLink: (authUrl) => {
+    // The storage fixture completes synthetic Google consent without opening a provider.
+    void fetch("http://127.0.0.1:44642/fixture/authorize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: "google-drive", authUrl }) });
+  } }}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
     <h1 className="text-xl font-semibold">File Storage · Synthetic accounts</h1>
     <div className="grid gap-8 md:grid-cols-[15rem_1fr]">
       <aside className="rounded-2xl border p-2"><h2 className="p-2 text-sm font-medium">Memory Drive</h2>{roots.data && <StorageDriveTree client={client} workspaceId="fixture-project" roots={roots.data.roots} onOpenFile={() => {}} />}</aside>

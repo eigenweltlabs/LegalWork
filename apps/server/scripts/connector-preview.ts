@@ -16,6 +16,7 @@ import { storageInputSchema, type StorageInput } from "@legalwork/types/file-sto
 const sharedStorage = new Map<string, { id: string; version: number; updatedAt: string; input: StorageInput }>();
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
 const showStorage = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE === "1";
+const storageSignInRequired = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE_SIGNIN === "1";
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
 const editedDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_EDITED_DRAFTS === "1";
 const draftMime = new Map<string, string>();
@@ -151,8 +152,15 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
 }, { preconnect: nativeFetch.preconnect });
 const server = await startServer(config);
 if (showStorage) {
+  if (storageSignInRequired) {
+    const id = "00000000-0000-4000-8000-000000000001";
+    sharedStorage.set(id, { id, version: 1, updatedAt: new Date().toISOString(), input: storageInputSchema.parse({
+      name: "Company Google Drive", config: { kind: "oauth", provider: "google-drive", root: "", sharingMode: "member" }, readOnly: true, teamInstallation: "automatic",
+    }) });
+  }
   const owner = JSON.stringify(["https://connector-fixture.test", "fixture-firm", "fixture-user"]);
   for (const provider of connectorDefinitions.filter(item => item.kind === "files")) {
+    if (storageSignInRequired && provider.id === "google-drive") continue;
     connected.add(provider.id);
     await writeConnectorConnections(config, owner, provider.id, [{ id: `${provider.id}-fixture-local`, nangoConnectionId: `${provider.id}-fixture-account`, createdAt: null, needsReconnect: false }]);
   }
@@ -177,7 +185,7 @@ const authorization = Bun.serve({ hostname: "127.0.0.1", port: 44642, async fetc
   const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (new URL(request.url).pathname === "/fixture/drafts" && request.method === "GET") return Response.json(fixtureDrafts, { headers });
-  const body = z.object({ provider: z.enum(["gmail", "outlook"]), authUrl: z.string().optional() }).parse(await request.json());
+  const body = z.object({ provider: z.enum(["gmail", "outlook", "google-drive"]), authUrl: z.string().optional() }).parse(await request.json());
   if (body.authUrl) {
     const auth = new URL(body.authUrl);
     if (auth.hostname === "accounts.google.com" || auth.hostname === "login.microsoftonline.com") {
