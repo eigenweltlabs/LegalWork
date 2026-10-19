@@ -28,11 +28,12 @@ export function StepDots(props: { step: number; total: number }) {
 }
 
 /** Wizard footer back button — bottom-left of the centered column. */
-export function CoverBackButton(props: { label: string; onClick: () => void }) {
+export function CoverBackButton(props: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      disabled={props.disabled}
+      className="inline-flex items-center gap-1.5 text-[13px] text-dls-secondary transition-colors hover:text-dls-text disabled:pointer-events-none disabled:opacity-50"
       onClick={props.onClick}
     >
       <ArrowLeft className="size-3.5" />
@@ -71,13 +72,12 @@ export function OnboardingCover(props: {
   footerLeft?: ReactNode;
   footerRight?: ReactNode;
   compact?: boolean;
-  wide?: boolean;
 }) {
   const hasFooter = Boolean(props.footerLeft || props.footerRight);
   return (
     <Page className="fixed inset-0 z-40 h-dvh overflow-y-auto bg-background">
       <PageTitlebarRegion />
-      <div className={`mx-auto flex min-h-full w-full ${props.wide ? "max-w-[720px]" : "max-w-[448px]"} flex-col px-6 pb-6 pt-12 sm:pb-8`}>
+      <div className="mx-auto flex min-h-full w-full max-w-[448px] flex-col px-6 pb-6 pt-12 sm:pb-8">
         <main className={`flex flex-1 flex-col justify-center ${props.compact ? "py-6" : "py-12"}`}>{props.children}</main>
         {hasFooter ? (
           <footer className="flex min-h-9 flex-wrap items-center justify-between gap-4">
