@@ -61,7 +61,7 @@ export function RecorderFlow(props: {
     <OnboardingCover compact
       footerLeft={<CoverBackButton label={t("onboarding.back")} disabled={captureBusy} onClick={props.onBack} />}
       footerRight={ready || downloading
-        ? <Button ref={continueButton} size="sm" disabled={captureBusy} onClick={() => props.onDone(ready)}>{t(downloading && !ready ? "onboarding_audio.continue_background" : "onboarding.continue")}</Button>
+        ? <Button ref={continueButton} size="sm" disabled={captureBusy} onClick={() => props.onDone(ready)}>{t("onboarding.continue")}</Button>
         : <CoverSkipButton label={t("onboarding.skip")} disabled={props.loading || captureBusy} onClick={() => props.onDone(ready)} />}
     >
       <div className="flex w-full flex-col items-start gap-7" data-testid={`onboarding-recorder-${section}`}>
