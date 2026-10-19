@@ -5,7 +5,7 @@
 .lw-recorder-title-row { display: flex; align-items: flex-end; gap: var(--lw-space-4); }
 .lw-recorder-title-row > button { min-width: 108px; }
 .lw-recorder-field-label { display: block; margin-bottom: var(--lw-space-2); color: var(--lw-text-secondary); font-size: 12px; font-weight: 500; line-height: 1.5; }
-.lw-recorder-options { display: grid; grid-template-columns: minmax(0, 1fr) 144px 180px; gap: var(--lw-space-4); border-top: 1px solid var(--lw-border-subtle); padding-top: var(--lw-space-4); }
+.lw-recorder-options { display: grid; grid-template-columns: minmax(0, 1fr) max-content 180px; gap: var(--lw-space-4); border-top: 1px solid var(--lw-border-subtle); padding-top: var(--lw-space-4); }
 .lw-recorder-source-field { min-width: 0; }
 .lw-recorder-sources { display: flex; flex-wrap: wrap; gap: var(--lw-space-2); }
 .lw-recorder-model-field > button { width: 100%; min-width: 0; }
@@ -26,7 +26,7 @@
 .lw-recorder-row-open:focus-visible { outline: 2px solid var(--lw-focus-ring); outline-offset: 4px; }
 .lw-recorder-empty { display: flex; flex-direction: column; align-items: center; gap: var(--lw-space-2); padding: var(--lw-space-8) var(--lw-space-4); border: 1px dashed var(--lw-border); border-radius: var(--lw-radius-xl); text-align: center; }
 @container recorder (max-width: 760px) {
-  .lw-recorder-options { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lw-recorder-options { grid-template-columns: minmax(max-content, 1fr) minmax(0, 1fr); }
   .lw-recorder-source-field { grid-column: 1 / -1; }
 }
 @container recorder (max-width: 480px) {

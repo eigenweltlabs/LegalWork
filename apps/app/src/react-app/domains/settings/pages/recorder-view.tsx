@@ -123,10 +123,10 @@ export function RecorderSettingsView(props: {
                       if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
                     }}
                   >
-                    <SelectTrigger size="sm" className="w-[160px]">
+                    <SelectTrigger size="sm">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent align="start" className="w-auto min-w-(--anchor-width)">
                       <SelectItem value="auto">{t("recorder.language_auto")}</SelectItem>
                       <SelectItem value="en">English</SelectItem>
                       <SelectItem value="de">Deutsch</SelectItem>

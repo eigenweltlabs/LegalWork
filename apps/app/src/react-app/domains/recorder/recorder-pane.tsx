@@ -664,7 +664,7 @@ export function RecorderPane(props: {
                 if (value === "auto" || value === "en" || value === "de") store.setLanguage(value);
               }} disabled={isCaptureBusy || store.starting}>
                 <SelectTrigger size="sm" aria-label={t("settings.language")} className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="auto">{t("recorder.language_auto")}</SelectItem><SelectItem value="en">English</SelectItem><SelectItem value="de">Deutsch</SelectItem></SelectContent>
+                <SelectContent align="start" className="w-auto min-w-(--anchor-width)"><SelectItem value="auto">{t("recorder.language_auto")}</SelectItem><SelectItem value="en">English</SelectItem><SelectItem value="de">Deutsch</SelectItem></SelectContent>
               </Select>
             </div>
             <div role="group" aria-label={t("recorder.model_select_label")} className="lw-recorder-model-field">
