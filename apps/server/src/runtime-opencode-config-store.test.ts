@@ -31,7 +31,6 @@ function serverConfig(root: string, dbPath: string): ServerConfig {
     port: 0,
     token: "token",
     hostToken: "host-token",
-    mcpVaultKey: () => Buffer.alloc(32, 7),
     configPath: join(root, "server.json"),
     approval: { mode: "auto", timeoutMs: 0 },
     corsOrigins: [],

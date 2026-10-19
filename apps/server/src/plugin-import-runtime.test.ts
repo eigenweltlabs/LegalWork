@@ -94,7 +94,6 @@ test("configuration API updates the connector in its owned scope and cannot recr
   if (!project) throw new Error("Missing project import");
   await installPluginImport(config, "test", root, project, false);
   const name = project.preview.components[0]!.installedName;
-  config.mcpVaultKey = () => Buffer.alloc(32, 7);
   const server = await startServer(config);
   const headers = { Authorization: "Bearer test", "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
   try {

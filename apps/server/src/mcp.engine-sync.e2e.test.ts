@@ -66,7 +66,6 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
 
 async function startLegalworkServer(workspaceRoot: string, opencodeBaseUrl: string) {
   const config: ServerConfig = {
-    mcpVaultKey: () => Buffer.alloc(32, 12),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -109,7 +108,6 @@ const POSTHOG_CONFIG = {
 
 async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseUrl: string) {
   const config: ServerConfig = {
-    mcpVaultKey: () => Buffer.alloc(32, 12),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -444,7 +442,6 @@ describe("runtime MCP engine sync", () => {
       const mock = startMockOpencode();
       const baseUrl = `http://127.0.0.1:${mock.server.port}`;
       const config: ServerConfig = {
-    mcpVaultKey: () => Buffer.alloc(32, 12),
         host: "127.0.0.1",
         port: 0,
         token: "owt_test_token",

@@ -1,10 +1,9 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { z } from "zod";
 import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { ApiError } from "./errors.js";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 
@@ -27,8 +26,7 @@ const recordSchema = z.object({
 });
 export type ManagedMcpRecord = z.infer<typeof recordSchema>;
 const recordsSchema = z.record(z.string(), recordSchema);
-const envelopeSchema = z.object({ version: z.literal(1), iv: z.string(), tag: z.string(), data: z.string() });
-const aad = Buffer.from("legalwork-managed-mcp-v1");
+const vaultEntry = "managed-mcp";
 export function isMcpSecureStorageError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.code.startsWith("mcp_secure_storage_");
 }
@@ -37,39 +35,29 @@ export function isMcpSecureStorageError(error: unknown): error is ApiError {
  * It never locks the application's runtime database or a network request's transaction. */
 export class McpManagerStore {
   readonly path: string;
+  private vault: OAuthVault;
   private owner?: SqliteHandle;
-  private key?: Buffer;
   private records: Record<string, ManagedMcpRecord> = {};
   private sourceConfigurations = new Map<string, RemoteMcp>();
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private config: ServerConfig) {
-    this.path = join(runtimeStorageDir(config), "managed-mcp.vault");
+  constructor(config: ServerConfig) {
+    this.path = oauthVaultPath(config);
+    this.vault = new OAuthVault(this.path);
   }
 
   async open() {
-    await mkdir(runtimeStorageDir(this.config), { recursive: true });
-    const owner = await openSqlite(`${this.path}.owner.sqlite`);
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
+    const owner = await openSqlite(`${this.path}.mcp-owner.sqlite`);
     try { owner.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE"); }
     catch { owner.close(); throw new ApiError(409, "mcp_manager_in_use", "Another LegalWork server owns this connector store."); }
     this.owner = owner;
     try {
-      const key = this.config.mcpVaultKey ? Buffer.from(await this.config.mcpVaultKey())
-        : process.env.LEGALWORK_ENCRYPTION_KEY ? createHash("sha256").update(process.env.LEGALWORK_ENCRYPTION_KEY).digest() : undefined;
-      if (!key || key.length !== 32) throw new ApiError(503, "mcp_secure_storage_unavailable", "Unlock desktop secure storage or set LEGALWORK_ENCRYPTION_KEY to use managed MCP connections.");
-      this.key = key;
-      let content: string;
-      try { content = await readFile(this.path, "utf8"); }
-      catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return; throw error; }
-      const envelope = envelopeSchema.parse(JSON.parse(content));
-      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
-      decipher.setAAD(aad);
-      decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-      this.records = recordsSchema.parse(JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.data, "base64")), decipher.final()]).toString()));
-    } catch (error) {
+      await this.vault.ready();
+      this.records = await this.vault.getEntry(vaultEntry, recordsSchema) ?? {};
+    } catch {
       this.close();
-      if (error instanceof ApiError) throw error;
-      throw new ApiError(503, "mcp_secure_storage_unreadable", "Saved connector credentials could not be unlocked. Restore access to secure storage before reconnecting.");
+      throw new ApiError(503, "mcp_secure_storage_unreadable", "Saved connector credentials could not be opened. Restore access to the app encryption key before reconnecting.");
     }
   }
 
@@ -93,16 +81,12 @@ export class McpManagerStore {
 
   private async mutate(update: (records: Record<string, ManagedMcpRecord>) => void) {
     const job = this.queue.then(async () => {
-      if (!this.owner || !this.key) throw new Error("MCP credential store is closed.");
+      if (!this.owner) throw new Error("MCP credential store is closed.");
       const next = structuredClone(this.records);
       update(next);
-      const iv = randomBytes(12);
-      const cipher = createCipheriv("aes-256-gcm", this.key, iv);
-      cipher.setAAD(aad);
-      const data = Buffer.concat([cipher.update(JSON.stringify(next)), cipher.final()]);
-      const tmp = `${this.path}.${randomUUID()}.tmp`;
-      await writeFile(tmp, JSON.stringify({ version: 1, iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), data: data.toString("base64") }), { mode: 0o600 });
-      await rename(tmp, this.path);
+      // The shared vault merges this namespace under its write lock, preserving
+      // file-storage grants and built-in connector capabilities written meanwhile.
+      await this.vault.setEntry(vaultEntry, recordsSchema, next);
       this.records = next;
     });
     this.queue = job.catch(() => {});
@@ -110,5 +94,5 @@ export class McpManagerStore {
   }
 
   async drain() { await this.queue; }
-  close() { this.owner?.close(); this.owner = undefined; this.key?.fill(0); this.key = undefined; this.sourceConfigurations.clear(); }
+  close() { this.owner?.close(); this.owner = undefined; this.records = {}; this.sourceConfigurations.clear(); }
 }

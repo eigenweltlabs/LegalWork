@@ -4,6 +4,40 @@ Tested on 19 October 2026, macOS arm64, Electron 43.7.5, stock OpenCode 1.18.29.
 
 The Electron profile, server configuration, data and XDG directories were isolated. Two disposable projects shared one LegalWork server and connector vault. The installed LegalWork profile and its rotating grants were not reused.
 
+## Shared-vault revision
+
+MCP now uses the existing `OAuthVault`, `storage-oauth.vault` and encryption key,
+with a separate `managed-mcp` entry. The independent MCP encryption codec,
+desktop key provider and key file have been removed. The existing file format
+and key policy are unchanged: `LEGALWORK_ENCRYPTION_KEY` or an adjacent key file
+with mode 0600. This revision uses the existing vault policy, including its
+file-based key storage; it does not add operating-system keychain protection.
+
+- Shared-vault regression: **111 passed**, 780 assertions. Covers existing
+  storage grants and built-in connector capabilities surviving concurrent MCP
+  refresh and restart, key reuse, custom storage locations, cross-process MCP
+  ownership, and unreadable-key preservation.
+- Broader connector/runtime regression: **138 passed, 5 skipped**, 679 assertions.
+- Server build and app TypeScript check passed.
+- The disposable Electron profile's two MCP connections, including its real
+  Linear OAuth grant, were copied into the shared vault using an unshipped
+  one-time helper before restarting. Both projects discovered the real providers
+  and completed Cloudflare searches and Linear `list_teams` calls without another
+  sign-in. The hosted Eigenwelt Model API remains configured.
+- Scanned **16,409** disposable-profile files: no current provider token or
+  client-secret plaintext copies. Shared vault and its key file are mode 0600.
+- The native two-engine integration passed twice consecutively with 26 assertions
+  per run after bounding startup health probes, and on a diagnostic rerun. Earlier ordinary runs
+  timed out at 90 seconds without diagnostics. The previous branch revision also
+  timed out in Linux CI. Startup health requests now have a one-second timeout
+  and the polling loop has a wall-clock deadline; the underlying intermittent
+  failure has not been established, and Linux CI still needs confirmation.
+
+The matrix and screenshots below document the initial live-provider run. That
+run preceded consolidation into the existing vault; its separate OS-protected
+MCP key implementation has since been removed. The shared-vault checks above
+were repeated on the refactored implementation.
+
 ## Real providers and execution
 
 - [Cloudflare Documentation MCP](https://github.com/cloudflare/mcp-server-cloudflare): `https://docs.mcp.cloudflare.com/mcp`, two public tools.
@@ -44,14 +78,14 @@ Fault injection and inspection ran in an unshipped Electron entry wrapper, confi
 
 1. The renderer saved a connector through LegalWork, then tried to send its provider configuration directly to OpenCode. The sandbox ownership guard rejected the second write with HTTP 403, so the UI falsely reported failure. The renderer now only observes engine status after the server registers the connector. The UI regression fixture rejects all direct engine MCP writes.
 2. Startup unnecessarily probed engines when no connectors existed, racing workspace activation and adding requests. Empty registries now skip that probe. Firm-only connections still rebind, covered by a regression test. Startup readiness probes also stop when the manager shuts down.
-3. Three older integration fixtures assumed plaintext engine configuration or omitted the now-required vault key. They now verify the vault-backed descriptor, hydrated management view and derived gateway configuration.
+3. Three older integration fixtures assumed plaintext engine configuration. They now verify the vault-backed descriptor, hydrated management view and derived gateway configuration.
 
 ## Automated checks
 
 - Focused server regression: **160 passed, 5 skipped**, 772 assertions, 16 files. The skipped tests are older optional native recovery tests; the new native engine test ran separately.
 - Stock-engine integration: **1 passed**, 26 assertions, two real unmodified engine processes.
 - App connector regression: **81 passed**, 276 assertions; changed connection-store suite also rerun with all direct engine writes rejected.
-- App TypeScript check, server build and desktop vault-key tests passed.
+- App TypeScript check and server build passed. The initial desktop vault-key tests passed before that implementation was removed in the shared-vault revision.
 - Full server suite: **2,341 passed, 68 skipped, 2 failed**. The same two failures reproduced on an archive of base `e3900fa44b0215167da1845637ccc3c9f26a601e`, using the same Bun 1.3.14 and installed dependencies: `serve-node.test.ts` streaming-error handling and `wiki/store.test.ts` graph-poll invalidation. Neither implementation nor test file differs from the base. The full local suite is therefore not green.
 
 Re-run the core automated checks from the repository root:
@@ -59,9 +93,11 @@ Re-run the core automated checks from the repository root:
 ```sh
 pnpm --filter @legalwork/app typecheck
 pnpm --filter legalwork-server build
-node --test apps/desktop/electron/mcp-vault-key.test.mjs
 OPENCODE_TEST_BINARY=/absolute/path/to/stock/opencode \
   bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.engine.e2e.test.ts
+bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.test.ts \
+  apps/server/src/file-storage/oauth/session.test.ts apps/server/src/connectors/connectors.test.ts \
+  apps/server/src/connectors/local-oauth.test.ts
 bun test apps/app/tests/mcp-oauth-flow.test.ts apps/app/tests/mcp-auth-identity.test.ts \
   apps/app/tests/mcp-connect-state.test.ts apps/app/tests/mcp-configuration.test.tsx \
   apps/app/tests/connections-remove-mcp.test.ts apps/app/tests/mcp-logout-truthfulness.test.ts
@@ -72,4 +108,4 @@ To reproduce the manual flow, launch `pnpm dev:electron` with a new `LEGALWORK_E
 
 ## Limits
 
-Real-provider coverage is macOS with Linear and Cloudflare. Firm Hub behavior, terminal OAuth errors, opaque provider URLs, legacy SSE and the remaining protocol cases use the controlled integration fixtures. Windows/Linux secure-storage behavior and real firm deployments were not exercised interactively in this run. Built-in Google/Microsoft adapters are outside this custom remote MCP manager path.
+Real-provider coverage is macOS with Linear and Cloudflare. Firm Hub behavior, terminal OAuth errors, opaque provider URLs, legacy SSE and the remaining protocol cases use the controlled integration fixtures. Windows/Linux and real firm deployments were not exercised interactively in this run. Built-in Google/Microsoft adapters are outside this custom remote MCP manager path; preservation of their shared vault entries is covered by the regression tests.

@@ -32,16 +32,23 @@ workspace engine -- scoped gateway --> MCP client ---+--> provider
 
 ## Persistence and lifecycle
 
-`managed-mcp.vault`, beside the runtime database, contains AES-256-GCM encrypted
-configuration and credentials. Registry rows hold public descriptors referencing
-stable connection IDs. The desktop stores its random encryption key only as an
-OS-protected `managed-mcp-key.enc` blob beside its server configuration. Linux's
-plaintext secure-storage backend is rejected. Standalone servers supply
-`LEGALWORK_ENCRYPTION_KEY` through their private deployment environment.
+MCP configuration and credentials use the existing `OAuthVault` and its
+`storage-oauth.vault` file, alongside built-in connector capabilities and
+file-storage OAuth grants. A separate `managed-mcp` entry owns the MCP schema;
+the shared vault serializes and merges writes without replacing other entries.
+Registry rows hold public descriptors referencing stable connection IDs.
 
-A dedicated SQLite transaction in `managed-mcp.vault.owner.sqlite` admits one
-manager per credential store, across processes. The OS releases the lock on
-process exit; the application's main SQLite database is not held locked.
+Encryption and key handling follow the existing vault policy: AES-256-GCM with
+`LEGALWORK_ENCRYPTION_KEY`, or its existing adjacent `storage-oauth.vault.key`
+file (mode 0600). No MCP-specific encryption code, key provider or key file is
+created. `LEGALWORK_STORAGE_STORE` overrides the shared storage location for MCP
+as well as the existing consumers.
+
+A dedicated SQLite transaction in `storage-oauth.vault.mcp-owner.sqlite` admits
+one MCP manager per shared credential store, across processes. Its lifetime lock
+does not block built-in connectors writing through the shared vault. The OS
+releases ownership on process exit; the application's main database is not held
+locked.
 
 Within that owner, each connection has a separate queue. Refresh rereads current
 credentials inside the queue, performs the provider exchange, and saves the
@@ -57,7 +64,7 @@ Changing enabled state or operation timeout preserves the grant.
 
 Gateway bearers are process-local and rotate after server restart. Startup
 configuration, live engine synchronization, and the folder plugin obtain current
-bearers. A locked or unreadable vault preserves its original contents and disables
+bearers. An unreadable vault preserves its original contents and disables
 remote engine entries until unlocked; it never falls back to engine-owned OAuth.
 
 Firm Hub connection namespaces include platform, organization, and member.
@@ -98,8 +105,9 @@ independent. Existing global engine credentials are not modified.
 pnpm install --frozen-lockfile
 pnpm --filter legalwork-server build
 pnpm --filter @legalwork/app typecheck
-node --test apps/desktop/electron/mcp-vault-key.test.mjs
-bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.test.ts
+bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.test.ts \
+  apps/server/src/file-storage/oauth/session.test.ts apps/server/src/connectors/connectors.test.ts \
+  apps/server/src/connectors/local-oauth.test.ts
 OPENCODE_TEST_BINARY=/path/to/released/opencode bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.engine.e2e.test.ts
 ```
 

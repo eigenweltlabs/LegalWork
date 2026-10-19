@@ -18,7 +18,8 @@ const binary = process.env.OPENCODE_TEST_BINARY;
 if (binary && !existsSync(binary)) throw new Error("OPENCODE_TEST_BINARY does not exist");
 function freePort() { const s = Bun.serve({ port: 0, fetch: () => new Response() }); const port = s.port; s.stop(true); if (!port) throw new Error("No port"); return port; }
 async function until(check: () => Promise<boolean>, label: string) {
-  for (let i = 0; i < 150; i++) { if (await check().catch(() => false)) return; await Bun.sleep(100); }
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) { if (await check().catch(() => false)) return; await Bun.sleep(100); }
   throw new Error(`Timed out waiting for ${label}`);
 }
 async function stop(child: ChildProcess) {
@@ -54,7 +55,7 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
   } });
   const workspaces = ["a", "b"].map(id => ({ id: `ws_${id}`, name: id, path: join(root, id), baseUrl: `http://127.0.0.1:${freePort()}`, preset: "starter", workspaceType: "local" } satisfies ServerConfig["workspaces"][number]));
   const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, token: "app-token", hostToken: "host-token", configPath: join(root, "server.json"), mcpVaultKey: () => Buffer.alloc(32, 8),
+    host: "127.0.0.1", port: 0, token: "app-token", hostToken: "host-token", configPath: join(root, "server.json"),
     workspaces, approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [], authorizedRoots: [root], readOnly: false,
     startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
@@ -93,7 +94,7 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
     await callback.close();
   };
   try {
-    await until(async () => z.object({ issuer: z.string() }).parse(await (await fetch(`${providerUrl}/health`)).json()).issuer === providerUrl, "provider");
+    await until(async () => z.object({ issuer: z.string() }).parse(await (await fetch(`${providerUrl}/health`, { signal: AbortSignal.timeout(1000) })).json()).issuer === providerUrl, "provider");
     await Promise.all(workspaces.map(workspace => mkdir(workspace.path)));
     server = await startServer(config);
     for (const workspace of workspaces) {
@@ -107,7 +108,7 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
           OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: "ignore",
       });
       children.push(engine);
-      await until(async () => (await fetch(`${workspace.baseUrl}/global/health`)).ok, "engine");
+      await until(async () => (await fetch(`${workspace.baseUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok, `engine ${workspace.id}`);
     }
     await app("ws_a", "/mcp", { name: "shared", config: { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } } });
     await signIn(true);

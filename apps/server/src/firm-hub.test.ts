@@ -90,7 +90,6 @@ const exists = (path: string) => stat(path).then(() => true, () => false);
 describe("the firm's Knowledge Hub", () => {
   test("startup rebinds firm-only connectors even when the personal registry is empty", async () => {
     const { config, hub, signIn, sync } = await setup();
-    config.mcpVaultKey = () => Buffer.alloc(32, 9);
     config.port = 40123;
     config.workspaces = [{ id: "ws_firm", name: "Firm", path: dirname(config.configPath!), preset: "starter", workspaceType: "local", baseUrl: "http://engine.test" }];
     hub.items = [{ id: "managed-firm", kind: "mcp", name: "research", version: 1, installation: "automatic", payload: remote("research", { by: "oauth", client: { id: "firm-client" } }) }];
@@ -112,7 +111,6 @@ describe("the firm's Knowledge Hub", () => {
 
   test("firm MCPs use the local gateway without persisting the firm's secret, and revoke on sign-out", async () => {
     const { config, hub, signIn, signOut, sync } = await setup();
-    config.mcpVaultKey = () => Buffer.alloc(32, 9);
     config.port = 40123;
     const firmSecret = "firm-private-api-key";
     hub.items = [{ id: "managed-firm", kind: "mcp", name: "research", version: 1, installation: "automatic", payload: remote("research", { by: "firm" }),

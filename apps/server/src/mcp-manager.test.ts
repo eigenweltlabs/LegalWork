@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -12,6 +12,9 @@ import { initializeMcpManager, McpConnectorManager, stopMcpManager } from "./mcp
 import { addMcp, removeMcp, listMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "./mcp.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, readGlobalMcpMap, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
+import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
+import { connectorVault } from "./connectors/store.js";
+import { McpManagerStore } from "./mcp-manager-store.js";
 import type { ServerConfig } from "./types.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -52,7 +55,7 @@ export async function managedMcpFixture(env: Record<string, string> = {}) {
   await until(async () => z.object({ issuer: z.string() }).parse(await (await fetch(`${providerUrl}/health`)).json()).issuer === providerUrl, "provider startup");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "app-only-token", hostToken: "host-only-token", configPath: join(root, "server.json"),
-    mcpVaultKey: () => Buffer.alloc(32, 7), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
+    approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
     workspaces: workspaces.map(item => ({ ...item, name: item.id, preset: "starter", workspaceType: "local" })), authorizedRoots: [root],
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
@@ -97,6 +100,61 @@ export async function managedMcpFixture(env: Record<string, string> = {}) {
 }
 
 describe("server-owned MCP connections", () => {
+  test("MCP shares the existing OAuth vault and preserves other connectors during refresh and restart", async () => {
+    const f = await managedMcpFixture();
+    await stopMcpManager(f.config);
+    const vault = new OAuthVault(oauthVaultPath(f.config));
+    const grant = { accessToken: "existing-storage-access", refreshToken: "existing-storage-refresh", expiresAt: 123 };
+    const capabilitySchema = z.object({ nangoConnectionId: z.string() });
+    await vault.set("storage-signin", grant);
+    await connectorVault(f.config).setEntry("nango-capability", capabilitySchema, { nangoConnectionId: "existing-nango-connection" });
+    const key = process.env.LEGALWORK_ENCRYPTION_KEY ? undefined : await readFile(`${vault.path}.key`);
+    const manager = initializeMcpManager(f.config);
+    await manager.reconcile();
+    expect(manager.store.path).toBe(vault.path);
+    const start = await manager.startAuthorization("ws_a", name);
+    const approval = await fetch(start.authorizationUrl, { redirect: "manual" });
+    const code = new URL(approval.headers.get("location")!).searchParams.get("code")!;
+    await manager.finishAuthorization("ws_a", name, code, start.oauthState);
+    const record = manager.store.all()[0]!;
+    await f.expire();
+    await Promise.all([
+      manager.client(record),
+      vault.set("storage-signin", { ...grant, accessToken: "rotated-storage-access" }),
+      connectorVault(f.config).setEntry("nango-capability", capabilitySchema, { nangoConnectionId: "updated-nango-connection" }),
+    ]);
+    expect((await f.stats()).refreshGrants).toBe(1);
+    const tokens = manager.store.all()[0]?.tokens;
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config);
+    await restarted.reconcile();
+    expect(restarted.store.all()[0]?.tokens).toEqual(tokens);
+    expect(await vault.get("storage-signin")).toEqual({ ...grant, accessToken: "rotated-storage-access" });
+    expect(await connectorVault(f.config).getEntry("nango-capability", capabilitySchema)).toEqual({ nangoConnectionId: "updated-nango-connection" });
+    if (key) expect(await readFile(`${vault.path}.key`)).toEqual(key);
+    if (process.platform !== "win32") expect((await stat(vault.path)).mode & 0o777).toBe(0o600);
+    for (const file of ["managed-mcp.vault", "managed-mcp-key.enc"]) await expect(stat(join(f.root, file))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("custom storage locations also determine MCP credentials and cross-server ownership", async () => {
+    const f = await managedMcpFixture();
+    await stopMcpManager(f.config);
+    const prior = process.env.LEGALWORK_STORAGE_STORE;
+    process.env.LEGALWORK_STORAGE_STORE = join(f.root, "custom-storage", "file-storage.json");
+    const first = new McpManagerStore(f.config);
+    const second = new McpManagerStore({ ...f.config, configPath: join(f.root, "other-server", "server.json") });
+    try {
+      await first.open();
+      expect(first.path).toBe(join(f.root, "custom-storage", "storage-oauth.vault"));
+      expect(second.path).toBe(first.path);
+      await expect(second.open()).rejects.toMatchObject({ code: "mcp_manager_in_use" });
+    } finally {
+      first.close(); second.close();
+      if (prior === undefined) delete process.env.LEGALWORK_STORAGE_STORE;
+      else process.env.LEGALWORK_STORAGE_STORE = prior;
+    }
+  });
+
   test("one shared connection, encrypted provider configuration, runtime-only gateway credentials", async () => {
     const f = await managedMcpFixture({ CLIENT_ID: "client", CLIENT_SECRET: "provider-client-secret" });
     await addMcp(f.config, "ws_a", name, { ...f.settings, oauth: { clientId: "client", clientSecret: "provider-client-secret" } });
@@ -259,7 +317,7 @@ describe("server-owned MCP connections", () => {
     await expect(second.reconcile()).rejects.toThrow("Another LegalWork server owns");
     const moduleUrl = pathToFileURL(resolve(import.meta.dir, "mcp-manager.ts")).href;
     const script = `import { McpConnectorManager } from ${JSON.stringify(moduleUrl)};
-      const manager = new McpConnectorManager({ configPath: ${JSON.stringify(f.config.configPath)}, workspaces: [], mcpVaultKey: () => Buffer.alloc(32, 7) });
+      const manager = new McpConnectorManager({ configPath: ${JSON.stringify(f.config.configPath)}, workspaces: [] });
       try { await manager.configure("child", "child", { type: "remote", url: "https://example.com/mcp" }); process.exitCode = 1; }
       catch (error) { if (error.code !== "mcp_manager_in_use") throw error; process.stdout.write(error.code); }
       finally { await manager.close(); }`;
@@ -374,17 +432,22 @@ describe("server-owned MCP connections", () => {
     expect(f.manager.store.all()[0]?.tokens).toEqual(saved);
   });
 
-  test("locked or unreadable vaults preserve data and never give engines provider credentials", async () => {
+  test("an unreadable shared vault preserves data and never gives engines provider credentials", async () => {
     const f = await managedMcpFixture(); await f.signIn();
-    const contents = await readFile(f.manager.store.path, "utf8");
+    const contents = await readFile(f.manager.store.path);
     await stopMcpManager(f.config);
-    f.config.mcpVaultKey = () => Buffer.alloc(32, 99);
+    const priorKey = process.env.LEGALWORK_ENCRYPTION_KEY;
+    process.env.LEGALWORK_ENCRYPTION_KEY = "wrong-app-encryption-key";
     const manager = initializeMcpManager(f.config);
-    await expect(manager.reconcile()).rejects.toMatchObject({ code: "mcp_secure_storage_unreadable" });
-    const entries = await manager.engineEntries("ws_a", await runtimeMcpMapForWorkspace(f.config, "ws_a"));
-    expect(entries.mock).toMatchObject({ enabled: false, oauth: false });
-    expect(await readFile(manager.store.path, "utf8")).toBe(contents);
-    f.config.mcpVaultKey = () => Buffer.alloc(32, 7);
+    try {
+      await expect(manager.reconcile()).rejects.toMatchObject({ code: "mcp_secure_storage_unreadable" });
+      const entries = await manager.engineEntries("ws_a", await runtimeMcpMapForWorkspace(f.config, "ws_a"));
+      expect(entries.mock).toMatchObject({ enabled: false, oauth: false });
+      expect(await readFile(manager.store.path)).toEqual(contents);
+    } finally {
+      if (priorKey === undefined) delete process.env.LEGALWORK_ENCRYPTION_KEY;
+      else process.env.LEGALWORK_ENCRYPTION_KEY = priorKey;
+    }
     await manager.reconcile();
     expect(manager.store.all()[0]?.tokens).toBeDefined();
   });

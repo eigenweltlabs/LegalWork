@@ -34,7 +34,6 @@ import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
-  mcpVaultKey?: ServerConfig["mcpVaultKey"];
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
@@ -71,7 +70,6 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
-  config.mcpVaultKey = options.mcpVaultKey;
   config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
