@@ -1054,6 +1054,8 @@ function fitSkillName(raw) {
 
 const runtimeManager = createRuntimeManager({
   app,
+  // Chromium networking follows the system/PAC proxy and enterprise certificates.
+  modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
   getApprovalWindow: () => mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),

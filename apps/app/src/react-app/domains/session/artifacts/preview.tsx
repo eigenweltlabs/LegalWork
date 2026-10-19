@@ -2,6 +2,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { createPreviewPdfBridge, offlinePreviewDocument } from "./html-preview-security";
+import { pdfPreviewUrl } from "./pdf-preview-url";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -155,7 +156,7 @@ export function PdfPreview({ url, title, className, apiRef }: PdfPreviewProps) {
     return { requestedPage: page };
   } }), [url]);
   const current = navigation?.url === url ? navigation : null;
-  return <iframe key={`${url}:${current?.request ?? 0}`} src={current ? `${url.split("#")[0]}#page=${current.page}` : url} title={title} className={cn("h-full w-full border-0", className)} />;
+  return <iframe key={`${url}:${current?.request ?? 0}`} src={pdfPreviewUrl(url, current?.page)} title={title} className={cn("h-full w-full border-0", className)} />;
 }
 
 interface ImagePreviewProps extends React.ComponentProps<"div"> {

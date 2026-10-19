@@ -15,6 +15,10 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/licenses
+    to: licenses
+  - from: resources/opencode-sdk
+    to: opencode-sdk
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
@@ -40,6 +44,8 @@ extraResources:
     filter:
       - "*.js"
       - "!*.test.js"
+      # Do not ship a retired plugin left by an incremental server build.
+      - "!legalwork-anthropic-auth.js"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a

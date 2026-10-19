@@ -204,6 +204,7 @@ export type SessionSurfaceProps = {
   pendingInteractionSessionIds?: string[];
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
+  retryPermissionInput?: () => void;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
@@ -2172,6 +2173,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     permission={props.activePermission}
                     onOpenSession={props.onOpenInteractionSession}
                     busy={props.permissionReplyBusy}
+                    onRetryInput={props.retryPermissionInput}
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
                   />
