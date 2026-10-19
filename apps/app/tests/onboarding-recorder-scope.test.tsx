@@ -24,7 +24,7 @@ test("Recorder setup does not ask for Dictate Anywhere permissions", () => {
     expect(html).toContain("Speech model");
     expect(html).not.toContain("Input Monitoring");
     expect(html).not.toContain("Accessibility");
-    expect(html).not.toContain("Automation");
+    expect(html).not.toContain("Insert dictated text");
     expect(html).not.toContain('data-testid="onboarding-dictation-permissions"');
   } finally {
     queryClient.clear();
