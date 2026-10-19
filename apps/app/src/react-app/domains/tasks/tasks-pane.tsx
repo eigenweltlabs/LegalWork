@@ -414,53 +414,53 @@ export function TasksPane(props: TasksPaneProps) {
 
   const pageLayout = !props.embedded && !showingDetail;
   const detail = selectedTask && detailMode !== "panel" ? (
-  <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-    {selectedTask.projectId && props.onOpenInProject && <div className={cn("flex justify-end px-4 pt-2", detailMode === "modal" && "pe-12")}><Button variant="ghost" size="sm" onClick={() => {
-      if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
-      attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
-    }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
-    {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
-    <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
-      key={selectedTask.id}
-      inDialog={detailMode === "modal"}
-      inPanel={detailMode === "modal"}
-      draft={selectedDraft}
-      draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
-      saving={updateTask.isPending || resolveConflict.isPending}
-      task={selectedTask}
-      projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
-      submission={detailQuery.data?.submission}
-      notes={detailQuery.data?.notes ?? []}
-      submissionPending={detailQuery.isLoading}
-      members={members}
-      tagSuggestions={tags}
-      busy={busy}
-      accountUserId={access.accountUserId}
-      onBack={() => setSelectedTaskId(null)}
-      onPatch={async (patch) => {
-        const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
-        selectedDraft?.reconcile(result.task);
-        return result;
-      }}
-      conflicts={detailQuery.data?.conflicts}
-      onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
-      onDelete={() => remove(selectedTask)}
-      onRestore={() => restore(selectedTask)}
-      onStartWorkflow={() => requestRun(selectedTask, "workflow")}
-      onStartSession={() => requestRun(selectedTask, "session")}
-      onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
-      onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
-      onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
-      onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: selectedTask.id, files })}
-      onUploadStorageAttachment={async (storageFile) => {
-        if (!props.client) throw new Error(t("tasks.upload_failed"));
-        const file = await storageFileDragToFile(props.client, props.workspaceId, storageFile);
-        return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
-      }}
-      onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
-    /></div>
-  </section>
-) : null;
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {selectedTask.projectId && props.onOpenInProject && <div className={cn("flex justify-end px-4 pt-2", detailMode === "modal" && "pe-12")}><Button variant="ghost" size="sm" onClick={() => {
+        if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
+        attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
+      }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
+      {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
+      <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
+        key={selectedTask.id}
+        inDialog={detailMode === "modal"}
+        inPanel={detailMode === "modal"}
+        draft={selectedDraft}
+        draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
+        saving={updateTask.isPending || resolveConflict.isPending}
+        task={selectedTask}
+        projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
+        submission={detailQuery.data?.submission}
+        notes={detailQuery.data?.notes ?? []}
+        submissionPending={detailQuery.isLoading}
+        members={members}
+        tagSuggestions={tags}
+        busy={busy}
+        accountUserId={access.accountUserId}
+        onBack={() => setSelectedTaskId(null)}
+        onPatch={async (patch) => {
+          const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
+          selectedDraft?.reconcile(result.task);
+          return result;
+        }}
+        conflicts={detailQuery.data?.conflicts}
+        onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: selectedTask.id, choice })}
+        onDelete={() => remove(selectedTask)}
+        onRestore={() => restore(selectedTask)}
+        onStartWorkflow={() => requestRun(selectedTask, "workflow")}
+        onStartSession={() => requestRun(selectedTask, "session")}
+        onOpenSession={(link) => props.onOpenSession(link.workspaceId, link.sessionId)}
+        onDownloadAttachment={(attachment) => downloadAttachment(selectedTask, attachment)}
+        onOpenAttachment={(attachment) => openAttachment(selectedTask, attachment)}
+        onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: selectedTask.id, files })}
+        onUploadStorageAttachment={async (storageFile) => {
+          if (!props.client) throw new Error(t("tasks.upload_failed"));
+          const file = await storageFileDragToFile(props.client, props.workspaceId, storageFile);
+          return uploadAttachments.mutateAsync({ taskId: selectedTask.id, files: [file] });
+        }}
+        onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: selectedTask.id, attachmentId: attachment.id })}
+      /></div>
+    </section>
+  ) : null;
 
   return (
     // Center the list at a readable width until a task is opened. Then the pane splits
