@@ -134,7 +134,7 @@ export type ProjectSyncConflict = {
 
 export type ProjectSyncSkipped = {
   path: string;
-  reason: "too_large" | "name_clash" | "online_only" | "failed";
+  reason: "too_large" | "name_clash" | "failed";
 };
 
 export type ProjectSyncStatus = {
@@ -148,6 +148,8 @@ export type ProjectSyncStatus = {
   viewerUserId: string | null;
   ownerUserId: string | null;
   settings: ProjectSyncSettings;
+  /** Local folder policy, enforced even for projects shared by an older app. */
+  fileSharingDisabledReason?: "cloud_folder";
   state: ProjectSyncState;
   lastSyncAt: string | null;
   error: string | null;

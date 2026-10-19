@@ -207,7 +207,7 @@ export type ProjectSyncOp = z.infer<typeof opSchema>;
 
 const reportSchema = z.object({
   pending: z.number(),
-  skipped: z.array(z.object({ path: z.string(), reason: z.enum(["too_large", "name_clash", "online_only", "failed"]) })),
+  skipped: z.array(z.object({ path: z.string(), reason: z.enum(["too_large", "name_clash", "failed"]) })),
   heldDeletions: z.number(),
 });
 
