@@ -48,3 +48,11 @@ One source scan exceeded the old ten-second client limit. The same endpoint then
 ## Limits
 
 Real provider OAuth consent, account permissions, IP allowlisting and paid seats were not granted or validated. No external account credentials were copied. The anonymous local connector verifies UI activation and state propagation, not authenticated GitHub/Figma/Context7 access. No arbitrary imported skill was executed. Fresh remote GitHub downloads were not repeated in this pass; remote parsing/error cases remain covered by automated tests and the earlier [real-package audit](plugin-import-real-package-audit.md).
+
+## Compact review follow-up
+
+The normal connector review now shows the item name, type and one “Import and set up” action. Routine availability/dependency checks, version and source metadata live under Import details. Blocking checks and omitted features remain visible before import; unreviewed sources retain their required check action. Repeated setup summaries, connector names and status badges have been removed.
+
+Verified the actual Claude Discord review in the regular Electron preview, including expanding and collapsing its technical details. No import, program execution or provider authorization was performed in this follow-up. The focused app suite passes **60 tests across seven files**, including new regressions for setup, blockers, partial imports and unreviewed sources. App type checks, production build, **6,824 translation keys in both languages** and `git diff --check` pass.
+
+![Compact Discord connector review](images/import-review-discord-simple.png)
