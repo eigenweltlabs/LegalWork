@@ -10,7 +10,7 @@ import { formatDictationShortcut } from "../recorder/dictation-shortcut";
 import { DictationShortcutControl } from "../settings/pages/dictation-setup-dialog";
 import { ComposerDictationBar } from "../session/surface/composer/composer-dictation";
 import { appendDictatedText, useComposerDictation } from "../session/surface/composer/use-composer-dictation";
-import { CoverBackButton, OnboardingCover, StepDots } from "./onboarding-cover";
+import { CoverBackButton, CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 export type RecorderSetupRequirement = {
   id: string;
@@ -56,9 +56,9 @@ export function RecorderFlow(props: {
   return <>
     <OnboardingCover compact
       footerLeft={<CoverBackButton label={t("onboarding.back")} disabled={captureBusy} onClick={() => section === "meetings" ? props.onBack() : setSection("meetings")} />}
-      footerRight={<Button size="sm" variant={ready ? "default" : "ghost"} disabled={props.loading || captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()}>
-        {t(ready ? "onboarding.continue" : "onboarding_audio.skip_now")}
-      </Button>}
+      footerRight={ready
+        ? <Button size="sm" disabled={captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()}>{t("onboarding.continue")}</Button>
+        : <CoverSkipButton label={t("onboarding.skip")} disabled={props.loading || captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()} />}
     >
       <div className="flex w-full flex-col items-start gap-7" data-testid={`onboarding-recorder-${section}`}>
         <div>

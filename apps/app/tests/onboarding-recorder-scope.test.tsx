@@ -20,7 +20,7 @@ test("Recorder introduction keeps setup and permissions inside its dialog", () =
       </QueryClientProvider>,
     );
     expect(html).toContain("Set up meeting recording");
-    expect(html).toContain("Skip for now");
+    expect(html).toContain(">Skip</button>");
     expect(html).not.toContain("Allow microphone access");
     expect(html).not.toContain("Allow system audio access");
     expect(html).not.toContain("Download the speech model");

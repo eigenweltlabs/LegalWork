@@ -43,11 +43,12 @@ export function CoverBackButton(props: { label: string; onClick: () => void; dis
 }
 
 /** Wizard footer skip/continue — bottom-right of the centered column. */
-export function CoverSkipButton(props: { label: string; onClick: () => void }) {
+export function CoverSkipButton(props: { label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text"
+      disabled={props.disabled}
+      className="text-[13px] text-dls-secondary transition-colors hover:text-dls-text disabled:pointer-events-none disabled:opacity-50"
       onClick={props.onClick}
     >
       {props.label}
