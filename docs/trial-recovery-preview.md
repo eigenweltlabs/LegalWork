@@ -13,7 +13,7 @@ Run `pnpm --filter @legalwork/app dev:web --host 127.0.0.1 --port 4467 --strictP
 - Add `&annual=1` to inspect the full annual payment.
 - Add `&role=member` to inspect the admin-request flow.
 
-Click Start subscription, confirm its sample payment, then Back to chat. Reload and click Add credits to confirm a sample €20 top-up. Both paths restore usable AI usage. These are local fixtures with simulated payment results and no connected services; they never initiate live charges. The preview currently logs missing-service requests to `legalwork-preview.invalid` from unrelated background panels. No application exception was observed in these flows.
+Click Start subscription, then Start subscription and reset limit to confirm its sample payment, then Back to chat. Reload and click Add credits to confirm a sample €20 top-up. Both paths restore usable AI usage. These are local fixtures with simulated payment results and no connected services; they never initiate live charges. The preview currently logs missing-service requests to `legalwork-preview.invalid` from unrelated background panels. No application exception was observed in these flows.
 
 ## Evidence
 

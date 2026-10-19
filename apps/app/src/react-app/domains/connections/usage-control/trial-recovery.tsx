@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 "use client";
 import { useState } from "react";
-import { ArrowRight, Check, Loader2, Sparkles } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import type { TrialSubscriptionResult, UsageControlView } from "@legalwork/types/usage-control";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -32,21 +32,17 @@ export function TrialRecovery({ view, transport, onRefresh, limit }: {
     finally { setBusy(false); }
   };
   return <div role="status" className="not-prose my-2 space-y-4 rounded-xl border bg-card p-5 text-sm">
-    <div className="flex items-start gap-3">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted"><Sparkles className="size-4" /></div>
-      <div className="space-y-1.5">
-        <p className="font-medium">{t("limits.trial_used_title")}</p>
-        <p className="leading-relaxed text-muted-foreground">{t("limits.trial_used_body", { amount: formatEuroCents(view.me.allowanceCents, locale), plan: view.me.plan === "pro" ? "Pro" : "Plus" })}</p>
-      </div>
+    <div className="space-y-1.5">
+      <p className="font-medium">{t("limits.trial_used_title")}</p>
+      <p className="leading-relaxed text-muted-foreground">{t("limits.trial_used_body", { amount: formatEuroCents(view.me.allowanceCents, locale), plan: view.me.plan === "pro" ? "Pro" : "Plus" })}</p>
     </div>
     {view.isAdmin ? <>
-      <div className="flex flex-wrap gap-2 pl-12">
+      <div className="flex flex-wrap gap-2">
         <StartSubscription transport={transport} onRefresh={onRefresh} />
         <CardTopUp transport={transport} run={run} busy={busy} t={t} triggerSize="sm" triggerVariant="outline" trialUsage
           returnLabel="limits.back_to_chat" limit={limit} onRecoveryChange={next => { if (next.status === "ready") void onRefresh().catch(() => {}); }} />
       </div>
-      <p className="pl-12 text-xs leading-relaxed text-muted-foreground">{t("limits.trial_choice_hint")}</p>
-    </> : <div className="space-y-3 pl-12">
+    </> : <div className="space-y-3">
       <p className="text-muted-foreground">{t("limits.trial_admin_hint")}</p>
       <Dialog><DialogTrigger render={<Button size="sm" />}>{t("limits.request")}</DialogTrigger>
         <DialogContent className="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>{t("limits.request")}</DialogTitle><DialogDescription>{t("limits.trial_admin_hint")}</DialogDescription></DialogHeader>
@@ -80,7 +76,7 @@ function StartSubscription({ transport, onRefresh }: { transport: UsageTransport
     if (value) { setResult(null); void execute({ action: "trialSubscription", preview: true }); }
     else void onRefresh().catch(() => {});
   }}>
-    <DialogTrigger render={<Button size="sm" />}><ArrowRight />{t("limits.trial_start")}</DialogTrigger>
+    <DialogTrigger render={<Button size="sm" />}>{t("limits.trial_start")}</DialogTrigger>
     <DialogContent className="max-h-[85vh] overflow-y-auto">
       <DialogHeader><DialogTitle>{t(result && "status" in result && result.status === "paid" ? "limits.trial_started" : "limits.trial_start_title")}</DialogTitle>
         <DialogDescription>{t(result && "status" in result && result.status === "paid" ? "limits.trial_started_hint" : "limits.trial_start_hint")}</DialogDescription>
@@ -89,12 +85,11 @@ function StartSubscription({ transport, onRefresh }: { transport: UsageTransport
       {result && "amountCents" in result && <div className="space-y-4">
         <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
           <div className="flex items-center justify-between gap-4"><span className="text-sm text-muted-foreground">{t("limits.trial_due_today")}</span><span className="text-xl font-semibold">{formatEuroCents(result.amountCents, locale)}</span></div>
-          <p className="text-xs leading-relaxed text-muted-foreground">{t(result.billingInterval === "year" ? "limits.trial_annual_hint" : "limits.trial_monthly_hint")}</p>
+          <p className="text-xs text-muted-foreground">{t(result.billingInterval === "year" ? "limits.trial_price_year" : "limits.trial_price_month", { amount: formatEuroCents(result.recurringAmountCents, locale), seats: result.seatCount })}</p>
         </div>
-        <p className="text-sm">{t(result.billingInterval === "year" ? "limits.trial_price_year" : "limits.trial_price_month", { amount: formatEuroCents(result.recurringAmountCents, locale), seats: result.seatCount })}</p>
         <p className="text-sm leading-relaxed text-muted-foreground">{t("limits.trial_confirmation")}</p>
-        <Button className="w-full" disabled={busy} onClick={() => void execute({ action: "trialSubscription", preview: false, quoteId: result.quoteId, expectedAmountCents: result.amountCents })}>
-          {t("limits.trial_pay_start", { amount: formatEuroCents(result.amountCents, locale) })}
+        <Button className="h-auto min-h-9 w-full whitespace-normal py-2" disabled={busy} onClick={() => void execute({ action: "trialSubscription", preview: false, quoteId: result.quoteId, expectedAmountCents: result.amountCents })}>
+          {t("limits.trial_pay_start")}
         </Button>
       </div>}
       {result && "status" in result && <div className="space-y-3">
