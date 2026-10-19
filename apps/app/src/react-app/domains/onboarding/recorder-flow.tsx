@@ -39,6 +39,7 @@ export function RecorderFlow(props: {
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [demoMeetings, setDemoMeetings] = useState(false);
   const setupButton = useRef<HTMLButtonElement>(null);
+  const continueButton = useRef<HTMLButtonElement>(null);
   const requirements = section === "meetings" ? props.meetingRequirements : props.dictationRequirements;
   const enabled = props.demo ? demoEnabled : store.systemDictation?.enabled === true && store.systemDictation.registered;
   const downloading = requirements.some(item => item.downloading);
@@ -59,7 +60,7 @@ export function RecorderFlow(props: {
     <OnboardingCover compact
       footerLeft={<CoverBackButton label={t("onboarding.back")} disabled={captureBusy} onClick={() => section === "meetings" ? props.onBack() : setSection("meetings")} />}
       footerRight={ready || downloading
-        ? <Button size="sm" disabled={captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()}>{t(downloading && !ready ? "onboarding_audio.continue_background" : "onboarding.continue")}</Button>
+        ? <Button ref={continueButton} size="sm" disabled={captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()}>{t(downloading && !ready ? "onboarding_audio.continue_background" : "onboarding.continue")}</Button>
         : <CoverSkipButton label={t("onboarding.skip")} disabled={props.loading || captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()} />}
     >
       <div className="flex w-full flex-col items-start gap-7" data-testid={`onboarding-recorder-${section}`}>
@@ -74,16 +75,16 @@ export function RecorderFlow(props: {
         <div className="space-y-3">
           {ready ? <p className="flex items-center gap-2 text-sm text-foreground" role="status"><Check className="size-4 text-success" />{t("onboarding_audio.setup_ready")}</p> : null}
           {downloading && !ready ? <p className="flex items-start gap-2 text-xs leading-relaxed text-subtext" role="status"><Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />{t("onboarding_audio.background_note")}</p> : null}
-          <Button ref={setupButton} size="lg" variant={ready ? "outline" : "default"} disabled={props.loading || captureBusy} onClick={() => setDialogOpen(true)}>
+          {!ready ? <Button ref={setupButton} size="lg" disabled={props.loading || captureBusy} onClick={() => setDialogOpen(true)}>
             {props.loading ? <Loader2 className="size-4 animate-spin" /> : null}
-            {t(ready ? "onboarding_audio.review_setup" : section === "meetings" ? "onboarding_audio.setup_meetings" : "onboarding_audio.setup_dictation")}
-          </Button>
+            {t(section === "meetings" ? "onboarding_audio.setup_meetings" : "onboarding_audio.setup_dictation")}
+          </Button> : null}
         </div>
         <p className="text-xs leading-relaxed text-subtext">{t("onboarding_audio.subtitle")}</p>
       </div>
     </OnboardingCover>
     <Dialog open={open} onOpenChange={setDialogOpen}>
-      <DialogContent finalFocus={setupButton} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
+      <DialogContent finalFocus={ready ? continueButton : setupButton} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
         {open ? <RecorderSetup
           key={section} feature={section} demo={props.demo} requirements={requirements} enabled={enabled}
           demoMeetings={demoMeetings} onDemoMeetings={setDemoMeetings} onDemoEnabled={() => setDemoEnabled(true)} onClose={() => setDialogOpen(false)}
