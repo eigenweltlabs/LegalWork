@@ -241,6 +241,7 @@ export function AudioStep(props: {
     title: t("onboarding_audio.local_transcription_title"),
     description: t("onboarding_audio.local_transcription_description", { size: modelSize }),
     ready: modelInstalled,
+    downloading: modelDownloading === true,
     hint: !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
     action: modelDownloading ? <div className="space-y-3" role="status">
       <div className="flex items-center gap-3">
