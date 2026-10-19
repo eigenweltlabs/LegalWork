@@ -94,13 +94,19 @@ test("configuration API updates the connector in its owned scope and cannot recr
   if (!project) throw new Error("Missing project import");
   await installPluginImport(config, "test", root, project, false);
   const name = project.preview.components[0]!.installedName;
+  config.mcpVaultKey = () => Buffer.alloc(32, 7);
   const server = await startServer(config);
   const headers = { Authorization: "Bearer test", "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
   try {
     const endpoint = `http://127.0.0.1:${server.port}/workspace/test/mcp`;
     const connection = { type: "remote", url: "https://example.invalid/mcp", oauth: false, enabled: true, headers: { Authorization: "Bearer synthetic-token" } };
     expect((await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ name, config: connection, preserveScope: true }) })).status).toBe(200);
-    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.[name]).toEqual(connection);
+    const listed = await (await fetch(endpoint, { headers })).json();
+    expect(listed.items.find((item: { name: string }) => item.name === name)?.config).toEqual(connection);
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.[name]).toMatchObject({
+      url: "https://example.invalid", managedConnectionId: expect.any(String),
+    });
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.[name]?.headers).toBeUndefined();
     expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]).toBeUndefined();
     expect((await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ name: "removed", config: connection, preserveScope: true }) })).status).toBe(404);
   } finally { await server.stop(); }

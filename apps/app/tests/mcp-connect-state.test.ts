@@ -62,7 +62,6 @@ const browserWindow = new EventTarget();
 let config = "{}";
 let status: McpStatusMap = {};
 let saveError = "";
-let engineSaveError = "";
 let serverAdds: unknown[] = [];
 let engineAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
@@ -151,7 +150,6 @@ describe("connection store success reporting", () => {
     config = "{}";
     status = { "test-server": { status: "connected" } };
     saveError = "";
-    engineSaveError = "";
     serverAdds = [];
     engineAdds = [];
     analyticsEvents = [];
@@ -199,7 +197,7 @@ describe("connection store success reporting", () => {
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
         if (request.method === "POST") engineAdds.push(await request.json());
-        if (request.method === "POST" && engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
+        if (request.method === "POST") return Response.json({ message: "Change settings and connected apps through LegalWork." }, { status: 403 });
         const engineStatus = status;
         engineStatusRequests += 1;
         engineStatusStarted?.();
@@ -394,18 +392,18 @@ describe("connection store success reporting", () => {
 
   test("a rejected settings update cannot report success using the old connected engine entry", async () => {
     const store = makeStore();
-    engineSaveError = "Updated configuration was rejected";
+    saveError = "Updated configuration was rejected";
     expect(await store.connectMcp({ ...entry, headers: { Authorization: "Bearer synthetic-token" }, oauth: false })).toBe(false);
     expect(connectedEvents()).toEqual([]);
     store.dispose();
   });
 
-  test("configuring an imported local connector preserves ownership and forwards its full launch configuration to the engine", async () => {
+  test("configuring an imported local connector preserves ownership and sends its full launch configuration only to the server", async () => {
     const config = { type: "local", command: ["node", "/plugin/server.js", "", "two words"], cwd: "/plugin", environment: { KEY: "synthetic-key", EMPTY: "" }, timeout: 45000 } satisfies import("../src/app/types").McpServerConfig;
     const store = makeStore();
     expect(await store.connectMcp({ ...entry, ...config, existingConfig: config, oauth: false })).toBe(true);
     expect(serverAdds[0]).toMatchObject({ name: "test-server", preserveScope: true, config: { ...config, enabled: true } });
-    expect(engineAdds[0]).toMatchObject({ name: "test-server", config: { ...config, enabled: true } });
+    expect(engineAdds).toEqual([]);
     store.dispose();
   });
 
@@ -448,7 +446,7 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp(integration)).toBe(true);
     const config = { type: "local", enabled: true, ...openComputerUseConfig };
     expect(serverAdds).toEqual([{ name: "open-computer-use", config }]);
-    expect(engineAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(engineAdds).toEqual([]);
     expect(openComputerUseCalls).toBe(1);
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
   });

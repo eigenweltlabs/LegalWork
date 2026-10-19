@@ -5629,6 +5629,7 @@ async function awaitEngineInstance(
   authHeader: string | null,
   directory: string | null,
   deadlineMs = 30_000,
+  signal?: AbortSignal,
 ): Promise<void> {
   const url = new URL(baseUrl);
   url.pathname = "/mcp";
@@ -5637,12 +5638,13 @@ async function awaitEngineInstance(
   const headers: Record<string, string> = {};
   if (authHeader) headers.Authorization = authHeader;
   const deadline = Date.now() + deadlineMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !signal?.aborted) {
     try {
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+      const response = await fetch(url, { headers, signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(signal ? [signal] : [])]) });
       await response.text().catch(() => undefined);
       return;
     } catch {
+      if (signal?.aborted) return;
       await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     }
   }
@@ -5788,11 +5790,15 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
     // Constructing an engine instance runs plugins that create .opencode.
     // A disconnected folder must stay missing until the user restores it.
     if (await localWorkspaceUnavailable(workspace)) continue;
+    // There is nothing to rebind without connectors. Probing an empty engine
+    // here races workspace activation and adds unsolicited reload attempts.
+    if (Object.keys(await runtimeMcpMapForWorkspace(config, workspace.id)).length === 0 &&
+        Object.keys(await firmHubConnectorBlocks(config)).length === 0) continue;
     // Right after start the engine is still building instances; registering
     // into a half-built one is recorded as a failure the UI then shows.
     const connection = resolveWorkspaceOpencodeConnection(config, workspace);
     if (connection.baseUrl?.trim()) {
-      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace));
+      await awaitEngineInstance(connection.baseUrl.trim(), connection.authHeader ?? null, resolveOpencodeDirectory(workspace), 30_000, mcpManager(config)?.signal);
     }
     await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
   }

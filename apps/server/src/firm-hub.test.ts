@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -23,6 +23,7 @@ import type { ServerConfig } from "./types.js";
 import { initializeMcpManager, stopMcpManager } from "./mcp-manager.js";
 import { McpManagerStore } from "./mcp-manager-store.js";
 import { z } from "zod";
+import { syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -87,6 +88,28 @@ async function setup() {
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
 describe("the firm's Knowledge Hub", () => {
+  test("startup rebinds firm-only connectors even when the personal registry is empty", async () => {
+    const { config, hub, signIn, sync } = await setup();
+    config.mcpVaultKey = () => Buffer.alloc(32, 9);
+    config.port = 40123;
+    config.workspaces = [{ id: "ws_firm", name: "Firm", path: dirname(config.configPath!), preset: "starter", workspaceType: "local", baseUrl: "http://engine.test" }];
+    hub.items = [{ id: "managed-firm", kind: "mcp", name: "research", version: 1, installation: "automatic", payload: remote("research", { by: "oauth", client: { id: "firm-client" } }) }];
+    await signIn(); await sync();
+    initializeMcpManager(config);
+    cleanups.push(() => stopMcpManager(config));
+    const hubFetch = globalThis.fetch;
+    const registered: unknown[] = [];
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).hostname !== "engine.test") return hubFetch(input, init);
+      if (init?.method === "POST") registered.push(JSON.parse(String(init.body)));
+      return Response.json({ research: { status: "connected" } });
+    }, { preconnect: realFetch.preconnect });
+    await syncAllWorkspacesRuntimeMcpToEngine(config);
+    expect(registered).toEqual([{ name: "research", config: expect.objectContaining({
+      url: expect.stringContaining("/mcp/gateway/ws_firm/"), oauth: false,
+    }) }]);
+  });
+
   test("firm MCPs use the local gateway without persisting the firm's secret, and revoke on sign-out", async () => {
     const { config, hub, signIn, signOut, sync } = await setup();
     config.mcpVaultKey = () => Buffer.alloc(32, 9);

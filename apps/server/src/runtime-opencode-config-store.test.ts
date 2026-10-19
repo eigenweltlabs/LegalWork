@@ -31,6 +31,7 @@ function serverConfig(root: string, dbPath: string): ServerConfig {
     port: 0,
     token: "token",
     hostToken: "host-token",
+    mcpVaultKey: () => Buffer.alloc(32, 7),
     configPath: join(root, "server.json"),
     approval: { mode: "auto", timeoutMs: 0 },
     corsOrigins: [],
@@ -315,7 +316,9 @@ describe("runtime OpenCode config store", () => {
           legacyLegalwork: { keys: [] },
           userOpencode: { exists: false, keys: [] },
         });
-        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: { url: "https://legacy.example/mcp" } });
+        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: {
+          url: expect.stringContaining(`/mcp/gateway/${WORKSPACE_ID}/`), oauth: false,
+        } });
         expect(status.effectiveRuntime.default_agent).toBe("legalwork");
         expect(status.effectiveRuntime.agent).toMatchObject({ legalwork: { mode: "primary" } });
         expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });
