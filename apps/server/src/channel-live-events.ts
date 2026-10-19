@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Message, Part } from "@opencode-ai/sdk/v2";
-import { AssistantReactionResultSchema } from "@legalwork/types/main-assistant";
+import { AssistantReactionResultSchema } from "./assistant-schema.js";
 import { ChannelLiveEvent } from "./channel-runtime.js";
 import { z } from "zod";
 

@@ -312,8 +312,7 @@ export async function writeRuntimeOpencodeConfig(
   const next = normalizeRuntimeOpencodeConfig(updater(current));
   const configJson = JSON.stringify(next);
   if (configJson === previous) return next;
-  const now = Date.now();
-  db.upsert({ workspaceId, configJson, updatedAt: now });
+  db.upsert({ workspaceId, configJson, updatedAt });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
 }
