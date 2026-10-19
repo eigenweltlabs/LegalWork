@@ -23,6 +23,7 @@ const recordSchema = z.object({
   expiresAt: z.number().finite().optional(), reconnectRequired: z.boolean().optional(),
   issuer: z.string().url().optional(),
   configurationHash: z.string().optional(),
+  legacyMigration: z.string().optional(),
 });
 export type ManagedMcpRecord = z.infer<typeof recordSchema>;
 const recordsSchema = z.record(z.string(), recordSchema);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -15,6 +15,8 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { connectorVault } from "./connectors/store.js";
 import { McpManagerStore } from "./mcp-manager-store.js";
+import { hasOpencodeProcess, migrateLegacyMcpOAuth } from "./mcp-migration.js";
+import { engineAccessToken } from "./legalmemory-fetch.js";
 import type { ServerConfig } from "./types.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -450,5 +452,224 @@ describe("server-owned MCP connections", () => {
     }
     await manager.reconcile();
     expect(manager.store.all()[0]?.tokens).toBeDefined();
+  });
+});
+
+async function legacyFixture() {
+  const f = await managedMcpFixture();
+  await f.signIn();
+  const record = f.manager.store.all()[0]!;
+  if (!record.tokens || !record.client) throw new Error("Missing fixture grant");
+  const entry = { serverUrl: record.config.url, codeVerifier: "old-pending-verifier", oauthState: "old-state",
+    tokens: { accessToken: record.tokens.access_token, refreshToken: record.tokens.refresh_token,
+      expiresAt: record.expiresAt === undefined ? undefined : record.expiresAt / 1000, scope: record.tokens.scope },
+    clientInfo: { clientId: record.client.client_id, clientSecret: record.client.client_secret,
+      clientIdIssuedAt: record.client.client_id_issued_at, clientSecretExpiresAt: record.client.client_secret_expires_at },
+  };
+  const authPath = join(f.root, "mcp-auth.json");
+  const source = { mock: entry, unrelated: { custom: "keep exactly", tokens: { accessToken: "other-account" } } };
+  await writeFile(authPath, JSON.stringify(source), { mode: 0o600 });
+  await f.manager.store.put({ ...record, tokens: undefined, client: undefined, expiresAt: undefined, issuer: undefined });
+  const options = { authPath, quiescent: async () => true };
+  return { ...f, entry, authPath, source, options };
+}
+
+describe("legacy MCP credential handover", () => {
+  test("default OAuth configuration transfers an expired access token with a usable refresh token", async () => {
+    const f = await legacyFixture();
+    await addMcp(f.config, "ws_a", name, { ...f.settings, oauth: undefined });
+    f.source.mock.tokens.expiresAt = 1;
+    await writeFile(f.authPath, JSON.stringify(f.source));
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+    await f.expire();
+    expect(await engineAccessToken(f.config, "ws_b", name)).toBeDefined();
+    expect(await f.stats()).toMatchObject({ authorizationGrants: 1, refreshGrants: 1, rejectedRefreshGrants: 0 });
+    await setMcpEnabled(f.config, "ws_a", name, false);
+    await expect(engineAccessToken(f.config, "ws_b", name)).rejects.toThrow("no longer available");
+  });
+
+  test("a working grant survives upgrade, shared refresh, appliance access and restart without another sign-in", async () => {
+    const f = await legacyFixture();
+    expect(await migrateLegacyMcpOAuth(f.config, f.options)).toEqual({ migrated: [name], deferred: false });
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+    const record = f.manager.store.all()[0]!;
+    expect(record.tokens?.access_token).toBe(f.entry.tokens.accessToken);
+    expect(record.client?.client_id).toBe(f.entry.clientInfo.clientId);
+    expect(record.expiresAt).toBe(f.entry.tokens.expiresAt! * 1000);
+    expect(record.legacyMigration).toBeDefined();
+    expect(JSON.stringify(record)).not.toContain("old-pending-verifier");
+    const a = await f.connect(), b = await f.connect("ws_b");
+    await f.expire();
+    await Promise.all([a.listTools(), b.listResources()]);
+    expect(await f.stats()).toMatchObject({ authorizationGrants: 1, refreshGrants: 1, rejectedRefreshGrants: 0, revokedFamilies: 0 });
+    const rotated = f.manager.store.all()[0]?.tokens;
+    expect(rotated?.refresh_token).not.toBe(f.entry.tokens.refreshToken);
+    expect(await engineAccessToken(f.config, "ws_a", name)).toBe(rotated?.access_token);
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config); await restarted.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]);
+    expect(restarted.store.all()[0]?.tokens).toEqual(rotated);
+    expect((await readFile(restarted.store.path)).includes(Buffer.from(f.entry.tokens.accessToken))).toBe(false);
+  });
+
+  test("active legacy engines defer transfer without touching the original grant", async () => {
+    const f = await legacyFixture();
+    const original = await readFile(f.authPath);
+    expect(await migrateLegacyMcpOAuth(f.config, { ...f.options, quiescent: async () => false })).toEqual({ migrated: [], deferred: true });
+    expect(await readFile(f.authPath)).toEqual(original);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+  });
+
+  test("a failed encrypted backup preserves the source and does not activate credentials", async () => {
+    const f = await legacyFixture();
+    const original = await readFile(f.authPath);
+    const write = spyOn(OAuthVault.prototype, "setEntry").mockRejectedValueOnce(new Error("vault write failed"));
+    try { await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toThrow("vault write failed"); }
+    finally { write.mockRestore(); }
+    expect(await readFile(f.authPath)).toEqual(original);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+  });
+
+  test("an unreadable destination vault leaves the legacy grant available for a later retry", async () => {
+    const f = await legacyFixture();
+    const source = await readFile(f.authPath), destination = await readFile(f.manager.store.path);
+    await stopMcpManager(f.config);
+    const prior = process.env.LEGALWORK_ENCRYPTION_KEY;
+    process.env.LEGALWORK_ENCRYPTION_KEY = "unavailable-existing-key";
+    const restarted = initializeMcpManager(f.config);
+    try {
+      expect(await migrateLegacyMcpOAuth(f.config, f.options)).toEqual({ migrated: [], deferred: true });
+      expect(await readFile(f.authPath)).toEqual(source);
+      expect(await readFile(restarted.store.path)).toEqual(destination);
+    } finally {
+      if (prior === undefined) delete process.env.LEGALWORK_ENCRYPTION_KEY;
+      else process.env.LEGALWORK_ENCRYPTION_KEY = prior;
+    }
+    await restarted.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+  });
+
+  test("a crash after source retirement resumes from the encrypted backup", async () => {
+    const f = await legacyFixture();
+    const write = spyOn(f.manager.store, "put").mockRejectedValueOnce(new Error("simulated process exit"));
+    try { await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toThrow("simulated process exit"); }
+    finally { write.mockRestore(); }
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config); await restarted.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+    expect(restarted.store.all()[0]?.tokens?.access_token).toBe(f.entry.tokens.accessToken);
+    expect((await restarted.client(restarted.store.all()[0]!)).getServerCapabilities()?.tools).toBeDefined();
+    expect((await f.stats()).authorizationGrants).toBe(1);
+  });
+
+  test("logout after source retirement wins over the pending credential handover", async () => {
+    const f = await legacyFixture();
+    const adopt = f.manager.adoptLegacyGrant.bind(f.manager);
+    const delayed = spyOn(f.manager, "adoptLegacyGrant").mockImplementationOnce(async (...args) => {
+      await f.manager.logout("ws_a", name);
+      return adopt(...args);
+    });
+    try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]); }
+    finally { delayed.mockRestore(); }
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "needs_auth" });
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]);
+  });
+
+  test.each(["rotated", "logged out"])("an interrupted completion never overwrites credentials that were %s", async mode => {
+    const f = await legacyFixture();
+    const put = f.manager.store.put.bind(f.manager.store);
+    const write = spyOn(f.manager.store, "put").mockImplementationOnce(async record => { await put(record); throw new Error("exit after credential commit"); });
+    try { await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toThrow("exit after credential commit"); }
+    finally { write.mockRestore(); }
+    if (mode === "rotated") { const client = await f.connect(); await f.expire(); await client.listTools(); }
+    else await f.manager.logout("ws_a", name);
+    const saved = f.manager.store.all()[0]?.tokens;
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config); await restarted.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]);
+    expect(restarted.store.all()[0]?.tokens).toEqual(saved);
+    if (mode === "logged out") expect(await restarted.status("ws_a", name)).toMatchObject({ status: "needs_auth" });
+    else expect(saved?.refresh_token).not.toBe(f.entry.tokens.refreshToken);
+  });
+
+  test("another profile cannot adopt a claimed grant even if the old file is restored", async () => {
+    const f = await legacyFixture();
+    const write = spyOn(f.manager.store, "put").mockRejectedValueOnce(new Error("exit after retirement"));
+    try { await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toThrow("exit after retirement"); }
+    finally { write.mockRestore(); }
+    await writeFile(f.authPath, JSON.stringify(f.source));
+    const other = await managedMcpFixture();
+    await addMcp(other.config, "ws_a", name, f.settings);
+    expect((await migrateLegacyMcpOAuth(other.config, f.options)).migrated).toEqual([]);
+    expect(other.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+  });
+
+  test("a partially completed multi-connector handover preserves rotated tokens while resuming the rest", async () => {
+    const f = await legacyFixture();
+    await addMcp(f.config, "ws_a", "second", f.settings); await f.signIn("ws_a", "second");
+    const second = f.manager.store.all().find(record => record.key.includes("second"))!;
+    const secondEntry = { ...f.entry, tokens: { accessToken: second.tokens!.access_token, refreshToken: second.tokens!.refresh_token,
+      expiresAt: second.expiresAt! / 1000, scope: second.tokens!.scope }, clientInfo: { clientId: second.client!.client_id } };
+    await writeFile(f.authPath, JSON.stringify({ ...f.source, second: secondEntry }));
+    await f.manager.store.put({ ...second, tokens: undefined, client: undefined, expiresAt: undefined, issuer: undefined });
+    const put = f.manager.store.put.bind(f.manager.store);
+    const write = spyOn(f.manager.store, "put").mockImplementationOnce(async record => { await put(record); throw new Error("exit after first connector"); });
+    try { await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toThrow("exit after first connector"); }
+    finally { write.mockRestore(); }
+    const client = await f.connect(); await f.expire(); await client.listTools();
+    const rotated = f.manager.store.all().find(record => record.key.endsWith('"mock"]'))?.tokens;
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config); await restarted.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual(["second"]);
+    expect(restarted.store.all().find(record => record.key.endsWith('"mock"]'))?.tokens).toEqual(rotated);
+    const resumed = restarted.store.all().find(record => record.key.includes("second"))!;
+    expect((await restarted.client(resumed)).getServerCapabilities()?.tools).toBeDefined();
+    expect(await f.stats()).toMatchObject({ authorizationGrants: 2, refreshGrants: 2, rejectedRefreshGrants: 0, revokedFamilies: 0 });
+  });
+
+  test.each(["wrong URL", "wrong client", "expired client", "malformed entry", "expired without refresh"])("does not transfer an unsafe grant: %s", async reason => {
+    const f = await legacyFixture();
+    const entry = structuredClone(f.entry);
+    if (reason === "wrong URL") entry.serverUrl = "https://unrelated.example.com/mcp";
+    if (reason === "wrong client") await addMcp(f.config, "ws_a", name, { ...f.settings, oauth: { clientId: "different-client" } });
+    if (reason === "expired client") entry.clientInfo.clientSecretExpiresAt = 1;
+    if (reason === "expired without refresh") { entry.tokens.refreshToken = undefined; entry.tokens.expiresAt = 1; }
+    const source = { ...f.source, mock: reason === "malformed entry" ? { tokens: { accessToken: 1 } } : entry };
+    await writeFile(f.authPath, JSON.stringify(source));
+    const original = await readFile(f.authPath);
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]);
+    expect(await readFile(f.authPath)).toEqual(original);
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+    expect((await f.stats()).authorizationGrants).toBe(1);
+  });
+
+  test("does not duplicate one old grant into independent workspace accounts", async () => {
+    const f = await legacyFixture();
+    await addMcp(f.config, "ws_b", name, f.settings, "workspace");
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([]);
+    expect(f.manager.store.all().every(record => !record.tokens)).toBe(true);
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual(f.source);
+  });
+
+  test("a corrupt old file is preserved and prevents a destructive upgrade", async () => {
+    const f = await legacyFixture();
+    await writeFile(f.authPath, "{broken");
+    await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toMatchObject({ code: "mcp_migration_unreadable" });
+    expect(await readFile(f.authPath, "utf8")).toBe("{broken");
+    expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
+  });
+
+  test("process inventory recognizes native engines without matching similar app names", () => {
+    expect(hasOpencodeProcess("123 /Applications/LegalWork.app/Contents/Resources/sidecars/opencode-aarch64-apple-darwin\n")).toBe(true);
+    expect(hasOpencodeProcess("123 /usr/local/bin/opencode\n")).toBe(true);
+    expect(hasOpencodeProcess("123 /usr/bin/node\n124 /Applications/Code.app/Contents/MacOS/Electron\n")).toBe(false);
+    expect(hasOpencodeProcess('"opencode-x64.exe","123","Console","1","2,000 K"', "win32")).toBe(true);
+    expect(hasOpencodeProcess('"Code.exe","123","Console","1","2,000 K"', "win32")).toBe(false);
   });
 });

@@ -97,6 +97,21 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
 }
 
 describe("shared connector store", () => {
+  test("an interrupted import preserves workspace settings until the shared destination is committed", async () => {
+    const { config, root } = await setup();
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: { fibery: FIBERY } }));
+    const unreadableFile = join(root, "directory-instead-of-config");
+    await mkdir(unreadableFile);
+    const sources = { runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: unreadableFile };
+    await expect(importConnectorsIntoSharedRow(config, sources)).rejects.toThrow();
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toEqual({ fibery: FIBERY });
+    expect(await readGlobalMcpMap(config)).toEqual({});
+    await rm(unreadableFile, { recursive: true });
+    expect((await importConnectorsIntoSharedRow(config, sources)).imported).toEqual(["fibery"]);
+    expect(await readGlobalMcpMap(config)).toEqual({ fibery: FIBERY });
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
+  });
+
   test("retires the old helper from shared, workspace and file config without reconnecting it", async () => {
     const { wsA, config, root } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");

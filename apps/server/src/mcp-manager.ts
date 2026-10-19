@@ -158,6 +158,27 @@ export class McpConnectorManager {
     return { ...record.config, enabled: entry.enabled !== false };
   }
 
+  /** Server-side appliance features use the same refresh owner as agent calls. */
+  async accessToken(workspaceId: string, name: string) {
+    const found = await this.find(workspaceId, name);
+    if (!found) return undefined;
+    if (found.record.config.enabled === false) throw missing();
+    return found.record.config.oauth === false ? undefined : this.tokenFor(found.record);
+  }
+
+  async adoptLegacyGrant(id: string, revision: string, credentials: Pick<ManagedMcpRecord, "tokens" | "client" | "expiresAt"> & { legacyMigration: string }) {
+    await this.ready();
+    const before = this.store.all().find(record => record.id === id);
+    if (!before) return false;
+    return this.exclusive(before.key, async () => {
+      const current = this.store.get(before.key);
+      if (!current || current.id !== id || current.revision !== revision || this.retired.has(revision) ||
+          current.tokens || current.reconnectRequired || current.legacyMigration) return false;
+      await this.store.put({ ...current, ...credentials });
+      return true;
+    });
+  }
+
   private async reconcileFirmConnections() {
     if (!this.opening || this.closed) return;
     const scope = await firmHubConnectorScope(this.config);
@@ -385,6 +406,7 @@ export class McpConnectorManager {
         }
         const discovery = runtime.discovery;
         if (current.issuer && current.issuer !== discovery.authorizationServerUrl.toString()) throw signin();
+        if (!current.issuer) await this.store.put({ ...this.current(current.key, current.revision), issuer: discovery.authorizationServerUrl.toString() });
         const clientInformation = await provider.clientInformation();
         if (!clientInformation) throw signin();
         const resource = await selectResourceURL(current.config.url, provider, discovery.resourceMetadata);

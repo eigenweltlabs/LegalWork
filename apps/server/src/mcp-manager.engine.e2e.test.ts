@@ -9,7 +9,8 @@ import { z } from "zod";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { mcpManager } from "./mcp-manager.js";
 import { runtimeMcpMapForWorkspace } from "./mcp.js";
-import { closeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
 import type { ServerConfig } from "./types.js";
@@ -29,11 +30,12 @@ async function stop(child: ChildProcess) {
 const statsSchema = z.object({ authorizationGrants: z.number(), refreshGrants: z.number(), rejectedRefreshGrants: z.number(), revokedFamilies: z.number() });
 const statusSchema = z.record(z.string(), z.object({ status: z.string() }));
 
-test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, rebuilds, refresh and logout", async () => {
+test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and share refresh across workspaces without another sign-in", async () => {
   if (!binary) throw new Error("Missing engine binary");
   const root = await mkdtemp(join(tmpdir(), "legalwork-manager-engines-"));
   const children: ChildProcess[] = [];
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let passed = false;
   const callback = createMcpOAuthCallbackBroker();
   const providerPort = freePort(), callbackPort = freePort();
   const providerUrl = `http://127.0.0.1:${providerPort}`;
@@ -57,7 +59,7 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "app-token", hostToken: "host-token", configPath: join(root, "server.json"),
     workspaces, approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [], authorizedRoots: [root], readOnly: false,
-    startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+    startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: true,
   };
   const baseEngineConfig = {
     plugin: [pathToFileURL(resolve(import.meta.dir, "opencode-plugins/legalwork-mcp-gateway.ts")).href],
@@ -68,7 +70,8 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
   const engineRequest = async (index: number, path: string, body?: unknown) => {
     const workspace = workspaces[index]; if (!workspace) throw new Error("Missing workspace");
     const url = new URL(path, workspace.baseUrl); url.searchParams.set("directory", workspace.path);
-    const response = await fetch(url, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(25_000) });
+    const response = await fetch(url, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(25_000) })
+      .catch(error => { throw new Error(`Engine ${index} ${path} did not respond`, { cause: error }); });
     if (!response.ok) throw new Error(`Engine ${path}: ${response.status} ${await response.text()}`);
     return response.json();
   };
@@ -93,28 +96,55 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
     expect(await app("ws_a", "/opencode/mcp/shared/auth/callback", await received, "POST", { "x-legalwork-oauth-state": state })).toEqual({ status: "connected" });
     await callback.close();
   };
+  const upstream = { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } };
+  const launchEngine = async (index: number, legacy = false) => {
+    const workspace = workspaces[index]!;
+    await writeFile(join(workspace.path, "opencode.jsonc"), JSON.stringify(legacy
+      ? { ...baseEngineConfig, plugin: [pathToFileURL(join(root, "legacy-plugin.mjs")).href], mcp: { shared: upstream } } : baseEngineConfig));
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.startsWith("OPENCODE_") || key.startsWith("LEGALWORK_")) delete env[key];
+    const engine = spawn(binary, ["serve", "--hostname", "127.0.0.1", "--port", new URL(workspace.baseUrl).port], {
+      cwd: workspace.path, env: { ...env, OPENCODE_CONFIG: join(workspace.path, "opencode.jsonc"), OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: join(root, "policy"),
+        ...(!legacy ? { LEGALWORK_SERVER_URL: `http://127.0.0.1:${config.port}`, LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config) } : {}),
+        OPENCODE_TEST_HOME: join(root, "home"), OPENCODE_DB: join(root, `${workspace.id}.sqlite`), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: "ignore",
+    });
+    children.push(engine);
+    await until(async () => (await fetch(`${workspace.baseUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok, `engine ${workspace.id}`);
+    return engine;
+  };
   try {
     await until(async () => z.object({ issuer: z.string() }).parse(await (await fetch(`${providerUrl}/health`, { signal: AbortSignal.timeout(1000) })).json()).issuer === providerUrl, "provider");
     await Promise.all(workspaces.map(workspace => mkdir(workspace.path)));
-    server = await startServer(config);
-    for (const workspace of workspaces) {
-      await writeFile(join(workspace.path, "opencode.jsonc"), JSON.stringify(baseEngineConfig));
-      const env = { ...process.env };
-      for (const key of Object.keys(env)) if (key.startsWith("OPENCODE_") || key.startsWith("LEGALWORK_")) delete env[key];
-      const engine = spawn(binary, ["serve", "--hostname", "127.0.0.1", "--port", new URL(workspace.baseUrl).port], {
-        cwd: workspace.path, env: { ...env, OPENCODE_CONFIG: join(workspace.path, "opencode.jsonc"), OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: join(root, "policy"),
-          LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
-          OPENCODE_TEST_HOME: join(root, "home"), OPENCODE_DB: join(root, `${workspace.id}.sqlite`), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
-          OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: "ignore",
-      });
-      children.push(engine);
-      await until(async () => (await fetch(`${workspace.baseUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok, `engine ${workspace.id}`);
-    }
-    await app("ws_a", "/mcp", { name: "shared", config: { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } } });
-    await signIn(true);
+    // A plugin makes stock OpenCode await its background dependency installs.
+    // Otherwise this fresh fixture can kill the installer while it holds a
+    // package lock, delaying the next engine independently of OAuth migration.
+    await writeFile(join(root, "legacy-plugin.mjs"), "export const LegacyFixture = async () => ({});\n");
+    const oldEngine = await launchEngine(0, true);
+    const listener = await callback.listen({ redirectUri: `http://127.0.0.1:${callbackPort}/mcp/oauth/callback` });
+    const flow = z.object({ authorizationUrl: z.string() }).parse(await engineRequest(0, "/mcp/shared/auth", {}));
+    const state = new URL(flow.authorizationUrl).searchParams.get("state")!;
+    const received = callback.wait({ listenerId: listener.listenerId, state });
+    const consent = await fetch(flow.authorizationUrl, { redirect: "manual" });
+    expect((await fetch(consent.headers.get("location")!)).ok).toBe(true);
+    expect(await engineRequest(0, "/mcp/shared/auth/callback", { code: (await received).code })).toEqual({ status: "connected" });
+    await callback.close();
+    const authPath = join(root, "data/opencode/mcp-auth.json");
+    const saved = z.object({ shared: z.object({ tokens: z.object({ accessToken: z.string() }), clientInfo: z.object({ clientId: z.string() }) }) }).parse(JSON.parse(await readFile(authPath, "utf8")));
+    await stop(oldEngine);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { shared: upstream } }));
+    server = await startServer(config, { onListening: async () => {
+      const result = await migrateLegacyMcpOAuth(config, { authPath, quiescent: async () => oldEngine.exitCode !== null || oldEngine.signalCode !== null });
+      expect(result.migrated).toEqual(["shared"]);
+      const manager = mcpManager(config)!;
+      expect((await manager.client(manager.store.all()[0]!)).getServerCapabilities()?.tools).toBeDefined();
+      await launchEngine(0); await launchEngine(1);
+    } });
     expect((await stats()).authorizationGrants).toBe(1);
     for (const index of [0, 1]) expect(statusSchema.parse(await engineRequest(index, "/mcp")).shared?.status).toBe("connected");
     const manager = mcpManager(config); if (!manager) throw new Error("Missing manager");
+    expect(manager.store.all()[0]?.tokens?.access_token).toBe(saved.shared.tokens.accessToken);
+    expect(manager.store.all()[0]?.client?.client_id).toBe(saved.shared.clientInfo.clientId);
     const gatewayEntries = await manager.engineEntries("ws_a", await runtimeMcpMapForWorkspace(config, "ws_a"));
     const runtimeHeaders = z.record(z.string(), z.string()).parse(gatewayEntries.shared?.headers);
     expect((await fetch(`http://127.0.0.1:${server.port}/workspace/ws_a/mcp/shared/auth`, { method: "DELETE", headers: runtimeHeaders })).status).toBe(401);
@@ -149,14 +179,16 @@ test.skipIf(!binary)("unmodified engines share server OAuth across workspaces, r
     await Bun.sleep(450);
     expect(manager.store.all()[0]?.tokens).toBeUndefined();
     for (const workspace of workspaces) expect(statusSchema.parse(await app(workspace.id, "/opencode/mcp")).shared?.status).toBe("needs_auth");
-    await signIn();
+    await signIn(true);
     expect((await stats()).authorizationGrants).toBe(2);
+    passed = true;
   } finally {
     await callback.close();
     await Promise.all(children.map(stop));
     await server?.stop();
     await closeRuntimeOpencodeConfig(config);
     model.stop(true);
-    await rm(root, { recursive: true, force: true });
+    if (passed) await rm(root, { recursive: true, force: true });
+    else console.error(`Native MCP fixture retained for diagnosis: ${root}`);
   }
 }, 90_000);

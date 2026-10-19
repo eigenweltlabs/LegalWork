@@ -32,6 +32,7 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
@@ -109,6 +110,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   const server = await startServer(config, { onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
+      await migrateLegacyMcpOAuth(config);
       const workspace = config.workspaces[0];
       if (workspace?.path) {
         // Server-managed config file: the engine re-reads it from disk on every

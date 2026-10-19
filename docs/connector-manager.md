@@ -93,11 +93,37 @@ connection generation, and PKCE. A pending sign-in survives engine rebuilds.
 
 ## Upgrade behavior
 
-Remote connector settings migrate into the encrypted store. Existing custom
-OAuth MCP connections require one fresh sign-in. The manager deliberately does
-not copy rotating tokens from OpenCode's global `mcp-auth.json`: another older
-OpenCode process could still own and refresh that grant. The new server grant is
-independent. Existing global engine credentials are not modified.
+Managed desktop/server startup transfers existing custom OAuth MCP grants before
+starting its new engine. The desktop first stops its previous managed runtime.
+The importer then checks for other OpenCode processes; when ownership is unclear,
+it leaves the old grant untouched. Closing those processes and restarting lets
+the importer retry. Externally attached engines are not automatically taken over.
+
+For an unambiguous matching connector, the importer preserves its access token,
+refresh token, absolute expiry, scopes and OAuth client registration. No browser
+sign-in or provider request is required during the transfer. Static API-key
+configuration continues to migrate, and existing built-in connector grants stay
+in their current vault entries. LegalMemory's app features obtain tokens through
+the same manager and refresh queue as agent tools.
+
+Recovery copies go into the existing OAuth vault under a migration entry. After
+that write, a secret-free SQLite handoff registry beside `mcp-auth.json` records
+the owning vault and connection. Only matching source entries are then removed,
+with an atomic mode-0600 replacement; unrelated entries are preserved. The new
+manager adopts the grant through its connection queue, checking its generation
+again so a concurrent login, logout or configuration change wins.
+
+An interrupted handover resumes from the encrypted recovery copy. A connection
+marker prevents an old backup from replacing tokens already rotated by the new
+manager, or resurrecting a logout. Cross-profile claims prevent a second
+LegalWork profile from adopting the same rotating grant. Recovery copies are
+not a mechanism for replaying old tokens after refresh or blindly downgrading.
+
+URL/client mismatches, expired client secrets, malformed grants and ambiguous
+old account names are preserved without automatic adoption. Such connections
+may need a fresh sign-in; working, safely transferable connections retain theirs.
+Workspace settings are committed to their shared destination before their old
+rows are cleared, so interruption cannot lose those settings either.
 
 ## Verification
 
@@ -111,8 +137,10 @@ bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.tes
 OPENCODE_TEST_BINARY=/path/to/released/opencode bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.engine.e2e.test.ts
 ```
 
-The native-engine test runs two separate engine processes against one manager.
-It verifies folder-specific runtime bindings after rebuilds, login across an
+The native-engine test signs in through an unmodified legacy engine, stops it,
+and transfers its actual saved grant before starting two gateway-connected
+engines. It verifies tool calls and rotating refresh without another sign-in,
+folder-specific runtime bindings after rebuilds, login across an
 engine rebuild, agent tool execution, simultaneous token expiry, disconnect
 during refresh, shared reconnect status, fresh login, and an empty engine MCP
 credential store. Runtime gateway credentials are also rejected by management
@@ -120,8 +148,8 @@ and internal configuration endpoints. CI runs this test with the shipped engine.
 
 Local validation used released OpenCode 1.18.29 on macOS arm64, SHA-256
 `9c46fd8b183c575453ce1b57a4d6500e34f5d19825e8f2653356415355992188`.
-Linux/macOS CI verification is configured; those remote runs have not been
-executed during local development.
+CI runs this integration on Linux and macOS; see the PR checks for the current
+handover revision.
 
 Validation passed: 124 focused server tests, 81 app tests, two desktop key-storage
 tests, and the separate native-engine test. Five older engine-specific checks

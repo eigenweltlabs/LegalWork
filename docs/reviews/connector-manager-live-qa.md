@@ -4,6 +4,49 @@ Tested on 19 October 2026, macOS arm64, Electron 43.7.5, stock OpenCode 1.18.29.
 
 The Electron profile, server configuration, data and XDG directories were isolated. Two disposable projects shared one LegalWork server and connector vault. The installed LegalWork profile and its rotating grants were not reused.
 
+## Credential handover revision
+
+The shipped importer now transfers existing OpenCode OAuth grants before a new
+managed engine starts. It uses matching URLs/client registrations, conservative
+process checks, encrypted recovery copies in the existing vault, and persistent
+cross-profile claims. Source cleanup preserves unrelated accounts. A generation
+check inside the connection queue prevents transfer over a login/logout or
+configuration change. Settings imports now commit the shared destination before
+clearing workspace sources.
+
+The new stock-engine reproduction signs in through an ordinary old engine,
+stops it, imports its real `mcp-auth.json` entry, then runs two gateway-connected
+engines. Agent tool calls, shared refresh, rebuild and logout/reconnection pass:
+**30 assertions**, with no additional authorization grant during upgrade.
+
+The real Linear grant from the disposable Electron profile was placed into the
+legacy format after stopping that profile's owned runtime. The **shipped importer**
+then transferred it using an explicit ownership check for this isolated source
+file; other development apps remained running. Linear discovery returned **38
+tools**, concurrent workspace token requests caused **one genuine rotating
+refresh**, and `list_teams` succeeded after manager restart. **Zero browser
+sign-ins** were required. This validates the importer with a real provider; the
+stock-engine reproduction separately validates the actual old engine's format.
+
+Regression coverage includes interrupted backup/retirement/activation, partial
+multi-connector completion after token rotation, concurrent logout, unreadable
+vaults, provider/client mismatch, name collisions, and another profile trying to
+adopt a restored old grant. LegalMemory appliance features share the new token
+owner rather than reading retired credentials from the old file.
+
+- Focused server/runtime/storage/appliance checks: **291 passed, 5 skipped**,
+  1,614 assertions across 24 files.
+- Native engine upgrade: **1 passed**, 30 assertions, two consecutive runs after
+  fixing fixture setup.
+- Server TypeScript check, app TypeScript check and server build passed.
+
+The first native upgrade fixture killed its fresh old engine while OpenCode's
+background package installs held locks. The new engine then waited for those
+stale locks. The fixture now loads an inert plugin so the old engine finishes
+that setup before sign-in and shutdown. No OpenCode patch is involved. The
+previous vault-reuse revision subsequently passed both Linux and macOS CI;
+the handover revision must pass its own checks.
+
 ## Shared-vault revision
 
 MCP now uses the existing `OAuthVault`, `storage-oauth.vault` and encryption key,
@@ -30,8 +73,8 @@ file-based key storage; it does not add operating-system keychain protection.
   per run after bounding startup health probes, and on a diagnostic rerun. Earlier ordinary runs
   timed out at 90 seconds without diagnostics. The previous branch revision also
   timed out in Linux CI. Startup health requests now have a one-second timeout
-  and the polling loop has a wall-clock deadline; the underlying intermittent
-  failure has not been established, and Linux CI still needs confirmation.
+  and the polling loop has a wall-clock deadline. Both Linux and macOS CI later
+  passed on that revision; the newer handover reproduction is described above.
 
 The matrix and screenshots below document the initial live-provider run. That
 run preceded consolidation into the existing vault; its separate OS-protected

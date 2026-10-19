@@ -25,6 +25,7 @@ import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -66,6 +67,7 @@ await importConnectorsIntoSharedRow(config, {
 const server = await startServer(config, { onListening: async (port) => {
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
   if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
+    await migrateLegacyMcpOAuth(config);
     const workspace = config.workspaces[0];
     if (workspace?.path) {
       // Server-managed config file: the engine re-reads it from disk on every

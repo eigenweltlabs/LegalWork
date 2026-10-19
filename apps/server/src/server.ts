@@ -3167,7 +3167,7 @@ function createRoutes(
     const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
     if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
     try {
-      return jsonResponse({ ok: true, matters: await fetchLegalMemoryMatters(server, await engineAccessToken(server.name)) });
+      return jsonResponse({ ok: true, matters: await fetchLegalMemoryMatters(server, await engineAccessToken(config, workspace.id, server.name)) });
     } catch {
       // A source without its matter is still a usable source.
       return jsonResponse({ ok: true, matters: {} });
@@ -3183,7 +3183,7 @@ function createRoutes(
     const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
     if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
     try {
-      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(server.name)));
+      return jsonResponse(await fetchLegalMemoryTreeRoots(server, await engineAccessToken(config, workspace.id, server.name)));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File tree failed");
     }
@@ -3207,7 +3207,7 @@ function createRoutes(
       return jsonResponse(await fetchLegalMemoryTreeChildren(
         server,
         { sourceId, path: path || undefined, offset, limit },
-        await engineAccessToken(server.name),
+        await engineAccessToken(config, workspace.id, server.name),
       ));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "Folder listing failed");
@@ -3229,7 +3229,7 @@ function createRoutes(
       return jsonResponse(await fetchLegalMemoryTreeSearch(
         server,
         { query, limit },
-        await engineAccessToken(server.name),
+        await engineAccessToken(config, workspace.id, server.name),
       ));
     } catch (error) {
       throw new ApiError(502, "legalmemory_tree_failed", error instanceof Error ? error.message : "File search failed");
@@ -3252,7 +3252,7 @@ function createRoutes(
     const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
     if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
     try {
-      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(server.name));
+      const graph = await fetchLegalMemoryGraph(server, documentId, await engineAccessToken(config, workspace.id, server.name));
       return jsonResponse({ ok: true, graph });
     } catch (error) {
       throw new ApiError(502, "legalmemory_graph_failed", error instanceof Error ? error.message : "Traversal failed");
@@ -3282,7 +3282,7 @@ function createRoutes(
 
     let document: Awaited<ReturnType<typeof fetchLegalMemoryDocument>>;
     try {
-      document = await fetchLegalMemoryDocument(server, documentId, await engineAccessToken(server.name));
+      document = await fetchLegalMemoryDocument(server, documentId, await engineAccessToken(config, workspace.id, server.name));
     } catch (error) {
       throw new ApiError(502, "legalmemory_fetch_failed", error instanceof Error ? error.message : "LegalMemory download failed");
     }
@@ -3329,7 +3329,7 @@ function createRoutes(
     if (!server) {
       throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured for this workspace");
     }
-    const bearer = await engineAccessToken(server.name);
+    const bearer = await engineAccessToken(config, workspace.id, server.name);
 
     let listing: Awaited<ReturnType<typeof collectLegalMemoryFolderFiles>>;
     try {
