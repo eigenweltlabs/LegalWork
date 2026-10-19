@@ -8,6 +8,7 @@ const TAP_MAX_PRESS_MS = 200;
 const MIN_HOLD_MS = 500;
 const DOUBLE_TAP_GAP_MS = 300;
 const RESTART_COOLDOWN_MS = 250;
+const CONTROL_CHORD_GRACE_MS = 120;
 const MODIFIER_KEYS = ["Fn", "Control", "Alt", "Shift", "Command", "Super"];
 const NAMED_KEYS = new Set([
   "Space", "Backspace", "Tab", "Enter", "PageUp", "PageDown", "End", "Home",
@@ -29,10 +30,10 @@ function normalizedPlatform(platform) {
 
 function candidateAccelerators(platform) {
   if (platform === "darwin") {
-    return ["Control+Alt", "CommandOrControl+Shift+D", "F8", "F9"];
+    return ["Control", "Control+Alt", "CommandOrControl+Shift+D", "F8", "F9"];
   }
   if (platform === "windows") {
-    return ["Control+Super", "Control+Super+D", "CommandOrControl+Shift+D", "F8", "F9"];
+    return ["Control", "Control+Super", "Control+Super+D", "CommandOrControl+Shift+D", "F8", "F9"];
   }
   return ["CommandOrControl+Shift+D", "F8", "F9"];
 }
@@ -134,6 +135,8 @@ export class SystemDictationService {
     this.runtimeState = "idle";
     this.gesture = null;
     this.gestureTimer = null;
+    this.controlTimer = null;
+    this.controlPressedAt = null;
     this.shortcutPressedAt = 0;
     this.settledAt = 0;
     this.shortcutCaptureActive = false;
@@ -328,6 +331,7 @@ export class SystemDictationService {
   }
 
   unregisterPrimaryShortcut() {
+    this.clearControlPress();
     if (this.registeredAccelerator) this.globalShortcut.unregister(this.registeredAccelerator);
     this.registeredAccelerator = null;
     this.registered = false;
@@ -342,9 +346,59 @@ export class SystemDictationService {
   }
 
   clearGesture() {
+    this.clearControlPress();
     clearTimeout(this.gestureTimer);
     this.gestureTimer = null;
     this.gesture = null;
+  }
+
+  clearControlPress() {
+    clearTimeout(this.controlTimer);
+    this.controlTimer = null;
+    this.controlPressedAt = null;
+  }
+
+  activateControlShortcut() {
+    const pressedAt = this.controlPressedAt;
+    if (pressedAt === null) return;
+    this.shortcutTriggered = true;
+    this.pressShortcut();
+    if (this.gesture === "hold") this.shortcutPressedAt = pressedAt;
+  }
+
+  handleControlKey(type, key) {
+    if (type === "down") {
+      if (key !== "Control") {
+        this.clearControlPress();
+        this.shortcutTriggered = false;
+        // A modified Control press belongs to the foreground app. Cancel
+        // a tentative hold quietly, but leave hands-free dictation running.
+        if (this.gesture === "hold" || this.gesture === "tap-pending") {
+          this.clearGesture();
+          this.onCancel();
+        }
+        return;
+      }
+      if (this.pressedKeys.size !== 1) return;
+      this.controlPressedAt = Date.now();
+      if (this.gesture === "tap-pending") {
+        // The second tap arrived in time; its key-up may land after the gap.
+        clearTimeout(this.gestureTimer);
+        this.gestureTimer = null;
+      }
+      this.controlTimer = setTimeout(() => {
+        this.controlTimer = null;
+        // Resolve tapping gestures at key-up, so even a slowly entered
+        // Ctrl+C cannot lock or finish hands-free dictation.
+        if (this.gesture !== "hands-free" && this.gesture !== "tap-pending") this.activateControlShortcut();
+      }, CONTROL_CHORD_GRACE_MS);
+      return;
+    }
+    if (key !== "Control") return;
+    if (!this.shortcutTriggered) this.activateControlShortcut();
+    this.clearControlPress();
+    this.shortcutTriggered = false;
+    this.releaseShortcut();
   }
 
   toggleHandsFree() {
@@ -442,8 +496,13 @@ export class SystemDictationService {
         this.captureChord.add(event.key);
         return;
       }
-      if (!this.enabled || !this.registered || this.shortcutTriggered) return;
+      if (!this.enabled || !this.registered) return;
       const expected = acceleratorKeys(this.accelerator, this.platform);
+      if (expected.size === 1 && expected.has("Control")) {
+        this.handleControlKey("down", event.key);
+        return;
+      }
+      if (this.shortcutTriggered) return;
       if ([...expected].every((key) => this.pressedKeys.has(key))) {
         this.shortcutTriggered = true;
         this.pressShortcut();
@@ -458,8 +517,12 @@ export class SystemDictationService {
       }
       return;
     }
-    if (!this.shortcutTriggered) return;
     const expected = acceleratorKeys(this.accelerator, this.platform);
+    if (expected.size === 1 && expected.has("Control")) {
+      this.handleControlKey("up", event.key);
+      return;
+    }
+    if (!this.shortcutTriggered) return;
     if ([...expected].some((key) => !this.pressedKeys.has(key))) {
       this.shortcutTriggered = false;
       this.releaseShortcut();

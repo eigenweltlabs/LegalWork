@@ -388,7 +388,7 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
     }
 
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-    guard let name = keyNames[code] else { return Unmanaged.passUnretained(event) }
+    let name = keyNames[code] ?? "Other\(code)"
 
     switch type {
     case .keyDown:

@@ -98,7 +98,7 @@ async function tempDir() {
 
 test("system dictation persists, registers fallback shortcut, and handles cancel", async () => {
   const userDataDir = await tempDir();
-  const shortcuts = new FakeShortcuts(["Control+Super", "Control+Super+D", "Control+Alt+Q"]);
+  const shortcuts = new FakeShortcuts(["Control", "Control+Super", "Control+Super+D", "Control+Alt+Q"]);
   let toggles = 0;
   let cancels = 0;
   const service = new SystemDictationService({
@@ -271,8 +271,8 @@ test("native shortcut monitoring supports modifier-only capture and both dictati
   await keyMonitor.emit("up", "Control");
   t.mock.timers.tick(100);
   await keyMonitor.emit("down", "Control");
-  assert.equal(service.status().mode, "tap");
   await keyMonitor.emit("up", "Control");
+  assert.equal(service.status().mode, "tap");
   t.mock.timers.tick(500);
   assert.equal(presses, 2, "double-tap keeps the first capture");
   assert.equal(releases, 1, "neither tap releases hands-free capture");
@@ -319,12 +319,14 @@ test("a monitor reset releases a latched hold and clears chord state", async (t)
   // the key-up is lost: the reset must finalize the dictation, not leave it
   // latched "recording" forever.
   await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(120);
   assert.equal(presses, 1);
   await keyMonitor.emit("reset", "*");
   assert.equal(releases, 1);
 
   // Chord state was cleared, so the next press starts cleanly.
   await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(120);
   assert.equal(presses, 2);
   t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Control");
@@ -358,8 +360,8 @@ async function gestureService(t, platform = "darwin", accelerator = "Fn") {
 }
 
 for (const { platform, keys, previousDefault } of [
-  { platform: "darwin", keys: ["Control", "Alt"], previousDefault: "CommandOrControl+Shift+D" },
-  { platform: "win32", keys: ["Control", "Super"], previousDefault: "Control+Super+D" },
+  { platform: "darwin", keys: ["Control"], previousDefault: "Control+Alt" },
+  { platform: "win32", keys: ["Control"], previousDefault: "Control+Super" },
 ]) {
   test(`${platform} default supports hold and double-tap without a letter key`, async (t) => {
     const { service, keyMonitor, events } = await gestureService(t, platform, null);
@@ -371,10 +373,12 @@ for (const { platform, keys, previousDefault } of [
     };
     assert.equal(service.status().accelerator, keys.join("+"));
     assert.equal(service.status().customAccelerator, false);
-    await keyMonitor.emit("down", keys[0]);
-    assert.deepEqual(events, [], "one modifier alone does not start dictation");
     await press();
-    t.mock.timers.tick(500);
+    t.mock.timers.tick(119);
+    assert.deepEqual(events, [], "allow time to distinguish Control from a normal chord");
+    t.mock.timers.tick(1);
+    assert.deepEqual(events, ["start"]);
+    t.mock.timers.tick(380);
     await release();
     assert.deepEqual(events, ["start", "finish"]);
 
@@ -404,6 +408,95 @@ for (const { platform, keys, previousDefault } of [
     const customized = await service.initialize();
     assert.equal(customized.accelerator, previousDefault);
     assert.equal(customized.customAccelerator, true);
+  });
+
+  test(`${platform} Control combinations never activate dictation or show short-press guidance`, async (t) => {
+    const { keyMonitor, events, cancelReasons } = await gestureService(t, platform, null);
+    for (const key of ["C", "V", "Alt", "Other191"]) {
+      await keyMonitor.emit("down", "Control");
+      t.mock.timers.tick(60);
+      await keyMonitor.emit("down", key);
+      await keyMonitor.emit("up", key);
+      t.mock.timers.tick(500);
+      await keyMonitor.emit("up", "Control");
+    }
+    await keyMonitor.emit("down", "Shift");
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Shift");
+    t.mock.timers.tick(500);
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, []);
+    assert.deepEqual(cancelReasons, []);
+  });
+
+  test(`${platform} modifying Control cancels a tentative hold but preserves hands-free capture`, async (t) => {
+    const { service, keyMonitor, events, cancelReasons } = await gestureService(t, platform, null);
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(120);
+    assert.deepEqual(events, ["start"]);
+    await keyMonitor.emit("down", "C");
+    await keyMonitor.emit("up", "C");
+    await keyMonitor.emit("up", "Control");
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, ["start", "cancel"]);
+    assert.deepEqual(cancelReasons, [undefined], "a Control chord cancels without short-press guidance");
+
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(60);
+    await keyMonitor.emit("up", "Control");
+    t.mock.timers.tick(150);
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Control");
+    assert.equal(service.status().mode, "tap");
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(500);
+    await keyMonitor.emit("down", "V");
+    await keyMonitor.emit("up", "V");
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, ["start", "cancel", "start"], "Ctrl+V leaves hands-free dictation running");
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("up", "Control");
+    assert.deepEqual(events, ["start", "cancel", "start", "finish"]);
+  });
+}
+
+test("Control double-tap accepts a second press near the gap boundary and ignores a modified second press", async (t) => {
+  const { service, keyMonitor, events, cancelReasons } = await gestureService(t, "darwin", null);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(299);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("down", "C");
+  await keyMonitor.emit("up", "C");
+  await keyMonitor.emit("up", "Control");
+  assert.deepEqual(events, ["start", "cancel"]);
+  assert.deepEqual(cancelReasons, [undefined]);
+  t.mock.timers.tick(250);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(60);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(299);
+  await keyMonitor.emit("down", "Control");
+  t.mock.timers.tick(150);
+  await keyMonitor.emit("up", "Control");
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["start", "cancel", "start"]);
+  assert.equal(service.status().mode, "tap");
+});
+
+for (const action of ["reset", "unavailable", "disable", "capture", "dispose"]) {
+  test(`${action} clears a pending Control press before it can start capture`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t, "darwin", null);
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(60);
+    if (action === "reset" || action === "unavailable") await keyMonitor.emit(action);
+    else if (action === "disable") await service.setEnabled(false);
+    else if (action === "capture") await service.setShortcutCapture(true);
+    else service.dispose();
+    t.mock.timers.tick(1000);
+    assert.deepEqual(events, []);
   });
 }
 
