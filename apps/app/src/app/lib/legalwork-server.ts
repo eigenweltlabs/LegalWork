@@ -1,6 +1,6 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
-import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
+import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
@@ -1846,6 +1846,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     connectorSettings: (id: string) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, timeoutMs: timeouts.config }),
     connectorSavedStatus: (id?: string) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}/saved` : "/connectors/saved", { token, hostToken, timeoutMs: timeouts.status }),
     setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),
+    connectorCloudAccess: (id: string) => requestJson<ConnectorCloudAccess>(baseUrl, `/connectors/${encodeURIComponent(id)}/cloud-access`, { token, hostToken, timeoutMs: timeouts.config }),
+    setConnectorCloudAccess: (id: string, enabled: boolean) => requestJson<ConnectorCloudAccess>(baseUrl, `/connectors/${encodeURIComponent(id)}/cloud-access`, { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     connectorStatus: (id?: string, forceRefresh = false) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}${forceRefresh ? "?refresh=true" : ""}` : "/connectors", { token, hostToken, timeoutMs: 120_000 }),
     connectorStorageLocations: (id: string, connectionId: string, kind: "sites" | "drives", options?: { siteId?: string; pageToken?: string; query?: string }) => requestJson<{ sites?: { id: string; displayName?: string; webUrl?: string }[]; drives?: { id: string; name?: string; webUrl?: string }[]; nextPageToken?: string | null }>(baseUrl, `/connectors/${encodeURIComponent(id)}/storage-locations?${new URLSearchParams({ connectionId, kind, ...options })}`, { token, hostToken, timeoutMs: timeouts.status }),
     connectorActivation: (id: string, connectionId: string, active: boolean) => requestJson<{ active: boolean }>(baseUrl, `/connectors/${encodeURIComponent(id)}/activation`, { token, hostToken, method: "PUT", body: { connectionId, active } }),

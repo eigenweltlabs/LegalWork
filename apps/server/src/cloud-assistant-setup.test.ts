@@ -7,6 +7,7 @@ import { CloudReplica } from "./cloud-sync/replica.js";
 import { DirectoryObjects } from "./cloud-sync/objects.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { ServerConfig } from "./types.js";
+import { startConnectorSync } from "./connectors/sync.js";
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 async function fixture(idle = true) {
@@ -15,6 +16,7 @@ async function fixture(idle = true) {
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"),
     approval: { mode: "manual", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  cleanup.push(startConnectorSync(config));
   await writeEigenweltConnection(config, { account: { userId: "user_a", orgId: "org_a", userName: null, userEmail: null, orgName: "Test" },
     platformToken: "access-token", accessTokenExpiresAt: Date.now() + 900000 });
   const objects = await DirectoryObjects.open(join(root, "remote"));
@@ -22,7 +24,9 @@ async function fixture(idle = true) {
   const replicaSpy = spyOn(CloudReplica, "open").mockImplementation((conf, settings) => open(conf, settings, objects));
   cleanup.push(() => replicaSpy.mockRestore());
   const calls: string[] = [];
-  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    if (url.pathname === "/api/connectors/bindings") return Response.json({ bindings: [] });
     calls.push(init?.method ?? "GET");
     return Response.json({ userId: "user_a", orgId: "org_a", accountId: "account_a", canEnable: true,
       enabled: init?.method === "POST", state: init?.method === "POST" ? "ready" : "off", error: null });

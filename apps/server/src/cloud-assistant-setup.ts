@@ -11,6 +11,7 @@ import { runtimeDbPath } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { CloudReplica } from "./cloud-sync/replica.js";
 import { SyncConfigSchema } from "./cloud-sync/schema.js";
+import { scheduleConnectorSync } from "./connectors/sync.js";
 
 const Saved = z.strictObject({ version: z.literal(1), userId: z.string(), orgId: z.string(), accountId: z.string(),
   deviceId: z.string(), enabled: z.boolean(), state: z.enum(["off", "preparing", "syncing", "starting", "enabled", "error"]), error: z.string().nullable() });
@@ -81,6 +82,7 @@ export class CloudAssistantSetup {
     const replica = await CloudReplica.open(this.options.config, SyncConfigSchema.parse({ version: 1, accountId: this.saved.accountId,
       deviceId: this.saved.deviceId, deviceName: "Desktop", store: { type: "platform" }, role: "companion", projectsDirectory: this.options.config.projectsDirectory }));
     this.replica = replica;
+    scheduleConnectorSync(this.options.config);
     if (start) this.stopReplica = replica.start(true);
     return replica;
   }
