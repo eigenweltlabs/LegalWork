@@ -19,6 +19,7 @@ let finishConnectors: (() => void) | undefined;
 let connectorWait: Promise<void> | undefined;
 let connectorNames: readonly string[] = [];
 let importRequests: PluginImportRequest[] = [];
+let skillWrites: Array<{ name: string; scope?: string }> = [];
 
 function makeStore() {
   const legalworkServer = createLegalworkServerStore({
@@ -35,7 +36,7 @@ function makeStore() {
 }
 
 beforeEach(() => {
-  importRequests = []; skillReads = 0; imported = false; importWrites = 0; skillReadStarted = undefined; skillReadWait = undefined; finishConnectors = undefined; connectorWait = undefined; connectorNames = [];
+  importRequests = []; skillWrites = []; skillReads = 0; imported = false; importWrites = 0; skillReadStarted = undefined; skillReadWait = undefined; finishConnectors = undefined; connectorWait = undefined; connectorNames = [];
   Object.defineProperty(globalThis, "window", { configurable: true, value: { __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string) => {
       if (command !== "listLocalSkills") throw new Error(`Unexpected desktop command: ${command}`);
@@ -52,6 +53,10 @@ beforeEach(() => {
     if (path.endsWith("/plugin-imports/preview")) { importRequests.push(await request.json()); return Response.json({ items: [{ ...preview, format: "skills", readiness: "ready", validationId: "reviewed-on-server", components: preview.components.filter(item => item.type === "skill") }] }); }
     if (path.endsWith("/plugin-imports/install")) { importRequests.push(await request.json()); imported = true; importWrites += 1; return Response.json({ preview }); }
     if (path.endsWith("/firm-hub/skills")) return Response.json({ items: [] });
+    if (path.endsWith("/skills")) {
+      if (request.method === "POST") { skillWrites.push(await request.json()); return Response.json({ name: skillWrites.at(-1)?.name, path: "/global/SKILL.md" }); }
+      return Response.json({ items: [], skipped: [] });
+    }
     throw new Error(`Unexpected request: ${request.url}`);
   };
 });
@@ -122,5 +127,34 @@ test("standalone GitHub skills use shared review and installation without a desk
   expect(importRequests[0]).toMatchObject({ source: { provider: "claude", url: "https://github.com/team/skills", directory: "skills/review", ref: "release/v1" }, scope: "global", asWorkflow: true });
   expect(importRequests[1]).toMatchObject({ digest: "reviewed", validationId: "reviewed-on-server" });
   expect(importWrites).toBe(1);
+  store.dispose();
+});
+
+test("plugin and connector imports always review and install globally on desktop and web", async () => {
+  for (const desktop of [true, false]) {
+    if (!desktop) Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+    const store = makeStore();
+    for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt">) {
+      const request: PluginImportRequest = { source: { provider, path: "/tmp/import-source" }, scope: "project" };
+      const [review] = await store.previewPluginImports(request);
+      await store.installPluginImport({ ...request, digest: review?.digest, validationId: review?.validationId });
+    }
+    store.dispose();
+  }
+  expect(importRequests).toHaveLength(8);
+  expect(importRequests.every(request => request.scope === "global")).toBe(true);
+});
+
+test("browser GitHub imports and skill creation or editing use the global library", async () => {
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+  const store = makeStore();
+  const result = await store.importGithubSkills({ url: "https://github.com/team/skills", paths: ["skills/review"] });
+  expect(result.ok).toBe(true);
+  expect(importRequests).toHaveLength(2);
+  expect(importRequests.every(request => request.scope === "global")).toBe(true);
+  expect((await store.createSkill({ name: "new-skill", content: "Create." })).ok).toBe(true);
+  await store.saveSkill({ name: "new-skill", content: "Updated." });
+  expect(skillWrites).toHaveLength(2);
+  expect(skillWrites.every(request => request.scope === "global")).toBe(true);
   store.dispose();
 });

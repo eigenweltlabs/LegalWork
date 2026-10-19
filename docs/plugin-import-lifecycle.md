@@ -4,6 +4,8 @@ Built on `dev` at `e3900fa4` (19 October 2026). This extends the existing connec
 
 ## One foreign import path
 
+Integrations uses the global library. The import dialog has no project/global switch, and application preview/install requests enforce global scope on desktop and web. Standalone GitHub/folder/archive skills and browser skill creation/editing follow the same rule. Skill reads include the global library for remote workspaces as well. Existing on-disk project data is not moved or deleted by this UI change.
+
 Discovered ChatGPT/Claude installations, folders, ZIP/`.plugin` archives, GitHub plugins, and standalone GitHub/local skills use the server package planner and installer. The old GitHub plugin resolver is removed. Immutable archive downloads share a bounded, five-minute cache so selecting multiple folders does not repeatedly download the same repository. GitHub skill scanning remains a discovery adapter; selected folders install from immutable commit archives, preserving supporting files on desktop and remote workspaces. Native LegalWork firm-library payloads remain a separate native format.
 
 1. Load bounded, ordinary files without executing package code. Resolve GitHub refs to a commit and download the complete snapshot. Keep existing traversal, link, archive size and credential boundaries.

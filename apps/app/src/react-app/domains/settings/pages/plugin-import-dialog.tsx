@@ -33,7 +33,7 @@ const sourceStateLabels = { installed: "extensions.import_source_installed", dis
 const componentLabel = (type: PluginImportPreview["components"][number]["type"]) =>
   t(type === "skill" ? "extensions.import_skill" : type === "mcp" ? "integrations.connector" : type === "agent" ? "composer.agent_label" : "session.permission_detail_command");
 
-export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSource?: PluginImportSource; initialRoot?: string; initialScope?: PluginImportScope; initialAsWorkflow?: boolean }) {
+export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSource?: PluginImportSource; initialRoot?: string; initialAsWorkflow?: boolean }) {
   const [provider, setProvider] = useState<PluginImportProvider | null>(props.initialSource?.provider || null);
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
   const [discovering, setDiscovering] = useState(true);
@@ -50,7 +50,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installed, setInstalled] = useState<PluginImportPreview | null>(null);
-  const [scope, setScope] = useState<PluginImportScope>(props.initialScope || (isDesktopRuntime() ? "global" : "project"));
+  const scope = "global";
   const [acknowledgePartial, setAcknowledgePartial] = useState(false);
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -264,7 +264,6 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void chooseFolder()}><FolderOpen />{t("extensions.import_choose_folder")}</Button><Button variant="outline" size="sm" onClick={() => zipInput.current?.click()}><FileArchive />{t("extensions.import_choose_zip")}</Button></div>
           </div>
           <div className="flex items-center gap-2"><Input aria-label={t("extensions.import_repository_url")} placeholder="https://github.com/owner/repository" value={repositoryUrl} onChange={event => setRepositoryUrl(event.target.value)} /><Button variant="outline" disabled={!repositoryUrl.trim()} onClick={() => void preview({ provider, url: repositoryUrl.trim() }, repositoryUrl.trim())}>{t("extensions.import_review")}</Button></div>
-          <HubTabs items={[{ id: "global", label: t("extensions.import_scope_global") }, { id: "project", label: t("extensions.import_scope_project") }]} value={scope} onChange={value => { if (value === "global" || value === "project") setScope(value); }} />
         </> : busy ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center" role="status"><Loader2 className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none" /><p className="font-medium">{t("extensions.import_reading", { name: sourceLabel })}</p><p className="text-sm text-muted-foreground">{t("extensions.import_working")}</p></div> : selected ? <>
           {previews.length > 1 ? <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("extensions.import_select_package")}</p><div className="flex flex-wrap gap-2">{previews.map(item => <Button key={item.root} size="sm" variant={selectedRoot === item.root ? "secondary" : "outline"} disabled={installing} aria-pressed={selectedRoot === item.root} onClick={() => void checkPackage(item.root)}>{pluginImportName(item)}</Button>)}</div></div> : null}
           <div className="space-y-3">

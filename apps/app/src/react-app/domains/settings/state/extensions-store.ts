@@ -385,6 +385,7 @@ export function createExtensionsStore(options: {
         name,
         content,
         description,
+        scope: "global",
       });
       return;
     }
@@ -583,11 +584,11 @@ export function createExtensionsStore(options: {
   }
   async function previewPluginImports(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    return (await target.client.previewPluginImports(target.id, request)).items;
+    return (await target.client.previewPluginImports(target.id, { ...request, scope: "global" })).items;
   }
   async function installPluginImport(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    const result = await target.client.installPluginImport(target.id, request);
+    const result = await target.client.installPluginImport(target.id, { ...request, scope: "global" });
     return result.preview;
   }
   async function refreshPluginImport(preview: PluginImportPreview) {
@@ -740,7 +741,7 @@ export function createExtensionsStore(options: {
       const writeFailed: ImportFailure[] = [];
       for (const path of input.paths) {
         try {
-          const request: PluginImportRequest = { source: { provider: "claude", url: input.url.trim(), ref: input.ref?.trim(), directory: path }, scope: isDesktopRuntime() ? "global" : "project", asWorkflow: input.asWorkflow };
+          const request: PluginImportRequest = { source: { provider: "claude", url: input.url.trim(), ref: input.ref?.trim(), directory: path }, scope: "global", asWorkflow: input.asWorkflow };
           await importStandaloneSkills(request);
           installed += 1;
         } catch (error) { writeFailed.push({ name: path, reason: error instanceof Error ? error.message : t("skills.unknown_error") }); }
@@ -878,7 +879,7 @@ export function createExtensionsStore(options: {
       refreshSkillsAborted = false;
       try {
         setStateField("skillsStatus", null);
-        const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
+        const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: true });
         if (refreshSkillsAborted) return;
         notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
         let next: SkillCard[] = Array.isArray(response.items) ? response.items.map(skillCardOf) : [];
@@ -1553,11 +1554,12 @@ export function createExtensionsStore(options: {
 
   async function importStandaloneSkills(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    const previews = (await target.client.previewPluginImports(target.id, request)).items;
+    const globalRequest: PluginImportRequest = { ...request, scope: "global" };
+    const previews = (await target.client.previewPluginImports(target.id, globalRequest)).items;
     if (previews.length !== 1 || previews[0]?.components.some(item => item.type !== "skill")) throw new Error(t("extensions.import_no_components"));
     const preview = previews[0]!;
     if (preview.readiness === "unsupported" || preview.readiness === "partial") throw new Error([...(preview.requirements || []).filter(item => item.status !== "satisfied").map(item => item.message), ...preview.warnings].join(" "));
-    await target.client.installPluginImport(target.id, { ...request, root: preview.root, digest: preview.digest, validationId: preview.validationId });
+    await target.client.installPluginImport(target.id, { ...globalRequest, root: preview.root, digest: preview.digest, validationId: preview.validationId });
     setStateField("skillsStatus", t("skills.imported"));
     options.markReloadRequired?.("skills", { type: "skill", name: preview.components[0]?.installedName, action: "added" });
   }
@@ -1630,7 +1632,7 @@ export function createExtensionsStore(options: {
       options.setError(null);
       setStateField("skillsStatus", t("skills.installing_skill_creator"));
       try {
-        await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: "skill-creator", content: skillCreatorTemplate });
+        await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: "skill-creator", content: skillCreatorTemplate, scope: "global" });
         const message = t("skills.skill_creator_installed");
         setStateField("skillsStatus", message);
         options.markReloadRequired?.("skills", { type: "skill", name: "skill-creator", action: "added" });
@@ -1780,7 +1782,7 @@ export function createExtensionsStore(options: {
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         setStateField("skillsStatus", null);
-        const result = await legalworkClient.getSkill(legalworkWorkspaceId, trimmed, { includeGlobal: isLocalWorkspace });
+        const result = await legalworkClient.getSkill(legalworkWorkspaceId, trimmed, { includeGlobal: true });
         return { name: result.item.name, path: result.item.path, content: result.content };
       } catch (error) {
         setStateField("skillsStatus", error instanceof Error ? error.message : t("skills.failed_to_load"));
@@ -1842,7 +1844,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
-          scope: isDesktopRuntime() && isLocalWorkspace ? "global" : "project",
+          scope: "global",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
         await refreshSkills({ force: true });
@@ -1952,6 +1954,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
+          scope: "global",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "added" });
         await refreshSkills({ force: true });
