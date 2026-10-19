@@ -199,7 +199,7 @@ export type EigenweltManifestModel = {
 /** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
   /** A week on current platforms, a day on platforms from before the weekly allowance. */
-  window: "day" | "week";
+  window: "day" | "week" | "month";
   allowanceCents: number;
   remainingCents: number;
   /** Share of this window's allowance consumed, 0–100 (server-computed). */
