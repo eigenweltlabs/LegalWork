@@ -19,6 +19,12 @@ extraResources:
     to: licenses
   - from: resources/opencode-sdk
     to: opencode-sdk
+    filter:
+      - package.json
+  # FileMatcher always skips a source's root node_modules directory. Copy
+  # its contents as a separate resource so the SDK dependency graph ships.
+  - from: resources/opencode-sdk/node_modules
+    to: opencode-sdk/node_modules
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
