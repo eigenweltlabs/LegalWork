@@ -28,6 +28,14 @@ refresh**, and `list_teams` succeeded after manager restart. **Zero browser
 sign-ins** were required. This validates the importer with a real provider; the
 stock-engine reproduction separately validates the actual old engine's format.
 
+After restarting Electron, both projects again completed real Cloudflare
+searches and Linear `list_teams` calls. The UI retained the saved Linear sign-in,
+and the hosted Eigenwelt Model API remained configured. A scan of **16,431**
+profile files found no plaintext copies of either the retired or current OAuth
+tokens/client secrets; the shared vault and key file remain mode 0600.
+
+![Saved Linear sign-in after the shipped importer and Electron restart](assets/connector-manager-migrated-linear.png)
+
 Regression coverage includes interrupted backup/retirement/activation, partial
 multi-connector completion after token rotation, concurrent logout, unreadable
 vaults, provider/client mismatch, name collisions, and another profile trying to
