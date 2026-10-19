@@ -141,3 +141,12 @@ Nango's shared Gmail app grants fixed full-mail permissions; LegalWork exposes r
 The code must be deployed with the platform secret before these connectors work in distributed desktop builds. No Nango secret is bundled and there is no local master-key fallback.
 
 Storage UI fixture: run `LEGALWORK_CONNECTOR_PREVIEW_STORAGE=1 pnpm --filter legalwork-server exec bun scripts/connector-preview.ts` and open `/connectors-preview.html?storage` on the app Vite server. Its accounts, documents, sites and libraries are synthetic; storage views and root browsing exercise the real server routes.
+
+## Team storage authorization
+
+Google/Microsoft storage also supports explicit team entries; see
+[Team storage](team-storage.md#google-and-microsoft-team-storage). Member mode
+reuses each user's one personal account. Shared-account mode uses an encrypted
+platform-side grant and desktop-only token retrieval. Personal account isolation
+and single-account admission remain in place; sharing a location does not
+automatically expose the owner's personal connector tools.

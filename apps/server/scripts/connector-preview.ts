@@ -11,6 +11,9 @@ import { connectorDefinitions } from "../src/connectors/schema.js";
 import { recordConnectorActivation, saveConnectorWriteSetting } from "../src/connectors/settings.js";
 import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate } from "../src/connectors/drafts.js";
 
+import { storageInputSchema, type StorageInput } from "@legalwork/types/file-storage";
+
+const sharedStorage = new Map<string, { id: string; version: number; updatedAt: string; input: StorageInput }>();
 const root = await mkdtemp(join(tmpdir(), "legalwork-connector-preview-"));
 const showStorage = process.env.LEGALWORK_CONNECTOR_PREVIEW_STORAGE === "1";
 const showDrafts = process.env.LEGALWORK_CONNECTOR_PREVIEW_DRAFTS === "1";
@@ -121,6 +124,18 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   }
   if (url.hostname === "gmail.googleapis.com") return Response.json({ emailAddress: "fixture@example.com" });
   if (url.hostname === "graph.microsoft.com") return Response.json({ value: [] });
+  if (showStorage && url.hostname === "connector-fixture.test" && url.pathname.startsWith("/api/storage-connections")) {
+    if (url.pathname.endsWith("/sync")) return Response.json({ schemaVersion: 1, orgId: "fixture-firm", canManage: true, connections: [...sharedStorage.values()] });
+    if (url.pathname.endsWith("/token")) return Response.json({ accessToken: "fixture-team-storage-token", expiresAt: null });
+    if (init?.method === "POST") {
+      const value = storageInputSchema.parse(JSON.parse(String(init.body)));
+      const id = crypto.randomUUID();
+      const clean = { ...value, secrets: {} };
+      sharedStorage.set(id, { id, version: 1, updatedAt: new Date().toISOString(), input: clean });
+      return Response.json({ connection: { ...clean, id, version: 1, configuredSecrets: [] } });
+    }
+    return Response.json({ schemaVersion: 1, orgId: "fixture-firm", canManage: true, connections: [...sharedStorage.values()] });
+  }
   if (url.hostname !== "connector-fixture.test") return nativeFetch(input, init);
   const segments = url.pathname.split("/").filter(Boolean);
   const id = segments[2] === "outlook-calendar" ? "outlook" : segments[2];

@@ -1,3 +1,4 @@
+import { HubScopeContext, HubScopeToggle, type HubScope } from "@/react-app/domains/settings/pages/hub-scope-context";
 /** @jsxImportSource react */
 // Development fixture for the real settings panel. No production build entry.
 import { useEffect, useState } from "react";
@@ -32,12 +33,13 @@ const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraf
 const noop = () => {};
 
 function StoragePreview() {
-  const roots = useQuery({ queryKey: ["fixture-storage-roots"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
+  const [scope, setScope] = useState<HubScope>("local");
+  const roots = useQuery({ queryKey: ["storage-roots", "fixture-project"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
   return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
     <h1 className="text-xl font-semibold">File Storage · Synthetic accounts</h1>
     <div className="grid gap-8 md:grid-cols-[15rem_1fr]">
       <aside className="rounded-2xl border p-2"><h2 className="p-2 text-sm font-medium">Memory Drive</h2>{roots.data && <StorageDriveTree client={client} workspaceId="fixture-project" roots={roots.data.roots} onOpenFile={() => {}} />}</aside>
-      <FileStorageView client={client} workspaceId="fixture-project" />
+      <div className="space-y-4"><HubScopeToggle scope={scope} onChange={setScope} /><HubScopeContext.Provider value={scope}><FileStorageView client={client} workspaceId="fixture-project" /></HubScopeContext.Provider></div>
     </div>
   </main></TooltipProvider></PlatformProvider>;
 }
