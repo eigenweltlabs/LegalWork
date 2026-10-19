@@ -95,6 +95,7 @@ export async function decodeAudioFileToPcm16k(
   return { pcm: rendered.getChannelData(0), durationMs: Math.round(decoded.duration * 1000) };
 }
 
+/** Normalized display levels, independent of the recorded audio signal. */
 export type CaptureLevels = Partial<Record<AudioCaptureSourceKind, number>>;
 
 export type CaptureHandle = {
@@ -432,17 +433,15 @@ export async function startCapture(
       }, 16);
     }
 
-    const levelData = new Uint8Array(256);
+    // Use the floating meter's display scale. Linear, 8-bit peaks make quiet
+    // speech nearly invisible and quantize low input to the same tiny step.
+    const levelData = new Float32Array(512);
     return {
       readLevels: () => {
         const levels: CaptureLevels = {};
         for (const [kind, analyser] of analysers) {
-          analyser.getByteTimeDomainData(levelData);
-          let peak = 0;
-          for (const value of levelData) {
-            peak = Math.max(peak, Math.abs(value - 128) / 128);
-          }
-          levels[kind] = peak;
+          analyser.getFloatTimeDomainData(levelData);
+          levels[kind] = dictationMeterLevel(levelData);
         }
         return levels;
       },

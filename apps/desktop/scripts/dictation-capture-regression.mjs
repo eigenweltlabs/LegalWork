@@ -119,6 +119,27 @@ app.whenReady().then(async () => {
         onSourceEnded: () => {},
         onMicrophone: name => microphoneNames.push(name),
       }, { dictation: true });
+      // Probe the real dashboard readout with deterministic input levels.
+      // Reading a meter must not alter the PCM or recorded audio branches.
+      const analyser = AnalyserNode.prototype;
+      const readFloat = analyser.getFloatTimeDomainData;
+      const readByte = analyser.getByteTimeDomainData;
+      const dashboardLevels = [];
+      try {
+        for (const rms of [0, 0.001, 0.005, 0.02, 0.1]) {
+          const sample = index => rms * Math.SQRT2 * Math.sin(index * Math.PI / 16);
+          analyser.getFloatTimeDomainData = function(values) {
+            for (let index = 0; index < values.length; index++) values[index] = sample(index);
+          };
+          analyser.getByteTimeDomainData = function(values) {
+            for (let index = 0; index < values.length; index++) values[index] = Math.floor((sample(index) + 1) * 128);
+          };
+          dashboardLevels.push(handle.readLevels().microphone);
+        }
+      } finally {
+        analyser.getFloatTimeDomainData = readFloat;
+        analyser.getByteTimeDomainData = readByte;
+      }
       await new Promise(resolve => setTimeout(resolve, 1_300));
       await handle.stop();
       // Verify system default, an explicit device, and a missing explicit
@@ -165,6 +186,7 @@ app.whenReady().then(async () => {
         sink: typeof contexts[0].sinkId === 'string' ? contexts[0].sinkId : { type: contexts[0].sinkId.type },
         sampleRate: contexts[0].sampleRate,
         preferredInput: preferredInput?.deviceId,
+        dashboardLevels,
         requestedInputs, microphoneNames, missingError, flushError,
         meetingFrames, meetingMeterPackets, meetingSink: { type: meetingSink.type },
         pcmDuringMicrophoneLookup, shortPcmFrames,
@@ -179,6 +201,11 @@ app.whenReady().then(async () => {
     })()`);
     assert.deepEqual(result.sink, { type: "none" }, "capture never opens an audio output device");
     assert.equal(result.sampleRate, 16_000);
+    assert.equal(result.dashboardLevels[0], 0, "silence leaves the dashboard meter empty");
+    assert.equal(result.dashboardLevels[1], 0, "room noise does not light the dashboard meter");
+    assert.ok(result.dashboardLevels[2] > 0.1 && result.dashboardLevels[2] < 0.25, "quiet input remains visible on the dashboard");
+    assert.ok(result.dashboardLevels[3] > result.dashboardLevels[2] && result.dashboardLevels[4] > result.dashboardLevels[3], "the dashboard level increases with input strength");
+    assert.ok(result.dashboardLevels.every(level => level >= 0 && level <= 1), "display levels stay normalized");
     assert.ok(result.preferredInput, "the preferred input is available before capture opens a microphone");
     assert.deepEqual(result.requestedInputs, [result.preferredInput, null, result.preferredInput, null, result.preferredInput], "Automatic and explicit selections target a device; meetings follow the system default");
     assert.deepEqual(result.meetingSink, { type: "none" }, "meeting capture also avoids opening playback");
@@ -194,7 +221,7 @@ app.whenReady().then(async () => {
     assert.ok(result.duration > 1 && result.recordingEnergy > 0, "the final WebM chunk flushes and decodes");
     assert.equal(result.closed, true, "capture closes its audio context");
     assert.equal(result.released, true, "capture releases every microphone track");
-    console.log("PASS: dictation preserves the final PCM samples, starts during metadata lookup, flushes WebM, and releases input without opening playback");
+    console.log("PASS: dashboard levels show quiet input; capture preserves final PCM samples, flushes WebM, and releases input without opening playback");
   } finally {
     window?.destroy();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
