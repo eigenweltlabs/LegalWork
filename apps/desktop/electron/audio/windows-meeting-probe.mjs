@@ -53,7 +53,7 @@ public static class LegalWorkMeetingActivity {
   private interface IDevices {
     [PreserveSig] int EnumAudioEndpoints(int flow, uint state, out ICollection devices);
   }
-  [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-C0A3D5F9589"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   private interface ICollection {
     [PreserveSig] int GetCount(out uint count);
     [PreserveSig] int Item(uint index, out IDevice device);
@@ -251,7 +251,7 @@ const unavailable = () => ({ supported: false, processes: [] });
 
 /** One hidden, reusable metadata helper; no shell/compiler is launched per poll. */
 export class WindowsMeetingProbe {
-  /** @param {{spawn?: typeof spawn, now?: () => number, startupTimeoutMs?: number, pollTimeoutMs?: number, retryDelayMs?: number}} [options] */
+  /** @param {{spawn?: (file: string, args: string[], options: import("node:child_process").SpawnOptions) => import("node:child_process").ChildProcess, now?: () => number, startupTimeoutMs?: number, pollTimeoutMs?: number, retryDelayMs?: number}} [options] */
   constructor({ spawn: spawnProcess = spawn, now = Date.now, startupTimeoutMs = 8000, pollTimeoutMs = 2000, retryDelayMs = 30000 } = {}) {
     this.spawn = spawnProcess;
     this.now = now;

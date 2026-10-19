@@ -43,11 +43,12 @@ function fixture(t, options = {}) {
     startupTimeoutMs: 100, pollTimeoutMs: 100, retryDelayMs: 1000, now: () => time, ...options,
     spawn(file, args, spawnOptions) {
       const child = new ChildProcess();
-      child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+      const output = new PassThrough();
+      child.stdin = new PassThrough(); child.stdout = output; child.stderr = new PassThrough();
       let kills = 0;
       child.kill = () => { kills++; queueMicrotask(() => child.emit("exit", 0, null)); return true; };
       child.stdin.on("data", value => packets.push(value.toString()));
-      children.push({ child, ready: () => child.stdout.write("ready\r\n"), result: value => child.stdout.write(JSON.stringify(value) + "\n"), kills: () => kills });
+      children.push({ child, ready: () => output.write("ready\r\n"), result: value => output.write(JSON.stringify(value) + "\n"), kills: () => kills });
       commands.push({ file, args, options: spawnOptions });
       return child;
     },
