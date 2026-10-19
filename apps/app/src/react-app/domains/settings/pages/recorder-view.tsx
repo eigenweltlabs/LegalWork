@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
+import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { t } from "../../../../i18n";
 import {
   LayoutSectionItem,
@@ -35,7 +36,11 @@ import { DictationReadinessGate } from "./dictation-readiness";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
 import { DictationMicrophoneSetting } from "./dictation-microphone-setting";
 
-export function RecorderSettingsView() {
+export function RecorderSettingsView(props: {
+  busy: boolean;
+  hideAppMode: HideAppMode;
+  onChangeHideAppMode: (mode: HideAppMode) => void;
+}) {
   const store = useRecorderStore();
   const [searchParams] = useSearchParams();
   // Callers deep-link the tab: "Dictate anywhere" opens ?tab=dictation, model
@@ -173,6 +178,33 @@ export function RecorderSettingsView() {
           </div>
           <p className="text-xs text-subtext">{t("recorder.meeting_detection_support")}</p>
           <p className="text-xs text-subtext">{t("recorder.meeting_recording_location")}</p>
+          <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-medium text-ink">{t("settings.hide_app_title")}</div>
+              <div className="mt-1 text-sm text-subtext">{t("settings.hide_app_desc")}</div>
+            </div>
+            <Select
+              value={props.hideAppMode}
+              items={[
+                { value: "never", label: t("settings.hide_app_never") },
+                { value: "recording", label: t("settings.hide_app_recording") },
+                { value: "always", label: t("settings.hide_app_always") },
+              ]}
+              onValueChange={(value) => {
+                if (value === "never" || value === "recording" || value === "always") props.onChangeHideAppMode(value);
+              }}
+              disabled={props.busy}
+            >
+              <SelectTrigger size="sm" className="w-[200px] shrink-0" aria-label={t("settings.hide_app_title")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="never">{t("settings.hide_app_never")}</SelectItem>
+                <SelectItem value="recording">{t("settings.hide_app_recording")}</SelectItem>
+                <SelectItem value="always">{t("settings.hide_app_always")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </LayoutSectionItem>
       ) : (
         <DictationReadinessGate>

@@ -1,9 +1,7 @@
 /** @jsxImportSource react */
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { t } from "@/i18n";
-import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
@@ -33,8 +31,6 @@ export type PreferencesViewProps = {
   modelCatalogUpdatesBusy: boolean;
   modelCatalogUpdatesError: string | null;
   onToggleModelCatalogUpdates: () => void;
-  hideAppMode: HideAppMode;
-  onChangeHideAppMode: (mode: HideAppMode) => void;
 };
 
 export function PreferencesView(props: PreferencesViewProps) {
@@ -60,36 +56,6 @@ export function PreferencesView(props: PreferencesViewProps) {
                 disabled={props.busy || props.modelCatalogUpdatesBusy}
                 onCheckedChange={props.onToggleModelCatalogUpdates}
               />
-            </LayoutSectionItemHeaderActions>
-          </LayoutSectionItemHeader>
-        </LayoutSectionItem>
-
-        <LayoutSectionItem>
-          <LayoutSectionItemHeader>
-            <LayoutSectionItemTitle>{t("settings.hide_app_title")}</LayoutSectionItemTitle>
-            <LayoutSectionItemDescription>{t("settings.hide_app_desc")}</LayoutSectionItemDescription>
-            <LayoutSectionItemHeaderActions>
-              <Select
-                value={props.hideAppMode}
-                // Base UI resolves the trigger label from `items`; without it
-                // the trigger shows the raw value ("recording").
-                items={[
-                  { value: "never", label: t("settings.hide_app_never") },
-                  { value: "recording", label: t("settings.hide_app_recording") },
-                  { value: "always", label: t("settings.hide_app_always") },
-                ]}
-                onValueChange={(value) => props.onChangeHideAppMode(value as HideAppMode)}
-                disabled={props.busy}
-              >
-                <SelectTrigger size="sm" className="w-[200px]" aria-label={t("settings.hide_app_title")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="never">{t("settings.hide_app_never")}</SelectItem>
-                  <SelectItem value="recording">{t("settings.hide_app_recording")}</SelectItem>
-                  <SelectItem value="always">{t("settings.hide_app_always")}</SelectItem>
-                </SelectContent>
-              </Select>
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
         </LayoutSectionItem>

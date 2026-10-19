@@ -2226,10 +2226,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               if (analyticsEnabled) discardPendingAnalytics();
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !analyticsEnabled }));
             })}
-            hideAppMode={local.prefs.hideAppMode}
-            onChangeHideAppMode={(mode) => {
-              local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
-            }}
           />
         );
       case "shell":
@@ -2536,7 +2532,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "office-addins":
         return <OfficeAddinsView />;
       case "recorder":
-        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : <RecorderSettingsView />;
+        return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : (
+          <RecorderSettingsView
+            busy={busy}
+            hideAppMode={local.prefs.hideAppMode}
+            onChangeHideAppMode={(mode) => {
+              local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
+            }}
+          />
+        );
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

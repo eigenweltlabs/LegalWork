@@ -13,7 +13,7 @@ import { useRecorderStore } from "../domains/recorder/recorder-store";
  *
  * Privacy: the window can be excluded from screen shares / recordings via the
  * main-process `setContentProtection`, driven by the "Hide LegalWork" setting
- * (Settings → Privacy): never / during recording (default) / always. This is
+ * (Settings → Recorder → Meetings): never / during recording (default) / always. This is
  * invisible to the user.
  *
  * Indicator: while a recording runs, a small "Recording locally" pill sits in
