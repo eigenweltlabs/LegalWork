@@ -390,7 +390,7 @@ function NoModelNotice(props: {
 
 /**
  * Banner shown above the composer when the selected model still points at the
- * Eigenwelt provider but the firm's free trial has lapsed — the paid gateway
+ * Eigenwelt provider but the firm's trial has lapsed — the paid gateway
  * is blocked, so sends would fail with a missing model. Offers the subscribe
  * path; picking another model also clears it.
  */

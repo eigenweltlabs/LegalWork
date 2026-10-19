@@ -1,10 +1,20 @@
 # Seven-day trial recovery in chat
 
-The trial includes €29 on Plus or €70 on Pro for the entire seven days. Paid monthly allowances remain €30/€70. The platform controls enforcement and payments (model-api PR #102).
+New trials cost a separate €1 upfront per firm, including VAT, for seven days. The fee is not credited toward the subscription. Existing trials and customers receive no retroactive fee. The trial includes €29 on Plus or €70 on Pro for the entire seven days. Paid monthly allowances remain €30/€70. The platform controls enforcement and payments (model-api PR #102).
 
 When trial usage is exhausted, admins see **Start subscription** and **Add credits**. Starting the subscription shows the full initial payment and recurring seat price, including the annual total for yearly billing. Failed or unverified payments retain the original trial. A verified trial top-up enables the permissions explicitly shown in its confirmation and preserves the trial end date. Members can request admin help.
 
-## Reproduce the preview
+## Paid-trial checkout
+
+The native confirmation shows **Due today €1**, the recurring total **After 7 days**, and **Start 7-day trial for €1**. Changing seat counts does not multiply the trial fee. Returning subscribers see the normal total and no trial fee. The hosted Stripe payment remains authoritative; the platform grants new trial access only after verifying payment.
+
+Open `/onboarding-preview.html?step=ai&sync-flow=checkout&lang=en&theme=light` and select Plus. Add `&variant=ended` to inspect returning customers, or use `lang=de` for German. These checkout previews do not call Stripe.
+
+![€1 trial checkout](screenshots/trial-recovery/paid-trial-checkout.png)
+![Mobile trial checkout](screenshots/trial-recovery/paid-trial-checkout-mobile.png)
+![German mobile trial checkout](screenshots/trial-recovery/paid-trial-checkout-mobile-de.png)
+
+## Reproduce the chat preview
 
 Run `pnpm --filter @legalwork/app dev:web --host 127.0.0.1 --port 4467 --strictPort`.
 
