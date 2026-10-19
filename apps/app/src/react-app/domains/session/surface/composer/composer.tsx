@@ -40,6 +40,8 @@ import { pluginImportName } from "@/react-app/domains/settings/pages/plugin-impo
 import { getSlashCommandQuery } from "./slash-command";
 import { ComposerToolMenu, type ComposerConnector } from "./tool-menu";
 import type { ComposerToolSection } from "@/react-app/shell/workspace-routes";
+import { appendDictatedText, useComposerDictation } from "./use-composer-dictation";
+import { ComposerDictationBar, ComposerDictationButton, ComposerDictationError } from "./composer-dictation";
 
 type MentionItem = {
   id: string;
@@ -56,6 +58,7 @@ type PastedTextChip = {
 };
 
 type ComposerProps = {
+  active?: boolean;
   draft: string;
   mentions: Record<string, ComposerMentionKind>;
   onDraftChange: (value: string) => void;
@@ -233,6 +236,16 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     draftRef.current = props.draft;
   }, [props.draft]);
+  const dictation = useComposerDictation(props.draftScopeKey, text => {
+    props.onDraftChange(appendDictatedText(draftRef.current, text));
+    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus());
+  }, props.active);
+  useEffect(() => {
+    if (!dictation.active) return;
+    setMentionOpen(false);
+    setSlashOpen(false);
+    setToolMenuOpen(false);
+  }, [dictation.active]);
 
   useEffect(() => {
     if (!props.onToggleFusion || props.fusionEnabled || !shouldShowFusionNewTooltip()) return;
@@ -292,10 +305,10 @@ export function ReactSessionComposer(props: ComposerProps) {
 
   // The session owns the queue decision so keyboard and button sends agree.
   const handleEditorSubmit = useCallback(() => {
-    if (props.uploading || props.disabled) return;
+    if (props.uploading || props.disabled || dictation.active) return;
     if (!props.draft.trim() && !props.attachments.length) return;
     void props.onSend();
-  }, [props.uploading, props.disabled, props.draft, props.attachments, props.onSend]);
+  }, [props.uploading, props.disabled, props.draft, props.attachments, props.onSend, dictation.active]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
   const slashOpenNext = slashCommandQuery !== null;
@@ -574,6 +587,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.onDraftChange]);
 
   const handleKeyDownCapture: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+    if (dictation.active) return;
     if (event.target instanceof Element && event.target.closest("[data-message-queue]")) return;
     // IME composition guard — block Enter while IME is mid-character.
     const imeActive =
@@ -888,8 +902,8 @@ export function ReactSessionComposer(props: ComposerProps) {
               value={props.draft}
               mentions={props.mentions}
               pastedText={pastedTextTokens}
-              disabled={Boolean(props.inputDisabled)}
-              submitDisabled={props.disabled}
+              disabled={Boolean(props.inputDisabled) || dictation.active}
+              submitDisabled={props.disabled || dictation.active}
               placeholder={t("composer.placeholder")}
               onChange={props.onDraftChange}
               onSubmit={handleEditorSubmit}
@@ -1019,6 +1033,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
+            {dictation.active ? <ComposerDictationBar dictation={dictation} /> : (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
               <div className="contents">
                 <input
@@ -1193,6 +1208,7 @@ export function ReactSessionComposer(props: ComposerProps) {
 
               {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
               <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-end justify-end gap-1.5">
+                <ComposerDictationButton dictation={dictation} disabled={props.inputDisabled || props.realtimeVoiceActive} />
                 {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
                   <button
                     type="button"
@@ -1253,6 +1269,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 )}
               </div>
             </div>
+            )}
+            <ComposerDictationError dictation={dictation} />
           </div>
         </div>
 

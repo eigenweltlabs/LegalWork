@@ -10,6 +10,24 @@ If insertion is blocked, the transcript stays on the clipboard for manual
 paste and the bar shows the recovery message. Call and meeting recordings
 continue to use the normal retained history.
 
+## Dictating a chat message
+
+The microphone beside Send in Home and chat composers dictates into the current
+draft. Click it to start, then finish to transcribe and insert the text without
+sending the message. The composer shows a live waveform while listening and
+three individually jumping dots during transcription. Cancel or Escape leaves
+the existing draft unchanged. Leaving a chat or switching its active tab cancels
+its dictation, including pending startup and transcription.
+
+This uses the same local model, language and microphone selection as Dictate
+anywhere, but works without enabling its shortcut or granting Accessibility
+permission. Feedback stays inside the composer and insertion does not use the
+clipboard. Microphone permission and an installed Recorder model are required;
+setup errors link to Recorder settings. Capture is exclusive with meetings,
+imports and other dictation. Temporary audio and transcripts are discarded and
+never enter recording history. The microphone control is unavailable in the web
+client, where the native local transcription service is absent.
+
 ## Meeting recording and detection
 
 Hover over the floating microphone to reveal **Record meeting**. This also

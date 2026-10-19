@@ -85,6 +85,8 @@ const LANGUAGE_PREF_KEY = "legalwork.recorder.language";
 const SOURCES_PREF_KEY = "legalwork.recorder.sources";
 
 function setDictationFeedback(state: AudioSystemDictationRuntimeState, message = "") {
+  // Composer dictation owns its feedback and inserts directly into its draft.
+  if (useRecorderStore.getState().composerDictation) return Promise.resolve();
   return audioSystemDictationSetState(state, message, currentLocale());
 }
 
@@ -149,6 +151,8 @@ export type RecorderState = {
   dictationMicrophones: AudioDictationMicrophoneState | null;
   dictationState: AudioSystemDictationRuntimeState;
   dictationRecordingId: string | null;
+  composerDictation: { ownerId: string; onComplete: (text: string) => void } | null;
+  composerDictationLevel: number;
   modelId: string;
   language: AudioTranscribeLanguage;
   sources: AudioCaptureSourceKind[];
@@ -222,6 +226,7 @@ type RecorderActions = {
   setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
   openSystemDictationSettings: () => Promise<void>;
   startSystemDictation: () => Promise<void>;
+  startComposerDictation: (ownerId: string, onComplete: (text: string) => void, signal?: AbortSignal) => Promise<void>;
   refreshMeeting: () => Promise<void>;
   setMeetingDetection: (enabled: boolean) => Promise<void>;
   startMeetingRecording: (title?: string) => Promise<void>;
@@ -717,6 +722,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     dictationMicrophones: null,
     dictationState: "idle",
     dictationRecordingId: null,
+    composerDictation: null,
+    composerDictationLevel: 0,
     modelId: readPref(MODEL_PREF_KEY, ""),
     language: readLanguagePref(),
     sources: readSourcesPref(),
@@ -883,7 +890,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setSystemDictationEnabled: async (enabled) => {
-      if (!enabled && (get().dictationRecordingId || get().dictationState === "starting")) {
+      if (!enabled && !get().composerDictation && (get().dictationRecordingId || get().dictationState === "starting")) {
         await get().cancelRecording();
       }
       try {
@@ -962,6 +969,28 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         await audioMeetingSetState("error", undefined, message).catch(() => {});
         await audioMeetingOpen().catch(() => {});
       } finally { meetingStartPending = false; }
+    },
+
+    startComposerDictation: async (ownerId, onComplete, signal) => {
+      await get().init();
+      if (!get().bootstrap) await get().refreshBootstrap();
+      if (signal?.aborted) return;
+      if (get().recording || get().starting || get().finalizing || get().importing || recordingStartPending || meetingStartPending || get().dictationState === "starting") {
+        throw new Error(t("recorder.stop_session_first"));
+      }
+      const model = get().bootstrap?.models.find((entry) => entry.id === get().modelId);
+      if (!model || model.state !== "installed") throw new Error(t("recorder.install_model_first"));
+      dictationCancelled = false;
+      dictationShortPress = false;
+      set({ composerDictation: { ownerId, onComplete }, composerDictationLevel: 0, dictationState: "starting", error: null });
+      try {
+        await get().startRecording("Chat dictation", { sources: ["microphone"], systemDictation: true });
+        if (!get().dictationRecordingId && !dictationCancelled) {
+          throw new Error(get().error ?? t("recorder.mic_access_required"));
+        }
+      } finally {
+        if (!get().dictationRecordingId) set({ composerDictation: null, composerDictationLevel: 0, dictationState: "idle" });
+      }
     },
 
     startSystemDictation: async () => {
@@ -1182,10 +1211,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             {
               onPcm: (chunk) => audio?.sendPcm?.(meta.id, chunk),
               onMeter: (level) => {
-                if (options?.systemDictation) audio?.sendDictationLevel?.(level);
+                if (get().composerDictation) set({ composerDictationLevel: level });
+                else if (options?.systemDictation) audio?.sendDictationLevel?.(level);
                 else audio?.sendMeetingLevel?.(meta.id, level);
               },
-              onMicrophone: options?.systemDictation
+              onMicrophone: options?.systemDictation && !get().composerDictation
                 ? (name) => { void audioSystemDictationMicrophoneActive(name).catch(() => {}); } : undefined,
               onMediaChunk: (chunk) => audio?.sendMediaChunk?.(meta.id, chunk),
               onSourceEnded: () => {
@@ -1263,6 +1293,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       const recording = get().recording;
       if (!recording || get().finalizing) return;
       const isSystemDictation = get().dictationRecordingId === recording.id;
+      const composerDictation = get().composerDictation;
       // Immediate feedback: the finalize round-trip (flush + transcribe the
       // tail) can take seconds on a long recording, and the Stop button would
       // otherwise sit there looking dead.
@@ -1299,8 +1330,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             set({ dictationState: "inserting" });
             await setDictationFeedback("inserting").catch(() => {});
             try {
-              const result = await audioSystemDictationPaste(text);
-              dictationError = result.error;
+              if (composerDictation) composerDictation.onComplete(text);
+              else {
+                const result = await audioSystemDictationPaste(text);
+                dictationError = result.error;
+              }
             } catch (error) {
               dictationError = error instanceof Error ? error.message : String(error);
             }
@@ -1319,6 +1353,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           recording: null,
           recordingStartedAt: null,
           dictationRecordingId: null,
+          composerDictation: null,
+          composerDictationLevel: 0,
           dictationState: isSystemDictation && dictationError ? "error" : "idle",
           partial: null,
           levels: {},
@@ -1347,16 +1383,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           recording: null,
           recordingStartedAt: null,
           dictationRecordingId: null,
+          composerDictation: null,
+          composerDictationLevel: 0,
           dictationState: isSystemDictation ? cancelled ? "idle" : "error" : get().dictationState,
           levels: {},
           diarizing: false,
           finalizing: false,
           error: cancelled ? null : message,
         });
-        if (isSystemDictation) {
+        if (isSystemDictation && !composerDictation) {
           dictationSettleAt = Date.now();
           await (cancelled ? cancelledDictationFeedback() : setDictationFeedback("error", message)).catch(() => {});
-        } else {
+        } else if (!isSystemDictation) {
           await audioMeetingSetState("error", recording.id, message).catch(() => {});
         }
       }
@@ -1366,6 +1404,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     cancelRecording: async () => {
       const recording = get().recording;
       const isSystemDictation = Boolean(recording && get().dictationRecordingId === recording.id);
+      const isComposerDictation = Boolean(get().composerDictation);
       if (get().dictationState === "inserting") return;
       if (isSystemDictation || get().dictationState === "starting") {
         dictationCancelled = true;
@@ -1388,6 +1427,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         recording: null,
         recordingStartedAt: null,
         dictationRecordingId: null,
+        composerDictation: null,
+        composerDictationLevel: 0,
         dictationState: "idle",
         partial: null,
         segments: [],
@@ -1395,7 +1436,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         diarizing: false,
         finalizing: false,
       });
-      if (isSystemDictation) {
+      if (isSystemDictation && !isComposerDictation) {
         dictationSettleAt = Date.now();
         await cancelledDictationFeedback().catch(() => {});
       }

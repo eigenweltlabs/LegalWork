@@ -2058,6 +2058,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
+          active={props.active}
           draft={draft}
           mentions={mentions}
           onDraftChange={handleComposerDraftChange}

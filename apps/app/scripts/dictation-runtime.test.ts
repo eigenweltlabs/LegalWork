@@ -105,11 +105,102 @@ beforeEach(async () => {
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
   store.setState({ initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
-    recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", finalizing: false,
+    recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
     permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"] });
   await store.getState().init();
 });
 afterEach(async () => { if (store.getState().recording) await store.getState().cancelRecording(); });
+
+test("composer dictation inserts into its draft without native paste, HUD or a retained recording", async () => {
+  const inserted: string[] = [];
+  store.setState({ systemDictation: { ...status, enabled: false, registered: false } });
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  expect(store.getState().composerDictation?.ownerId).toBe("chat-one");
+  expect(recordingInputs[0].ephemeral).toBe(true);
+  expect(captureSources).toEqual(["microphone"]);
+  expect(captureOptions?.dictation).toBe(true);
+  captureCallbacks?.onMeter?.(.6);
+  expect(store.getState().composerDictationLevel).toBe(.6);
+  expect(meterPackets).toEqual([]);
+  await store.getState().stopRecording();
+  expect(inserted).toEqual([transcript]);
+  expect(pasted).toEqual([]); expect(feedback).toEqual([]); expect(meetingFeedback).toEqual([]);
+  expect(store.getState().recordings).toEqual([]); expect(deleted).toBe(1);
+  expect(store.getState().composerDictation).toBeNull();
+});
+
+test("canceling composer dictation during startup releases capture without inserting", async () => {
+  const inserted: string[] = [];
+  const pending = deferred<CaptureHandle>(); captureResult = pending.promise;
+  const start = store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  await delay(10); await store.getState().cancelRecording();
+  pending.resolve(capture); await start;
+  expect(captureStops).toBe(1); expect(cancelled).toBe(1);
+  expect(inserted).toEqual([]); expect(pasted).toEqual([]); expect(feedback).toEqual([]);
+  expect(store.getState().composerDictation).toBeNull();
+});
+
+test("canceling while the final transcript is pending does not insert into a departed composer", async () => {
+  const inserted: string[] = [];
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  const pending = deferred<AudioRecordingMeta>(); stopResult = pending.promise;
+  const finish = store.getState().stopRecording();
+  await delay(10); await store.getState().cancelRecording();
+  pending.resolve(meta); await finish;
+  expect(inserted).toEqual([]); expect(deleted).toBe(1); expect(feedback).toEqual([]);
+  expect(store.getState().composerDictation).toBeNull();
+});
+
+test("silent composer dictation ends without an error or inserting text", async () => {
+  transcript = "";
+  const inserted: string[] = [];
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  await store.getState().stopRecording();
+  expect(inserted).toEqual([]); expect(store.getState().error).toBeNull(); expect(feedback).toEqual([]);
+});
+
+test("a canceled composer start cannot acquire the microphone after initialization", async () => {
+  const controller = new AbortController();
+  const start = store.getState().startComposerDictation("chat-one", () => {}, controller.signal);
+  controller.abort(); await start;
+  expect(captureStarts).toBe(0); expect(store.getState().composerDictation).toBeNull();
+});
+
+test("composer dictation cannot replace another capture or its completion target", async () => {
+  const inserted: string[] = [];
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  await expect(store.getState().startComposerDictation("chat-two", () => {})).rejects.toThrow();
+  expect(store.getState().composerDictation?.ownerId).toBe("chat-one");
+  expect(captureStarts).toBe(1);
+  await store.getState().stopRecording(); expect(inserted).toEqual([transcript]);
+});
+
+test("composer dictation capture failure clears ownership and never opens a native error HUD", async () => {
+  captureResult = Promise.reject(new Error("Device unavailable"));
+  await expect(store.getState().startComposerDictation("chat-one", () => {})).rejects.toThrow("Device unavailable");
+  expect(store.getState().composerDictation).toBeNull(); expect(feedback).toEqual([]);
+  expect(store.getState().recording).toBeNull(); expect(cancelled).toBe(1);
+});
+
+test("a composer capture flush failure clears ownership without native feedback or a paste", async () => {
+  captureResult = Promise.resolve({ readLevels: () => ({}), stop: async () => { throw new Error("Capture tail failed"); } });
+  await store.getState().startComposerDictation("chat-one", () => {});
+  await store.getState().stopRecording();
+  expect(store.getState().composerDictation).toBeNull(); expect(store.getState().error).toBe("Capture tail failed");
+  expect(feedback).toEqual([]); expect(pasted).toEqual([]); expect(cancelled).toBe(1);
+});
+
+test("composer dictation reports a missing model without starting capture", async () => {
+  store.setState({ modelId: "not-installed" });
+  await expect(store.getState().startComposerDictation("chat-one", () => {})).rejects.toThrow();
+  expect(captureStarts).toBe(0); expect(store.getState().composerDictation).toBeNull();
+});
+
+test("composer dictation refreshes pending model discovery before starting", async () => {
+  store.setState({ bootstrap: null });
+  await store.getState().startComposerDictation("chat-one", () => {});
+  expect(captureStarts).toBe(1); expect(store.getState().composerDictation?.ownerId).toBe("chat-one");
+});
 
 test("capture readiness controls listening and a single paste on stop", async () => {
   const pending = deferred<CaptureHandle>(); captureResult = pending.promise;

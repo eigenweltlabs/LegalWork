@@ -15,6 +15,8 @@ import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, homeClipbo
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { t } from "@/i18n";
 import "./app-home.css";
+import { appendDictatedText, useComposerDictation } from "../surface/composer/use-composer-dictation";
+import { ComposerDictationBar, ComposerDictationButton, ComposerDictationError } from "../surface/composer/composer-dictation";
 
 export type AppHomeProps = {
   workspaces: WorkspaceInfo[];
@@ -46,8 +48,12 @@ export function AppHome(props: AppHomeProps) {
   const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const copiedFiles = useRef(new Map<string, File>());
+  const dictation = useComposerDictation(props.projectId ?? "home", spoken => {
+    setText(current => appendDictatedText(current, spoken));
+    requestAnimationFrame(focusPrompt);
+  });
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
-  const busy = props.disabled || sending;
+  const busy = props.disabled || sending || dictation.active;
   const canSend = !busy && Boolean(text.trim());
   const mentions = Object.fromEntries(attachments.map(({ value, kind }) => [value, kind]));
   const focusPrompt = () => root.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus();
@@ -102,16 +108,17 @@ export function AppHome(props: AppHomeProps) {
       addAttachments(Array.from(event.clipboardData.files));
     }}
   />;
-  const controls = <div className="lw-home-composer-controls">
+  const controls = <>{dictation.active ? <ComposerDictationBar dictation={dictation} /> : <div className="lw-home-composer-controls">
     <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
     <div className="lw-home-model-controls">
       {props.selectedModel ? <>
         <ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={busy} />
         <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} />
       </> : <Button type="button" variant="ghost" disabled={busy} onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
+      <ComposerDictationButton dictation={dictation} disabled={busy} />
       <Button type="button" size="icon" className="lw-home-send" disabled={!canSend} onClick={() => void send()} aria-label={t("home.send")}><ArrowUp size={20} /></Button>
     </div>
-  </div>;
+  </div>}<ComposerDictationError dictation={dictation} /></>;
 
   if (sending) {
     const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);
