@@ -1,50 +1,103 @@
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, posix, resolve } from "node:path";
+import { posix, resolve, win32 } from "node:path";
+import { promisify } from "node:util";
+import { isWindowsCloudFolder } from "./cloud-folder-windows.js";
 
-// Ask for the registered sync root, not a file's hydration flags: fully
-// downloaded OneDrive folders must obey the same sharing policy.
-const script = `
-$ErrorActionPreference='Stop'
-[Console]::InputEncoding=[Text.Encoding]::UTF8
-Add-Type -TypeDefinition @'
-using System.Runtime.InteropServices;
-public static class CloudFolder {
-  [DllImport("cldapi.dll", CharSet=CharSet.Unicode)]
-  public static extern int CfGetSyncRootInfoByPath(string path, int infoClass, out long info, uint length, out uint returned);
+const exec = promisify(execFile);
+
+export function isWithinCloudRoot(path: string, roots: string[], platform = process.platform): boolean {
+  const paths = platform === "win32" ? win32 : posix;
+  if (!paths.isAbsolute(path)) return false;
+  const normalize = (value: string) => {
+    const normalized = paths.normalize(value).replace(/[\\/]+$/, "");
+    return platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const target = normalize(path);
+  return roots.some(root => paths.isAbsolute(root) && (target === normalize(root) || target.startsWith(normalize(root) + paths.sep)));
 }
-'@
-$path=ConvertFrom-Json ([Console]::In.ReadToEnd())
-[long]$info=0
-[uint32]$returned=0
-$hr=[CloudFolder]::CfGetSyncRootInfoByPath($path,0,[ref]$info,8,[ref]$returned)
-if ($hr -eq 0) { 'true' }
-# HRESULT_FROM_WIN32: not under a cloud root, file not found, path not found.
-elseif ($hr -in @(-2147024506,-2147024894,-2147024893)) { 'false' }
-else { [Runtime.InteropServices.Marshal]::ThrowExceptionForHR($hr) }
-`;
 
 export function isMacCloudFolder(path: string, userHome: string): boolean {
-  return [posix.join(userHome, "Library", "CloudStorage"), posix.join(userHome, "Library", "Mobile Documents", "com~apple~CloudDocs")]
-    .some(root => path === root || path.startsWith(root + posix.sep));
+  return isWithinCloudRoot(path, [posix.join(userHome, "Library", "CloudStorage"), posix.join(userHome, "Library", "Mobile Documents", "com~apple~CloudDocs")], "darwin");
+}
+
+async function readConfig(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return undefined;
+    throw error;
+  }
+}
+
+function dropboxRoots(source: string): string[] {
+  const data: unknown = JSON.parse(source);
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid Dropbox folder configuration");
+  return Object.values(data).flatMap(account => account && typeof account === "object" && "path" in account && typeof account.path === "string" ? [account.path] : []);
+}
+
+// QSettings INI strings can quote commas/spaces and escape Unicode or slashes.
+// Parse only folder localPath keys, never server URLs or account credentials.
+export function syncClientRoots(source: string): string[] {
+  let section = "";
+  const roots: string[] = [];
+  for (const line of source.split(/\r?\n/)) {
+    const header = line.trim().match(/^\[([^\]]+)\]$/);
+    if (header) { section = header[1]; continue; }
+    if (section !== "Accounts") continue;
+    const entry = line.match(/^\s*[^=\\]+\\(?:Folders|FoldersWithPlaceholders|Multifolders)\\[^=\\]+\\localPath\s*=(.*)$/);
+    if (!entry) continue;
+    const value = entry[1].trim().replace(/^"(.*)"$/, "$1");
+    // Qt 5 also wrote UTF-8 bytes as consecutive hex escapes. Decode those
+    // before the Qt 6 UTF-16 escapes, retaining non-UTF-8 sequences below.
+    const unicode = value.replace(/(?:\\x[89a-fA-F][0-9a-fA-F]){2,}/g, escaped => {
+      const bytes = Uint8Array.from(escaped.split("\\x").slice(1), byte => parseInt(byte, 16));
+      try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch { return escaped; }
+    });
+    roots.push(unicode.replace(/\\(x[0-9a-fA-F]{1,4}|[0-7]{1,3}|[\\"])/g, (_, escape: string) => {
+      if (escape === "\\" || escape === '"') return escape;
+      return String.fromCharCode(parseInt(escape.startsWith("x") ? escape.slice(1) : escape, escape.startsWith("x") ? 16 : 8));
+    }));
+  }
+  return roots;
+}
+
+/** Read only known client configuration files outside project folders. */
+export async function configuredCloudRoots(platform: NodeJS.Platform, userHome: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const paths = platform === "win32" ? win32 : posix;
+  const dropbox = platform === "win32"
+    ? [env.APPDATA || paths.join(userHome, "AppData", "Roaming"), env.LOCALAPPDATA || paths.join(userHome, "AppData", "Local")].map(path => paths.join(path, "Dropbox", "info.json"))
+    : [paths.join(userHome, ".dropbox", "info.json")];
+  const config = platform === "darwin"
+    ? [paths.join(userHome, "Library", "Preferences"), paths.join(userHome, "Library", "Containers", "com.nextcloud.desktopclient", "Data", "Library", "Preferences")]
+    : [platform === "win32" ? env.APPDATA || paths.join(userHome, "AppData", "Roaming") : env.XDG_CONFIG_HOME || paths.join(userHome, ".config")];
+  const clients = config.flatMap(root => [paths.join(root, "Nextcloud", "nextcloud.cfg"), paths.join(root, "ownCloud", "owncloud.cfg"), paths.join(root, "ownCloud", "ownCloud.cfg")]);
+  const results = await Promise.all([
+    ...dropbox.map(async path => { const value = await readConfig(path); return value === undefined ? [] : dropboxRoots(value); }),
+    ...clients.map(async path => { const value = await readConfig(path); return value === undefined ? [] : syncClientRoots(value); }),
+  ]);
+  return [...new Set(results.flat())].filter(path => paths.isAbsolute(path));
 }
 
 /** Metadata only; never enumerate or open the folder's documents. */
 export async function isCloudFolder(path: string): Promise<boolean> {
+  const userHome = homedir();
+  const absolute = resolve(path);
+  const canonical = await realpath(absolute).catch(() => absolute);
+  if (process.platform === "darwin" && (isMacCloudFolder(absolute, userHome) || isMacCloudFolder(canonical, userHome))) return true;
+  const roots = await configuredCloudRoots(process.platform, userHome, process.env);
+  if (isWithinCloudRoot(absolute, roots) || isWithinCloudRoot(canonical, roots)) return true;
+  // A configured sync root can itself be a link into a different volume.
+  const resolved = await Promise.all(roots.map(root => realpath(root).catch(() => root)));
+  if (isWithinCloudRoot(canonical, resolved)) return true;
+  if (process.platform === "win32") return await isWindowsCloudFolder(canonical);
   if (process.platform === "darwin") {
-    return isMacCloudFolder(resolve(path), homedir()) || isMacCloudFolder(await realpath(path).catch(() => resolve(path)), homedir());
+    // Legacy Google Drive streams use a dedicated filesystem, at any mount
+    // location. stat reads directory metadata, not a file in the project.
+    const { stdout } = await exec("/usr/bin/stat", ["-f", "%T", canonical], { timeout: 5_000 });
+    return stdout.trim() === "dfsfuse_DFS";
   }
-  if (process.platform !== "win32") return false;
-  const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  const stdout = await new Promise<string>((resolveOutput, reject) => {
-    const child = execFile(executable, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-      { windowsHide: true, timeout: 15_000, encoding: "utf8" },
-      (error, output) => error ? reject(error) : resolveOutput(output));
-    child.stdin?.on("error", reject);
-    child.stdin?.end(JSON.stringify(path));
-  });
-  const result = stdout.trim();
-  if (result !== "true" && result !== "false") throw new Error("Unexpected Windows cloud folder response");
-  return result === "true";
+  return false;
 }

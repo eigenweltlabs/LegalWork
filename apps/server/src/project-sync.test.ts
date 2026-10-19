@@ -919,8 +919,16 @@ describe("project sync between computers", () => {
     expect(tasks.listOutbox().filter((entry) => entry.taskId === task.id)).toEqual([]);
     await expect(saveProjectSyncSettings(member.config, own, settings())).rejects.toMatchObject({ code: "project_sync_offer_pending" });
 
-    await resolveProjectSync(member.config, own, { action: "keep_apart" });
-    await runProjectSync(member.config, { platform });
+    // Even a slow cloud/client inspection must finish before the immediate
+    // background round is scheduled, so the explicit caller can consume it.
+    const inspect = spyOn(cloudFolders, "isCloudFolder").mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return false;
+    });
+    try {
+      await resolveProjectSync(member.config, own, { action: "keep_apart" });
+      expect((await runProjectSync(member.config, { platform })).error).toBeNull();
+    } finally { inspect.mockRestore(); }
     const copy = projectsOf(member.config).find((workspace) => workspace.id !== own.id);
     expect(copy?.path).toBeDefined();
     expect(copy?.path).not.toBe(folderPath);

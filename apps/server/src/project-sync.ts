@@ -1148,8 +1148,11 @@ export async function resolveProjectSync(
     // The project was passed over when it was listed: the next pull lists everything again.
     store.setPullCursor(offer.orgId, null);
     workspacesChanged(config);
+    // Folder inspection can be asynchronous (client config / native metadata).
+    // Do not start a background round before this action has returned its status.
+    const status = await projectSyncStatus(config, workspace);
     scheduleProjectSync(config, 0);
-    return projectSyncStatus(config, workspace);
+    return status;
   }
   const link = store.linkByWorkspace(workspace.id);
   if (!link) throw new ApiError(404, "project_not_synced", "This project does not sync.");
