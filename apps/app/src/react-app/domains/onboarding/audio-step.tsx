@@ -19,7 +19,7 @@ import {
 import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalwork/types/audio";
 
 import { RecorderFlow } from "./recorder-flow";
-import { dictationPermissionReady, dictationPermissionsReady, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
+import { dictationPermissionReady, dictationPermissionsReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
 import { MODEL_TIERS, tierName } from "../recorder/model-tiers";
 import { recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore } from "../recorder/recorder-store";
@@ -36,7 +36,7 @@ type SimState = {
   sys: AudioPermissionState;
   sysWaiting: boolean;
   model: "not-installed" | "downloading" | "installed";
-  dictationPermissions: boolean;
+  dictationPermissions: Record<DictationSetupPermission, boolean>;
   progress: number; // 0..1 while downloading
 };
 
@@ -56,7 +56,7 @@ export function AudioStep(props: {
     sys: "not-determined",
     sysWaiting: false,
     model: "not-installed",
-    dictationPermissions: false,
+    dictationPermissions: { inputMonitoring: false, accessibility: false, automation: false },
     progress: 0,
   });
   const [micBusy, setMicBusy] = useState(false);
@@ -131,8 +131,8 @@ export function AudioStep(props: {
   const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
 
   const readiness = store.dictationReadiness;
-  const extraPermissions = onboardingDictationPermissions(readiness);
-  const nativeDictationReady = demo ? sim.dictationPermissions : dictationPermissionsReady(readiness);
+  const extraPermissions = demo ? dictationSetupPermissions : onboardingDictationPermissions(readiness);
+  const nativeDictationReady = demo ? dictationSetupPermissions.every(kind => sim.dictationPermissions[kind]) : dictationPermissionsReady(readiness);
   const permissionViews: Record<DictationSetupPermission, { title: string; body: string }> = {
     inputMonitoring: { title: t("onboarding_audio.permission_monitor_title"), body: t("onboarding_audio.permission_shortcut") },
     accessibility: { title: t("onboarding_audio.permission_a11y_title"), body: t("onboarding_audio.permission_insert") },
@@ -223,8 +223,8 @@ export function AudioStep(props: {
       modelReady={modelInstalled}
       onBack={props.onBack}
       onDone={() => props.onDone(modelDownloading ? "background" : allDone ? "enabled" : "skipped")}
-      permissions={
-        <div className="divide-y divide-dls-border" data-testid="onboarding-recorder-permissions">
+      recorderPermissions={
+        <div className="divide-y divide-dls-border" data-testid="onboarding-recorder-grants">
           <PermissionRow title={t("recorder.perm_microphone")} description={t("onboarding_audio.permission_microphone")} done={micDone} hint={micBlocked ? t("recorder.perm_microphone_instructions") : null}>
             <Button size="sm" variant="outline" disabled={requestingMic} onClick={allowMicrophone}>
               {requestingMic ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -237,18 +237,6 @@ export function AudioStep(props: {
               {t("recorder.perm_allow")}
             </Button>
           </PermissionRow> : null}
-          {extraPermissions.map(kind => <PermissionRow key={kind} title={permissionViews[kind].title} description={permissionViews[kind].body} done={dictationPermissionReady(readiness?.[kind] ?? "not-determined")} hint={kind === "inputMonitoring" && (readiness?.[kind] === "broken" || readiness?.[kind] === "denied") ? t(readiness[kind] === "broken" ? "recorder.dictation_step_monitor_broken" : "recorder.dictation_step_monitor_denied") : null}>
-            <Button size="sm" variant="outline" disabled={requestingDictation !== null} onClick={() => {
-              setRequestingDictation(kind);
-              void store.requestDictationPermission(kind).finally(() => setRequestingDictation(null));
-            }}>
-              {requestingDictation === kind ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {t("recorder.perm_allow")}
-            </Button>
-          </PermissionRow>)}
-          {demo ? <PermissionRow title={t("onboarding_audio.dictation_permissions_title")} description={t("onboarding_audio.permission_shortcut")} done={sim.dictationPermissions}>
-            <Button size="sm" variant="outline" onClick={() => setSim(state => ({ ...state, dictationPermissions: true }))}>{t("recorder.perm_allow")}</Button>
-          </PermissionRow> : null}
           <PermissionRow title={t("onboarding_audio.model_title")} description={modelDownloading ? `${pct}% · ${t("onboarding_audio.background_note")}` : modelInstalled ? t("onboarding_audio.model_local") : `${tierName(recommended.key)} · ${modelSize}`} done={modelInstalled} hint={!demo && recommendedModel?.state === "error" ? recommendedModel.error : null}>
             {modelDownloading ? <div className="flex w-full items-center gap-2">
               <Progress value={pct} className="h-1 flex-1" />
@@ -256,7 +244,21 @@ export function AudioStep(props: {
               <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
             </div> : <Button size="sm" variant="outline" onClick={startDownload}>{t("recorder.model_download")}</Button>}
           </PermissionRow>
-          {!demo && readiness?.packaged === false && !nativeDictationReady ? <p className="pt-3 text-xs leading-relaxed text-subtext">{t("recorder.perm_dev_hint")}</p> : null}
+        </div>
+      }
+      dictationPermissions={
+        <div className="divide-y divide-dls-border" data-testid="onboarding-dictation-permissions">
+          {extraPermissions.map(kind => <PermissionRow key={kind} title={permissionViews[kind].title} description={permissionViews[kind].body} done={demo ? sim.dictationPermissions[kind] : dictationPermissionReady(readiness?.[kind] ?? "not-determined")} hint={readiness?.[kind] === "broken" ? t("recorder.dictation_step_monitor_broken") : null}>
+            <Button size="sm" variant="outline" disabled={requestingDictation !== null} onClick={() => {
+              if (demo) { setSim(state => ({ ...state, dictationPermissions: { ...state.dictationPermissions, [kind]: true } })); return; }
+              setRequestingDictation(kind);
+              void store.requestDictationPermission(kind).finally(() => setRequestingDictation(null));
+            }}>
+              {requestingDictation === kind ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {t("recorder.perm_allow")}
+            </Button>
+          </PermissionRow>)}
+          {!demo && extraPermissions.length > 0 ? <p className="pt-3 text-xs leading-relaxed text-subtext">{t("recorder.perm_recheck_hint")}</p> : null}
         </div>
       }
     />

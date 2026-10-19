@@ -14,7 +14,8 @@ import { CoverBackButton, OnboardingCover, StepDots } from "./onboarding-cover";
 export function RecorderFlow(props: {
   demo: boolean;
   loading: boolean;
-  permissions: ReactNode;
+  recorderPermissions: ReactNode;
+  dictationPermissions: ReactNode;
   microphoneReady: boolean;
   permissionsReady: boolean;
   modelReady: boolean;
@@ -54,9 +55,14 @@ export function RecorderFlow(props: {
       </div>
 
       {section === "permissions" ? <>
-        {props.permissions}
-        <p className="text-xs text-subtext">{t(props.microphoneReady && props.permissionsReady && props.modelReady ? "onboarding_audio.subtitle" : "onboarding_audio.permissions_optional")}</p>
+        {props.recorderPermissions}
+        <p className="text-xs text-subtext">{t(props.microphoneReady && props.modelReady ? "onboarding_audio.subtitle" : "onboarding_audio.permissions_optional")}</p>
       </> : section === "dictation" ? <div className="space-y-5">
+        {!props.permissionsReady ? props.dictationPermissions : null}
+        {!props.microphoneReady ? <div className="space-y-2">
+          <p className="text-xs text-subtext">{t("onboarding_audio.dictation_microphone_needed")}</p>
+          <Button variant="outline" size="sm" onClick={() => setSection("permissions")}>{t("onboarding_audio.setup_microphone")}</Button>
+        </div> : null}
         <label className="flex cursor-pointer items-center justify-between gap-4 border-b border-dls-border pb-4 text-sm font-medium">
           {t("onboarding_audio.enable_dictation")}
           <Switch aria-label={t("onboarding_audio.enable_dictation")} checked={enabled}
@@ -67,14 +73,10 @@ export function RecorderFlow(props: {
               void store.setSystemDictationEnabled(checked).finally(() => setChanging(false));
             }} />
         </label>
-        {!ready ? <div className="space-y-2">
-          <p className="text-xs leading-relaxed text-subtext">{t("onboarding_audio.dictation_permissions_needed")}</p>
-          <Button variant="outline" size="sm" onClick={() => setSection("permissions")}>{t("onboarding_audio.review_permissions")}</Button>
-        </div> : null}
         {enabled ? <>
           <div>
             <p className="mb-2 text-xs font-medium text-foreground">{t("recorder.dictation_shortcut_setting")}</p>
-            <DictationShortcutControl compact demo={props.demo} disabled={dictation.active} onConfigured={() => input.current?.focus()} />
+            <DictationShortcutControl compact demo={props.demo} disabled={dictation.active || !ready} onConfigured={() => input.current?.focus()} />
             <p className="mt-2 text-xs leading-relaxed text-subtext">{t(store.systemDictation?.supportsHold === false && !props.demo ? "recorder.dictation_gestures_fallback" : "onboarding_audio.shortcut_gestures")}</p>
           </div>
           <div>
@@ -90,7 +92,7 @@ export function RecorderFlow(props: {
               {text.trim() ? <Check className="size-3.5 text-success" /> : null}
               {t(text.trim() ? "onboarding_audio.test_result" : !props.modelReady ? "onboarding_audio.test_model_needed" : "onboarding_audio.test_private")}
             </p>}
-            {!props.modelReady ? <button type="button" className="mt-2 text-xs text-primary hover:underline" onClick={() => setSection("permissions")}>{t("onboarding_audio.review_permissions")}</button> : null}
+            {!props.modelReady ? <button type="button" className="mt-2 text-xs text-primary hover:underline" onClick={() => setSection("permissions")}>{t("onboarding_audio.setup_model")}</button> : null}
             {dictation.error ? <p role="alert" className="mt-2 text-xs text-destructive">{dictation.error}</p> : null}
           </div>
         </> : <p className="text-xs text-subtext">{t("onboarding_audio.change_later")}</p>}
