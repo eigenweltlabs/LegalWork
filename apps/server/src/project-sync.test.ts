@@ -6,6 +6,8 @@ import { join } from "node:path";
 import type { ProjectField, ProjectSyncSettings } from "@legalwork/types/workspace";
 
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
+import * as cloudFolders from "./cloud-folder.js";
+import * as fileSync from "./project-file-sync.js";
 import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
@@ -252,6 +254,94 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test("cloud folders show file sharing disabled and reject enabling it through the API", async () => {
+    const owner = await machine("user_anna", "Anna");
+    const project = await localProject(owner.config, "Cloud project");
+    const check = spyOn(cloudFolders, "isCloudFolder").mockResolvedValue(true);
+    try {
+      expect(await projectSyncStatus(owner.config, project)).toMatchObject({
+        fileSharingDisabledReason: "cloud_folder", settings: { scope: { documents: false } },
+      });
+      await expect(saveProjectSyncSettings(owner.config, project, settings())).rejects.toMatchObject({
+        code: "project_sync_cloud_folder", status: 409,
+      });
+      expect(await saveProjectSyncSettings(owner.config, project, settings({ scope: { ...ALL, documents: false } })))
+        .toMatchObject({ settings: { scope: { documents: false, notes: true, tasks: true, metadata: true } } });
+    } finally { check.mockRestore(); }
+  });
+
+  test("an existing shared cloud project stops copying documents while notes still sync", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const project = await localProject(owner.config, "Existing cloud project");
+    await write(project, "contract.txt", "Previously shared");
+    await saveProjectSyncSettings(owner.config, project, settings());
+    await runProjectSync(owner.config, { platform });
+    await write(project, "contract.txt", "Local document edit");
+    await write(project, "new.txt", "Do not share this document");
+    await write(project, "Notes/meeting.md", "Shared app note");
+    const remote = [...projects.values()][0];
+    remote.files.set("remote.txt", { path: "remote.txt", bytes: Buffer.from("Remote document") });
+    const check = spyOn(cloudFolders, "isCloudFolder").mockResolvedValue(true);
+    try {
+      await runProjectSync(owner.config, { platform });
+      expect(remote.files.get("contract.txt")?.bytes.toString()).toBe("Previously shared");
+      expect(remote.files.has("new.txt")).toBe(false);
+      expect(await read(project, "remote.txt")).toBeNull();
+      expect(remote.files.get("notes/meeting.md")?.bytes.toString()).toBe("Shared app note");
+      expect(await projectSyncStatus(owner.config, project)).toMatchObject({
+        fileSharingDisabledReason: "cloud_folder", settings: { scope: { documents: false } },
+      });
+    } finally { check.mockRestore(); }
+  });
+
+  test("access checks keep an existing cloud copy without hashing its documents", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const project = await localProject(owner.config, "Cloud copy");
+    await write(project, "a.txt", "original");
+    await saveProjectSyncSettings(owner.config, project, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    await utimes(join(copy.path, "a.txt"), new Date(), new Date(Date.now() - 30_000));
+    await saveProjectSyncSettings(owner.config, project, settings({ memberIds: [] }));
+    await runProjectSync(owner.config, { platform });
+    const check = spyOn(cloudFolders, "isCloudFolder").mockImplementation(async path => path === copy.path);
+    const hash = spyOn(fileSync, "hashFile").mockImplementation(async () => { throw new Error("Must not read cloud documents"); });
+    try {
+      await runProjectSync(member.config, { platform });
+      expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
+      expect(projectsOf(member.config)).toEqual([copy]);
+      expect(hash).not.toHaveBeenCalled();
+    } finally { hash.mockRestore(); check.mockRestore(); }
+  });
+
+  test("sharing review results does not bypass the cloud document restriction", async () => {
+    const { platform, projects } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const project = await localProject(owner.config, "Cloud review");
+    await write(project, "contract.pdf", "Cloud document");
+    await write(project, "Notes/meeting.md", "App note");
+    const review = await new ReviewStore(project.path).create({
+      id: "5c0ffee0-1111-4222-8333-944445555777", name: "Review", sessionId: null, revision: 0, createdAt: 1, updatedAt: 1,
+      settings: { mode: "llm", jev: null, llm: { providerId: "firm", model: "chat" } },
+      columns: [{ key: "assign", label: "Assignment", question: "Allowed?", kind: "yes_no", options: [], hint: "" }],
+      documents: [{ id: "doc-1", path: "contract.pdf", name: "contract.pdf", sourceHash: null, status: "pending", completedPages: 0, pageCount: 0, error: null }],
+      cells: [], status: "draft", runId: null, error: null,
+    });
+    const check = spyOn(cloudFolders, "isCloudFolder").mockResolvedValue(true);
+    try {
+      await saveProjectSyncSettings(owner.config, project, settings({ scope: { ...ALL, documents: false } }));
+      await runProjectSync(owner.config, { platform });
+      const remote = [...projects.values()][0];
+      expect(remote.files.has("contract.pdf")).toBe(false);
+      expect(remote.files.has(`.legalwork/reviews/${review.id}.json`)).toBe(true);
+      expect(remote.files.get("notes/meeting.md")?.bytes.toString()).toBe("App note");
+    } finally { check.mockRestore(); }
+  });
+
   test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
@@ -829,8 +919,16 @@ describe("project sync between computers", () => {
     expect(tasks.listOutbox().filter((entry) => entry.taskId === task.id)).toEqual([]);
     await expect(saveProjectSyncSettings(member.config, own, settings())).rejects.toMatchObject({ code: "project_sync_offer_pending" });
 
-    await resolveProjectSync(member.config, own, { action: "keep_apart" });
-    await runProjectSync(member.config, { platform });
+    // Even a slow cloud/client inspection must finish before the immediate
+    // background round is scheduled, so the explicit caller can consume it.
+    const inspect = spyOn(cloudFolders, "isCloudFolder").mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return false;
+    });
+    try {
+      await resolveProjectSync(member.config, own, { action: "keep_apart" });
+      expect((await runProjectSync(member.config, { platform })).error).toBeNull();
+    } finally { inspect.mockRestore(); }
     const copy = projectsOf(member.config).find((workspace) => workspace.id !== own.id);
     expect(copy?.path).toBeDefined();
     expect(copy?.path).not.toBe(folderPath);

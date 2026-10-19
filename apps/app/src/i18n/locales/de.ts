@@ -1637,6 +1637,8 @@ const de = {
   "project_sync.keep_apart": "Getrennt halten",
   "project_sync.offer_pending": "Dieser Ordner ist bereits ein mit Ihnen geteiltes Projekt. Entscheiden Sie zuerst, ob Sie ihn als Ihre Kopie verwenden.",
   "project_sync.scope_documents": "Dokumente und Ordner",
+  "project_sync.cloud_folder_files_disabled": "Die Dateifreigabe kann für Cloud-Ordner nicht aktiviert werden. Verknüpfen Sie stattdessen einen Cloud-Ordner.",
+  "project_sync.scope_reviews_without_documents": "Tabellarische Prüfungen",
   "project_sync.scope_reviews": "Tabellarische Prüfungen (mit ihren Dokumenten)",
   "project_sync.scope_notes": "Notizen",
   "project_sync.scope_tasks": "Aufgaben",

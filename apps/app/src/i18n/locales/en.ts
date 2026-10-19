@@ -1631,6 +1631,8 @@ export default {
   "project_sync.keep_apart": "Keep apart",
   "project_sync.offer_pending": "This folder is already a project shared with you. Decide first whether to use it as your copy.",
   "project_sync.scope_documents": "Documents and folders",
+  "project_sync.cloud_folder_files_disabled": "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead.",
+  "project_sync.scope_reviews_without_documents": "Tabular Reviews",
   "project_sync.scope_reviews": "Tabular Reviews (with their documents)",
   "project_sync.scope_notes": "Notes",
   "project_sync.scope_tasks": "Tasks",
