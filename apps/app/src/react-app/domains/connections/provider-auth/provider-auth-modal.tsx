@@ -9,7 +9,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  TriangleAlert,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,6 +65,7 @@ import {
 import { findCustomModelLimitProblem } from "./custom-provider-config";
 import { defaultOutputLimit } from "@legalwork/types/model-limits";
 import { ChatGptPlanCard } from "./chatgpt-plan-card";
+import { isAnthropicProvider, supportedProviderAuthMethods } from "./methods";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -415,23 +415,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return normalizedId === "openai" || normalizedName === "openai";
   };
 
-  const isAnthropicProvider = (id: string, fallbackName?: string) => {
-    const normalizedId = id.trim().toLowerCase();
-    const normalizedName = fallbackName?.trim().toLowerCase() ?? "";
-    return normalizedId === "anthropic" || normalizedName === "anthropic";
-  };
-
   const isOpencodeZenProvider = (id: string) => id.trim().toLowerCase() === "opencode";
 
   const OPENCODE_ZEN_KEY_URL = "https://opencode.ai/auth";
-
-  // The "Claude Pro/Max" method signs in with a consumer Claude subscription
-  // rather than a Console API key. Anthropic's Consumer Terms restrict that
-  // OAuth to Claude Code / claude.ai, so we surface a warning before use.
-  const isClaudeSubscriptionMethod = (method: ProviderAuthMethod) => {
-    const label = method.label.toLowerCase();
-    return method.type === "oauth" && label.includes("pro/max");
-  };
 
   const entries = useMemo<ProviderAuthEntry[]>(() => {
     const methods = props.authMethods ?? {};
@@ -442,7 +428,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     const nextEntries = Object.keys(methods)
       .flatMap((id) => {
         const provider = providersById.get(id);
-        const entryMethods = (methods[id] ?? []).filter((method) => {
+        const entryMethods = supportedProviderAuthMethods(id, methods[id] ?? []).filter((method) => {
           if (!isOpenAiProvider(id, provider?.name)) return true;
           if (method.type !== "oauth") return true;
           if (!props.allowChatGptSubscription) return false;
@@ -730,7 +716,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     autoOpenedPreferredProviderIdRef.current = preferredId;
     queueMicrotask(() => {
-      if (props.startOAuth) {
+      if (props.startOAuth && !isAnthropicProvider(entry.id)) {
         setSelectedProviderId(entry.id);
         const method = entry.methods.find(item => item.type === "oauth");
         if (!method) {
@@ -990,17 +976,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
   };
 
-  const handleMethodSelect = async (method: ProviderAuthMethod) => {
-    if (!selectedEntry || actionDisabled) return;
+  const handleMethodSelect = async (method: ProviderAuthMethod, entry = selectedEntry) => {
+    if (!entry || actionDisabled) return;
     setLocalError(null);
 
-    if (selectedEntry.id === EIGENWELT_PROVIDER_ID && method.type === "oauth") {
-      await startEigenweltOauth(selectedEntry);
+    if (entry.id === EIGENWELT_PROVIDER_ID && method.type === "oauth") {
+      await startEigenweltOauth(entry);
       return;
     }
 
     if (method.type === "oauth") {
-      await startOauth(selectedEntry, method.methodIndex);
+      await startOauth(entry, method.methodIndex);
       return;
     }
 
@@ -1044,7 +1030,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
 
     if (entry.methods.length === 1) {
-      void handleMethodSelect(entry.methods[0]);
+      void handleMethodSelect(entry.methods[0], entry);
       return;
     }
 
@@ -1375,9 +1361,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         ? t("provider_auth.device_flow_remote")
         : t("provider_auth.device_flow_unreliable");
     }
-    if (isAnthropicProvider(entry.id, entry.name) && isClaudeSubscriptionMethod(method)) {
-      return t("providers.claude_signin_hint");
-    }
     if (method.type === "oauth") {
       return t("providers.browser_continue_hint");
     }
@@ -1388,28 +1371,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return t("providers.secret_key_hint");
   };
 
-  const anthropicSubscriptionWarning = (
-    <div className="flex items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3 text-[12px] leading-relaxed text-amber-11">
-      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-      <span>
-        {t("providers.claude_consumer_terms")}
-      </span>
-    </div>
-  );
-
   const featuredOpenAI = entries.find(entry => isOpenAiProvider(entry.id, entry.name) && entry.methods.some(method => method.type === "oauth"));
   const featuredChatGptMethod = featuredOpenAI?.methods.find(method => method.type === "oauth");
   const selectedEntryIsOpenAI = Boolean(selectedEntry && isOpenAiProvider(selectedEntry.id, selectedEntry.name));
-  const selectedEntryHasClaudeSubscription = Boolean(
-    selectedEntry &&
-      isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
-      selectedEntry.methods.some(isClaudeSubscriptionMethod),
-  );
-  const oauthSessionIsClaudeSubscription = Boolean(
-    oauthSession &&
-      isAnthropicProvider(oauthSession.providerId) &&
-      oauthSession.methodLabel.toLowerCase().includes("pro/max"),
-  );
 
   return (
     <Dialog
@@ -1589,7 +1553,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       {t("common.back")}
                     </Button>
                   </div>}
-                  {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
                     {selectedEntry.methods.map((method) => selectedEntryIsOpenAI && method.type === "oauth" ? (
                       <ChatGptPlanCard
@@ -1623,7 +1586,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     <div>
                       <div className="text-sm font-medium text-dls-text">{selectedEntry.name}</div>
                       <div className="mt-1 text-xs text-dls-secondary">
-                        {isOpencodeZenProvider(selectedEntry.id)
+                        {isAnthropicProvider(selectedEntry.id)
+                          ? t("providers.anthropic_api_key_hint")
+                          : isOpencodeZenProvider(selectedEntry.id)
                           ? t("provider_auth.zen_api_key")
                           : t("provider_auth.paste_api_key")}
                       </div>
@@ -1697,7 +1662,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="text-xs text-dls-secondary">
                     {t("providers.complete_signin_paste")}
                   </div>
-                  {oauthSessionIsClaudeSubscription ? anthropicSubscriptionWarning : null}
                   {oauthInstructions ? (
                     <div className="break-all rounded-xl border border-dls-border bg-dls-hover px-3 py-2 font-mono text-[11px] text-dls-secondary">
                       {oauthInstructions}

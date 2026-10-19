@@ -22,6 +22,26 @@ test("model downloads publish verified bytes and reuse complete assets without n
   } finally { download.mockRestore(); }
 });
 
+test("a host download transport receives the bounded abort signal and verified assets are reused", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ocr-proxy-")); roots.push(root);
+  const direct = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Direct networking must not be used"));
+  let requests = 0;
+  const download = async (url: string, init: { signal: AbortSignal }) => {
+    requests++;
+    expect(url).toBe(asset.url);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    return new Response(bytes);
+  };
+  try {
+    const path = join(root, asset.name);
+    await downloadModelAsset(asset, path, new AbortController().signal, download);
+    await downloadModelAsset(asset, path, new AbortController().signal, download);
+    expect(await readFile(path)).toEqual(bytes);
+    expect(requests).toBe(1);
+    expect(direct).not.toHaveBeenCalled();
+  } finally { direct.mockRestore(); }
+});
+
 test("corruption, over-limit streams and cancellation cannot publish a model", async () => {
   const root = await mkdtemp(join(tmpdir(), "ocr-model-")); roots.push(root);
   const path = join(root, asset.name), download = spyOn(globalThis, "fetch").mockResolvedValue(new Response("corrupt"));

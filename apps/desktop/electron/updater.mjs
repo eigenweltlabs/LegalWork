@@ -4,6 +4,8 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createUpdaterPreferences } from "./updater-preferences.mjs";
+
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 
 // In dev mode, app.getVersion() returns the Electron framework version
@@ -305,6 +307,9 @@ async function cleanStaleUpdaterState(app) {
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
 export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
+  const preferences = createUpdaterPreferences(app);
+  ipcMain.handle("legalwork:updater:getPreferences", (_event, legacy) => preferences.read(legacy));
+  ipcMain.handle("legalwork:updater:setPreferences", (_event, patch) => preferences.write(patch));
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;

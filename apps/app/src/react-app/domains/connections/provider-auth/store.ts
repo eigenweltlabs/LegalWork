@@ -57,6 +57,7 @@ export type ProviderAuthLegalworkServer = {
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 import { orgPolicyAllows } from "../org-policy";
+import { isAnthropicProvider, supportedProviderAuthMethods } from "./methods";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -641,16 +642,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const merged = Object.fromEntries(
       Object.entries(methods ?? {}).map(([id, providerMethods]) => [
         id,
-        (providerMethods ?? []).map((method, methodIndex) => ({
+        supportedProviderAuthMethods(id, (providerMethods ?? []).map((method, methodIndex) => ({
           ...method,
           methodIndex,
-        })),
+        }))),
       ]),
     ) as Record<string, ProviderAuthMethod[]>;
 
     for (const provider of availableProviders ?? []) {
       const id = provider.id?.trim();
       if (!id) continue;
+      if (isAnthropicProvider(id)) {
+        merged[id] = supportedProviderAuthMethods(id, merged[id] ?? []);
+        continue;
+      }
       if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
       const existing = merged[id] ?? [];
       if (existing.some((method) => method.type === "api")) continue;
@@ -698,6 +703,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.not_connected"));
     }
     try {
+      if (isAnthropicProvider(providerId ?? "")) throw new Error(t("providers.anthropic_api_key_hint"));
       const cachedMethods = state.providerAuthMethods;
       const authMethods = Object.keys(cachedMethods).length
         ? cachedMethods
@@ -837,6 +843,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!resolved) {
       throw new Error(t("providers.provider_id_required"));
     }
+    if (isAnthropicProvider(resolved)) throw new Error(t("providers.anthropic_api_key_hint"));
 
     if (!Number.isInteger(methodIndex) || methodIndex < 0) {
       throw new Error(t("providers.oauth_method_required"));
@@ -1381,7 +1388,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",
       providerAuthPreferredProviderId: optionsArg?.preferredProviderId?.trim() || null,
-      providerAuthStartOAuth: optionsArg?.startOAuth === true,
+      providerAuthStartOAuth: optionsArg?.startOAuth === true && !isAnthropicProvider(optionsArg.preferredProviderId ?? ""),
       providerAuthBusy: true,
       providerAuthError: null,
     }));

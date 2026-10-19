@@ -365,6 +365,7 @@ const de = {
   "sandbox.setup": "Die geschützte Umgebung ist nicht verfügbar. Reparieren oder installieren Sie LegalWork erneut. Bis dahin bleiben Befehle gesperrt.",
   "sandbox.prepare": "Erneut prüfen",
   "sandbox.status_unavailable": "Der Befehlsschutz konnte nicht geprüft werden. Versuchen Sie es erneut, sobald der Worker verbunden ist.",
+  "sandbox.restore_application_settings": "Öffnen Sie Einstellungen > Berechtigungen > Sandbox, um die Anwendungseinstellungen wiederherzustellen.",
 
   "project_browser.archive_selected": "Auswahl archivieren",
   "project_browser.restore_selected": "Auswahl wiederherstellen",
@@ -1857,6 +1858,9 @@ const de = {
   "ocr.add_provider": "Anbieter hinzufügen",
   "ocr.local_provider": "Lokale Texterkennung",
   "ocr.local_description": "Dokumente auf diesem Computer verarbeiten.",
+  "ocr.auto_download": "Lokale Modelle automatisch herunterladen",
+  "ocr.auto_download_description": "Fehlende Modelle für Texterkennung und Seitenlayout bei Bedarf herunterladen. Vorhandene Modelle bleiben verfügbar. Modelle können jederzeit manuell heruntergeladen werden.",
+  "ocr.auto_download_managed": "Durch die Serverkonfiguration vorgegeben.",
   "ocr.title": "Texterkennungsanbieter (OCR)",
   "ocr.description": "Wählen Sie das Modell zum Lesen gescannter Seiten und Bilder.",
   "ocr.fast": "Schnell · Lokal",
@@ -3527,6 +3531,8 @@ const de = {
   "session.permission_message_read": "Prüfen Sie den angeforderten Dateizugriff, bevor Sie ihn gewähren.",
   "session.permission_message_task": "Prüfen Sie die angeforderte Teilaufgabe, bevor Sie sie starten lassen.",
   "session.permission_metadata_unavailable": "Die Metadaten konnten nicht angezeigt werden.",
+  "session.permission_input_unavailable": "Die Werkzeugparameter konnten nicht geladen werden. Erneut versuchen oder die Aktion ablehnen.",
+  "session.permission_retry_details": "Details erneut laden",
   "session.permission_review_label": "Prüfen",
   "session.permission_scope_empty": "Kein konkreter Umfang angegeben.",
   "session.permission_title_bash": "Shell-Befehl ausführen?",
@@ -5841,8 +5847,7 @@ const de = {
     "„Stabil“ erhält vollständig getestete Releases. „Alpha“ enthält die neuesten Änderungen, kann aber weniger ausgereift sein (nur macOS).",
   "workspace.live_logs": "Live-Protokoll",
   "workspace.docker_debug_details": "Docker-Debugdetails",
-  "providers.claude_consumer_terms":
-    "Die Anmeldung mit Claude Pro/Max nutzt Ihr pers\u00f6nliches Claude-Abonnement. Anthropics Verbraucherbedingungen beschr\u00e4nken dieses OAuth auf Claude Code und claude.ai; eine Nutzung durch Dritte kann gegen diese Bedingungen versto\u00dfen und ohne Vorank\u00fcndigung blockiert werden. F\u00fcr verl\u00e4sslichen, zul\u00e4ssigen Zugang nutzen Sie \u201eAPI-Schl\u00fcssel erstellen\u201c oder hinterlegen Sie einen Anthropic-API-Schl\u00fcssel.",
+  "providers.anthropic_api_key_hint": "Geben Sie Ihren Anthropic-API-Schlüssel ein.",
   "providers.connect_subtitle":
     "Melden Sie sich bei Diensten an oder nutzen Sie Provider, die Ihre Organisation verwaltet.",
   "providers.loading": "Provider werden geladen…",
@@ -5963,8 +5968,6 @@ const de = {
   "providers.verifying_code": "Autorisierungscode wird geprüft…",
   "providers.waiting_oauth": "Warten auf die OAuth-Bestätigung…",
   "providers.opening_auth": "Authentifizierung wird geöffnet…",
-  "providers.claude_signin_hint":
-    "Melden Sie sich mit Ihrem Claude-Pro/Max-Abonnement an. Beachten Sie den Hinweis oben: Die Nutzung durch Dritte kann gegen die Bedingungen von Anthropic verstoßen.",
   "providers.browser_continue_hint":
     "Fahren Sie im Browser fort, LegalWork schließt die Verbindung automatisch ab.",
   "providers.zen_signin_hint":

@@ -355,6 +355,7 @@ export default {
   "sandbox.setup": "The protected environment is unavailable. Repair or reinstall LegalWork. Commands remain blocked until protection is restored.",
   "sandbox.prepare": "Check again",
   "sandbox.status_unavailable": "Could not check command protection. Try again when the worker is connected.",
+  "sandbox.restore_application_settings": "Open Settings > Permissions > Sandboxing to restore the application settings.",
 
   "project_browser.archive_selected": "Archive selected",
   "project_browser.restore_selected": "Restore selected",
@@ -1850,6 +1851,9 @@ export default {
   "ocr.add_provider": "Add provider",
   "ocr.local_provider": "Local OCR",
   "ocr.local_description": "Process documents on this computer.",
+  "ocr.auto_download": "Download local models automatically",
+  "ocr.auto_download_description": "Download missing text recognition and page layout models when needed. Existing models stay available, and you can always download models manually.",
+  "ocr.auto_download_managed": "Controlled by the server configuration.",
   "ocr.title": "Document recognition providers (OCR)",
   "ocr.description": "Choose the model used to read scanned pages and images.",
   "ocr.fast": "Fast · Local",
@@ -3363,6 +3367,8 @@ export default {
   "session.permission_message_read": "Review the requested file scope before allowing access.",
   "session.permission_message_task": "Review the requested subtask before allowing it to start.",
   "session.permission_metadata_unavailable": "Metadata could not be displayed.",
+  "session.permission_input_unavailable": "The tool's arguments could not be loaded. Retry or deny this action.",
+  "session.permission_retry_details": "Retry details",
   "session.permission_review_label": "Review",
   "session.permission_scope_empty": "No specific scope provided.",
   "session.permission_title_bash": "Run a shell command?",
@@ -5501,8 +5507,7 @@ export default {
     "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only).",
   "workspace.live_logs": "Live logs",
   "workspace.docker_debug_details": "Docker debug details",
-  "providers.claude_consumer_terms":
-    "Claude Pro/Max sign-in uses your personal Claude subscription. Anthropic's Consumer Terms limit this OAuth to Claude Code and claude.ai, so third-party use may violate those terms and can be blocked without notice. For reliable, permitted access, use \u201cCreate an API Key\u201d or enter an Anthropic API key instead.",
+  "providers.anthropic_api_key_hint": "Enter your Anthropic API key.",
   "providers.connect_subtitle": "Sign in to services or use providers managed by your organization.",
   "providers.loading": "Loading providers…",
   "providers.keyboard_hint": "Arrow keys to navigate, Enter to select.",
@@ -5619,8 +5624,6 @@ export default {
   "providers.verifying_code": "Verifying authorization code...",
   "providers.waiting_oauth": "Waiting for OAuth confirmation...",
   "providers.opening_auth": "Opening authentication...",
-  "providers.claude_signin_hint":
-    "Sign in with your Claude Pro/Max subscription. See the warning above, third-party subscription use may violate Anthropic's terms.",
   "providers.browser_continue_hint":
     "Continue in the browser and let LegalWork finish the connection automatically.",
   "providers.zen_signin_hint":

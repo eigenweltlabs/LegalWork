@@ -1802,6 +1802,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
     saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
     setOcrMemberKey: (id: string, apiKey: string | null) => requestJson<OcrSettingsView>(baseUrl, `/ocr/firm-engines/${encodeURIComponent(id)}/key`, { token, hostToken, method: "PUT", body: { apiKey }, timeoutMs: timeouts.config }),
@@ -2563,13 +2564,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
-      ),
-    /** Matter id to title, so a source row can name its matter. */
-    legalMemoryMatters: (workspaceId: string) =>
-      requestJson<{ ok: boolean; matters: Record<string, string> }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/matters`,
-        { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
       ),
     storageOAuthProviders: (workspaceId: string) =>
       requestJson<{ providers: StorageOAuthProvider[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/oauth/providers`, { token, hostToken }),

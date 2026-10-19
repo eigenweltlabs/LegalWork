@@ -31,7 +31,6 @@ import {
   engineAccessToken,
   fetchLegalMemoryDocument,
   fetchLegalMemoryGraph,
-  fetchLegalMemoryMatters,
   fetchLegalMemoryTreeChildren,
   fetchLegalMemoryTreeRoots,
   fetchLegalMemoryTreeSearch,
@@ -800,7 +799,7 @@ export type StartedServer = ServeResult & {
   wordAddinPort: number | null;
 };
 
-export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
@@ -852,7 +851,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config));
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), runtimeOptions.modelDownloadFetch);
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -3144,20 +3143,6 @@ function createRoutes(
     const payload = await serializeWorkflowSkill(workspace.path, skill);
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
-  });
-
-  // Matter id to title, so a source can say which matter it belongs to.
-  addRoute(routes, "POST", "/workspace/:id/legalmemory/matters", "client", async (ctx) => {
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const server = resolveLegalMemoryServer(await listMcp(config, workspace.id, workspace.path));
-    if (!server) throw new ApiError(409, "legalmemory_not_configured", "No LegalMemory server is configured");
-    try {
-      return jsonResponse({ ok: true, matters: await fetchLegalMemoryMatters(server, await engineAccessToken(server.name)) });
-    } catch {
-      // A source without its matter is still a usable source.
-      return jsonResponse({ ok: true, matters: {} });
-    }
   });
 
   // The caller's LegalMemory estate as a lazy file tree. The LegalWork server
