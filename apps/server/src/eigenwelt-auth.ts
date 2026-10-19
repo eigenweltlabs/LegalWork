@@ -146,7 +146,7 @@ export type EigenweltEntitlements = {
   plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
-   * ISO timestamp when the 30-day trial ends (or ended — compare against now);
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
    * null when the platform sent none or the value was malformed. Pair with
    * `subscriptionStatus === "trialing"` to know a trial is still running.
    */

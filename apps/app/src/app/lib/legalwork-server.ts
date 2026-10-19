@@ -220,7 +220,7 @@ export type EigenweltEntitlements = {
   plan: "sync" | "plus" | "pro" | null;
   subscriptionStatus: string | null;
   /**
-   * ISO timestamp when the 30-day trial ends (or ended — compare against now);
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
    * null when unknown. A trial is live only while `subscriptionStatus` is
    * "trialing". Older servers omit the field entirely.
    */
