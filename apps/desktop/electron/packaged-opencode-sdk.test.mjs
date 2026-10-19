@@ -6,6 +6,37 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
 import { parse } from "yaml";
+import { assertPackagedOpencodeSdk } from "../scripts/packaged-opencode-sdk.cjs";
+
+test("Electron Builder copies the staged SDK packages into the shipped resources", async () => {
+  const require = createRequire(import.meta.url);
+  const { getFileMatchers, copyFiles } = createRequire(require.resolve("electron-builder"))("app-builder-lib/out/fileMatcher.js");
+  const config = parse(await readFile(new URL("../electron-builder.yml", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "opencode-sdk-package-"));
+  try {
+    const desktop = join(root, "desktop"), resources = join(root, "packaged", "resources");
+    const sdk = join(desktop, "resources", "opencode-sdk");
+    for (const name of ["@opencode-ai/plugin", "@opencode-ai/sdk", "zod"]) {
+      const directory = join(sdk, "node_modules", name);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "package.json"), JSON.stringify({ name, version: "1.18.29", ...(name === "@opencode-ai/plugin" ? { dependencies: { "@opencode-ai/sdk": "1.18.29", zod: "1.18.29" } } : {}) }));
+      await writeFile(join(directory, "index.js"), "export const fixture = true;\n");
+      await writeFile(join(directory, "LICENSE"), "Fixture attribution\n");
+    }
+    await writeFile(join(sdk, "package.json"), JSON.stringify({ dependencies: { "@opencode-ai/plugin": "1.18.29" } }));
+    const matchers = getFileMatchers({ extraResources: config.extraResources.filter((entry) => entry.from.startsWith("resources/opencode-sdk")) }, "extraResources", resources, {
+      defaultSrc: desktop, globalOutDir: join(root, "packaged"), customBuildOptions: {}, macroExpander: (value) => value,
+    });
+    await copyFiles(matchers);
+    assert.equal(assertPackagedOpencodeSdk(resources), join(resources, "opencode-sdk"));
+    for (const name of ["@opencode-ai/plugin", "@opencode-ai/sdk", "zod"]) {
+      assert.equal(await readFile(join(resources, "opencode-sdk", "node_modules", name, "index.js"), "utf8"), "export const fixture = true;\n");
+      assert.equal(await readFile(join(resources, "opencode-sdk", "node_modules", name, "LICENSE"), "utf8"), "Fixture attribution\n");
+    }
+    await rm(join(resources, "opencode-sdk", "node_modules", "zod", "package.json"));
+    assert.throws(() => assertPackagedOpencodeSdk(resources), /Missing packaged OpenCode SDK dependency: zod/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("packaging excludes stale Anthropic auth output while retaining API inference plugins", async () => {
   const require = createRequire(import.meta.url);

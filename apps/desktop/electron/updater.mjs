@@ -304,6 +304,30 @@ async function cleanStaleUpdaterState(app) {
   }
 }
 
+// On macOS downloadUpdate() finishes when the ZIP has been served to Squirrel,
+// before Squirrel unpacks and validates it. Only the native event means ready.
+export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 300_000) {
+  if (!nativeUpdater) {
+    await updater.downloadUpdate();
+    return;
+  }
+  let onReady, onError, timer;
+  const ready = new Promise((resolve, reject) => {
+    onReady = resolve;
+    onError = reject;
+    nativeUpdater.once("update-downloaded", onReady);
+    nativeUpdater.once("error", onError);
+    timer = setTimeout(() => reject(new Error("The update could not finish preparing for installation. Please try downloading it again.")), timeoutMs);
+  });
+  try {
+    await Promise.all([ready, Promise.resolve().then(() => updater.downloadUpdate())]);
+  } finally {
+    clearTimeout(timer);
+    nativeUpdater.removeListener("update-downloaded", onReady);
+    nativeUpdater.removeListener("error", onError);
+  }
+}
+
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
 export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
@@ -313,6 +337,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;
+  let nativeMacUpdater = null;
+  let updateReady = false;
 
   function sendToRenderer(channel, data) {
     try {
@@ -333,6 +359,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const mod = await import("electron-updater");
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
+        if (process.platform === "darwin") nativeMacUpdater = (await import("electron")).autoUpdater;
         autoUpdaterInstance.autoDownload = false;
         autoUpdaterInstance.autoInstallOnAppQuit = true;
         // Differential (blockmap) downloads reconstruct the update zip from the
@@ -345,6 +372,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         // bundles (see enableSquirrelDirectContentsWrite for why).
         await enableSquirrelDirectContentsWrite();
         autoUpdaterInstance.on("error", (err) => {
+          updateReady = false;
           console.warn("[updater] error", err);
         });
         // Forward download progress to the renderer so the UI can show
@@ -375,6 +403,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
     const channel = await writeElectronUpdaterChannel(app, rawChannel);
     checkedUpdateVersion = null;
+    updateReady = false;
     const updater = await ensureAutoUpdater();
     if (updater) {
       return applyElectronUpdaterFeed(app, updater);
@@ -440,6 +469,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:download", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
+    updateReady = false;
     try {
       // No unconditional feed re-apply here: the feed left active by the last
       // successful check (primary or GitHub fallback) is the one the cached
@@ -458,7 +488,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // Clear any stuck ShipIt state from a prior aborted install so this
       // download applies cleanly on quit.
       await cleanStaleUpdaterState(app);
-      await updater.downloadUpdate();
+      await downloadUpdateReady(updater, nativeMacUpdater);
+      updateReady = true;
       return { ok: true };
     } catch (error) {
       /* Last-ditch mirror of the check path: one raw GitHub check + download
@@ -481,7 +512,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
-        await updater.downloadUpdate();
+        await downloadUpdateReady(updater, nativeMacUpdater);
+        updateReady = true;
         return { ok: true };
       } catch {
         return { ok: false, reason: String(error?.message ?? error) };
@@ -492,6 +524,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:installAndRestart", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
+    if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.
