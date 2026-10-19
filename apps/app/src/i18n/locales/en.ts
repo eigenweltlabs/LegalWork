@@ -4439,7 +4439,7 @@ export default {
   "onboarding_audio.setup_ready": "Ready to use",
   "onboarding_audio.setup_progress": "Setup progress",
   "onboarding_audio.finish_later": "Finish later",
-  "onboarding_audio.meeting_intro": "Record both sides of a meeting and follow the transcript as it appears.",
+  "onboarding_audio.meeting_intro": "Record and transcribe meetings in Teams, Zoom and other apps — entirely on your computer, without a cloud service or server.",
   "onboarding_audio.mic_access_title": "Let LegalWork hear you.",
   "onboarding_audio.mic_access_description": "Allow microphone access to capture your voice.",
   "onboarding_audio.system_access_title": "Capture the other side.",

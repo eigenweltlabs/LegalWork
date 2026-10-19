@@ -4718,7 +4718,7 @@ const de = {
   "onboarding_audio.setup_ready": "Einsatzbereit",
   "onboarding_audio.setup_progress": "Fortschritt der Einrichtung",
   "onboarding_audio.finish_later": "Später fertigstellen",
-  "onboarding_audio.meeting_intro": "Nehmen Sie beide Seiten eines Gesprächs auf und lesen Sie das Transkript live mit.",
+  "onboarding_audio.meeting_intro": "Meetings in Teams, Zoom und anderen Apps aufnehmen und transkribieren. Vollständig auf Ihrem Computer, ohne Cloud oder Server.",
   "onboarding_audio.mic_access_title": "Damit LegalWork Sie hört.",
   "onboarding_audio.mic_access_description": "Erlauben Sie den Mikrofonzugriff, um Ihre Stimme aufzunehmen.",
   "onboarding_audio.system_access_title": "Die andere Seite aufnehmen.",
