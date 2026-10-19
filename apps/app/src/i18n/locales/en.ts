@@ -4398,7 +4398,7 @@ export default {
   "recorder.meeting_stop": "Stop and save",
   "recorder.meeting_detection_title": "Detect meetings",
   "recorder.meeting_detection_description": "Offer a Record button when a supported call app uses your microphone. Recording starts when you click Record.",
-  "recorder.meeting_detection_support": "Detection requires macOS 14.2 or later. Supports Zoom, Teams, Slack and Webex, plus Google Meet, Teams and Zoom in browsers. Browser detection also needs Accessibility access and a visible meeting tab.",
+  "recorder.meeting_detection_support": "Detection is available on Windows 10/11 and macOS 14.2 or later. Supports Zoom, Teams, Slack and Webex, plus Google Meet, Teams and Zoom in Chrome, Edge or Firefox. Browser detection needs a visible meeting tab; on macOS it also needs Accessibility access.",
   "recorder.meeting_recording_location": "Hover over the floating microphone to record at any time. Stop the recording when your meeting ends. Audio and transcripts are saved locally in Recordings.",
   "recorder.meeting_recording_title": "Meeting",
   "recorder.meeting_setup_required": "Allow microphone and system audio access to record a meeting.",

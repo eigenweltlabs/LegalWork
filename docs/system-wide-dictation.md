@@ -30,12 +30,36 @@ dictation begin. Transcript tabs follow the viewer's existing split, window,
 and layout persistence behavior.
 
 **Settings > Recorder > Meetings > Detect meetings** is enabled by default.
-On macOS 14.2+, the native helper reads Core Audio's process microphone
-activity. Zoom, Teams, Slack, and Webex can trigger a prompt; browsers also
-need an accessible meeting URL or call window title for Google Meet, Teams,
-or Zoom. Browser detection needs Accessibility permission and the meeting
-tab visible in a browser window. Other platforms still support manual
-recording through the existing capture capabilities.
+Automatic detection is available on Windows 10/11 and macOS 14.2+. Zoom,
+Teams, Slack, and Webex can trigger a prompt when using the microphone;
+browsers also need a meeting URL or call window title for Google Meet,
+Teams, or Zoom, with the meeting tab visible in a browser window.
+
+On Windows, a hidden PowerShell/.NET helper enumerates active **capture**
+sessions through Core Audio and resolves audio helper processes back to
+supported call applications. Chrome, Edge, and Firefox are supported: UI
+Automation reads address controls in browser toolbars, skipping web documents,
+page contents, tab lists, password fields, and browsing history. Window titles
+provide a Google Meet fallback when an address is unavailable. URL credentials,
+queries, and fragments are discarded. Playing audio alone never triggers a
+prompt, and LegalWork's own capture is excluded. No audio stream is opened by
+detection, and audio routing is unchanged.
+
+The Windows helper is compiled once and reused between polls. It stops when
+detection is disabled, the computer suspends, or LegalWork quits. A hung probe
+is terminated; unavailable or policy-blocked PowerShell uses a retry backoff
+and leaves manual recording available. No administrator access, additional
+runtime download, or execution-policy bypass is required. The Windows CI job
+compiles and runs the exact shipped helper without recording audio.
+
+On macOS, the native helper reads Core Audio's process microphone activity;
+browser detection additionally needs Accessibility permission. Other platforms
+still support manual recording through the existing capture capabilities.
+
+API references: [capture endpoint enumeration](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nf-mmdeviceapi-immdeviceenumerator-enumaudioendpoints),
+[audio session state](https://learn.microsoft.com/en-us/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessioncontrol-getstate),
+[session process identity](https://learn.microsoft.com/en-us/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessioncontrol2-getprocessid),
+and [UI Automation threading](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading).
 
 Detection checks every three seconds and requires a stable signal before
 offering **Record**. It never opens the microphone or starts a recording on

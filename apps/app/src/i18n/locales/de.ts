@@ -4677,7 +4677,7 @@ const de = {
   "recorder.meeting_stop": "Beenden und speichern",
   "recorder.meeting_detection_title": "Besprechungen erkennen",
   "recorder.meeting_detection_description": "Eine Aufnahme anbieten, wenn eine unterstützte Anruf-App Ihr Mikrofon verwendet. Die Aufnahme beginnt erst nach einem Klick auf Aufnehmen.",
-  "recorder.meeting_detection_support": "Die Erkennung benötigt macOS 14.2 oder neuer. Unterstützt Zoom, Teams, Slack und Webex sowie Google Meet, Teams und Zoom im Browser. Für Browser sind auch Bedienungshilfen-Zugriff und ein sichtbarer Besprechungs-Tab nötig.",
+  "recorder.meeting_detection_support": "Die Erkennung ist unter Windows 10/11 und ab macOS 14.2 verfügbar. Unterstützt Zoom, Teams, Slack und Webex sowie Google Meet, Teams und Zoom in Chrome, Edge oder Firefox. Für Browser muss der Besprechungs-Tab sichtbar sein; auf macOS ist zusätzlich Bedienungshilfen-Zugriff nötig.",
   "recorder.meeting_recording_location": "Bewegen Sie den Zeiger über das schwebende Mikrofon, um jederzeit aufzunehmen. Beenden Sie die Aufnahme am Ende der Besprechung. Audio und Transkripte werden lokal unter Aufnahmen gespeichert.",
   "recorder.meeting_recording_title": "Besprechung",
   "recorder.meeting_setup_required": "Erlauben Sie Mikrofon- und Systemaudio-Zugriff, um eine Besprechung aufzunehmen.",

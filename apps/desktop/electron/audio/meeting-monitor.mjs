@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolveKeyMonitorPath } from "./system-key-monitor.mjs";
+import { WindowsMeetingProbe } from "./windows-meeting-probe.mjs";
 
 const NATIVE_APPS = [
   ["us.zoom.xos", "Zoom"], ["com.microsoft.teams2", "Microsoft Teams"],
@@ -34,14 +35,15 @@ export function meetingCandidate(processes) {
 }
 
 export class MeetingMonitor {
-  /** @param {{app: Pick<import('electron').App, 'getPath'>, onChange: (status: import('@legalwork/types/audio').AudioMeetingStatus) => void, onStart: (title?: string) => void, probe?: () => Promise<{supported: boolean, processes: object[]}>, now?: () => number}} options */
-  constructor({ app, onChange, onStart, probe, now = Date.now }) {
+  /** @param {{app: Pick<import('electron').App, 'getPath'>, onChange: (status: import('@legalwork/types/audio').AudioMeetingStatus) => void, onStart: (title?: string) => void, probe?: () => Promise<{supported: boolean, processes: object[]}>, platform?: string, now?: () => number}} options */
+  constructor({ app, onChange, onStart, probe, platform = process.platform, now = Date.now }) {
     this.settingsPath = path.join(app.getPath("userData"), "meeting-detection.json");
     this.onChange = onChange;
     this.onStart = onStart;
     this.now = now;
-    this.probe = probe ?? (() => new Promise(resolve => {
-      if (process.platform !== "darwin") { resolve({ supported: false, processes: [] }); return; }
+    this.windowsProbe = platform === "win32" && !probe ? new WindowsMeetingProbe() : null;
+    this.probe = probe ?? (this.windowsProbe ? () => this.windowsProbe.poll() : () => new Promise(resolve => {
+      if (platform !== "darwin") { resolve({ supported: false, processes: [] }); return; }
       execFile(resolveKeyMonitorPath(app), ["--meeting-activity"], { timeout: 2500, maxBuffer: 128 * 1024 }, (error, stdout) => {
         if (error) { resolve({ supported: false, processes: [] }); return; }
         try {
@@ -78,6 +80,7 @@ export class MeetingMonitor {
   async setDetection(enabled) {
     this.generation += 1;
     this.value.detectionEnabled = enabled;
+    if (!enabled) this.windowsProbe?.dispose();
     this.clearSignal();
     this.publish();
     this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
@@ -141,6 +144,6 @@ export class MeetingMonitor {
     return this.status();
   }
 
-  reset() { this.generation += 1; this.clearSignal(); this.publish(); }
-  dispose() { this.generation += 1; clearInterval(this.timer); }
+  reset() { this.generation += 1; this.windowsProbe?.dispose(); this.clearSignal(); this.publish(); }
+  dispose() { this.generation += 1; clearInterval(this.timer); this.windowsProbe?.dispose(); }
 }
