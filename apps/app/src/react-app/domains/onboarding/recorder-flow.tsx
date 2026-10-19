@@ -22,19 +22,20 @@ export type RecorderSetupRequirement = {
   hint?: string | null;
 };
 
-type RecorderFeature = "meetings" | "dictation";
+export type RecorderFeature = "meetings" | "dictation";
 
-/** Two introductions within the existing Recorder step; setup stays in a local dialog. */
+/** A separate onboarding step for each feature; setup stays in a local dialog. */
 export function RecorderFlow(props: {
+  feature: RecorderFeature;
   demo: boolean;
   loading: boolean;
   meetingRequirements: RecorderSetupRequirement[];
   dictationRequirements: RecorderSetupRequirement[];
   onBack: () => void;
-  onDone: () => void;
+  onDone: (ready: boolean) => void;
 }) {
   const store = useRecorderStore();
-  const [section, setSection] = useState<RecorderFeature>("meetings");
+  const section = props.feature;
   const [open, setOpen] = useState(false);
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [demoMeetings, setDemoMeetings] = useState(false);
@@ -58,14 +59,14 @@ export function RecorderFlow(props: {
 
   return <>
     <OnboardingCover compact
-      footerLeft={<CoverBackButton label={t("onboarding.back")} disabled={captureBusy} onClick={() => section === "meetings" ? props.onBack() : setSection("meetings")} />}
+      footerLeft={<CoverBackButton label={t("onboarding.back")} disabled={captureBusy} onClick={props.onBack} />}
       footerRight={ready || downloading
-        ? <Button ref={continueButton} size="sm" disabled={captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()}>{t(downloading && !ready ? "onboarding_audio.continue_background" : "onboarding.continue")}</Button>
-        : <CoverSkipButton label={t("onboarding.skip")} disabled={props.loading || captureBusy} onClick={() => section === "meetings" ? setSection("dictation") : props.onDone()} />}
+        ? <Button ref={continueButton} size="sm" disabled={captureBusy} onClick={() => props.onDone(ready)}>{t(downloading && !ready ? "onboarding_audio.continue_background" : "onboarding.continue")}</Button>
+        : <CoverSkipButton label={t("onboarding.skip")} disabled={props.loading || captureBusy} onClick={() => props.onDone(ready)} />}
     >
       <div className="flex w-full flex-col items-start gap-7" data-testid={`onboarding-recorder-${section}`}>
         <div>
-          <StepDots step={3} total={5} />
+          <StepDots step={section === "meetings" ? 3 : 4} total={6} />
           <div className="mb-6 grid size-14 place-items-center rounded-2xl border border-dls-border bg-muted/40" aria-hidden="true">
             {section === "meetings" ? <AudioLines className="size-6" strokeWidth={1.5} /> : <Mic className="size-6" strokeWidth={1.5} />}
           </div>

@@ -913,13 +913,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio -> ai -> permissions -> done. Signing in first
+  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> done. Signing in first
   // lets us apply firm policies before offering permission choices.
-  // Office and audio are desktop-only; the web flow starts at ai.
+  // Office, meetings and dictation are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "permissions" | "done") => {
+    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -2482,24 +2482,25 @@ export function SessionRoute() {
         }}
       />
     ) : null}
-    {onboardingStage === "audio" ? (
-      // One action: turn on transcription & dictation.
+    {onboardingStage === "audio" || onboardingStage === "dictation" ? (
       <AudioStep
+        feature={onboardingStage === "audio" ? "meetings" : "dictation"}
         legalworkClient={client}
         workspaceId={selectedWorkspaceId}
         onBack={() => {
           onboardingWentBack.current = true;
-          setOnboardingStage("office");
+          setOnboardingStage(onboardingStage === "dictation" ? "audio" : "office");
         }}
         onDone={(result) => {
-          captureAnalyticsEvent("onboarding_audio_done", { result });
-          setOnboardingStage("ai");
+          captureAnalyticsEvent(onboardingStage === "audio" ? "onboarding_audio_done" : "onboarding_dictation_done", { result });
+          setOnboardingStage(onboardingStage === "audio" ? "dictation" : "ai");
         }}
       />
     ) : null}
     {onboardingStage === "permissions" ? (
       // The Settings -> Tool Permissions panel, with Continue as the action.
       <PermissionsStep
+        totalSteps={isDesktopRuntime() ? 6 : 3}
         legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
         runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
         onConfigUpdated={() => {
@@ -2514,7 +2515,7 @@ export function SessionRoute() {
           isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("audio");
+                setOnboardingStage("dictation");
               }
             : undefined
         }
@@ -2535,6 +2536,7 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
+        totalSteps={isDesktopRuntime() ? 6 : 3}
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
@@ -2556,7 +2558,7 @@ export function SessionRoute() {
           onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("audio");
+                setOnboardingStage("dictation");
               }
             : undefined
         }

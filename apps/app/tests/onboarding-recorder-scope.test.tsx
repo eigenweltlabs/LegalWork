@@ -3,6 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AudioStep } from "../src/react-app/domains/onboarding/audio-step";
+import { RecorderFlow, type RecorderFeature } from "../src/react-app/domains/onboarding/recorder-flow";
 import { useRecorderStore } from "../src/react-app/domains/recorder/recorder-store";
 
 test("Recorder introduction keeps setup and permissions inside its dialog", () => {
@@ -16,7 +17,7 @@ test("Recorder introduction keeps setup and permissions inside its dialog", () =
   try {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
-        <AudioStep legalworkClient={null} workspaceId={null} onBack={() => {}} onDone={() => {}} />
+        <AudioStep feature="meetings" legalworkClient={null} workspaceId={null} onBack={() => {}} onDone={() => {}} />
       </QueryClientProvider>,
     );
     expect(html).toContain("Set up meeting recording");
@@ -33,3 +34,17 @@ test("Recorder introduction keeps setup and permissions inside its dialog", () =
     Object.assign(initial, previous);
   }
 });
+
+const featureSteps: { feature: RecorderFeature; step: number; heading: string }[] = [
+  { feature: "meetings", step: 3, heading: "Record meetings." },
+  { feature: "dictation", step: 4, heading: "Dictate anywhere" },
+];
+for (const { feature, step, heading } of featureSteps) {
+  test(`${feature} has its own progress point in the six-step onboarding`, () => {
+    const html = renderToStaticMarkup(<RecorderFlow feature={feature} demo loading={false}
+      meetingRequirements={[]} dictationRequirements={[]} onBack={() => {}} onDone={() => {}} />);
+    expect(html).toContain(heading);
+    expect(html).toContain('aria-valuemax="6"');
+    expect(html).toContain(`aria-valuenow="${step}"`);
+  });
+}

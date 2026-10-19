@@ -3,6 +3,7 @@
  * Shared centered shell for the full-screen onboarding steps.
  */
 import type { ReactNode } from "react";
+import { t } from "@/i18n";
 import { ArrowLeft } from "lucide-react";
 import { Page, PageTitlebarRegion } from "@/components/page";
 
@@ -10,7 +11,7 @@ import { Page, PageTitlebarRegion } from "@/components/page";
  * wider pill so users always know where they are in the flow. */
 export function StepDots(props: { step: number; total: number }) {
   return (
-    <div className="mb-6 flex items-center gap-1.5">
+    <div className="mb-6 flex items-center gap-1.5" role="progressbar" aria-label={t("onboarding_audio.setup_progress")} aria-valuemin={1} aria-valuemax={props.total} aria-valuenow={props.step}>
       {Array.from({ length: props.total }, (_, index) => (
         <span
           key={index}

@@ -18,8 +18,8 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalwork/types/audio";
 
-import { RecorderFlow, type RecorderSetupRequirement } from "./recorder-flow";
-import { dictationPermissionReady, dictationPermissionsReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
+import { RecorderFlow, type RecorderSetupRequirement, type RecorderFeature } from "./recorder-flow";
+import { dictationPermissionReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
 import { MODEL_TIERS } from "../recorder/model-tiers";
 import { recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore } from "../recorder/recorder-store";
@@ -41,6 +41,7 @@ type SimState = {
 };
 
 export function AudioStep(props: {
+  feature: RecorderFeature;
   onDone: (result: "enabled" | "background" | "skipped") => void;
   onBack: () => void;
   /** For the entitlement check — a firm with premium models gets the premium
@@ -75,7 +76,10 @@ export function AudioStep(props: {
   };
 
   useEffect(() => {
-    captureAnalyticsEvent("onboarding_audio_viewed");
+    captureAnalyticsEvent(props.feature === "meetings" ? "onboarding_audio_viewed" : "onboarding_dictation_viewed");
+  }, [props.feature]);
+
+  useEffect(() => {
     if (!demo) void Promise.all([store.init(), store.refreshDictationReadiness()]).finally(() => setCheckingReadiness(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -132,13 +136,11 @@ export function AudioStep(props: {
 
   const readiness = store.dictationReadiness;
   const extraPermissions = demo ? dictationSetupPermissions : onboardingDictationPermissions(readiness);
-  const nativeDictationReady = demo ? dictationSetupPermissions.every(kind => sim.dictationPermissions[kind]) : dictationPermissionsReady(readiness);
   const permissionViews: Record<DictationSetupPermission, { title: string; body: string }> = {
     inputMonitoring: { title: t("onboarding_audio.shortcut_access_title"), body: t("onboarding_audio.shortcut_access_description") },
     accessibility: { title: t("onboarding_audio.insert_access_title"), body: t("onboarding_audio.insert_access_description") },
     automation: { title: t("onboarding_audio.permission_automation_title"), body: t("onboarding_audio.paste_access_description") },
   };
-  const allDone = micDone && (!sysApplies || sysGranted) && nativeDictationReady && modelInstalled;
 
   // Re-check OS permission state when the user returns from System Settings
   // (focus), plus a slow poll while anything is still missing.
@@ -269,11 +271,12 @@ export function AudioStep(props: {
   }));
 
   return <RecorderFlow
+    feature={props.feature}
     demo={demo}
     loading={checkingReadiness}
     meetingRequirements={[microphone, ...(sysApplies ? [systemAudio] : []), model]}
     dictationRequirements={[microphone, ...dictationAccess, model]}
     onBack={props.onBack}
-    onDone={() => props.onDone(modelDownloading ? "background" : allDone ? "enabled" : "skipped")}
+    onDone={ready => props.onDone(modelDownloading ? "background" : ready ? "enabled" : "skipped")}
   />;
 }
