@@ -1,0 +1,197 @@
+{
+  "environment": {
+    "os": "Windows Server 2022",
+    "oneDrive": "26.178.0913.0007",
+    "electron": "43.7.5",
+    "nodeInElectron": "24.21.0",
+    "release": "LegalWork 0.2.10",
+    "realOneDrive": true,
+    "sharingService": "Local synthetic HTTP service; documents enabled, other scopes disabled",
+    "originals": {
+      "registeredProject": 10,
+      "unregisteredControl": 11
+    },
+    "measurement": "Normalized metadata-only Offline/RecallOnDataAccess observations, local sharing requests, isolated runtime SQLite baselines",
+    "fixedBuild": "4 compiled server modules replaced in release ASAR, official development Electron of same version; release UI/resources/managed engine retained"
+  },
+  "cases": [
+    {
+      "operation": "Released, unshared startup",
+      "observedAt": "2026-10-19T17:12:09.8230775Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "newSupportFiles": 27,
+      "newSupportBytes": 3435994
+    },
+    {
+      "operation": "Released, unshared restart",
+      "observedAt": "2026-10-19T17:12:54.2429964Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "newSupportFiles": 27,
+      "newSupportBytes": 3435994
+    },
+    {
+      "operation": "Released, initial shared startup",
+      "startedAt": "2026-10-19T17:17:04.9966854Z",
+      "firstHydrationAt": "2026-10-19T17:17:17Z",
+      "observedAt": "2026-10-19T17:17:35.4894706Z",
+      "onlineOriginals": 11,
+      "downloadedProjectFiles": 10,
+      "downloadedControlFiles": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:17:19.818Z",
+        "error": null,
+        "pending": 0,
+        "skippedByReason": {},
+        "savedBaselines": 10,
+        "fileCommits": 10
+      }
+    },
+    {
+      "operation": "Released, evicted originals and restart with persisted baseline",
+      "observedAt": "2026-10-19T17:26:21.1566504Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:25:29.035Z",
+        "error": null,
+        "pending": 0,
+        "skippedByReason": {},
+        "savedBaselines": 10,
+        "fileCommits": 10
+      }
+    },
+    {
+      "operation": "Fixed build 1, empty sharing baseline",
+      "observedAt": "2026-10-19T17:27:59.1506012Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:27:33.940Z",
+        "error": null,
+        "pending": 10,
+        "skippedByReason": {
+          "online_only": 10
+        },
+        "savedBaselines": 0,
+        "fileCommits": 0
+      }
+    },
+    {
+      "operation": "Fixed build 1, restart with persisted deferrals",
+      "observedAt": "2026-10-19T17:28:42.3499412Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:28:28.682Z",
+        "error": null,
+        "pending": 10,
+        "skippedByReason": {
+          "online_only": 10
+        },
+        "savedBaselines": 0,
+        "fileCommits": 0
+      }
+    },
+    {
+      "operation": "Explicit read of one project document",
+      "readAt": "2026-10-19T17:29:04.9873506Z",
+      "readBytes": 256,
+      "observedAt": "2026-10-19T17:29:43.8173358Z",
+      "onlineOriginals": 20,
+      "downloadedProjectFiles": 1,
+      "downloadedControlFiles": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:29:20.398Z",
+        "error": null,
+        "pending": 9,
+        "skippedByReason": {
+          "online_only": 9
+        },
+        "savedBaselines": 1,
+        "fileCommits": 1
+      }
+    },
+    {
+      "operation": "Final fixed build, empty sharing baseline",
+      "observedAt": "2026-10-19T17:32:50.5554970Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:32:50.333Z",
+        "error": null,
+        "pending": 10,
+        "skippedByReason": {
+          "online_only": 10
+        },
+        "savedBaselines": 0,
+        "fileCommits": 0
+      }
+    },
+    {
+      "operation": "Explicit read of one project document",
+      "readAt": "2026-10-19T17:33:27.5687262Z",
+      "readBytes": 256,
+      "observedAt": "2026-10-19T17:34:12.2259342Z",
+      "onlineOriginals": 20,
+      "downloadedProjectFiles": 1,
+      "downloadedControlFiles": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:33:41.708Z",
+        "error": null,
+        "pending": 9,
+        "skippedByReason": {
+          "online_only": 9
+        },
+        "savedBaselines": 1,
+        "fileCommits": 1
+      }
+    },
+    {
+      "operation": "Final fixed build, evict already-agreed file then restart",
+      "observedAt": "2026-10-19T17:35:58.1255519Z",
+      "onlineOriginals": 21,
+      "downloadedOriginals": 0,
+      "sharing": {
+        "lastSyncAt": "2026-10-19T17:35:33.664Z",
+        "error": null,
+        "pending": 9,
+        "skippedByReason": {
+          "online_only": 9
+        },
+        "savedBaselines": 1,
+        "fileCommits": 1
+      }
+    }
+  ],
+  "compiledModules": [
+    {
+      "name": "server/dist/project-file-sync.js",
+      "sha256": "bf8bda918a904fb6d138be9afe8b9c6d8eef5961452b6a608ab88123668eb22e",
+      "size": 21208
+    },
+    {
+      "name": "server/dist/project-sync.js",
+      "sha256": "7c6f5338b6806c04e996161cb6163006fe4d303a1a682f73ce3b8ed7cdbf58ff",
+      "size": 58032
+    },
+    {
+      "name": "server/dist/project-sync-store.js",
+      "sha256": "865e16ff864c203f527edb56480699181172a46b27fe8b9162e520d903a4d457",
+      "size": 25652
+    },
+    {
+      "name": "server/dist/local-file-availability.js",
+      "sha256": "549f5e432bd4e8320b23d7a50a9675baa72c6e934425e37e554fcdd638649f62",
+      "size": 2146
+    }
+  ],
+  "limits": [
+    "Customer Windows 11 OS not tested; Windows Server 2022 used.",
+    "Real OneDrive cloud/client; Eigenwelt sharing API was a local test double.",
+    "No agent prompts sent; this reproduces background document sharing.",
+    "Fixed app was not a newly packaged production installer.",
+    "File availability check is a preflight, not an atomic no-recall handle."
+  ]
+}

@@ -9,6 +9,8 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
+import * as availability from "./local-file-availability.js";
+import * as fileSync from "./project-file-sync.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
 import { readProjectDetails, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
@@ -252,6 +254,31 @@ async function changePrompt(config: ServerConfig, workspace: WorkspaceInfo, prom
 }
 
 describe("project sync between computers", () => {
+  test("a deferred online-only file receives the remote edit after it becomes available", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Cloud folder");
+    await write(akte, "contract.txt", "original");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    await write(copy, "contract.txt", "remote edit");
+    await runProjectSync(member.config, { platform });
+    const check = spyOn(availability, "unavailableLocalFiles").mockImplementation(async paths =>
+      new Map(paths.filter(path => path === join(akte.path, "contract.txt")).map(path => [path, "online_only"])),
+    );
+    try {
+      await runProjectSync(owner.config, { platform });
+      expect(await read(akte, "contract.txt")).toBe("original");
+      expect((await projectSyncStatus(owner.config, akte)).skipped).toContainEqual({ path: "contract.txt", reason: "online_only" });
+      check.mockImplementation(async () => new Map());
+      await runProjectSync(owner.config, { platform });
+      expect(await read(akte, "contract.txt")).toBe("remote edit");
+    } finally { check.mockRestore(); }
+  });
+
   test("a manual sync consumes its scheduled round without calling the real platform later", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");
@@ -711,6 +738,31 @@ describe("project sync between computers", () => {
     await runProjectSync(owner.config, { platform });
     await runProjectSync(member.config, { platform });
     expect(projectsOf(member.config)).toEqual([]);
+  });
+
+  test("access checks retain a changed online-only copy without hashing its contents", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Cloud folder");
+    await write(akte, "a.txt", "original");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    await utimes(join(copy.path, "a.txt"), new Date(), new Date(Date.now() - 30_000));
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+    await runProjectSync(owner.config, { platform });
+    const check = spyOn(availability, "unavailableLocalFiles").mockImplementation(async paths =>
+      new Map(paths.map(path => [path, "online_only"])),
+    );
+    const hash = spyOn(fileSync, "hashFile").mockImplementation(async () => { throw new Error("Must not read a cloud placeholder"); });
+    try {
+      await runProjectSync(member.config, { platform });
+      expect((await projectSyncStatus(member.config, copy))).toMatchObject({ state: "revoked", pendingChanges: 1 });
+      expect(projectsOf(member.config)).toEqual([copy]);
+      expect(hash).not.toHaveBeenCalled();
+    } finally { hash.mockRestore(); check.mockRestore(); }
   });
 
   test("stopping sync keeps the owner's project local and takes every copy away", async () => {

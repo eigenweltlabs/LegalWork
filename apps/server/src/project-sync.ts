@@ -3,7 +3,7 @@ import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { copyFile, readdir, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, readdir, rm, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import type {
   ProjectField,
@@ -32,6 +32,7 @@ import { syncCalendarSubscriptions } from "./calendar/subscriptions.js";
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
+import { unavailableLocalFiles } from "./local-file-availability.js";
 import { pendingReviewChanges, reviewDocumentKeys, syncProjectReviews } from "./project-review-sync.js";
 import {
   createDefaultProjectFolder,
@@ -513,12 +514,13 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
   }
 }
 
-/** Files here that differ from what both sides last agreed on, without reading their content. */
+/** Compare metadata first; verify changed timestamps only while content is available locally. */
 async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
   const base = store.fileBase(link.projectId).entries();
   const reviewed = await reviewedDocuments(link.settings.scope, root);
   const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
+  const verify: Array<{ abs: string; key: string; mtimeMs: number }> = [];
   let changed = 0;
   const folders = [root];
   while (folders.length > 0) {
@@ -526,8 +528,9 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
     for (const item of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
       if (syncExcluded(item.name)) continue;
       const abs = join(folder, item.name);
-      if (item.isDirectory()) folders.push(abs);
-      if (!item.isFile()) continue;
+      const kind = process.platform === "win32" && item.isSymbolicLink() ? await lstat(abs) : item;
+      if (kind.isDirectory()) folders.push(abs);
+      if (!kind.isFile()) continue;
       const path = abs.slice(root.length + 1).split(sep).join("/").normalize("NFC");
       if (!scopeIncludes(link.settings.scope, path, reviewed, attached)) continue;
       const key = fileKey(path);
@@ -535,8 +538,17 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
       const info = await stat(abs);
       const known = base.get(key);
       // A time that moved alone (a touch, another runtime's rounding) is no change: the content says.
-      if (!known || known.size !== info.size || (known.mtimeMs !== info.mtimeMs && (await hashFile(abs)) !== known.sha256)) changed += 1;
+      if (!known || known.size !== info.size) changed += 1;
+      else if (known.mtimeMs !== info.mtimeMs) verify.push({ abs, key, mtimeMs: info.mtimeMs });
     }
+  }
+  const unavailable = await unavailableLocalFiles(verify.map(file => file.abs));
+  for (const file of verify) {
+    const known = base.get(file.key);
+    if (!known) continue;
+    // An unavailable file may contain an unsent edit: retain the copy without downloading it.
+    if (unavailable.has(file.abs) || (await hashFile(file.abs)) !== known.sha256) changed += 1;
+    else store.fileBase(link.projectId).put(file.key, { ...known, mtimeMs: file.mtimeMs });
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
   if (link.settings.scope.reviews) changed += await pendingReviewChanges(root, store.reviewBase(link.projectId));
@@ -733,7 +745,7 @@ async function syncDocuments(
     if (stale) index.clear();
     store.updateLink(link.workspaceId, {
       // Our own uploads move the project's time: the next round reconciles once more.
-      filesReconciledAt: reconcile && !stale ? link.remoteUpdatedAt : stale ? null : link.filesReconciledAt,
+      filesReconciledAt: stale ? null : reconcile && files.pending === 0 && (reviews?.pending ?? 0) === 0 ? link.remoteUpdatedAt : link.filesReconciledAt,
       allowDeletions: files.heldDeletions > 0 ? link.allowDeletions : false,
       lastSyncAt: Date.now(),
       lastError: null,

@@ -107,6 +107,7 @@ const SCOPE_ROWS: { key: keyof ProjectSyncScope; icon: ReactNode; label: () => s
 const SKIPPED_LABELS: Record<ProjectSyncSkipped["reason"], (path: string) => string> = {
   too_large: (path) => t("project_sync.skipped_too_large", { path }),
   name_clash: (path) => t("project_sync.skipped_name_clash", { path }),
+  online_only: (path) => t("project_sync.skipped_online_only", { path }),
   failed: (path) => t("project_sync.skipped_failed", { path }),
 };
 

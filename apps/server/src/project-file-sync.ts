@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, relative, sep } from "node:path";
 
 import { ApiError } from "./errors.js";
 import type { StorageAdapter } from "./file-storage/common.js";
 import { MERGEABLE_TEXT_MAX_BYTES, mergeableText, mergeText } from "./text-merge.js";
+import { unavailableLocalFiles } from "./local-file-availability.js";
 
 /**
  * One project folder kept in step with a remote copy of its documents.
@@ -70,10 +71,11 @@ export type FileSyncOptions = {
   /** A file changed more recently than this is still being written; it waits. */
   settleMs?: number;
   now?: () => Date;
+  unavailableFiles?: typeof unavailableLocalFiles;
 };
 
 export type FileSyncConflict = { path: string; copyPath: string };
-export type FileSyncSkip = { path: string; reason: "too_large" | "name_clash" | "failed"; detail?: string };
+export type FileSyncSkip = { path: string; reason: "too_large" | "name_clash" | "online_only" | "failed"; detail?: string };
 
 export type FileSyncResult = {
   /** Changed on both sides and merged: in place here, and at the firm. */
@@ -135,9 +137,12 @@ async function scanLocal(root: string, includes: (path: string) => boolean) {
     for (const item of await readdir(folder, { withFileTypes: true })) {
       if (syncExcluded(item.name)) continue;
       const abs = join(folder, item.name);
+      // Windows readdir can report cloud reparse points as links.
+      // lstat distinguishes cloud placeholders from real links without following links.
+      const kind = process.platform === "win32" && item.isSymbolicLink() ? await lstat(abs) : item;
       // Links are never followed: a link out of the folder must not sync what it points at.
-      if (item.isDirectory()) folders.push(abs);
-      if (!item.isFile()) continue;
+      if (kind.isDirectory()) folders.push(abs);
+      if (!kind.isFile()) continue;
       const path = relative(root, abs).split(sep).join("/").normalize("NFC");
       if (!includes(path)) continue;
       // A name another system cannot hold (a colon, say) stays here, and says so.
@@ -299,9 +304,28 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   // agreement means unchanged content, so only changed files are read.
   const localVersion = new Map<string, string>();
   const busy = new Set<string>();
+  const unavailable = await (options.unavailableFiles ?? unavailableLocalFiles)([...local.values()].map(file => file.abs));
   const settledBefore = now().getTime() - settleMs;
   for (const [key, file] of local) {
     const known = bases.get(key);
+    // An evicted but already agreed file needs no action or content read.
+    if (known && known.size === file.size && known.mtimeMs === file.mtimeMs && remoteFiles.get(key)?.version === known.sha256) {
+      localVersion.set(key, known.sha256);
+      continue;
+    }
+    const issue = unavailable.get(file.abs);
+    if (issue) {
+      busy.add(key);
+      result.skipped.push({ path: file.path, reason: issue });
+      continue;
+    }
+    // Decide this from metadata before hashing: rejected uploads must not
+    // download a large cloud file just to discover that it cannot be synced.
+    if (file.size > maxFileBytes) {
+      busy.add(key);
+      result.skipped.push({ path: file.path, reason: "too_large" });
+      continue;
+    }
     if (known && known.size === file.size && known.mtimeMs === file.mtimeMs) {
       localVersion.set(key, known.sha256);
       continue;
@@ -311,7 +335,11 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
       continue;
     }
     try {
-      localVersion.set(key, await hashFile(file.abs));
+      const sha256 = await hashFile(file.abs);
+      localVersion.set(key, sha256);
+      // A provider/editor can change timestamps without changing bytes.
+      // Keep the verified metadata so later rounds reuse this hash.
+      if (known?.sha256 === sha256) base.put(key, { path: file.path, sha256, size: file.size, mtimeMs: file.mtimeMs });
     } catch (error) {
       busy.add(key);
       result.skipped.push({ path: file.path, reason: "failed", detail: messageOf(error) });
@@ -446,11 +474,6 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
           break;
         case "upload": {
           if (!file || !localSha) break;
-          if (file.size > maxFileBytes) {
-            result.skipped.push({ path, reason: "too_large" });
-            result.pending += 1;
-            break;
-          }
           const version = remoteFile?.version;
           await remote.upload(file.path, file.abs, "application/octet-stream", version === undefined ? { createOnly: true } : { version });
           base.put(key, { path: file.path, sha256: localSha, size: file.size, mtimeMs: file.mtimeMs });

@@ -1648,6 +1648,7 @@ const de = {
   "project_sync.pending_other": "{count} Änderungen warten auf das Hochladen",
   "project_sync.skipped_too_large": "{path} ist größer als 256 MB und wird nicht synchronisiert.",
   "project_sync.skipped_name_clash": "{path} heißt bis auf Groß- und Kleinschreibung wie eine andere Datei und wird nicht synchronisiert.",
+  "project_sync.skipped_online_only": "{path} ist nur online gespeichert. Laden Sie die Datei beim Cloud-Anbieter herunter, um sie im Projekt zu teilen.",
   "project_sync.skipped_failed": "{path} konnte nicht synchronisiert werden. Es wird erneut versucht.",
   "project_sync.revoked_one": "Sie haben keinen Zugriff mehr, aber {count} Änderung auf diesem Computer hat Ihre Kanzlei nicht erreicht.",
   "project_sync.revoked_other": "Sie haben keinen Zugriff mehr, aber {count} Änderungen auf diesem Computer haben Ihre Kanzlei nicht erreicht.",

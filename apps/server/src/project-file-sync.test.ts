@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -149,6 +149,58 @@ describe("decide", () => {
     expect(decide("a", "b", null)).toBe("conflict");
     expect(decide("a", "a", null)).toBe("adopt");
   });
+});
+
+test("identical content with a changed timestamp updates the sync baseline", async () => {
+  const s = await setup();
+  await s.write("contract.txt", "Unchanged contract");
+  await run(s);
+  const agreed = s.base.map.get("contract.txt");
+  expect(agreed).toBeDefined();
+  const time = new Date(2025, 0, 1);
+  await utimes(join(s.root, "contract.txt"), time, time);
+  const current = await stat(join(s.root, "contract.txt"));
+  expect(current.mtimeMs).not.toBe(agreed?.mtimeMs);
+  const result = await run(s);
+  expect(result.uploaded).toBe(0);
+  expect(result.downloaded).toBe(0);
+  expect(s.base.map.get("contract.txt")).toMatchObject({ sha256: agreed?.sha256, mtimeMs: current.mtimeMs });
+});
+
+test("online-only files wait while available files sync, then join after download", async () => {
+  const s = await setup();
+  await s.write("online.txt", "Cloud document");
+  await s.write("available.txt", "Local document");
+  const result = await run(s, { unavailableFiles: async () => new Map([[join(s.root, "online.txt"), "online_only"]]) });
+  expect(result).toMatchObject({ uploaded: 1, pending: 1, skipped: [{ path: "online.txt", reason: "online_only" }] });
+  expect(s.remote.text("online.txt")).toBeUndefined();
+  expect(s.remote.text("available.txt")).toBe("Local document");
+  expect(s.base.map.has("online.txt")).toBe(false);
+  expect(await run(s, { unavailableFiles: async () => new Map() })).toMatchObject({ uploaded: 1, pending: 0 });
+  expect(s.remote.text("online.txt")).toBe("Cloud document");
+});
+
+test("a deferred placeholder preserves its base and remote changes until available", async () => {
+  const s = await setup();
+  await s.write("contract.txt", "Agreed content");
+  await run(s);
+  const agreed = s.base.map.get("contract.txt");
+  s.remote.put("contract.txt", "Changed remotely");
+  const held = await run(s, { unavailableFiles: async () => new Map([[join(s.root, "contract.txt"), "online_only"]]) });
+  expect(held).toMatchObject({ uploaded: 0, downloaded: 0, removedLocal: 0, removedRemote: 0, conflicts: [], pending: 1 });
+  expect(s.base.map.get("contract.txt")).toEqual(agreed);
+  expect(await s.read("contract.txt")).toBe("Agreed content");
+  expect(s.remote.text("contract.txt")).toBe("Changed remotely");
+  expect(await run(s, { unavailableFiles: async () => new Map() })).toMatchObject({ downloaded: 1, pending: 0 });
+  expect(await s.read("contract.txt")).toBe("Changed remotely");
+});
+
+test("an unchanged online-only file already agreed remotely stays settled", async () => {
+  const s = await setup();
+  await s.write("contract.txt", "Agreed content");
+  await run(s);
+  const result = await run(s, { unavailableFiles: async () => new Map([[join(s.root, "contract.txt"), "online_only"]]) });
+  expect(result).toMatchObject({ uploaded: 0, downloaded: 0, pending: 0, skipped: [] });
 });
 
 describe("syncProjectFiles", () => {

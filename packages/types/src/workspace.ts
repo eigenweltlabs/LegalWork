@@ -134,7 +134,7 @@ export type ProjectSyncConflict = {
 
 export type ProjectSyncSkipped = {
   path: string;
-  reason: "too_large" | "name_clash" | "failed";
+  reason: "too_large" | "name_clash" | "online_only" | "failed";
 };
 
 export type ProjectSyncStatus = {

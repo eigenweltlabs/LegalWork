@@ -1642,6 +1642,7 @@ export default {
   "project_sync.pending_other": "{count} changes waiting to be uploaded",
   "project_sync.skipped_too_large": "{path} is larger than 256 MB and does not sync.",
   "project_sync.skipped_name_clash": "{path} has the same name as another file apart from upper and lower case, and does not sync.",
+  "project_sync.skipped_online_only": "{path} is stored online. Download it with your cloud provider when you want to include it in project sharing.",
   "project_sync.skipped_failed": "{path} could not be synced. It will be tried again.",
   "project_sync.revoked_one": "You no longer have access, but {count} change on this computer did not reach your firm.",
   "project_sync.revoked_other": "You no longer have access, but {count} changes on this computer did not reach your firm.",
