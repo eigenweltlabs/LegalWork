@@ -516,7 +516,7 @@ function StorageFolder(props: FolderProps) {
           {children.data?.pages.some((page) => page.truncated) && <p role="status" style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p>}
           {children.isError && (
             <div style={{ paddingLeft: 25 + depth * 15 }} className="py-2 pr-2">
-              <StorageAccessError error={children.error} onConnectStorage={props.onConnectStorage}
+              <StorageAccessError error={children.error} provider={root.provider} onConnectStorage={props.onConnectStorage}
                 onRetry={() => void (children.hasNextPage ? children.fetchNextPage() : children.refetch())} />
             </div>
           )}

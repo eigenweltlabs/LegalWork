@@ -97,7 +97,7 @@ function ConnectionSearch({
       ) : null}
       {search.isError ? (
         <div className="px-2 py-2">
-          <StorageAccessError error={search.error} onConnectStorage={onConnectStorage}
+          <StorageAccessError error={search.error} provider={root.provider} onConnectStorage={onConnectStorage}
             onRetry={() => void (search.hasNextPage ? search.fetchNextPage() : search.refetch())} />
         </div>
       ) : null}
