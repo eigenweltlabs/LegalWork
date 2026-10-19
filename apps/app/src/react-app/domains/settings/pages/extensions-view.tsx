@@ -258,15 +258,18 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
 
         <HubScopeContext.Provider value="local">
-          <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
-            <div hidden={tab !== "plugins"}>{props.mcpView}</div>
-          </IntegrationLibraryLayoutContext.Provider>
+          <div hidden={tab !== "plugins"} className="space-y-1">
+            <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
+              {props.mcpView}
+            </IntegrationLibraryLayoutContext.Provider>
+
+            {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library searchQuery={pluginSearch} /> : null}
+          </div>
 
           {tab === "storage" ? props.storageView : null}
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library searchQuery={pluginSearch} /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>

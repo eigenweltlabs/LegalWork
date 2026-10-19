@@ -65,3 +65,9 @@ An expired or invalidated server review now triggers a fresh preview and one aut
 - Command: `pnpm --filter @legalwork/app exec bun test tests/plugin-import-refresh.test.ts tests/plugin-import-checks.test.tsx tests/plugin-import-readiness.test.ts tests/plugin-import-presentation.test.ts tests/plugin-import-buttons.test.tsx tests/integration-libraries.test.tsx tests/mcp-library.test.tsx tests/plugin-create-connector.test.tsx`.
 - Actual HTTP API reproduction for **both Claude and ChatGPT** in a disposable global library: advance the server clock sixteen minutes after preview, then invoke the same recovery function used by the dialog. The first install returns `connector_review_expired`; a new preview and second install succeed. Each installed record has exactly one history entry and one connector. No program is executed or provider contacted.
 - App type checks, production build, **6,825 translation keys in both languages** and `git diff --check` pass. The visible review design remains the compact screen above.
+
+## Combined library spacing follow-up
+
+The combined Plugins page retained a 24-pixel section gap between standalone connectors and plugin bundles, while rows inside each group used four pixels. Both renderers now share a four-pixel content wrapper. Verified the actual Kaneo → Discord → Desktop Import Qa rows in Electron and switched to Skills and back to confirm tab isolation. `pnpm --filter @legalwork/app exec bun test tests/plugin-import-buttons.test.tsx tests/integration-libraries.test.tsx tests/mcp-library.test.tsx` passes **40 tests**; app type checks and `git diff --check` pass. Updated the existing legacy-route assertion to allow styled containers while still requiring visible connectors.
+
+![Consistent connector and plugin row spacing](images/integration-library-row-spacing.png)
