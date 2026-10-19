@@ -928,6 +928,20 @@ export function SessionRoute() {
     },
     [local],
   );
+  // A development link reopens the actual Recorder onboarding without
+  // resetting workspaces, permissions, or the user's other preferences.
+  const recorderOnboardingOpened = useRef(false);
+  useEffect(() => {
+    if (!import.meta.env.DEV || recorderOnboardingOpened.current) return;
+    const search = new URLSearchParams(location.search);
+    if (search.get("onboarding") !== "recorder") return;
+    // Preferences and navigation settle separately. Claim the request before
+    // changing either so a preference render cannot replay the same request.
+    recorderOnboardingOpened.current = true;
+    setOnboardingStage("audio");
+    search.delete("onboarding");
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [location.pathname, location.search, location.hash, navigate, setOnboardingStage]);
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);

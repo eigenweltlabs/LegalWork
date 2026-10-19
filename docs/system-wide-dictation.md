@@ -10,6 +10,26 @@ If insertion is blocked, the transcript stays on the clipboard for manual
 paste and the bar shows the recovery message. Call and meeting recordings
 continue to use the normal retained history.
 
+## Recorder onboarding
+
+Recorder remains one main onboarding step. Its **Permissions** substep guides
+microphone and supported system-audio access, macOS keyboard monitoring,
+Accessibility and Automation, and a local speech model. Dictation permissions
+can be deferred, and a model download may continue in the background.
+
+Continue opens **Dictation & meetings** within the same step. Users explicitly
+enable Dictate Anywhere, record their shortcut inline, and try it in a test
+field or use **Try dictation** for the local microphone test. Finishing inserts
+only into that field; it never sends a chat message. Meeting detection has its
+own toggle and still only offers recording, rather than starting it. Existing
+settings are preserved; entering or leaving onboarding does not enable features.
+Missing permissions link back to the first substep. The final Continue moves
+to the existing AI setup step, leaving the main onboarding step count unchanged.
+
+For development, append `onboarding=recorder` to the session route's query to
+reopen the real flow. This affordance is disabled in production builds and
+does not reset workspaces, OS permissions, or other preferences.
+
 ## Dictating a chat message
 
 The microphone beside Send in Home and chat composers dictates into the current

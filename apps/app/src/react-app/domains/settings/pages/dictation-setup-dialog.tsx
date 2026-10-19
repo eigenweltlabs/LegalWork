@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Keyboard } from "lucide-react";
 
 import {
@@ -53,33 +53,93 @@ function acceleratorFromEvent(
   return [...modifiers, key].join("+");
 }
 
+export function DictationShortcutControl(props: { compact?: boolean; disabled?: boolean; demo?: boolean; onConfigured?: () => void }) {
+  const store = useRecorderStore();
+  const dictation = store.systemDictation;
+  const [saving, setSaving] = useState(false);
+  const [demoCapturing, setDemoCapturing] = useState(false);
+  const [demoAccelerator, setDemoAccelerator] = useState("Control+Shift+Space");
+  const capturing = props.demo ? demoCapturing : dictation?.shortcutCaptureActive === true;
+  const wasCapturing = useRef(false);
+  useEffect(() => {
+    if (wasCapturing.current && !capturing) props.onConfigured?.();
+    wasCapturing.current = capturing;
+  }, [capturing, props.onConfigured]);
+  useEffect(() => () => {
+    const recorder = useRecorderStore.getState();
+    if (!props.demo && recorder.systemDictation?.shortcutCaptureActive) void recorder.setSystemDictationShortcutCapture(false);
+  }, [props.demo]);
+  const stopCapture = async () => {
+    if (props.demo) setDemoCapturing(false);
+    else await store.setSystemDictationShortcutCapture(false);
+  };
+  return (
+    <button
+      type="button"
+      aria-label={t("recorder.dictation_hotkey_change")}
+      aria-pressed={capturing}
+      disabled={props.disabled || (!dictation && !props.demo) || saving}
+      className={cn(
+        "flex w-full items-center justify-center gap-3 rounded-xl border border-subtle bg-surface outline-none transition-colors",
+        props.compact ? "min-h-12 justify-between px-3 py-2" : "mt-4 min-h-40 flex-col px-6",
+        "hover:bg-sunken focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20",
+        capturing && "border-brand bg-brand/5",
+      )}
+      onClick={() => {
+        if (capturing) return;
+        if (props.demo) setDemoCapturing(true);
+        else void store.setSystemDictationShortcutCapture(true);
+      }}
+      onKeyDown={(event) => {
+        if (!capturing) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          void stopCapture();
+          return;
+        }
+        if (!props.demo && dictation?.supportsHold) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        const accelerator = acceleratorFromEvent(event, dictation?.platform ?? "darwin");
+        if (!accelerator) return;
+        if (props.demo) {
+          setDemoAccelerator(accelerator);
+          setDemoCapturing(false);
+          return;
+        }
+        setSaving(true);
+        void store
+          .setSystemDictationShortcut(accelerator)
+          .finally(() => stopCapture())
+          .finally(() => setSaving(false));
+      }}
+    >
+      <span className={props.compact ? "font-mono text-sm font-medium text-ink" : "grid min-h-14 min-w-14 place-items-center rounded-md border border-subtle bg-sunken px-3 font-mono text-lg font-medium text-ink shadow-sm"}>
+        {props.demo ? formatDictationShortcut(demoAccelerator, "darwin") : dictation ? formatDictationShortcut(dictation.accelerator, dictation.platform) : <Keyboard />}
+      </span>
+      <span className="text-sm text-subtext">
+        {saving
+          ? t("recorder.dictation_hotkey_saving")
+          : capturing
+            ? t("recorder.dictation_hotkey_listening")
+            : t("recorder.dictation_hotkey_change")}
+      </span>
+    </button>
+  );
+}
+
 export function DictationSetupDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const store = useRecorderStore();
-  const dictation = store.systemDictation;
-  const [saving, setSaving] = useState(false);
-  const capturing = dictation?.shortcutCaptureActive === true;
-
-  const stopCapture = async () => {
-    await store.setSystemDictationShortcutCapture(false);
-  };
-
-  useEffect(() => {
-    if (props.open) return;
-    if (capturing) void stopCapture();
-    // Capture cleanup follows the dialog boundary, not store changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.open]);
+  const dictation = useRecorderStore(state => state.systemDictation);
 
   return (
     <Dialog
       open={props.open}
-      onOpenChange={(open) => {
-        if (!open && capturing) void stopCapture();
-        props.onOpenChange(open);
-      }}
+      onOpenChange={props.onOpenChange}
     >
       <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[760px] gap-0 overflow-y-auto rounded-xl p-0 sm:max-w-[760px]">
         <DialogHeader className="items-center px-8 pb-6 pt-8 text-center">
@@ -93,50 +153,7 @@ export function DictationSetupDialog(props: {
           <div className="text-xs font-semibold uppercase text-subtext">
             {t("recorder.dictation_hotkey_label")}
           </div>
-          <button
-            type="button"
-            disabled={!dictation || saving}
-            className={cn(
-              "mt-4 flex min-h-40 w-full flex-col items-center justify-center gap-3 rounded-lg border border-subtle bg-surface px-6 outline-none transition-colors",
-              "hover:bg-sunken focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20",
-              capturing && "border-brand bg-brand/5",
-            )}
-            onClick={() => {
-              if (capturing) return;
-              void store.setSystemDictationShortcutCapture(true);
-            }}
-            onKeyDown={(event) => {
-              if (!capturing || !dictation) return;
-              if (event.key === "Escape") {
-                event.preventDefault();
-                void stopCapture();
-                return;
-              }
-              if (dictation.supportsHold) {
-                event.preventDefault();
-                event.stopPropagation();
-                return;
-              }
-              const accelerator = acceleratorFromEvent(event, dictation.platform);
-              if (!accelerator) return;
-              setSaving(true);
-              void store
-                .setSystemDictationShortcut(accelerator)
-                .finally(() => stopCapture())
-                .finally(() => setSaving(false));
-            }}
-          >
-            <span className="grid min-h-14 min-w-14 place-items-center rounded-md border border-subtle bg-sunken px-3 font-mono text-lg font-medium text-ink shadow-sm">
-              {dictation ? formatDictationShortcut(dictation.accelerator, dictation.platform) : <Keyboard />}
-            </span>
-            <span className="text-sm text-subtext">
-              {saving
-                ? t("recorder.dictation_hotkey_saving")
-                : capturing
-                  ? t("recorder.dictation_hotkey_listening")
-                  : t("recorder.dictation_hotkey_change")}
-            </span>
-          </button>
+          <DictationShortcutControl />
 
           <div className="mt-6 space-y-2 border-t border-subtle pt-5 text-sm text-subtext">
             {dictation?.supportsHold === false ? (

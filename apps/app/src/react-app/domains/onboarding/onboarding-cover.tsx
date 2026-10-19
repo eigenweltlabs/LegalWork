@@ -71,12 +71,13 @@ export function OnboardingCover(props: {
   footerLeft?: ReactNode;
   footerRight?: ReactNode;
   compact?: boolean;
+  wide?: boolean;
 }) {
   const hasFooter = Boolean(props.footerLeft || props.footerRight);
   return (
     <Page className="fixed inset-0 z-40 h-dvh overflow-y-auto bg-background">
       <PageTitlebarRegion />
-      <div className="mx-auto flex min-h-full w-full max-w-[448px] flex-col px-6 pb-6 pt-12 sm:pb-8">
+      <div className={`mx-auto flex min-h-full w-full ${props.wide ? "max-w-[720px]" : "max-w-[448px]"} flex-col px-6 pb-6 pt-12 sm:pb-8`}>
         <main className={`flex flex-1 flex-col justify-center ${props.compact ? "py-6" : "py-12"}`}>{props.children}</main>
         {hasFooter ? (
           <footer className="flex min-h-9 flex-wrap items-center justify-between gap-4">
