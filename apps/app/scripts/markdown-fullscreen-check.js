@@ -1,11 +1,12 @@
 // Import this check and pass a Playwright Page after opening
-// /session-preview.html?lang=en&platform=windows on the local server.
-// Add &tall-titlebar to check that fullscreen follows the normal window-bar height.
-// The fixture overlays the native caption-button area; only sample data is edited.
+// /session-preview.html?lang=en&platform=mac (or windows) on the local server.
+// On Windows, add &tall-titlebar to check the shared window-bar height.
+// The Windows fixture overlays the native caption-button area; only sample data is edited.
 export default async function checkMarkdownFullscreen(page) {
   if (!/^https?:\/\/(localhost|127\.0\.0\.1):\d+\/session-preview\.html\?/.test(await page.url())) {
     throw new Error("Open the local session preview before running this check.");
   }
+  const windows = new URL(await page.url()).searchParams.get("platform") === "windows";
   const file = page.getByRole("button", { name: "review-notes.md 4.7 KB", exact: true });
   if (!await file.isVisible()) await page.getByRole("button", { name: "Project Files", exact: true }).click();
   await file.click();
@@ -33,8 +34,8 @@ export default async function checkMarkdownFullscreen(page) {
   };
 
   await expand.click();
-  if (await exit.isVisible()) throw new Error("An extra exit button was added to the Windows layout.");
-  if (!await page.locator('[data-artifact-expanded="true"]').evaluate(frame => {
+  if (await exit.isVisible()) throw new Error("An extra exit button is visible in the expanded document.");
+  if (windows && !await page.locator('[data-artifact-expanded="true"]').evaluate(frame => {
     const windowFrame = frame.closest(".lw-window-frame");
     const bar = windowFrame?.querySelector(".lw-window-topbar");
     // The fixture adds a sample-data banner above the app; fullscreen remains viewport-relative.
