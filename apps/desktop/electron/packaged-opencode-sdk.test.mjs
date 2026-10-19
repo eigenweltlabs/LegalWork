@@ -1,19 +1,42 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
+import { parse } from "yaml";
 
-test("desktop packaging includes license texts for both bundled plugins and the SDK", async () => {
+test("packaging excludes stale Anthropic auth output while retaining API inference plugins", async () => {
+  const require = createRequire(import.meta.url);
+  const { FileMatcher } = createRequire(require.resolve("electron-builder"))("app-builder-lib/out/fileMatcher.js");
+  const config = parse(await readFile(new URL("../electron-builder.yml", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "retired-auth-package-"));
+  try {
+    const resource = config.extraResources.find((entry) => entry.to === "opencode-plugins");
+    const directory = join(root, resource.from);
+    await mkdir(directory, { recursive: true });
+    const inAsar = new FileMatcher(root, join(root, "asar"), (value) => value, config.files).createFilter();
+    const inResources = new FileMatcher(directory, join(root, "resources"), (value) => value, resource.filter).createFilter();
+    for (const name of ["legalwork-anthropic-auth", "legalwork-anthropic-adaptive-thinking", "legalwork-anthropic-tool-schema"]) {
+      const file = join(directory, `${name}.js`);
+      await writeFile(file, "export default {};\n");
+      const info = await stat(file);
+      assert.equal(inAsar(file, info), false, "plugins must stay outside the ASAR");
+      assert.equal(inResources(file, info), name !== "legalwork-anthropic-auth", name);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("desktop packaging includes license texts for the bundled browser plugin and SDK", async () => {
   const config = await readFile(new URL("../electron-builder.yml", import.meta.url), "utf8");
   assert.match(config, /- from: resources\/licenses\s+to: licenses/);
   const notices = await readFile(new URL("../resources/licenses/THIRD_PARTY_NOTICES.txt", import.meta.url), "utf8");
   const apache = await readFile(new URL("../resources/licenses/Apache-2.0.txt", import.meta.url), "utf8");
   const serverPackage = JSON.parse(await readFile(new URL("../../server/package.json", import.meta.url), "utf8"));
-  for (const name of ["opencode-chrome-devtools", "opencode-anthropic-auth", "@opencode-ai/plugin"])
+  for (const name of ["opencode-chrome-devtools", "@opencode-ai/plugin"])
     assert.ok(notices.includes(`${name} ${serverPackage.devDependencies[name]}`), `License notice needs ${name}'s pinned version`);
-  for (const notice of ["Copyright (c) 2025 SST", "Copyright (c) 2025 opencode", "Copyright (c) 2024 SST", "Copyright (c) 2018 Filip Skokan", "Copyright (c) 2025 Colin McDonnell", "Copyright (c) 2011 Einar Otto Stangvik", "kubernetes-types 1.30.0"])
+  for (const notice of ["Copyright (c) 2025 opencode", "Copyright (c) 2025 Colin McDonnell", "Copyright (c) 2011 Einar Otto Stangvik", "kubernetes-types 1.30.0"])
     assert.ok(notices.includes(notice), `Missing bundled dependency attribution: ${notice}`);
   assert.match(apache, /Apache License/);
   assert.match(apache, /END OF TERMS AND CONDITIONS/);

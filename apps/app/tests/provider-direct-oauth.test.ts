@@ -1,37 +1,57 @@
 import { describe, expect, test } from "bun:test";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
+import { supportedProviderAuthMethods } from "../src/react-app/domains/connections/provider-auth/methods";
 
-function providerStore(workerType: "local" | "remote" = "local", fail = false) {
+function providerStore(workerType: "local" | "remote" = "local", fail = false, advertiseAnthropic = true) {
   const authorizedMethods: number[] = [];
+  const authorizedProviders: string[] = [];
+  const requests: string[] = [];
+  const savedKeys: unknown[] = [];
   const client = createOpencodeClient({ baseUrl: "https://provider-preview.invalid", fetch: async request => {
     const url = new URL(request.url);
+    requests.push(url.pathname);
     if (url.pathname === "/provider/auth") return Response.json(fail ? { message: "Unavailable" } : {
       openai: [
         { type: "api", label: "API key" },
         { type: "oauth", label: "ChatGPT Plus/Pro (headless)" },
         { type: "oauth", label: "ChatGPT Plus/Pro (browser)" },
       ],
+      google: [{ type: "oauth", label: "Google sign-in" }],
+      ...(advertiseAnthropic ? { anthropic: [
+        { type: "oauth", label: "Claude Pro/Max" },
+        { type: "oauth", label: "Create an API Key" },
+      ] } : {}),
     }, { status: fail ? 503 : 200 });
-    if (url.pathname === "/provider/openai/oauth/authorize") {
+    if (/^\/provider\/[^/]+\/oauth\/authorize$/.test(url.pathname)) {
       const body: unknown = await request.json();
       if (typeof body !== "object" || body === null || !("method" in body) || typeof body.method !== "number") throw new Error("Invalid OAuth method");
       authorizedMethods.push(body.method);
+      authorizedProviders.push(url.pathname.split("/")[2]!);
       return Response.json({ url: "https://auth.openai.com/preview", method: "auto", instructions: "Preview only" });
     }
+    if (url.pathname === "/auth/anthropic" && request.method === "PUT") {
+      savedKeys.push(await request.json());
+      return Response.json(true);
+    }
+    if (url.pathname === "/instance/dispose") return Response.json(true);
+    if (url.pathname === "/global/health") return Response.json({ healthy: true });
+    if (url.pathname === "/config") return Response.json({});
+    if (url.pathname === "/provider") return Response.json({ all: [], connected: ["anthropic"], default: {} });
     throw new Error(`Unexpected provider request: ${url.pathname}`);
   } });
   const store = createProviderAuthStore({
     client: () => client,
     baseUrl: () => "https://provider-preview.invalid",
-    providers: () => [], providerDefaults: () => ({}), providerConnectedIds: () => [], disabledProviders: () => [],
+    providers: () => [{ id: "anthropic", name: "Anthropic", env: [], source: "api", options: {}, models: {} }],
+    providerDefaults: () => ({}), providerConnectedIds: () => [], disabledProviders: () => [],
     selectedWorkspaceDisplay: () => ({ id: "preview", name: "Preview", path: "/preview", preset: "local", workspaceType: workerType }),
     selectedWorkspaceRoot: () => "/preview", runtimeWorkspaceId: () => null,
     legalworkServer: { getSnapshot: () => ({ legalworkServerStatus: "disconnected", legalworkServerClient: null, legalworkServerCapabilities: null }) },
     setProviders: () => {}, setProviderDefaults: () => {}, setProviderConnectedIds: () => {}, setDisabledProviders: () => {},
     markOpencodeConfigReloadRequired: () => {},
   });
-  return { store, authorizedMethods };
+  return { store, authorizedMethods, authorizedProviders, requests, savedKeys };
 }
 
 describe("direct subscription OAuth", () => {
@@ -64,5 +84,49 @@ describe("direct subscription OAuth", () => {
     expect(store.getSnapshot().providerAuthStartOAuth).toBe(false);
     expect(store.getSnapshot().providerAuthPreferredProviderId).toBeNull();
     expect(store.getSnapshot().providerAuthModalOpen).toBe(false);
+  });
+});
+
+describe("Anthropic uses a manually entered API key", () => {
+  for (const worker of ["local", "remote"] satisfies Array<"local" | "remote">) {
+    test(`discards both retired OAuth methods for ${worker}, including stale direct intents`, async () => {
+      const { store, requests } = providerStore(worker);
+      await store.openProviderAuthModal({ preferredProviderId: "anthropic", startOAuth: true });
+      expect(store.getSnapshot().providerAuthStartOAuth).toBe(false);
+      expect(store.getSnapshot().providerAuthMethods.anthropic).toEqual([{ type: "api", label: "API key" }]);
+      for (const method of [0, 1]) {
+        await expect(store.startProviderAuth("anthropic", method)).rejects.toThrow("Anthropic API key");
+        await expect(store.completeProviderAuthOAuth("anthropic", method, "stale-code")).rejects.toThrow("Anthropic API key");
+      }
+      expect(requests.filter(path => path.includes("/oauth/"))).toEqual([]);
+    });
+  }
+
+  test("keeps manual entry available when the engine has no Anthropic auth plugin", async () => {
+    const { store } = providerStore("local", false, false);
+    await store.openProviderAuthModal({ preferredProviderId: "anthropic" });
+    expect(store.getSnapshot().providerAuthMethods.anthropic).toEqual([{ type: "api", label: "API key" }]);
+  });
+
+  test("the modal's method boundary also discards stale raw engine methods", () => {
+    expect(supportedProviderAuthMethods(" Anthropic ", [
+      { type: "oauth", label: "Claude Pro/Max", methodIndex: 0 },
+      { type: "oauth", label: "Create an API Key", methodIndex: 1 },
+    ])).toEqual([{ type: "api", label: "API key" }]);
+  });
+
+  test("stores the manually entered Anthropic key without starting OAuth", async () => {
+    const { store, savedKeys, requests } = providerStore();
+    await store.submitProviderApiKey("anthropic", "  synthetic-anthropic-key  ");
+    expect(savedKeys).toEqual([{ type: "api", key: "synthetic-anthropic-key" }]);
+    expect(requests.filter(path => path.includes("/oauth/"))).toEqual([]);
+  });
+
+  test("other providers retain their OAuth method and original index", async () => {
+    const { store, authorizedMethods, authorizedProviders } = providerStore();
+    await store.openProviderAuthModal();
+    await store.startProviderAuth("google", 0);
+    expect(authorizedProviders).toEqual(["google"]);
+    expect(authorizedMethods).toEqual([0]);
   });
 });

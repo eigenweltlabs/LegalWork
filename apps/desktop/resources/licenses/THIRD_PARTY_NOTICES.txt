@@ -1,13 +1,13 @@
 Third-party notices for the bundled OpenCode runtime dependencies
 
-This notice covers the default browser and Anthropic authentication plugin bundles,
-and the OpenCode plugin SDK staged by prepare-opencode-sdk.mjs. Package versions
+This notice covers the default browser plugin bundle and the OpenCode plugin SDK
+staged by prepare-opencode-sdk.mjs. Package versions
 are pinned in apps/server/package.json and pnpm-lock.yaml.
 
 The SDK is shipped as complete package directories under opencode-sdk/node_modules.
 All license and notice files present in those published packages are retained.
 The texts below also cover packages whose published archives omit a license file,
-and dependencies incorporated into the two standalone plugin JavaScript bundles.
+and dependencies incorporated into the standalone browser plugin JavaScript bundle.
 
 Apache-2.0.txt alongside this file is the full Apache License, Version 2.0.
 
@@ -42,33 +42,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-opencode-anthropic-auth 0.0.13
-==============================
-Source: https://www.npmjs.com/package/opencode-anthropic-auth/v/0.0.13
-
-MIT License
-
-Copyright (c) 2025 SST
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
 @opencode-ai/plugin 1.18.29 and @opencode-ai/sdk 1.18.29
 ========================================================
 Source: https://github.com/anomalyco/opencode/tree/v1.18.29
@@ -77,61 +50,6 @@ License: https://github.com/anomalyco/opencode/blob/v1.18.29/LICENSE
 MIT License
 
 Copyright (c) 2025 opencode
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-@openauthjs/openauth 0.4.3
-==========================
-Source: https://github.com/sst/openauth/tree/a4982f652de49ffc21fbf3fbdfd89e26b2f6a402
-License: https://github.com/sst/openauth/blob/a4982f652de49ffc21fbf3fbdfd89e26b2f6a402/LICENSE
-
-MIT License
-
-Copyright (c) 2024 SST
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-jose 5.9.6
-==========
-Source: https://github.com/panva/jose/tree/v5.9.6
-
-The MIT License (MIT)
-
-Copyright (c) 2018 Filip Skokan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

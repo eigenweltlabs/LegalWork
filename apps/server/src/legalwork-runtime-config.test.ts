@@ -126,9 +126,10 @@ describe("legalwork runtime config file", () => {
     expect(parsed.default_agent).toBe("legalwork");
     expect(Array.isArray(parsed.plugin)).toBe(true);
     expect(JSON.stringify(parsed.plugin)).not.toContain("legalwork-document-tools");
-    // The Anthropic auth plugin must be wired so "Sign in with Anthropic"
-    // (Claude Pro/Max + Console API-key OAuth) methods are offered by the engine.
-    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-anthropic-auth");
+    // Direct Anthropic access uses the engine's manual API-key authentication.
+    expect(JSON.stringify(parsed.plugin)).not.toContain("anthropic-auth");
+    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-anthropic-adaptive-thinking");
+    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-anthropic-tool-schema");
     expect((parsed.plugin as string[]).every((plugin) => plugin.startsWith("file://"))).toBe(true);
     // No server-injected provider blocks: the engine treats any config-defined
     // provider as always-connected, so the eigenwelt provider only exists when

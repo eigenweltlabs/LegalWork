@@ -5847,8 +5847,7 @@ const de = {
     "„Stabil“ erhält vollständig getestete Releases. „Alpha“ enthält die neuesten Änderungen, kann aber weniger ausgereift sein (nur macOS).",
   "workspace.live_logs": "Live-Protokoll",
   "workspace.docker_debug_details": "Docker-Debugdetails",
-  "providers.claude_consumer_terms":
-    "Die Anmeldung mit Claude Pro/Max nutzt Ihr pers\u00f6nliches Claude-Abonnement. Anthropics Verbraucherbedingungen beschr\u00e4nken dieses OAuth auf Claude Code und claude.ai; eine Nutzung durch Dritte kann gegen diese Bedingungen versto\u00dfen und ohne Vorank\u00fcndigung blockiert werden. F\u00fcr verl\u00e4sslichen, zul\u00e4ssigen Zugang nutzen Sie \u201eAPI-Schl\u00fcssel erstellen\u201c oder hinterlegen Sie einen Anthropic-API-Schl\u00fcssel.",
+  "providers.anthropic_api_key_hint": "Geben Sie Ihren Anthropic-API-Schlüssel ein.",
   "providers.connect_subtitle":
     "Melden Sie sich bei Diensten an oder nutzen Sie Provider, die Ihre Organisation verwaltet.",
   "providers.loading": "Provider werden geladen…",
@@ -5969,8 +5968,6 @@ const de = {
   "providers.verifying_code": "Autorisierungscode wird geprüft…",
   "providers.waiting_oauth": "Warten auf die OAuth-Bestätigung…",
   "providers.opening_auth": "Authentifizierung wird geöffnet…",
-  "providers.claude_signin_hint":
-    "Melden Sie sich mit Ihrem Claude-Pro/Max-Abonnement an. Beachten Sie den Hinweis oben: Die Nutzung durch Dritte kann gegen die Bedingungen von Anthropic verstoßen.",
   "providers.browser_continue_hint":
     "Fahren Sie im Browser fort, LegalWork schließt die Verbindung automatisch ab.",
   "providers.zen_signin_hint":

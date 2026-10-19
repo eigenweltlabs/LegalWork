@@ -5507,8 +5507,7 @@ export default {
     "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only).",
   "workspace.live_logs": "Live logs",
   "workspace.docker_debug_details": "Docker debug details",
-  "providers.claude_consumer_terms":
-    "Claude Pro/Max sign-in uses your personal Claude subscription. Anthropic's Consumer Terms limit this OAuth to Claude Code and claude.ai, so third-party use may violate those terms and can be blocked without notice. For reliable, permitted access, use \u201cCreate an API Key\u201d or enter an Anthropic API key instead.",
+  "providers.anthropic_api_key_hint": "Enter your Anthropic API key.",
   "providers.connect_subtitle": "Sign in to services or use providers managed by your organization.",
   "providers.loading": "Loading providers…",
   "providers.keyboard_hint": "Arrow keys to navigate, Enter to select.",
@@ -5625,8 +5624,6 @@ export default {
   "providers.verifying_code": "Verifying authorization code...",
   "providers.waiting_oauth": "Waiting for OAuth confirmation...",
   "providers.opening_auth": "Opening authentication...",
-  "providers.claude_signin_hint":
-    "Sign in with your Claude Pro/Max subscription. See the warning above, third-party subscription use may violate Anthropic's terms.",
   "providers.browser_continue_hint":
     "Continue in the browser and let LegalWork finish the connection automatically.",
   "providers.zen_signin_hint":
