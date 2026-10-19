@@ -387,13 +387,17 @@ test("creation API requires the owner, rejects duplicate names and makes the bun
   try {
     expect((await fetch(`${base}/workflow-plugins/options`, { headers })).status).toBe(401);
     expect((await fetch(`${base}/workflow-plugins/options`, { headers: owner })).status).toBe(200);
-    const create = (body: typeof payload, auth: Record<string, string> = owner) => fetch(`${base}/workflow-plugins`, { method: "POST", headers: auth, body: JSON.stringify(body) });
+    const create = (body: import("@legalwork/types/plugin-import").PluginCreateRequest, auth: Record<string, string> = owner) => fetch(`${base}/workflow-plugins`, { method: "POST", headers: auth, body: JSON.stringify(body) });
     expect((await create(payload, headers)).status).toBe(401);
     const simultaneous = await Promise.all([create(payload), create({ ...payload, name: "Claims Toolkit" })]);
     expect(simultaneous.map(response => response.status).sort()).toEqual([200, 409]);
     const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[createdPluginId(payload.name)]!;
     const listing = await fetch(`http://127.0.0.1:${server.port}/workspace/second/cloud-plugins`, { headers });
     expect(await listing.text()).toContain(installed.pluginId);
+    const custom = { name: "New MCP", skills: [], connectors: [], newConnector: { type: "remote", url: "https://example.invalid/mcp", oauth: false } } satisfies import("@legalwork/types/plugin-import").PluginCreateRequest;
+    expect((await create(custom, headers)).status).toBe(401);
+    expect((await create(custom)).status).toBe(200);
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[createdPluginId(custom.name)]?.files.some(file => file.objectType === "mcp")).toBe(true);
     config.readOnly = true;
     expect((await create({ ...payload, name: "Read only" })).status).toBe(403);
     expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[createdPluginId("Read only")]).toBeUndefined();
@@ -442,3 +446,41 @@ test("import API previews, enforces ownership, rejects stale sources and manages
     expect((await fetch(`${base}/plugin-imports/install`, { method: "POST", headers, body: JSON.stringify({ ...zippedPayload, root: project.items[0].root, digest: project.items[0].digest }) })).status).toBe(200);
   } finally { await server.stop(); engine.stop(true); }
 }), 30000);
+
+
+test("new connector-only plugins persist URL authentication without requiring a skill", async () => temp(async (root, config) => {
+  for (const [name, oauth, headers] of [
+    ["OAuth plugin", { clientId: "client", clientSecret: "synthetic-secret" }, {}],
+    ["Key plugin", false, { Authorization: "Bearer synthetic-key", "X-Tenant": "example" }],
+  ] satisfies Array<[string, false | { clientId: string; clientSecret: string }, Record<string, string>]>) {
+    const plan = await planPluginCreation(config, root, parsePluginCreateRequest({ name, skills: [], connectors: [], newConnector: { type: "remote", url: "https://example.invalid/mcp", oauth, headers } }));
+    expect(plan.preview.components.map(item => item.type)).toEqual(["mcp"]);
+    expect(JSON.stringify(plan.preview)).not.toContain("synthetic-secret");
+    expect(JSON.stringify(plan.preview)).not.toContain("synthetic-key");
+    await installPluginImport(config, "test", root, plan, true);
+    const installed = plan.preview.components[0]!;
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installed.installedName]).toMatchObject({ type: "remote", url: "https://example.invalid/mcp", oauth, ...(Object.keys(headers).length ? { headers } : {}), enabled: true });
+  }
+}));
+
+test("new local plugin retains exact arguments, credentials and optional skill copies", async () => temp(async (root, config) => {
+  await writeFixture(globalSkillsDir(), { "review/SKILL.md": "---\nname: review\ndescription: Review\n---\nReview." });
+  const connection = { type: "local", command: ["/path with spaces/server", "--name", "a b"], environment: { API_KEY: "synthetic-secret", EMPTY: "" } };
+  const plan = await planPluginCreation(config, root, parsePluginCreateRequest({ name: "Local review", skills: ["review"], connectors: [], newConnector: connection }));
+  expect(plan.preview.components.map(item => item.type).sort()).toEqual(["mcp", "skill"]);
+  await installPluginImport(config, "test", root, plan, true);
+  const connector = plan.preview.components.find(item => item.type === "mcp")!;
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[connector.installedName]).toMatchObject({ ...connection, enabled: true });
+}));
+
+test("new MCP definitions reject invalid transport, credentials in URLs and malformed commands", () => {
+  for (const newConnector of [
+    { type: "remote", url: "file:///private/file", oauth: false },
+    { type: "remote", url: "https://user:password@example.com", oauth: false },
+    { type: "remote", url: "https://example.com", oauth: false, headers: { Host: "elsewhere" } },
+    { type: "remote", url: "https://example.com", oauth: false, headers: { "X-Key": "one\r\ntwo" } },
+    { type: "local", command: [] },
+    { type: "local", command: [" "] },
+    { type: "local", command: ["node"], environment: { "BAD=KEY": "value" } },
+  ]) expect(() => parsePluginCreateRequest({ name: "Invalid", skills: [], connectors: [], newConnector })).toThrow();
+});
