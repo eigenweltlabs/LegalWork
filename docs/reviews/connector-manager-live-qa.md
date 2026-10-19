@@ -33,6 +33,8 @@ multi-connector completion after token rotation, concurrent logout, unreadable
 vaults, provider/client mismatch, name collisions, and another profile trying to
 adopt a restored old grant. LegalMemory appliance features share the new token
 owner rather than reading retired credentials from the old file.
+An unreadable legacy file is preserved and transfer is deferred; it does not
+prevent the app from starting and offering a fresh sign-in.
 
 - Focused server/runtime/storage/appliance checks: **291 passed, 5 skipped**,
   1,614 assertions across 24 files.

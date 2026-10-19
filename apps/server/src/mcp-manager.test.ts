@@ -657,10 +657,10 @@ describe("legacy MCP credential handover", () => {
     expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual(f.source);
   });
 
-  test("a corrupt old file is preserved and prevents a destructive upgrade", async () => {
+  test("a corrupt old file defers transfer and is preserved without blocking startup", async () => {
     const f = await legacyFixture();
     await writeFile(f.authPath, "{broken");
-    await expect(migrateLegacyMcpOAuth(f.config, f.options)).rejects.toMatchObject({ code: "mcp_migration_unreadable" });
+    expect(await migrateLegacyMcpOAuth(f.config, f.options)).toEqual({ migrated: [], deferred: true });
     expect(await readFile(f.authPath, "utf8")).toBe("{broken");
     expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
   });

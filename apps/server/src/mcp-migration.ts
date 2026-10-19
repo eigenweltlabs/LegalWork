@@ -79,10 +79,12 @@ export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
   const eligible = [...candidates.values()].some(records => records.size === 1 && [...records.values()].some(record => !record.tokens && !record.reconnectRequired && !record.legacyMigration));
   if (!eligible) return { migrated: [], deferred: false };
   const inputPath = resolve(options.authPath ?? legacyMcpAuthPath());
-  const path = await realpath(inputPath).catch(error => { if (absent(error)) return inputPath; throw error; });
+  const path = await realpath(inputPath).catch(error => absent(error) ? inputPath : undefined);
+  if (!path) return { migrated: [], deferred: true };
   const vault = new OAuthVault(oauthVaultPath(config));
   const journalKey = `managed-mcp-migration:${digest(path)}`;
-  const source = await readSource(path);
+  const source = await readSource(path).catch(() => undefined);
+  if (!source) return { migrated: [], deferred: true };
   const journal = await vault.getEntry(journalKey, journalSchema) ?? { version: 1, entries: {} };
   const resumable = new Set(Object.keys(journal.entries));
   const claimed = new Set(manager.store.all().flatMap(record => record.tokens?.refresh_token ? [record.tokens.refresh_token] : []));
