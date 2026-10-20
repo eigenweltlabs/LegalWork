@@ -62,6 +62,11 @@ The full app suite has three Lexical initialization errors in
 `markdown-block-editor`, `wiki-editor-outline` and `wiki-title-editor`; the same
 three files fail on an untouched `dev` checkout with the same dependencies.
 The server streaming-error test in `serve-node.test.ts` also fails on untouched
-`dev`. The wiki graph polling test failed once during the first combined run and
-passed on its isolated retry. These are recorded separately from the passing
-Assistant tests and build checks; this branch split is not a release sign-off.
+`dev`. The wiki graph polling test fails in combined runs and passes in isolation;
+its implementation and test are unchanged from `dev`.
+
+Final results: app 1,653 passed / 3 initialization errors; server 2,437 passed /
+71 skipped / 2 failed as described above. Both production builds, both typechecks,
+i18n completeness, 8 desktop notification/recorder tests, and the focused Assistant
+and browser-policy checks pass. The built server CLI also starts under Node.
+These are recorded separately; this branch split is not a release sign-off.
