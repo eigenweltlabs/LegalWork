@@ -737,6 +737,8 @@ export function createConnectionsStore(options: {
       } else if (outcome === "connected") {
         setStateField("mcpStatus", t("mcp.connected"));
         captureAnalyticsEvent("integration_connected", {});
+      } else if (outcome === "pending" && snapshot.mcpStatuses[slug]?.status === "connecting") {
+        setStateField("mcpStatus", t("mcp.connecting"));
       } else {
         const status = snapshot.mcpStatuses[slug];
         throw engineStatusError ?? new Error(
@@ -748,7 +750,7 @@ export function createConnectionsStore(options: {
         );
       }
 
-      finishPerf(options.developerMode(), "mcp.connect", outcome === "auth" ? "awaiting-auth" : "done", startedAt, {
+      finishPerf(options.developerMode(), "mcp.connect", outcome === "auth" ? "awaiting-auth" : outcome === "pending" ? "connecting" : "done", startedAt, {
         name: entry.name,
         type: entryType,
         slug,

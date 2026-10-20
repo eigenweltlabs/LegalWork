@@ -30,6 +30,7 @@ export function mcpConnectOutcome(
   status: McpStatus | undefined,
   hasHeaders: boolean,
 ): McpConnectOutcome {
+  if (status?.status === "connecting") return "pending";
   // Static headers usually mean a token-authed server that must not start OAuth,
   // unless the entry asks for OAuth explicitly: then the headers ride along.
   const credentialHeaders = hasHeaders && (!entry.headers || Object.keys(entry.headers).some(isCredentialHeader));

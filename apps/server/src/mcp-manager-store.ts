@@ -24,6 +24,7 @@ const recordSchema = z.object({
   issuer: z.string().url().optional(), requiredScope: z.string().optional(),
   configurationHash: z.string().optional(),
   legacyMigration: z.string().optional(),
+  legacyHandoffPending: z.boolean().optional(),
 });
 export type ManagedMcpRecord = z.infer<typeof recordSchema>;
 const recordsSchema = z.record(z.string(), recordSchema);

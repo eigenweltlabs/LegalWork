@@ -361,6 +361,7 @@ export type McpServerEntry = {
 
 export type McpStatus =
   | { status: "connected" }
+  | { status: "connecting"; message?: string }
   | { status: "disabled" }
   | { status: "failed"; error: string }
   | { status: "needs_auth" }

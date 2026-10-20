@@ -3166,6 +3166,7 @@ const de = {
   "mcp.friendly_status_issue": "Problem",
   "mcp.friendly_status_needs_signin": "Anmeldung erforderlich",
   "mcp.friendly_status_offline": "Offline",
+  "mcp.connecting": "Verbindung wird hergestellt…",
   "mcp.friendly_status_paused": "Pausiert",
   "mcp.friendly_status_ready": "Bereit",
   "mcp.login_action": "Anmelden",

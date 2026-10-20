@@ -118,11 +118,15 @@ connection generation, and PKCE. A pending sign-in survives engine rebuilds.
 
 Managed desktop/server startup transfers existing custom OAuth MCP grants before
 starting its new engine. The desktop first stops its previous managed runtime.
-The importer then checks for other OpenCode processes; when ownership is unclear,
-it leaves the old grant untouched. The connector reports that its saved sign-in
+The importer compares other OpenCode processes’ credential-store paths with the
+legacy source. Engines using another store do not block migration. If inspection
+is denied or ownership is unclear, it leaves the old grant untouched. The connector reports that its saved sign-in
 is waiting, rather than requesting a replacement login. Startup retries every
-ten seconds after those processes close; only the exact new gateway engine PID
-is excluded from that ownership check. Recoverable transfer errors leave the
+ten seconds after conflicting processes close; only the exact new gateway engine
+PID is excluded without inspection. macOS uses a bundled native helper, Linux
+reads `/proc`, and Windows reads the process environment through Win32. Only
+HOME/USERPROFILE and XDG_DATA_HOME path variables leave those readers; command
+lines and other environment values are not returned. Recoverable transfer errors leave the
 app usable and are retried. Externally attached engines are not automatically
 taken over.
 
@@ -139,10 +143,20 @@ the same manager and refresh queue as agent tools.
 
 Recovery copies go into the existing OAuth vault under a migration entry. After
 that write, a secret-free SQLite handoff registry beside `mcp-auth.json` records
-the owning vault and connection. Only matching source entries are then removed,
-with an atomic mode-0600 replacement; unrelated entries are preserved. The new
-manager adopts the grant through its connection queue, checking its generation
-again so a concurrent login, logout or configuration change wins.
+the owning vault and connection. The destination grant is saved as staged in
+the same encrypted vault before retiring any source entry. A staged grant cannot
+authorize tools, refresh tokens or start another sign-in, including after restart.
+Only then is the matching source entry removed with an atomic mode-0600
+replacement; unrelated entries and the connector configuration are preserved.
+Activation runs through the same connection queue, checking its generation so a
+concurrent login, logout or configuration change wins. Vault file writes flush
+before returning.
+
+A failure before retirement leaves the source credentials in place. If retirement
+has already succeeded but activation fails, the staged destination and encrypted
+recovery copy resume the handover on retry; old credentials are not restored or
+replayed. Migration and active transport recovery report a neutral connecting
+state; a completed but unsuccessful reconnect still exposes its actual error.
 
 An interrupted handover resumes from the encrypted recovery copy. A connection
 marker prevents an old backup from replacing tokens already rotated by the new

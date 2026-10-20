@@ -293,6 +293,18 @@ describe("connection store success reporting", () => {
     } finally { finishStatus(); await oldRefresh; store.dispose(); }
   });
 
+  test("a saved connection waiting for migration stays pending without a false failure or sign-in", async () => {
+    status = { "test-server": { status: "connecting", message: "Transferring saved sign-in" } };
+    const store = makeStore();
+    try {
+      expect(await store.connectMcp({ ...entry, oauth: true })).toBe(true);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+      expect(store.getSnapshot().mcpStatus).toBe("Connecting…");
+      expect(connectedEvents()).toHaveLength(0);
+      expect(serverAdds).toHaveLength(1);
+    } finally { store.dispose(); }
+  });
+
   test("OAuth waits for verified completion, emits once, and retains the final success message", async () => {
     const store = makeStore();
     expect(await store.connectMcp({ ...entry, oauth: true })).toBe(true);
@@ -527,4 +539,9 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
     expect(connectedEvents()).toHaveLength(0);
   });
+});
+
+
+test("migration and automatic reconnect wait without starting another OAuth sign-in", () => {
+  expect(mcpConnectOutcome({ name: "Saved connector", description: "", type: "remote", oauth: true }, { status: "connecting", message: "Transferring saved sign-in" }, false)).toBe("pending");
 });

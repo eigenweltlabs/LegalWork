@@ -1,5 +1,40 @@
 # Connector manager: migration, protocol and platform QA
 
+## Migration hardening — 20 October 2026
+
+The branch includes `dev` through `fb40b3ad`. Migration ownership now compares the
+actual legacy credential path, preserving the conservative wait when inspection
+fails. Native process tests cover an engine using the same store, another store,
+paths containing spaces, symlink aliases and process exit. The macOS path reader
+is built and shipped as `helpers/LegalWorkProcessInfo`; the packaged startup probe
+also executes it and verifies its output contains only selected path variables.
+
+The destination grant is persisted as staged before retiring the source. Staged
+grants stay unusable across restart until retirement and activation complete.
+Fault tests cover destination write failure, retirement failure, interruption
+after staging, activation failure after retirement, partial multi-connector
+completion, cross-profile claims and concurrent logout. Connector configuration
+is never deleted by credential migration. The original entry remains when
+staging or retirement fails. After retirement, recovery uses the existing vault,
+without restoring potentially stale credentials into the old store.
+
+Migration and in-flight transport recovery now return `connecting`. The UI waits
+without launching another OAuth flow, emitting connected analytics or reporting
+a false failure. A failed completed reconnect is still shown as failed during
+its retry cooldown.
+
+A manual upgrade using the same isolated Electron profile migrated existing
+Linear, Kaneo and Fibery grants without another sign-in. Read tools succeeded
+through the gateway in two projects, both before and after a normal restart
+(twelve actual tool calls). The built-in Gmail account test passed and its vault
+entry remained unchanged. This was direct tool coverage, not an LLM-agent run.
+
+The first full macOS server run after hardening passed **2,462 tests**, with
+72 skipped and zero failures (23,251 assertions). The final expanded suite,
+packaged desktop checks and new Windows VM run are recorded in the PR’s current
+validation report after completion; do not infer those results from older runs
+below.
+
 ## Current protocol revision — 20 October 2026
 
 The manager and gateway use official TypeScript SDK 2.3.1 and MCP 2026-07-28;

@@ -2,7 +2,7 @@ import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { copyFile, mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,7 +16,7 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { connectorVault } from "./connectors/store.js";
 import { McpManagerStore } from "./mcp-manager-store.js";
-import { hasOpencodeProcess, migrateLegacyMcpOAuth, startLegacyMcpMigrationRetry, legacyMcpQuiescent } from "./mcp-migration.js";
+import { hasOpencodeProcess, migrateLegacyMcpOAuth, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
 import { engineAccessToken } from "./legalmemory-fetch.js";
 import type { ServerConfig } from "./types.js";
 
@@ -611,7 +611,7 @@ describe("legacy MCP credential handover", () => {
     let available = false;
     const original = await readFile(f.authPath);
     expect((await migrateLegacyMcpOAuth(f.config, { ...f.options, quiescent: async () => available })).deferred).toBe(true);
-    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", error: expect.stringContaining("retry automatically") });
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "connecting", message: expect.stringContaining("retry automatically") });
     await expect(f.connect()).rejects.toThrow("waiting to be transferred");
     await expect(f.manager.startAuthorization("ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
     expect(await readFile(f.authPath)).toEqual(original);
@@ -677,12 +677,12 @@ describe("legacy MCP credential handover", () => {
     expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
   });
 
-  test("a crash after source retirement resumes from the encrypted backup", async () => {
+  test("a failed destination write preserves the original grant and retries after restart", async () => {
     const f = await legacyFixture();
     const write = spyOn(f.manager.store, "put").mockRejectedValueOnce(new Error("simulated process exit"));
     try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
     finally { write.mockRestore(); }
-    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual(f.source);
     expect(f.manager.store.all()[0]?.tokens).toBeUndefined();
     await stopMcpManager(f.config);
     const restarted = initializeMcpManager(f.config); await restarted.reconcile();
@@ -692,7 +692,61 @@ describe("legacy MCP credential handover", () => {
     expect((await f.stats()).authorizationGrants).toBe(1);
   });
 
-  test("logout after source retirement wins over the pending credential handover", async () => {
+  test.each(["staging", "activation"])("an interrupted %s keeps credentials gated and resumes after restart", async phase => {
+    const f = await legacyFixture();
+    const put = f.manager.store.put.bind(f.manager.store);
+    const write = spyOn(f.manager.store, "put").mockImplementation(async record => {
+      if (phase === "staging") { await put(record); throw new Error("exit after staging"); }
+      if (!record.legacyHandoffPending) throw new Error("activation write failed");
+      await put(record);
+    });
+    try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
+    finally { write.mockRestore(); }
+    expect(f.manager.store.all()[0]?.legacyHandoffPending).toBe(true);
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual(phase === "staging" ? f.source : { unrelated: f.source.unrelated });
+    await expect(engineAccessToken(f.config, "ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
+    await expect(f.manager.startAuthorization("ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
+    await stopMcpManager(f.config);
+    const restarted = initializeMcpManager(f.config); await restarted.reconcile();
+    expect(await restarted.status("ws_a", name)).toMatchObject({ status: "connecting" });
+    await expect(engineAccessToken(f.config, "ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+    expect(restarted.store.all()[0]?.legacyHandoffPending).toBeUndefined();
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+    expect((await restarted.client(restarted.store.all()[0]!)).getServerCapabilities()?.tools).toBeDefined();
+    expect((await f.stats()).authorizationGrants).toBe(1);
+  });
+
+  test("disable and re-enable while staged resumes the same grant without getting stuck", async () => {
+    const f = await legacyFixture();
+    const adopt = f.manager.adoptLegacyGrant.bind(f.manager);
+    const failed = spyOn(f.manager, "adoptLegacyGrant").mockImplementationOnce((id, revision, credentials) =>
+      adopt(id, revision, credentials, async () => { throw new Error("Temporary source write failure"); }));
+    try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
+    finally { failed.mockRestore(); }
+    await setMcpEnabled(f.config, "ws_a", name, false);
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "disabled" });
+    await setMcpEnabled(f.config, "ws_a", name, true);
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+    expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
+    expect((await f.stats()).authorizationGrants).toBe(1);
+  });
+
+  test("a source retirement failure leaves the old grant intact and the staged replacement unusable", async () => {
+    const f = await legacyFixture();
+    const adopt = f.manager.adoptLegacyGrant.bind(f.manager);
+    const failed = spyOn(f.manager, "adoptLegacyGrant").mockImplementationOnce((id, revision, credentials) =>
+      adopt(id, revision, credentials, async () => { throw new Error("Source file is read-only"); }));
+    try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
+    finally { failed.mockRestore(); }
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual(f.source);
+    expect(f.manager.store.all()[0]?.legacyHandoffPending).toBe(true);
+    await expect(engineAccessToken(f.config, "ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
+    expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
+  });
+
+  test("logout before handover wins and preserves the old source", async () => {
     const f = await legacyFixture();
     const adopt = f.manager.adoptLegacyGrant.bind(f.manager);
     const delayed = spyOn(f.manager, "adoptLegacyGrant").mockImplementationOnce(async (...args) => {
@@ -709,7 +763,7 @@ describe("legacy MCP credential handover", () => {
   test.each(["rotated", "logged out"])("an interrupted completion never overwrites credentials that were %s", async mode => {
     const f = await legacyFixture();
     const put = f.manager.store.put.bind(f.manager.store);
-    const write = spyOn(f.manager.store, "put").mockImplementationOnce(async record => { await put(record); throw new Error("exit after credential commit"); });
+    const write = spyOn(f.manager.store, "put").mockImplementation(async record => { await put(record); if (record.legacyMigration && !record.legacyHandoffPending) throw new Error("exit after credential commit"); });
     try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
     finally { write.mockRestore(); }
     if (mode === "rotated") { const client = await f.connect(); await f.expire(); await client.listTools(); }
@@ -745,7 +799,7 @@ describe("legacy MCP credential handover", () => {
     await writeFile(f.authPath, JSON.stringify({ ...f.source, second: secondEntry }));
     await f.manager.store.put({ ...second, tokens: undefined, client: undefined, expiresAt: undefined, issuer: undefined });
     const put = f.manager.store.put.bind(f.manager.store);
-    const write = spyOn(f.manager.store, "put").mockImplementationOnce(async record => { await put(record); throw new Error("exit after first connector"); });
+    const write = spyOn(f.manager.store, "put").mockImplementation(async record => { await put(record); if (record.legacyMigration && !record.legacyHandoffPending) throw new Error("exit after first connector"); });
     try { expect((await migrateLegacyMcpOAuth(f.config, f.options)).deferred).toBe(true); }
     finally { write.mockRestore(); }
     const client = await f.connect(); await f.expire(); await client.listTools();
@@ -808,21 +862,4 @@ describe("legacy MCP credential handover", () => {
     expect(hasOpencodeProcess('"opencode-x64.exe","123","Console","1","2,000 K"', "win32")).toBe(true);
     expect(hasOpencodeProcess('"Code.exe","123","Console","1","2,000 K"', "win32")).toBe(false);
   });
-});
-
-test.skipIf(process.platform !== "win32")("Windows tasklist detects an actual engine-named process and excludes only its owned PID", async () => {
-  const f = await managedMcpFixture();
-  const executable = join(f.root, "opencode-ownership.exe");
-  await copyFile(process.execPath, executable);
-  const child = spawn(executable, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-  cleanups.push(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const stopped = new Promise<void>(resolve => child.once("exit", () => resolve()));
-    child.kill("SIGKILL"); await stopped;
-  });
-  if (!child.pid) throw new Error("No process PID");
-  const owned = new Set([child.pid]);
-  await until(async () => !await legacyMcpQuiescent(), "tasklist engine detection");
-  expect(await legacyMcpQuiescent()).toBe(false);
-  expect(await legacyMcpQuiescent(owned)).toBe(true);
 });

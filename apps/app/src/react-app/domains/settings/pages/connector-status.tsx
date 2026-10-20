@@ -13,7 +13,7 @@ export function resolveConnectorState(input: {
 }): ConnectorState {
   if (!input.enabled || input.status === "disabled") return "disabled";
   if (input.needsKey) return "needs_key";
-  if (input.status === "connected" || input.status === "failed" || input.status === "needs_client_registration") return input.status;
+  if (input.status === "connecting" || input.status === "connected" || input.status === "failed" || input.status === "needs_client_registration") return input.status;
   if (input.status === "needs_auth" || input.needsSignIn) return "needs_auth";
   return input.status ?? "disconnected";
 }
@@ -25,6 +25,7 @@ export function configuredConnectorState(entry: McpServerEntry, status?: McpStat
 
 const messages = {
   connected: null,
+  connecting: "mcp.connecting",
   disabled: "integrations.connector_needs_enable",
   needs_auth: "firm_hub.connector_needs_sign_in",
   needs_key: "firm_hub.connector_needs_key",
@@ -36,6 +37,7 @@ const messages = {
 
 const dots = {
   connected: null,
+  connecting: "bg-blue-9 animate-pulse",
   disabled: null,
   needs_auth: "bg-amber-9",
   needs_key: "bg-amber-9",

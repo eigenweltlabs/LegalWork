@@ -1558,7 +1558,13 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
       const status = await manager?.status(workspace.id, name);
       if (status && status.status !== "connected") statuses[name] = status;
     }
-    if (sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer") void recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses).catch(() => {});
+    if (sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer") {
+      void recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses).catch(() => {});
+      const engine = resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl ?? "";
+      for (const name of Object.keys(statuses)) {
+        if (mcpRecovery(input.config).isRecovering(engine, sessionDirectory, name)) statuses[name] = { status: "connecting", message: "Reconnecting to your connector…" };
+      }
+    }
     return jsonResponse(statuses);
   }
 

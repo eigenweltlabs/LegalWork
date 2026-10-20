@@ -163,15 +163,22 @@ export class McpConnectorManager {
     return found.record.config.oauth === false ? undefined : this.tokenFor(found.record);
   }
 
-  async adoptLegacyGrant(id: string, revision: string, credentials: Pick<ManagedMcpRecord, "tokens" | "client" | "expiresAt"> & { legacyMigration: string }) {
+  async adoptLegacyGrant(id: string, revision: string, credentials: Pick<ManagedMcpRecord, "tokens" | "client" | "expiresAt"> & { legacyMigration: string }, retireSource: () => Promise<void>) {
     await this.ready();
     const before = this.store.all().find(record => record.id === id);
     if (!before) return false;
     return this.exclusive(before.key, async () => {
       const current = this.store.get(before.key);
       if (!current || current.id !== id || current.revision !== revision || this.retired.has(revision) ||
-          current.tokens || current.reconnectRequired || current.legacyMigration || this.runtime(current).pending) return false;
-      await this.store.put({ ...current, ...credentials });
+          current.reconnectRequired || this.runtime(current).pending) return false;
+      const resuming = current.legacyHandoffPending && current.legacyMigration === credentials.legacyMigration;
+      if (!resuming && (current.tokens || current.legacyMigration)) return false;
+      // Staged credentials cannot be used or refreshed until the source owner
+      // has retired them. Persist the destination before touching the source.
+      const staged = resuming ? current : { ...current, ...credentials, legacyHandoffPending: true };
+      if (!resuming) await this.store.put(staged);
+      await retireSource();
+      await this.store.put({ ...staged, legacyHandoffPending: undefined });
       this.legacyPending.delete(id);
       return true;
     });
@@ -179,12 +186,12 @@ export class McpConnectorManager {
 
   legacyMigrationPending(id: string, revision: string, message: string) {
     const record = this.store.all().find(item => item.id === id);
-    if (record?.revision === revision && !record.tokens && !record.reconnectRequired && !record.legacyMigration) this.legacyPending.set(id, { revision, message });
+    if (record?.revision === revision && !record.reconnectRequired && (record.legacyHandoffPending || (!record.tokens && !record.legacyMigration))) this.legacyPending.set(id, { revision, message });
   }
   clearLegacyMigrationPending(id?: string) { if (id) this.legacyPending.delete(id); else this.legacyPending.clear(); }
   private assertMigrationReady(record: ManagedMcpRecord) {
     const pending = this.legacyPending.get(record.id);
-    if (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired) throw new ApiError(503, "mcp_migration_pending", pending.message);
+    if (record.legacyHandoffPending || (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired)) throw new ApiError(503, "mcp_migration_pending", pending?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically.");
   }
 
   private async reconcileFirmConnections() {
@@ -404,7 +411,7 @@ export class McpConnectorManager {
     await this.exclusive(record.key, async () => {
       const current = this.store.get(record.key);
       if (!current || current.id !== record.id) return;
-      await this.store.put({ ...current, revision: randomUUID(), tokens: undefined, expiresAt: undefined, reconnectRequired: true });
+      await this.store.put({ ...current, revision: randomUUID(), tokens: undefined, expiresAt: undefined, reconnectRequired: true, legacyHandoffPending: undefined });
     });
   }
 
@@ -580,7 +587,7 @@ export class McpConnectorManager {
     const current = this.current(found.record.key);
     if (current.config.enabled === false) return { status: "disabled" };
     const migration = this.legacyPending.get(current.id);
-    if (migration?.revision === current.revision && !current.tokens && !current.reconnectRequired) return { status: "failed", error: migration.message };
+    if (current.legacyHandoffPending || (migration?.revision === current.revision && !current.tokens && !current.reconnectRequired)) return { status: "connecting", message: migration?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically." };
     if (current.reconnectRequired) return { status: "needs_auth", error: signin().message };
     return this.runtime(current).status;
   }
