@@ -145,7 +145,7 @@ import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
 
 function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
-  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-blue-9", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
+  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-blue-11", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
 }
 
 function useUnreadChats(sessions: SessionListItem[]) {
