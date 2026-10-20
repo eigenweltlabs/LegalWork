@@ -6,6 +6,7 @@ import { drainFirmHubSyncForTests } from "./firm-hub.js";
 import { resetOrgPolicyRuntimeForTests } from "./org-policy.js";
 import { closeEigenweltConnectionForTests } from "./eigenwelt-connection-store.js";
 import { closeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeTaskStoreForTests } from "./task-store.js";
 import type { ServerConfig } from "./types.js";
 import { rm } from "node:fs/promises";
 
@@ -30,5 +31,6 @@ export async function closeTestRuntime(config: ServerConfig) {
   await closeCloudPluginDbForTests(config);
   await closeWorkspaceConfigForTests(config);
   await closeHubInstallsForTests(config);
+  await closeTaskStoreForTests(config);
   await closeRuntimeOpencodeConfig(config);
 }
