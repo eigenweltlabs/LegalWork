@@ -375,18 +375,22 @@ export class McpConnectorManager {
   async finishAuthorization(workspaceId: string, name: string, code: string, state: string, issuer?: string) {
     const found = await this.find(workspaceId, name);
     if (!found) throw missing();
-    await this.exclusive(found.record.key, async () => {
+    const previousClient = await this.exclusive(found.record.key, async () => {
       const record = this.current(found.record.key);
       const runtime = this.runtime(record), pending = runtime.pending;
       if (!code || !pending || !tokensMatch(pending.state, state) || pending.expiresAt <= Date.now() || pending.revision !== record.revision) throw new ApiError(400, "mcp_oauth_state_invalid", "This sign-in attempt expired or changed. Start again.");
       runtime.pending = undefined; // Every callback is single-use, including failed exchanges.
       await auth(this.provider(record, pending), { serverUrl: record.config.url, authorizationCode: code, iss: issuer, fetchFn: this.network(record) });
       runtime.discovery = pending.discovery;
-      await runtime.client?.close();
+      const previousClient = runtime.client;
       runtime.client = undefined;
-      runtime.failedAt = undefined;
-      await Promise.allSettled(Array.from(this.closeGateways, close => close(record.id)));
+      return previousClient;
     });
+    // Responses being drained may need this connection's queue to check a
+    // delayed authentication challenge against the newly committed grant.
+    await previousClient?.close();
+    await Promise.allSettled(Array.from(this.closeGateways, close => close(found.record.id)));
+    this.runtime(this.current(found.record.key, found.record.revision)).failedAt = undefined;
     await this.client(found.record);
     return { status: "connected" };
   }
@@ -455,7 +459,7 @@ export class McpConnectorManager {
       const current = this.current(record.key, record.revision);
       const headers = new Headers(init?.headers);
       for (const [key, value] of Object.entries(current.config.headers ?? {})) headers.set(key, value);
-      const token = current.config.oauth === false ? undefined : await this.tokenFor(record);
+      let token = current.config.oauth === false ? undefined : await this.tokenFor(record);
       if (token) headers.set("authorization", `Bearer ${token}`);
       const request = () => this.network(record, 0)(input, { ...init, headers });
       let response = await request();
@@ -465,6 +469,7 @@ export class McpConnectorManager {
         await response.body?.cancel();
         if (!token) { this.runtime(record).status = { status: "needs_auth", error: signin().message }; throw signin(); }
         const replacement = await this.tokenFor(record, token);
+        token = replacement;
         headers.set("authorization", `Bearer ${replacement}`);
         response = await request();
         if (response.status === 401) {

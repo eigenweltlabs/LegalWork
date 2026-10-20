@@ -90,7 +90,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
-      child.off("exit", onExit);
+      child.off("close", onExit);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -125,7 +125,9 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number): Promise<str
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
-    child.once("exit", onExit);
+    // close follows the final stdout/stderr data. exit can arrive first and
+    // otherwise hide the lock error needed to decide whether startup can retry.
+    child.once("close", onExit);
   });
 }
 

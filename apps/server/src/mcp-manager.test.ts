@@ -498,6 +498,18 @@ describe("server-owned MCP connections", () => {
     }
   });
 
+  test("an insufficient-scope response to the refreshed token still requires consent", async () => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const client = await f.connect();
+    await f.expire();
+    await fetch(`${f.providerUrl}/required-scope`, { method: "POST", body: JSON.stringify({ scope: "mcp:extra" }) });
+    await expect(client.callTool({ name: "mock_echo", arguments: { text: "refresh then consent" } })).rejects.toThrow();
+    expect(f.manager.store.all()[0]?.reconnectRequired).toBe(true);
+    expect(f.manager.store.all()[0]?.requiredScope).toContain("mcp:extra");
+    expect(await f.stats()).toMatchObject({ refreshGrants: 1, toolCalls: 0 });
+  });
+
   test("an unsuccessful new sign-in preserves an existing usable grant", async () => {
     const f = await managedMcpFixture(); await f.signIn();
     const saved = f.manager.store.all()[0]?.tokens;
