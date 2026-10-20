@@ -478,10 +478,10 @@ describe("server-owned MCP connections", () => {
     let release = (_response: Response) => {};
     const response = new Promise<Response>(resolve => { release = resolve; });
     const original = globalThis.fetch;
-    const intercepted = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const intercepted = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       if (String(input) === `${f.providerUrl}/mcp` && typeof init?.body === "string" && init.body.includes("LATE_SCOPE_TEST")) { ready(); return response; }
       return original(input, init);
-    });
+    }, { preconnect: original.preconnect }));
     try {
       const pending = client.callTool({ name: "mock_echo", arguments: { text: "LATE_SCOPE_TEST" } }).catch(() => null);
       await waiting;
