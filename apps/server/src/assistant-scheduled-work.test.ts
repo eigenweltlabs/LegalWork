@@ -43,7 +43,7 @@ test("Assistant schedules create fresh workers linked to the current day and nev
       const work = await prepareAssistantScheduledWork(task, workspace, child, client, delegations);
       expect(id).not.toBe(`day-${next}`); expect(id).not.toBe(task.sessionId);
       expect(work.model).toEqual({ providerID: "chosen", modelID: "fast" });
-      expect(work.prompt).toContain(task.prompt); expect(work.prompt).toContain("2,000 characters");
+      expect(work.prompt).toContain(task.prompt);
       expect(work.prompt).not.toContain("PRIVATE_PARENT_HISTORY");
       expect(tracked.at(-1)).toMatchObject({ sourceSessionId: `day-${next}`, sessionId: id, scheduledTaskId: task.id });
     }

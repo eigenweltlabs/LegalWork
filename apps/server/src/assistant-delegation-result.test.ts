@@ -4,13 +4,14 @@ import { readDelegationResult } from "./assistant-delegation-result.js";
 
 test("reads pending questions and approvals while busy, then the final reply; never confuses idle or tools with completion", async () => {
   let busy = true, completed = false, finish = "tool-calls", failReads = false;
+  let reply = "Report ready: review.md";
   let error: { name: string; data: { message: string } } | undefined;
   let questions: { id: string; sessionID: string; questions: { question: string }[] }[] = [];
   let permissions: { id: string; sessionID: string; action: string; resources: string[] }[] = [];
   const engine = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/session/status") return failReads ? new Response(null, { status: 503 }) : Response.json(busy ? { child: { type: "busy" } } : {});
-    if (path === "/session/child/message") return Response.json([{ info: { id: "reply", sessionID: "child", role: "assistant", time: { created: 1, ...(completed ? { completed: 2 } : {}) }, finish, error }, parts: [{ type: "text", text: "Report ready: review.md" }, { type: "text", synthetic: true, text: "secret reminder" }, { type: "text", ignored: true, text: "ignored text" }] }]);
+    if (path === "/session/child/message") return Response.json([{ info: { id: "reply", sessionID: "child", role: "assistant", time: { created: 1, ...(completed ? { completed: 2 } : {}) }, finish, error }, parts: [{ type: "text", text: reply }, { type: "text", synthetic: true, text: "secret reminder" }, { type: "text", ignored: true, text: "ignored text" }] }]);
     if (path === "/question") return Response.json(questions);
     if (path === "/api/session/child/question") return Response.json({ data: questions });
     // Verify the newer permission API still works when the older one is absent.
@@ -45,6 +46,12 @@ test("reads pending questions and approvals while busy, then the final reply; ne
     expect((await readDelegationResult(client, "child"))?.outcome).toBe("interrupted");
     error = { name: "APIError", data: { message: "Provider failed" } };
     expect((await readDelegationResult(client, "child"))?.outcome).toBe("failed");
+    error = undefined; completed = true;
+    reply = "Full result. ".repeat(3000) + "FINAL_RESULT_END";
+    expect((await readDelegationResult(client, "child"))?.text).toBe(reply);
+    busy = true;
+    questions = [{ id: "long-question", sessionID: "child", questions: [{ question: "Decision context. ".repeat(1000) + "QUESTION_END" }] }];
+    expect((await readDelegationResult(client, "child"))?.text).toContain("QUESTION_END");
     failReads = true;
     await expect(readDelegationResult(client, "child")).rejects.toThrow("Could not read delegated chat progress");
   } finally { engine.stop(true); }

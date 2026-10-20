@@ -7,7 +7,7 @@ import { openSqlite } from "./runtime-db.js";
 
 const delegation: TrackedDelegation = { workspaceId: "matter", sessionId: "review", sourceWorkspaceId: "assistant", sourceSessionId: "yesterday", title: "Review terms", scope: "Read and report, no edits", model: { providerID: "provider", modelID: "model" } };
 
-test("scheduled workers return a bounded result once, after the main conversation becomes idle", async () => {
+test("scheduled workers return the complete result once, after the main conversation becomes idle", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-scheduled-return-"));
   const path = join(root, "runtime.sqlite");
   const sent: Parameters<DelegationExecutor["send"]>[1][] = [];
@@ -27,11 +27,11 @@ test("scheduled workers return a bounded result once, after the main conversatio
     const reopened = await AssistantDelegations.open(path, executor);
     await reopened.tick(); await reopened.tick();
     expect(sent).toHaveLength(1);
-    expect(sent[0].text.length).toBeLessThan(7000);
+    expect(sent[0].text.length).toBeGreaterThan(300000);
     expect(sent[0].text).toContain("briefings/2026-10-20.md");
-    expect(sent[0].text).toContain("Result truncated");
+    expect(sent[0].text).not.toContain("Result truncated");
     expect(sent[0].text).toContain("Do not repeat its research");
-    expect(sent[0].text).not.toContain("PRIVATE_HISTORY_END");
+    expect(sent[0].text).toContain("PRIVATE_HISTORY_END");
     await (await AssistantDelegations.open(path, executor)).tick();
     expect(sent).toHaveLength(1);
   } finally { await rm(root, { recursive: true, force: true }); }

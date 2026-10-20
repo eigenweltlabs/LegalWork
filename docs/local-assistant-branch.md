@@ -15,7 +15,7 @@ preserving the existing branch history. Local improvements were selected from
 - Assistant identity and approval controls outside the movable document pane.
 - Project-field defaults passed when creating the Assistant workspace.
 - Bundled runtime schemas and owner-only runtime configuration files.
-- Scheduled Assistant work in fresh child sessions, with only a bounded final
+- Scheduled Assistant work in fresh child sessions, with only the final
   result returned to the daily conversation. Multi-step interactive research is
   routed to the native general subagent by the coordinator instructions.
 - Current `dev` connector, browser, document, billing and workspace behavior.
@@ -82,8 +82,8 @@ copying that chat's messages. Work can start while the main chat is busy; an
 unfinished worker prevents overlapping repeats of the same schedule. Scheduled
 permissions, wiki authority and an explicitly selected model remain enforced.
 
-The existing durable delegation queue returns only the worker's final response,
-capped at 2,400 characters, plus routing references. It waits until the daily
+The existing durable delegation queue returns the worker's complete final response
+and routing references, without character limits or truncation. It waits until the daily
 chat is idle, survives restarts and avoids replaying results. Detailed records
 and saved reports remain accessible from the worker and project files.
 

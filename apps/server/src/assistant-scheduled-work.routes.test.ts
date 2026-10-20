@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("the live scheduler runs research beside a busy daily chat and returns only a bounded result", async () => {
+test("the live scheduler runs research beside a busy daily chat and returns the complete final result", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-worker-http-"));
   const script = join(root, "test.mjs");
   await writeFile(script, `
@@ -54,8 +54,8 @@ test("the live scheduler runs research beside a busy daily chat and returns only
       const notice = deliveries[1]; assert.equal(notice.id, "daily");
       assert.equal(notice.agent, "legalwork"); assert.equal(notice.parts[0].synthetic, true);
       assert.match(notice.parts[0].text, /briefings\\/today.md/);
-      assert.ok(notice.parts[0].text.length < 7000);
-      assert.ok(!notice.parts[0].text.includes("PRIVATE_RAW_END"));
+      assert.ok(notice.parts[0].text.length > 300000);
+      assert.ok(notice.parts[0].text.includes("PRIVATE_RAW_END"));
       assert.ok(!notice.parts[0].text.includes("RESEARCH_TASK_ONLY"));
     } finally { await server.stop(); engine.stop(true); }
   `);

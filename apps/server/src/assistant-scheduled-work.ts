@@ -16,7 +16,7 @@ export async function createAssistantScheduledSession(task: ScheduledTask, assis
   return session.id;
 }
 
-/** Track completion durably; only the final bounded result returns to the daily chat. */
+/** Track completion durably; only the final result returns to the daily chat. */
 export async function prepareAssistantScheduledWork(task: ScheduledTask, workspace: WorkspaceInfo, session: Session, client: OpencodeClient, delegations: Pick<AssistantDelegations, "track">) {
   if (!session.parentID) throw new ApiError(400, "schedule_worker_required", "Assistant schedules must run in an isolated worker.");
   const options = { throwOnError: true, signal: AbortSignal.timeout(10000) };
@@ -30,6 +30,6 @@ export async function prepareAssistantScheduledWork(task: ScheduledTask, workspa
     scheduledTaskId: task.id, title: task.title, scope: `Carry out the scheduled task ${JSON.stringify(task.title)}.`, model });
   return {
     model,
-    prompt: `[Scheduled task: ${task.title}]\n\nYou are the isolated background worker for this scheduled task, not the user's daily conversation. Do the research and tool work in this session. Keep raw records, transcripts and intermediate tool outputs here. Do not react, send a conversational acknowledgement, or repeat the task in the daily chat. Stay within the task's existing permissions and authorized scope. Save detailed deliverables in the project. Finish with at most 2,000 characters: the verified result or blocker, the essential next actions, and exact paths to saved deliverables. Your final result will be delivered back to the Assistant automatically; do not start another session to report it.\n\nTask:\n${task.prompt}`,
+    prompt: `[Scheduled task: ${task.title}]\n\nYou are the isolated background worker for this scheduled task, not the user's daily conversation. Do the research and tool work in this session. Keep raw records, transcripts and intermediate tool outputs here. Do not react, send a conversational acknowledgement, or repeat the task in the daily chat. Stay within the task's existing permissions and authorized scope. Save detailed deliverables in the project. Finish with a concise, complete result: the verified outcome or blocker, the essential next actions, and exact paths to saved deliverables. Choose the length needed to communicate the result accurately. Your final result will be delivered back to the Assistant automatically; do not start another session to report it.\n\nTask:\n${task.prompt}`,
   };
 }

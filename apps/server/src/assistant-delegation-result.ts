@@ -12,9 +12,9 @@ export async function readDelegationResult(client: OpencodeClient, sessionId: st
   const last = messages.data.at(-1);
   const idle = !statuses.data[sessionId] || statuses.data[sessionId].type === "idle";
   if (idle && last?.info.role === "assistant" && last.info.sessionID === sessionId && !last.info.summary) {
-    const text = last.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").slice(0, 12000);
+    const text = last.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n");
     // Interrupted/error messages do not always receive a completed timestamp.
-    if (last.info.error) return { messageId: last.info.id, outcome: last.info.error.name === "MessageAbortedError" ? "interrupted" : "failed", text: `${text}\n${JSON.stringify(last.info.error).slice(0, 2000)}` };
+    if (last.info.error) return { messageId: last.info.id, outcome: last.info.error.name === "MessageAbortedError" ? "interrupted" : "failed", text: `${text}\n${JSON.stringify(last.info.error)}` };
     if (last.info.time.completed && (last.info.finish === "stop" || last.info.finish === "length"))
       return { messageId: last.info.id, outcome: last.info.finish === "length" ? "failed" : "reply", text };
   }
@@ -33,5 +33,5 @@ export async function readDelegationResult(client: OpencodeClient, sessionId: st
     for (const request of result.value) if (request.sessionID === sessionId) requests.set(`${kind}:${request.id}`, { kind, ...request });
   }
   if (!requests.size) return null;
-  return { messageId: [...requests.keys()].sort().join("|"), outcome: "input-required", text: JSON.stringify([...requests.values()]).slice(0, 12000) };
+  return { messageId: [...requests.keys()].sort().join("|"), outcome: "input-required", text: JSON.stringify([...requests.values()]) };
 }
