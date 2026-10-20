@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { Client, isInitializeRequest, isJSONRPCRequest, isJSONRPCNotification, isJSONRPCResultResponse, isJSONRPCErrorResponse } from "@modelcontextprotocol/client";
-import { Server, WebStandardStreamableHTTPServerTransport, isLegacyRequest } from "@modelcontextprotocol/server";
+import { Server, WebStandardStreamableHTTPServerTransport, isLegacyRequest, type ServerContext } from "@modelcontextprotocol/server";
 import { ResultSchema, ElicitResultSchema, CreateMessageResultWithToolsSchema, ListRootsResultSchema } from "@modelcontextprotocol/core";
 import { ApiError } from "./errors.js";
 import type { McpConnectorManager } from "./mcp-manager.js";
@@ -72,25 +73,30 @@ export class LocalMcpGateway {
     }
     if (this.sessions.size >= 256) throw new ApiError(429, "mcp_session_limit", "Too many active connector sessions.");
     const capabilities = body.params.capabilities;
+    const requests = new AsyncLocalStorage<ServerContext>();
     let server: Server | undefined;
     let activeClient: Client | undefined;
     let connecting: Promise<Client> | undefined;
     const prepare = (client: Client) => {
       if (capabilities.elicitation) client.setRequestHandler("elicitation/create", (message, ctx) => {
         if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
-        return server.request(message, ElicitResultSchema, { signal: ctx.mcpReq.signal });
+        const related = requests.getStore()?.mcpReq;
+        return related ? related.send(message, ElicitResultSchema, { signal: ctx.mcpReq.signal }) : server.request(message, ElicitResultSchema, { signal: ctx.mcpReq.signal });
       });
       if (capabilities.sampling) client.setRequestHandler("sampling/createMessage", (message, ctx) => {
         if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
-        return server.request(message, CreateMessageResultWithToolsSchema, { signal: ctx.mcpReq.signal });
+        const related = requests.getStore()?.mcpReq;
+        return related ? related.send(message, CreateMessageResultWithToolsSchema, { signal: ctx.mcpReq.signal }) : server.request(message, CreateMessageResultWithToolsSchema, { signal: ctx.mcpReq.signal });
       });
       if (capabilities.roots) client.setRequestHandler("roots/list", (message, ctx) => {
         if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
-        return server.request(message, ListRootsResultSchema, { signal: ctx.mcpReq.signal });
+        const related = requests.getStore()?.mcpReq;
+        return related ? related.send(message, ListRootsResultSchema, { signal: ctx.mcpReq.signal }) : server.request(message, ListRootsResultSchema, { signal: ctx.mcpReq.signal });
       });
       client.fallbackRequestHandler = (message, ctx) => {
         if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
-        return server.request(message, ResultSchema, { signal: ctx.mcpReq.signal });
+        const related = requests.getStore()?.mcpReq;
+        return related ? related.send(message, ResultSchema, { signal: ctx.mcpReq.signal }) : server.request(message, ResultSchema, { signal: ctx.mcpReq.signal });
       };
       client.fallbackNotificationHandler = async message => { await server?.notification(message); };
     };
@@ -108,7 +114,7 @@ export class LocalMcpGateway {
     server = downstream;
     // A client is private to this downstream session. Server-initiated requests
     // and MRTR fulfilment cannot leak into another workspace's conversation.
-    downstream.fallbackRequestHandler = async (message, ctx) => {
+    downstream.fallbackRequestHandler = (message, ctx) => requests.run(ctx, async () => {
       const progressToken = message.params?._meta?.progressToken;
       return (await upstreamClient()).request(message, ResultSchema, {
         signal: ctx.mcpReq.signal, timeout: record.config.timeout ?? 60_000,
@@ -116,7 +122,7 @@ export class LocalMcpGateway {
           void ctx.mcpReq.notify({ method: "notifications/progress", params: { ...progress, progressToken } }).catch(() => {});
         } }),
       });
-    };
+    });
     downstream.fallbackNotificationHandler = async message => {
       const upstream = await upstreamClient();
       // Roots changed is a legacy notification. Modern roots are requested

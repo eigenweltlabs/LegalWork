@@ -484,13 +484,17 @@ export class McpConnectorManager {
       if (response.status === 403 && current.config.oauth !== false) {
         const challenge = extractWWWAuthenticateParams(response);
         if (challenge?.error === "insufficient_scope") {
-          await response.body?.cancel();
-          await this.exclusive(record.key, async () => {
+          const requiresConsent = await this.exclusive(record.key, async () => {
             const latest = this.current(record.key, record.revision);
-            await this.store.put({ ...latest, reconnectRequired: true, requiredScope: computeScopeUnion(latest.tokens?.scope, challenge.scope) });
+            if (latest.tokens?.access_token !== token) return false;
+            await this.store.put({ ...latest, reconnectRequired: true, requiredScope: computeScopeUnion(latest.requiredScope, latest.tokens?.scope, challenge.scope) });
+            return true;
           });
-          this.runtime(record).status = { status: "needs_auth", error: "This connector requires additional permissions. Sign in again to approve them." };
-          throw signin();
+          if (requiresConsent) {
+            await response.body?.cancel();
+            this.runtime(record).status = { status: "needs_auth", error: "This connector requires additional permissions. Sign in again to approve them." };
+            throw signin();
+          }
         }
       }
       return response;

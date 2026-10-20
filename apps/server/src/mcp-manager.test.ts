@@ -468,6 +468,36 @@ describe("server-owned MCP connections", () => {
     expect(f.manager.store.all()[0]?.requiredScope).toBeUndefined();
   });
 
+  test("a late scope rejection cannot invalidate a newer successful sign-in", async () => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const client = await f.connect();
+    const old = f.manager.store.all()[0]!.tokens!.access_token;
+    let ready = () => {};
+    const waiting = new Promise<void>(resolve => { ready = resolve; });
+    let release = (_response: Response) => {};
+    const response = new Promise<Response>(resolve => { release = resolve; });
+    const original = globalThis.fetch;
+    const intercepted = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input) === `${f.providerUrl}/mcp` && typeof init?.body === "string" && init.body.includes("LATE_SCOPE_TEST")) { ready(); return response; }
+      return original(input, init);
+    });
+    try {
+      const pending = client.callTool({ name: "mock_echo", arguments: { text: "LATE_SCOPE_TEST" } }).catch(() => null);
+      await waiting;
+      const login = f.signIn();
+      await until(async () => f.manager.store.all()[0]?.tokens?.access_token !== old, "new sign-in credential commit");
+      release(new Response("denied", { status: 403, headers: { "www-authenticate": 'Bearer error="insufficient_scope", scope="stale:scope"' } }));
+      await Promise.all([pending, login]);
+      expect(f.manager.store.all()[0]?.reconnectRequired).toBe(false);
+      expect(f.manager.store.all()[0]?.requiredScope).toBeUndefined();
+      expect(f.manager.store.all()[0]?.tokens?.access_token).not.toBe(old);
+    } finally {
+      release(new Response("cancelled", { status: 503 }));
+      intercepted.mockRestore();
+    }
+  });
+
   test("an unsuccessful new sign-in preserves an existing usable grant", async () => {
     const f = await managedMcpFixture(); await f.signIn();
     const saved = f.manager.store.all()[0]?.tokens;

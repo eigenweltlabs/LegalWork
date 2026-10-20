@@ -166,16 +166,22 @@ test("legacy engine sessions bridge modern MRTR elicitation, sampling and roots 
     client.setRequestHandler(ElicitRequestSchema, () => ({ action: "accept", content: { workspace } }));
     client.setRequestHandler(ListRootsRequestSchema, () => ({ roots: [{ uri: `file:///workspace-${workspace}` }] }));
     client.setRequestHandler(CreateMessageRequestSchema, () => ({ role: "assistant", model: workspace, content: { type: "text", text: workspace } }));
-    await client.connect(new LegacyTransport(new URL(endpoint.url), { requestInit: { headers: endpoint.headers } }));
+    await client.connect(new LegacyTransport(new URL(endpoint.url), {
+      requestInit: { headers: endpoint.headers },
+      // A standalone GET stream is optional: related server requests must be
+      // deliverable on the originating POST's response stream.
+      fetch: (input, init) => init?.method === "GET" ? Promise.resolve(new Response(null, { status: 405 })) : fetch(input, init),
+    }));
     return { client, workspace };
   }));
-  const results = await Promise.all(clients.map(async ({ client, workspace }) => {
+  const results = await Promise.all(clients.flatMap(({ client, workspace }) => [0, 1].map(async round => {
     expect((await client.complete({ ref: { type: "ref/prompt", name: "fixture" }, argument: { name: "value", value: "c" } })).completion.values).toEqual(["completed"]);
-    const answer = textSchema.parse(await client.callTool({ name: "interactive", arguments: { workspace } }));
-    return { workspace, text: answer.content[0]!.text };
-  }));
-  for (const { workspace, text } of results) {
-    expect(JSON.parse(text)).toMatchObject({ workspace, confirm: { kind: "elicit", content: { workspace } }, roots: { kind: "roots", roots: [{ uri: `file:///workspace-${workspace}` }] }, sample: { kind: "sampling", result: { model: workspace } }, state: "opaque-round-state" });
+    const requestWorkspace = `${workspace}:${round}`;
+    const answer = textSchema.parse(await client.callTool({ name: "interactive", arguments: { workspace: requestWorkspace } }));
+    return { workspace, requestWorkspace, text: answer.content[0]!.text };
+  })));
+  for (const { workspace, requestWorkspace, text } of results) {
+    expect(JSON.parse(text)).toMatchObject({ workspace: requestWorkspace, confirm: { kind: "elicit", content: { workspace } }, roots: { kind: "roots", roots: [{ uri: `file:///workspace-${workspace}` }] }, sample: { kind: "sampling", result: { model: workspace } }, state: "opaque-round-state" });
   }
 });
 
