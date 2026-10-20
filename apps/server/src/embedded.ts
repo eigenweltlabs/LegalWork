@@ -24,6 +24,7 @@ import {
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
+import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
@@ -34,6 +35,10 @@ import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
+  /** Desktop networking stack, including its system proxy, for model assets. */
+  modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
+  /** Host-resolved bundled SDK location, including the desktop development build. */
+  opencodeSdkDirectory?: string;
   decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
@@ -106,7 +111,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
-  const server = await startServer(config, { onListening: async (port) => {
+  const server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
       const workspace = config.workspaces[0];
@@ -142,6 +147,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         managed.catalog = await startModelCatalogRelay(config);
         const engineHome = join(runtimeStorageDir(config), "engine-home");
         if (config.agentSandboxEnabled) await mkdir(engineHome, { recursive: true });
+        const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
+        if (!dependencies.seeded) console.warn(`[legalwork-server] Bundled engine dependencies unavailable (${dependencies.reason}); runtime package installation may be required.`);
         managed.engine = await createManagedOpencodeServer({
           bin: options.opencodeBin || process.env.LEGALWORK_OPENCODE_BIN,
           cwd,

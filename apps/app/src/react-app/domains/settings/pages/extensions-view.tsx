@@ -2,7 +2,7 @@ import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dial
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Package } from "lucide-react";
+import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Loader2, Package } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,8 @@ export type ExtensionsViewProps = {
   developerMode: boolean;
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
+  /** Re-read the library when the server starts or reconnects. */
+  libraryConnection?: object | null;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
   canUseGlobalScope: boolean;
@@ -107,7 +109,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
   const importButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
-  const [packagesOpen, setPackagesOpen] = useState(false);
   const [enginePluginsOpen, setEnginePluginsOpen] = useState(false);
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
@@ -117,11 +118,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   useEffect(() => setCreatePluginOpen(false), [packageTarget]);
   useEffect(() => {
     let stopped = false;
+    if (props.libraryConnection === null) { setPackageLibrary(null); return; }
     if (props.skillTools) void props.skillTools.importedPackages()
       .then(items => { if (!stopped) setPackageLibrary({ target: packageTarget, items }); })
       .catch(error => { if (!stopped) toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); });
     return () => { stopped = true; };
-  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, importVersion]);
+  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, props.libraryConnection, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [pluginSearch, setPluginSearch] = useState("");
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
@@ -148,8 +150,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const canImportPlugins = props.canEditPlugins && props.canUseGlobalScope;
   const canImportSkills = Boolean(props.skillImports && props.canImportSkills);
   const refresh = () => { setImportVersion(value => value + 1); props.onRefresh(); };
-  const packageRemoved = (pluginId: string) => {
-    setPackageLibrary(current => current ? { ...current, items: current.items.filter(item => item.pluginId !== pluginId) } : null);
+  const packageRemoved = (_pluginId: string) => {
+    setPackageLibrary(null);
     refresh();
   };
   const importedSkills = () => { setSource("all"); selectTab("skills"); refresh(); };
@@ -187,7 +189,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             ]} />
             <div ref={setActionsTarget} className="flex items-center gap-2 empty:hidden" />
             <IntegrationMoreMenu pageToolbar triggerRef={moreButton} busy={props.busy}>
-              <DropdownMenuItem disabled={props.busy || !props.skillTools} onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
               <DropdownMenuItem disabled={props.busy || props.isRemoteWorkspace || !props.skillTools} onClick={async () => {
                 if (props.busy || props.isRemoteWorkspace || !props.skillTools) return;
                 try { await props.skillTools.revealSkillsFolder(); }
@@ -203,12 +204,6 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           importedPackage();
           toast.success(t("plugin_create.created", { name: plugin.displayName ?? plugin.name }));
         }} /> : null}
-        {packagesOpen && props.skillTools ? <Dialog open onOpenChange={setPackagesOpen}>
-          <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
-            <DialogHeader><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
-            <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} showEmpty />
-          </DialogContent>
-        </Dialog> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-3xl">
             <DialogHeader><DialogTitle>{t("extensions.engine_plugins")}</DialogTitle><DialogDescription>{t("plugins.desc")}</DialogDescription></DialogHeader>
@@ -263,15 +258,18 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
 
         <HubScopeContext.Provider value="local">
-          <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
-            <div hidden={tab !== "plugins"}>{props.mcpView}</div>
-          </IntegrationLibraryLayoutContext.Provider>
+          <div hidden={tab !== "plugins"} className="space-y-1">
+            <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
+              {props.mcpView}
+            </IntegrationLibraryLayoutContext.Provider>
+
+            {tab === "plugins" && props.skillTools ? props.libraryConnection === null ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} imports={props.pluginImports} library searchQuery={pluginSearch} /> : null}
+          </div>
 
           {tab === "storage" ? props.storageView : null}
 
           {tab === "skills" ? props.skillsView : null}
 
-          {tab === "plugins" && props.skillTools ? <ImportedPackages key={packageTarget} extensions={props.skillTools} busy={props.busy} revision={importVersion} onChanged={packageRemoved} canRemove={props.canEditPlugins} detailsAccess={detailsAccess} library searchQuery={pluginSearch} /> : null}
         </HubScopeContext.Provider>
       </section>
     </IntegrationLibraryLayoutContext.Provider>
