@@ -13,6 +13,7 @@ type Paths = Record<string, string>;
 // command line. Protected/uninspectable processes remain an ownership conflict.
 const windowsReader = String.raw`
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;

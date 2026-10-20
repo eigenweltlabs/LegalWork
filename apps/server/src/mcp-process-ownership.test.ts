@@ -27,7 +27,7 @@ test("symlink aliases identify the same credential file even before it exists", 
 });
 
 test("native ownership inspection blocks the same store and allows unrelated running engines", async () => {
-  const root = await mkdtemp(join(tmpdir(), "mcp-ownership with spaces-"));
+  const root = await mkdtemp(join(tmpdir(), "mcp-ownership Übermittlung 🧪 with spaces-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const executable = join(root, process.platform === "win32" ? "opencode-ownership.exe" : "opencode-ownership");
   await copyFile(process.execPath, executable);
