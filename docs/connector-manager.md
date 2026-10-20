@@ -74,10 +74,28 @@ or sign-out retires the matching connection and clears its source configuration.
 
 ## Protocol and recovery
 
-The gateway forwards tools, resource listing/reading, resource templates, prompts,
-progress, cancellation, and catalog-change notifications. Both Streamable HTTP and
-legacy SSE providers are supported. It does not advertise resource subscriptions,
-sampling, roots, or elicitation support.
+The gateway supports the current MCP 2026-07-28 wire protocol alongside
+2025-era Streamable HTTP and legacy SSE. Modern per-request envelopes, MRTR
+interactive rounds, Tasks extension requests, subscription streams, metadata and
+other negotiated protocol methods pass through an authenticated HTTP hop. The
+local gateway bearer, cookies and host headers never go to the provider; decoded
+responses do not retain compressed encoding/length headers.
+
+Older engines get a separate upstream SDK client for each gateway session. The
+client auto-negotiates the upstream protocol and translates modern MRTR into the
+engine's declared elicitation, sampling and roots handlers. Requests, progress,
+cancellation, completions, resources, prompts and notifications retain their
+workspace binding. OAuth credentials and refresh coordination remain shared.
+The gateway preserves capabilities; it does not invent features an engine does
+not offer. The protocol packages are pinned to official TypeScript SDK 2.3.1;
+existing v1 consumers use its maintained 1.32.1 line.
+
+OAuth callbacks preserve RFC 9207's issuer parameter from the desktop broker or
+manual callback URL through the authenticated server callback. The SDK validates
+that issuer before exchanging the code. Client registrations and tokens remain
+bound to the discovered issuer. A 403 insufficient-scope challenge preserves the
+existing grant and requests explicit consent for the union of existing and new
+scopes; it never silently repeats the tool operation.
 
 Only an explicit HTTP 401 can trigger refresh and one authenticated retry. An
 ambiguous network failure or MCP tool failure is never automatically replayed.
@@ -96,8 +114,14 @@ connection generation, and PKCE. A pending sign-in survives engine rebuilds.
 Managed desktop/server startup transfers existing custom OAuth MCP grants before
 starting its new engine. The desktop first stops its previous managed runtime.
 The importer then checks for other OpenCode processes; when ownership is unclear,
-it leaves the old grant untouched. Closing those processes and restarting lets
-the importer retry. Externally attached engines are not automatically taken over.
+it leaves the old grant untouched. The connector reports that its saved sign-in is waiting, rather than requesting
+a replacement login. Startup retries every ten seconds after those processes
+close; only the exact new gateway engine PID is excluded from that ownership
+check. Recoverable transfer errors leave the app usable and are retried. Externally attached engines are not automatically taken over.
+
+Different existing workspace configurations keep their separate bindings. Grants
+are matched by connector name, provider URL and OAuth client; genuinely ambiguous
+same-provider accounts are never assigned arbitrarily.
 
 For an unambiguous matching connector, the importer preserves its access token,
 refresh token, absolute expiry, scopes and OAuth client registration. No browser

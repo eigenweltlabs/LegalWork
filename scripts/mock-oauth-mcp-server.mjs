@@ -96,9 +96,12 @@ function protectedResourceMetadata() {
   };
 }
 
+let requiredScope = "";
+
 function authorizationServerMetadata() {
   return {
     issuer,
+    ...(process.env.OAUTH_ISSUER_PARAMETER === "1" ? { authorization_response_iss_parameter_supported: true } : {}),
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
     registration_endpoint: `${issuer}/register`,
@@ -141,6 +144,7 @@ function redirectWithCode(res, params) {
 
   const callback = new URL(redirectUri);
   callback.searchParams.set("code", code);
+  if (process.env.OAUTH_ISSUER_PARAMETER === "1") callback.searchParams.set("iss", issuer);
   const state = params.get("state");
   if (state) callback.searchParams.set("state", state);
 
@@ -357,6 +361,10 @@ async function handleMcp(req, res) {
     json(res, 405, { error: "method_not_allowed" });
     return;
   }
+  if (requiredScope) {
+    json(res, 403, { error: "insufficient_scope" }, { "www-authenticate": `Bearer error="insufficient_scope", scope="${requiredScope}"` });
+    return;
+  }
   if (legacySse && new URL(req.url, issuer).pathname === "/mcp") {
     json(res, 405, { error: "legacy_sse_only" });
     return;
@@ -432,6 +440,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/expire" && req.method === "POST") {
       tokens.clear();
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/required-scope" && req.method === "POST") {
+      const body = await readJson(req);
+      requiredScope = typeof body.scope === "string" ? body.scope : "";
       json(res, 200, { ok: true });
       return;
     }

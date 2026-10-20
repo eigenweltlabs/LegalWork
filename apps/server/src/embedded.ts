@@ -33,7 +33,7 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
-import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
+import { migrateLegacyMcpOAuth, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Desktop networking stack, including its system proxy, for model assets. */
@@ -112,10 +112,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
 
+  let stopMigration = async () => {};
   const server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
-      await migrateLegacyMcpOAuth(config);
+      const migration = await migrateLegacyMcpOAuth(config);
       const workspace = config.workspaces[0];
       if (workspace?.path) {
         // Server-managed config file: the engine re-reads it from disk on every
@@ -181,6 +182,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           throw error;
         });
 
+        if (migration.deferred) stopMigration = startLegacyMcpMigrationRetry(config, () => new Set(managed.engine?.running() && managed.engine.pid ? [managed.engine.pid] : []));
         config.opencodeBaseUrl = managed.engine.url;
         config.opencodeUsername = managed.engine.username;
         config.opencodePassword = managed.engine.password;
@@ -200,6 +202,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       }
     }
   } }).catch(async (error: unknown) => {
+    await stopMigration();
     await managed.engine?.close();
     await managed.catalog?.stop();
     throw error;
@@ -214,6 +217,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       ? { running: managed.engine.running(), pid: managed.engine.pid }
       : null,
     async stop() {
+      await stopMigration();
       await managed.engine?.close();
       await server.stop();
       await managed.catalog?.stop();

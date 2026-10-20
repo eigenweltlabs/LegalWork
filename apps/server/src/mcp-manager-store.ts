@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/core";
 import { ApiError } from "./errors.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
@@ -21,7 +21,7 @@ const recordSchema = z.object({
   id: z.uuid(), key: z.string(), revision: z.uuid(), config: remoteMcpSchema,
   client: OAuthClientInformationSchema.optional(), tokens: OAuthTokensSchema.optional(),
   expiresAt: z.number().finite().optional(), reconnectRequired: z.boolean().optional(),
-  issuer: z.string().url().optional(),
+  issuer: z.string().url().optional(), requiredScope: z.string().optional(),
   configurationHash: z.string().optional(),
   legacyMigration: z.string().optional(),
 });

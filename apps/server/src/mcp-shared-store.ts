@@ -20,6 +20,7 @@
  * shared entry or resurrect a disconnected connector on an engine rebuild.
  * Other configuration and comments stay intact.
  */
+import { isDeepStrictEqual } from "node:util";
 import { dirname, join } from "node:path";
 import { installedCloudPluginMcpNames } from "./cloud-plugins.js";
 import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
@@ -96,7 +97,7 @@ export async function importConnectorsIntoSharedRow(
   if (retiredShared) delete shared["computer-use"];
   const imported: string[] = [];
   const sourceEntries: Array<{ path: string; name: string }> = [];
-  const workspaceEntries: Array<{ id: string; pluginOwned: Set<string> }> = [];
+  const workspaceEntries: Array<{ id: string; pluginOwned: Set<string>; overrides: Set<string> }> = [];
   const take = (name: string, entry: Record<string, unknown>) => {
     if (retiredComputerUse(name, entry) || Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
     shared[name] = entry;
@@ -112,7 +113,10 @@ export async function importConnectorsIntoSharedRow(
     const moving = Object.entries(row).filter(([name, entry]) => !entry.managedConnectionId && (!pluginOwned.has(name) || retiredComputerUse(name, entry)));
     if (moving.length === 0) continue;
     for (const [name, entry] of moving) take(name, entry);
-    workspaceEntries.push({ id: workspace.id, pluginOwned });
+    // Distinct existing workspace accounts are not stale copies of a shared
+    // connection. Preserve those settings for the manager to own independently.
+    const overrides = new Set(moving.filter(([name, entry]) => !retiredComputerUse(name, entry) && usable(name, entry) && shared[name] && !shared[name].managedConnectionId && !isDeepStrictEqual(shared[name], entry)).map(([name]) => name));
+    workspaceEntries.push({ id: workspace.id, pluginOwned, overrides });
   }
 
   const globalDirectory = dirname(sources.globalOpencodeConfigFile);
@@ -138,10 +142,10 @@ export async function importConnectorsIntoSharedRow(
   }
   // Commit the destination first. An interrupted import must leave the original
   // workspace settings available for the next startup to retry.
-  for (const { id, pluginOwned } of workspaceEntries) {
+  for (const { id, pluginOwned, overrides } of workspaceEntries) {
     await writeRuntimeOpencodeConfig(config, id, (current) => {
       const next = { ...current };
-      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => Boolean(entry.managedConnectionId) || (pluginOwned.has(name) && !retiredComputerUse(name, entry))));
+      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => Boolean(entry.managedConnectionId) || overrides.has(name) || (pluginOwned.has(name) && !retiredComputerUse(name, entry))));
       if (Object.keys(kept).length) next.mcp = kept;
       else delete next.mcp;
       return next;

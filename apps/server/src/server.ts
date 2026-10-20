@@ -1403,7 +1403,7 @@ async function proxyOpencodeRequest(input: {
       if (method === "POST" && managedAction[2] === "auth/authenticate") throw new ApiError(409, "mcp_browser_signin_required", "Sign in to this connector through LegalWork.");
       if (method === "POST" && managedAction[2] === "auth/callback") {
         const body = z.object({ code: z.string().min(1) }).parse(await input.request.json());
-        const result = await manager.finishAuthorization(input.workspace.id, name, body.code, input.request.headers.get("x-legalwork-oauth-state") ?? "");
+        const result = await manager.finishAuthorization(input.workspace.id, name, body.code, input.request.headers.get("x-legalwork-oauth-state") ?? "", input.request.headers.get("x-legalwork-oauth-issuer") ?? undefined);
         await syncRuntimeMcpToOpencodeEngine(input.config, input.workspace, [name]).catch(() => undefined);
         await syncSharedMcpToOtherWorkspaces(input.config, input.workspace, [name]);
         return jsonResponse(result);

@@ -35,17 +35,23 @@ export function legacyMcpAuthPath() {
 
 /** Conservative: a separate OpenCode might still hold this global grant in memory.
  * Inspect executable names only, never command-line credentials or environment. */
-export function hasOpencodeProcess(output: string, platform = process.platform) {
-  if (platform === "win32") return /^"opencode(?:-[^"\r\n]*)?\.exe",/im.test(output);
-  return output.split(/\r?\n/).some(line => /(?:^|\/)opencode(?:-[\w.-]+)?$/i.test(line.trim().replace(/^\d+\s+/, "")));
+export function hasOpencodeProcess(output: string, platform = process.platform, ignoredPids: ReadonlySet<number> = new Set()) {
+  return output.split(/\r?\n/).some(line => {
+    if (platform === "win32") {
+      const entry = line.match(/^"(opencode(?:-[^"\r\n]*)?\.exe)","(\d+)"/i);
+      return Boolean(entry && !ignoredPids.has(Number(entry[2])));
+    }
+    const entry = line.trim().match(/^(\d+)\s+(.+)$/);
+    return Boolean(entry && !ignoredPids.has(Number(entry[1])) && /(?:^|\/)opencode(?:-[\w.-]+)?$/i.test(entry[2]!));
+  });
 }
-export async function legacyMcpQuiescent() {
+export async function legacyMcpQuiescent(ignoredPids: ReadonlySet<number> = new Set()) {
   try {
     const result = process.platform === "win32"
       ? await run("tasklist", ["/FO", "CSV", "/NH"], { timeout: 2000 })
       : await run("ps", ["-u", String(process.getuid?.()), "-o", "pid=,comm="], { timeout: 2000 });
     const valid = process.platform === "win32" ? /^"[^"]+","\d+",/m.test(result.stdout) : /^\s*\d+\s+\S/m.test(result.stdout);
-    return valid && !hasOpencodeProcess(result.stdout);
+    return valid && !hasOpencodeProcess(result.stdout, process.platform, ignoredPids);
   } catch { return false; }
 }
 
@@ -56,7 +62,7 @@ async function readSource(path: string) {
 
 /** Called before starting a managed engine. The journal uses the existing vault;
  * no source grant is retired before its encrypted recovery copy is durable. */
-export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
+async function transferLegacyMcpOAuth(config: ServerConfig, options: {
   authPath?: string;
   quiescent?: () => Promise<boolean>;
 } = {}) {
@@ -76,27 +82,31 @@ export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
       }
     }
   } catch (error) { if (isMcpSecureStorageError(error)) return { migrated: [], deferred: true }; throw error; }
-  const eligible = [...candidates.values()].some(records => records.size === 1 && [...records.values()].some(record => !record.tokens && !record.reconnectRequired && !record.legacyMigration));
+  const eligible = [...candidates.values()].some(records => [...records.values()].some(record => !record.tokens && !record.reconnectRequired && !record.legacyMigration));
   if (!eligible) return { migrated: [], deferred: false };
   const inputPath = resolve(options.authPath ?? legacyMcpAuthPath());
   const path = await realpath(inputPath).catch(error => absent(error) ? inputPath : undefined);
   if (!path) return { migrated: [], deferred: true };
   const vault = new OAuthVault(oauthVaultPath(config));
   const journalKey = `managed-mcp-migration:${digest(path)}`;
-  const source = await readSource(path).catch(() => undefined);
-  if (!source) return { migrated: [], deferred: true };
+  const source = await readSource(path);
   const journal = await vault.getEntry(journalKey, journalSchema) ?? { version: 1, entries: {} };
   const resumable = new Set(Object.keys(journal.entries));
   const claimed = new Set(manager.store.all().flatMap(record => record.tokens?.refresh_token ? [record.tokens.refresh_token] : []));
   for (const [name, records] of candidates) {
     // The old store has one account per name. Never duplicate its rotating grant
     // into independent workspace accounts, or overwrite a new login/logout.
-    if (records.size !== 1) continue;
-    const record = [...records.values()][0]!;
-    if (record.tokens || record.reconnectRequired || record.legacyMigration) continue;
     const parsed = legacyEntry.safeParse(source[name]);
     if (!parsed.success) continue;
-    const entry = parsed.data, oauth = record.config.oauth || {};
+    const entry = parsed.data;
+    const matching = [...records.values()].filter(record => {
+      const oauth = record.config.oauth || {};
+      return record.config.url === entry.serverUrl && (!oauth.clientId || !entry.clientInfo || oauth.clientId === entry.clientInfo.clientId);
+    });
+    if (matching.length !== 1) continue;
+    const record = matching[0]!;
+    if (record.tokens || record.reconnectRequired || record.legacyMigration) continue;
+    const oauth = record.config.oauth || {};
     if (entry.serverUrl !== record.config.url) continue;
     if (oauth.clientId && entry.clientInfo && oauth.clientId !== entry.clientInfo.clientId) continue;
     if (!oauth.clientId && !entry.clientInfo) continue;
@@ -116,7 +126,9 @@ export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
   }
   const pending = Object.entries(journal.entries).filter(([, entry]) => !entry.complete);
   if (changed) await vault.setEntry(journalKey, journalSchema, journal);
-  if (!pending.length) return { migrated: [], deferred: false };
+  if (!pending.length) { manager.clearLegacyMigrationPending(); return { migrated: [], deferred: false }; }
+  for (const [, item] of pending) manager.legacyMigrationPending(item.target, item.revision,
+    "Your saved connector sign-in is waiting to be transferred. Close other OpenCode applications; LegalWork will retry automatically without a new sign-in.");
   const quiescent = options.quiescent ?? legacyMcpQuiescent;
   if (!await quiescent()) return { migrated: [], deferred: true };
 
@@ -133,14 +145,16 @@ export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
     const grantId = (item: z.infer<typeof transfer>) => digest(JSON.stringify([item.entry.serverUrl,
       item.entry.tokens.refreshToken ?? item.entry.tokens.accessToken]));
     const current = await readSource(path);
+    let retryChangedSource = false;
     const retiring = pending.filter(([id, item]) => {
       const record = manager.store.all().find(record => record.id === item.target);
       const claim = lock.get("SELECT owner, connection_id FROM handoffs WHERE grant_hash = ?", [grantId(item)]);
-      if (claim && (claim.owner !== owner || claim.connection_id !== item.target)) return false;
+      if (claim && (claim.owner !== owner || claim.connection_id !== item.target)) { manager.clearLegacyMigrationPending(item.target); return false; }
+      if (record && record.revision === item.revision && !record.tokens && !record.reconnectRequired && JSON.stringify(current[item.name]) !== JSON.stringify(item.original)) retryChangedSource = true;
       return record && record.revision === item.revision && !record.tokens && !record.reconnectRequired && !record.legacyMigration &&
         ((current[item.name] === undefined && resumable.has(id) && claim?.owner === owner) || JSON.stringify(current[item.name]) === JSON.stringify(item.original));
     });
-    if (!retiring.length) return { migrated: [], deferred: false };
+    if (!retiring.length) return { migrated: [], deferred: retryChangedSource };
     await vault.setEntry(journalKey, journalSchema, journal);
     for (const [, item] of retiring) lock.run("INSERT OR IGNORE INTO handoffs (grant_hash, owner, connection_id) VALUES (?, ?, ?)", [grantId(item), owner, item.target]);
     // A durable, secret-free claim prevents a second profile from adopting a
@@ -168,4 +182,35 @@ export async function migrateLegacyMcpOAuth(config: ServerConfig, options: {
     await vault.setEntry(journalKey, journalSchema, journal);
     return { migrated, deferred: false };
   } finally { lock.close(); }
+}
+
+type MigrationOptions = { authPath?: string; quiescent?: () => Promise<boolean> };
+
+/** Recoverable IO failures must preserve the grant and keep the app usable. */
+export async function migrateLegacyMcpOAuth(config: ServerConfig, options: MigrationOptions = {}) {
+  try { return await transferLegacyMcpOAuth(config, options); }
+  catch {
+    const manager = mcpManager(config);
+    for (const record of manager?.store.all() ?? []) manager?.legacyMigrationPending(record.id, record.revision,
+      "Your saved connector sign-in could not be transferred yet. LegalWork has preserved it and will retry automatically. Check access to the saved sign-ins and credential vault.");
+    return { migrated: [], deferred: true };
+  }
+}
+
+/** Owned engines already use oauth:false gateway entries, so only those exact
+ * PIDs may be excluded from the legacy ownership check. Every other engine
+ * continues to block the handover. Stop waits for any transfer already running. */
+export function startLegacyMcpMigrationRetry(config: ServerConfig, ownedPids: () => ReadonlySet<number>, options: MigrationOptions & { intervalMs?: number } = {}) {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active = Promise.resolve();
+  const retry = () => {
+    active = (async () => {
+      const result = await migrateLegacyMcpOAuth(config, { ...options, quiescent: options.quiescent ?? (() => legacyMcpQuiescent(ownedPids())) });
+      if (!stopped && result.deferred) schedule();
+    })();
+  };
+  const schedule = () => { timer = setTimeout(retry, options.intervalMs ?? 10_000); timer.unref?.(); };
+  schedule();
+  return async () => { stopped = true; clearTimeout(timer); await active; };
 }

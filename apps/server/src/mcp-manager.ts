@@ -2,12 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { auth, refreshAuthorization, selectResourceURL, UnauthorizedError, type OAuthClientProvider, type OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { InvalidGrantError, InvalidClientError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { Client, StreamableHTTPClientTransport, SSEClientTransport, SdkHttpError, auth, refreshAuthorization, selectResourceURL, discoverOAuthServerInfo, UnauthorizedError, OAuthError, OAuthErrorCode, extractWWWAuthenticateParams, computeScopeUnion, type OAuthClientProvider, type OAuthDiscoveryState, type OAuthClientMetadata, type OAuthTokens, type ClientCapabilities } from "@modelcontextprotocol/client";
 import { ApiError } from "./errors.js";
 import { FIRM_MCP_SCOPE, isMcpSecureStorageError, McpManagerStore, remoteMcpSchema, type ManagedMcpRecord } from "./mcp-manager-store.js";
 import { firmHubConnectorBlocks, firmHubConnectorScope, onFirmHubChange } from "./firm-hub.js";
@@ -19,7 +14,7 @@ import type { ServerConfig } from "./types.js";
 
 type PendingAuthorization = { state: string; verifier?: string; authorizationUrl?: string; expiresAt: number; revision: string; redirectUri: string; discovery?: OAuthDiscoveryState };
 type ConnectionRuntime = {
-  revision: string; controller: AbortController; client?: Client; connecting?: Promise<Client>;
+  revision: string; controller: AbortController; clients: Set<Client>; client?: Client; connecting?: Promise<Client>;
   discovery?: OAuthDiscoveryState; pending?: PendingAuthorization; failedAt?: number;
   refreshRetryAt?: number;
   status: { status: "connected" | "needs_auth" | "failed" | "disabled"; error?: string };
@@ -64,6 +59,7 @@ export class McpConnectorManager {
   private configurationMutations = new Map<string, Promise<unknown>>();
   private runtimes = new Map<string, ConnectionRuntime>();
   private retired = new Set<string>();
+  private legacyPending = new Map<string, { revision: string; message: string }>();
   private closeGateways = new Set<(id: string) => Promise<void>>();
   private connectedListeners = new Set<(id: string, client: Client) => void>();
   private stopFirmEvents: () => void;
@@ -93,7 +89,7 @@ export class McpConnectorManager {
     if (previous?.revision === record.revision) return previous;
     previous?.controller.abort();
     void previous?.client?.close();
-    const current: ConnectionRuntime = { revision: record.revision, controller: new AbortController(), status: { status: record.reconnectRequired ? "needs_auth" : record.config.enabled === false ? "disabled" : "failed" } };
+    const current: ConnectionRuntime = { revision: record.revision, controller: new AbortController(), clients: new Set(), status: { status: record.reconnectRequired ? "needs_auth" : record.config.enabled === false ? "disabled" : "failed" } };
     this.runtimes.set(record.id, current);
     return current;
   }
@@ -109,7 +105,8 @@ export class McpConnectorManager {
     this.runtimes.delete(record.id);
     // Let upstream request failures reach the gateway's HTTP responses before
     // closing its transports; the SDK otherwise discards pending JSON replies.
-    await runtime?.client?.close().catch(() => {});
+    this.legacyPending.delete(record.id);
+    await Promise.allSettled(Array.from(runtime?.clients ?? [], client => client.close()));
     await Promise.allSettled(Array.from(this.closeGateways, close => close(record.id)));
   }
   onRetire(close: (id: string) => Promise<void>) { this.closeGateways.add(close); return () => this.closeGateways.delete(close); }
@@ -173,10 +170,21 @@ export class McpConnectorManager {
     return this.exclusive(before.key, async () => {
       const current = this.store.get(before.key);
       if (!current || current.id !== id || current.revision !== revision || this.retired.has(revision) ||
-          current.tokens || current.reconnectRequired || current.legacyMigration) return false;
+          current.tokens || current.reconnectRequired || current.legacyMigration || this.runtime(current).pending) return false;
       await this.store.put({ ...current, ...credentials });
+      this.legacyPending.delete(id);
       return true;
     });
+  }
+
+  legacyMigrationPending(id: string, revision: string, message: string) {
+    const record = this.store.all().find(item => item.id === id);
+    if (record?.revision === revision && !record.tokens && !record.reconnectRequired && !record.legacyMigration) this.legacyPending.set(id, { revision, message });
+  }
+  clearLegacyMigrationPending(id?: string) { if (id) this.legacyPending.delete(id); else this.legacyPending.clear(); }
+  private assertMigrationReady(record: ManagedMcpRecord) {
+    const pending = this.legacyPending.get(record.id);
+    if (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired) throw new ApiError(503, "mcp_migration_pending", pending.message);
   }
 
   private async reconcileFirmConnections() {
@@ -306,15 +314,26 @@ export class McpConnectorManager {
         token_endpoint_auth_method: oauth.clientSecret ? "client_secret_post" : "none", ...(oauth.scope ? { scope: oauth.scope } : {}),
       }; },
       state: () => { if (!pending) throw signin(); return pending.state; },
-      clientInformation: () => { const current = assertCurrent(); return oauth.clientId ? { client_id: oauth.clientId, ...(oauth.clientSecret ? { client_secret: oauth.clientSecret } : {}) } : current.client; },
-      saveClientInformation: async client => { await this.store.put({ ...assertCurrent(), client }); },
-      tokens: () => pending ? undefined : assertCurrent().tokens,
+      clientInformation: ctx => {
+        const current = assertCurrent();
+        const issuer = current.issuer ?? ctx?.issuer;
+        if (current.issuer && ctx && new URL(current.issuer).href !== new URL(ctx.issuer).href) return undefined;
+        const client = oauth.clientId ? { client_id: oauth.clientId, ...(oauth.clientSecret ? { client_secret: oauth.clientSecret } : {}) } : current.client;
+        return client ? { ...client, ...(issuer ? { issuer } : {}) } : undefined;
+      },
+      saveClientInformation: async (client, ctx) => { await this.store.put({ ...assertCurrent(), client, issuer: client.issuer ?? ctx?.issuer }); },
+      tokens: ctx => {
+        if (pending) return undefined;
+        const current = assertCurrent();
+        if (current.issuer && ctx && new URL(current.issuer).href !== new URL(ctx.issuer).href) return undefined;
+        return current.tokens ? { ...current.tokens, ...(current.issuer ? { issuer: current.issuer } : {}) } : undefined;
+      },
       saveTokens: async tokens => {
         const current = assertCurrent();
         const merged: OAuthTokens = { ...tokens, ...(!tokens.refresh_token && !pending && current.tokens?.refresh_token ? { refresh_token: current.tokens.refresh_token } : {}),
           ...(!tokens.scope && !pending && current.tokens?.scope ? { scope: current.tokens.scope } : {}) };
         await this.store.put({ ...current, tokens: merged, expiresAt: tokens.expires_in === undefined ? undefined : Date.now() + tokens.expires_in * 1000,
-          issuer: pending?.discovery?.authorizationServerUrl.toString() ?? current.issuer, reconnectRequired: false });
+          issuer: tokens.issuer ?? pending?.discovery?.authorizationServerMetadata?.issuer ?? pending?.discovery?.authorizationServerUrl.toString() ?? current.issuer, reconnectRequired: false, requiredScope: undefined });
       },
       redirectToAuthorization: url => { if (!pending) throw signin(); pending.authorizationUrl = url.toString(); },
       saveCodeVerifier: verifier => { if (!pending) throw signin(); pending.verifier = verifier; },
@@ -342,17 +361,18 @@ export class McpConnectorManager {
     if (!found) throw missing();
     return this.exclusive(found.record.key, async () => {
       const record = this.current(found.record.key);
+      this.assertMigrationReady(record);
       if (record.config.oauth === false || record.config.enabled === false) throw new ApiError(400, "mcp_oauth_disabled", "Enable OAuth for this connector before signing in.");
       const runtime = this.runtime(record);
       const pending: PendingAuthorization = { state: randomBytes(32).toString("base64url"), expiresAt: Date.now() + 5 * 60_000, revision: record.revision, redirectUri: this.redirect(record) };
       runtime.pending = pending;
-      await auth(this.provider(record, pending), { serverUrl: record.config.url, scope: record.config.oauth?.scope, fetchFn: this.network(record) });
+      await auth(this.provider(record, pending), { serverUrl: record.config.url, scope: computeScopeUnion(record.config.oauth?.scope, record.tokens?.scope, record.requiredScope), fetchFn: this.network(record) });
       if (!pending.authorizationUrl) throw new Error("The MCP provider did not return a sign-in link.");
       return { authorizationUrl: pending.authorizationUrl, oauthState: pending.state };
     });
   }
 
-  async finishAuthorization(workspaceId: string, name: string, code: string, state: string) {
+  async finishAuthorization(workspaceId: string, name: string, code: string, state: string, issuer?: string) {
     const found = await this.find(workspaceId, name);
     if (!found) throw missing();
     await this.exclusive(found.record.key, async () => {
@@ -360,7 +380,7 @@ export class McpConnectorManager {
       const runtime = this.runtime(record), pending = runtime.pending;
       if (!code || !pending || !tokensMatch(pending.state, state) || pending.expiresAt <= Date.now() || pending.revision !== record.revision) throw new ApiError(400, "mcp_oauth_state_invalid", "This sign-in attempt expired or changed. Start again.");
       runtime.pending = undefined; // Every callback is single-use, including failed exchanges.
-      await auth(this.provider(record, pending), { serverUrl: record.config.url, authorizationCode: code, fetchFn: this.network(record) });
+      await auth(this.provider(record, pending), { serverUrl: record.config.url, authorizationCode: code, iss: issuer, fetchFn: this.network(record) });
       runtime.discovery = pending.discovery;
       await runtime.client?.close();
       runtime.client = undefined;
@@ -389,6 +409,7 @@ export class McpConnectorManager {
       const current = this.current(record.key, record.revision);
       const runtime = this.runtime(current);
       runtime.controller.signal.throwIfAborted();
+      this.assertMigrationReady(current);
       if (current.reconnectRequired) throw signin();
       if (!current.tokens) return undefined;
       if (rejectedAccessToken && current.tokens.access_token !== rejectedAccessToken) return current.tokens.access_token;
@@ -401,7 +422,6 @@ export class McpConnectorManager {
         // Discover once using the SDK without allowing runtime requests to register
         // a new client or open a browser. The cached issuer binds later refreshes.
         if (!runtime.discovery) {
-          const { discoverOAuthServerInfo } = await import("@modelcontextprotocol/sdk/client/auth.js");
           runtime.discovery = await discoverOAuthServerInfo(current.config.url, { fetchFn: this.network(current) });
         }
         const discovery = runtime.discovery;
@@ -418,7 +438,7 @@ export class McpConnectorManager {
         runtime.refreshRetryAt = undefined;
         return tokens.access_token;
       } catch (error) {
-        if (error instanceof InvalidGrantError || error instanceof InvalidClientError) {
+        if (error instanceof OAuthError && (error.code === OAuthErrorCode.InvalidGrant || error.code === OAuthErrorCode.InvalidClient)) {
           runtime.controller.signal.throwIfAborted();
           await this.store.put({ ...this.current(current.key, current.revision), tokens: undefined, expiresAt: undefined, reconnectRequired: true });
           runtime.status = { status: "needs_auth", error: signin().message };
@@ -461,35 +481,50 @@ export class McpConnectorManager {
           }
         }
       }
+      if (response.status === 403 && current.config.oauth !== false) {
+        const challenge = extractWWWAuthenticateParams(response);
+        if (challenge?.error === "insufficient_scope") {
+          await response.body?.cancel();
+          await this.exclusive(record.key, async () => {
+            const latest = this.current(record.key, record.revision);
+            await this.store.put({ ...latest, reconnectRequired: true, requiredScope: computeScopeUnion(latest.tokens?.scope, challenge.scope) });
+          });
+          this.runtime(record).status = { status: "needs_auth", error: "This connector requires additional permissions. Sign in again to approve them." };
+          throw signin();
+        }
+      }
       return response;
     };
   }
 
-  async client(record: ManagedMcpRecord): Promise<Client> {
+  async client(record: ManagedMcpRecord, bridge?: { capabilities: ClientCapabilities; prepare: (client: Client) => void }): Promise<Client> {
     const current = this.current(record.key, record.revision);
     const runtime = this.runtime(current);
+    this.assertMigrationReady(current);
     if (current.config.enabled === false) throw new ApiError(409, "mcp_disabled", "This connector is disabled.");
     if (current.reconnectRequired) throw signin();
-    if (runtime.client) return runtime.client;
-    if (runtime.connecting) return runtime.connecting;
+    if (!bridge && runtime.client) return runtime.client;
+    if (!bridge && runtime.connecting) return runtime.connecting;
     if (runtime.failedAt && Date.now() - runtime.failedAt < 3000) throw new ApiError(503, "mcp_retry_later", "The connector is temporarily unavailable. Retry shortly.");
-    runtime.connecting = (async () => {
+    const connecting = (async () => {
       const connect = async (legacy: boolean) => {
-        const client = new Client({ name: "LegalWork Connector Manager", version: "1.0.0" }, { capabilities: {} });
+        const client = new Client({ name: "LegalWork Connector Manager", version: "1.0.0" }, { capabilities: bridge?.capabilities ?? {}, versionNegotiation: { mode: "auto", probe: { timeoutMs: 5000 } } });
+        bridge?.prepare(client);
         const options = { fetch: this.authenticatedFetch(current) };
         const transport = legacy ? new SSEClientTransport(new URL(current.config.url), options) : new StreamableHTTPClientTransport(new URL(current.config.url), options);
         transport.onerror = () => {
-          if (runtime.client !== client) return;
-          runtime.client = undefined;
-          runtime.failedAt = Date.now();
-          if (runtime.status.status !== "needs_auth") runtime.status = { status: "failed", error: "The provider connection was interrupted. LegalWork will reconnect it." };
+          if (!runtime.clients.delete(client)) return;
+          if (runtime.client === client) runtime.client = undefined;
+          runtime.failedAt = runtime.clients.size ? undefined : Date.now();
+          if (runtime.status.status !== "needs_auth" && !runtime.clients.size) runtime.status = { status: "failed", error: "The provider connection was interrupted. LegalWork will reconnect it." };
           void client.close().catch(() => {});
         };
         try {
           await client.connect(transport, { signal: runtime.controller.signal, timeout: 30_000 });
           runtime.controller.signal.throwIfAborted();
-          client.onclose = () => { if (runtime.client === client) runtime.client = undefined; };
-          runtime.client = client;
+          client.onclose = () => { runtime.clients.delete(client); if (runtime.client === client) runtime.client = undefined; };
+          runtime.clients.add(client);
+          if (!bridge) runtime.client = client;
           runtime.status = { status: "connected" };
           runtime.failedAt = undefined;
           for (const listener of this.connectedListeners) listener(current.id, client);
@@ -500,13 +535,32 @@ export class McpConnectorManager {
       catch (error) {
         // Only a transport mismatch can fall back to legacy SSE. Authentication
         // failure never starts a second OAuth flow or repeats a tool call.
-        if (error instanceof StreamableHTTPError && [404, 405].includes(error.code ?? 0)) return await connect(true);
-        runtime.failedAt = Date.now();
-        if (runtime.status.status !== "needs_auth") runtime.status = { status: error instanceof UnauthorizedError ? "needs_auth" : "failed", error: "The connector could not connect. Check its connection in LegalWork." };
+        if (error instanceof SdkHttpError && [404, 405].includes(error.status ?? 0)) return await connect(true);
+        runtime.failedAt = runtime.clients.size ? undefined : Date.now();
+        if (runtime.status.status !== "needs_auth" && !runtime.clients.size) runtime.status = { status: error instanceof UnauthorizedError ? "needs_auth" : "failed", error: "The connector could not connect. Check its connection in LegalWork." };
         throw error;
       }
     })();
-    try { return await runtime.connecting; } finally { runtime.connecting = undefined; }
+    if (bridge) return connecting;
+    runtime.connecting = connecting;
+    try { return await connecting; } finally { runtime.connecting = undefined; }
+  }
+
+  async forwardModern(request: Request, record: ManagedMcpRecord): Promise<Response> {
+    const headers = new Headers();
+    for (const [key, value] of request.headers) if (["accept", "content-type", "mcp-protocol-version", "mcp-method", "mcp-name", "mcp-param-name", "mcp-param-type"].includes(key) || key.startsWith("mcp-")) headers.set(key, value);
+    // The gateway bearer authenticates only this local hop. Never forward it,
+    // cookies, host headers, or caller-controlled provider credentials upstream.
+    const response = await this.authenticatedFetch(record)(record.config.url, {
+      method: request.method, headers, signal: request.signal,
+      ...(request.method === "POST" ? { body: await request.text() } : {}),
+    });
+    if (response.ok) this.runtime(record).status = { status: "connected" };
+    // fetch has already decoded the body. Reusing its compressed length or
+    // content-encoding would make the downstream client decode it twice.
+    const responseHeaders = new Headers(response.headers);
+    for (const header of ["content-encoding", "content-length", "transfer-encoding", "connection", "set-cookie"]) responseHeaders.delete(header);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
   }
 
   async status(workspaceId: string, name: string) {
@@ -516,6 +570,8 @@ export class McpConnectorManager {
     if (!found) return undefined;
     const current = this.current(found.record.key);
     if (current.config.enabled === false) return { status: "disabled" };
+    const migration = this.legacyPending.get(current.id);
+    if (migration?.revision === current.revision && !current.tokens && !current.reconnectRequired) return { status: "failed", error: migration.message };
     if (current.reconnectRequired) return { status: "needs_auth", error: signin().message };
     return this.runtime(current).status;
   }

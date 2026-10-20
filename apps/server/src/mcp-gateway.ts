@@ -1,14 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import {
-  CallToolRequestSchema, CallToolResultSchema, GetPromptRequestSchema, ListPromptsRequestSchema,
-  ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema,
-  ToolListChangedNotificationSchema, ResourceListChangedNotificationSchema, PromptListChangedNotificationSchema,
-  isInitializeRequest,
-  isJSONRPCRequest, isJSONRPCNotification, isJSONRPCResultResponse, isJSONRPCErrorResponse,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Client, isInitializeRequest, isJSONRPCRequest, isJSONRPCNotification, isJSONRPCResultResponse, isJSONRPCErrorResponse } from "@modelcontextprotocol/client";
+import { Server, WebStandardStreamableHTTPServerTransport, isLegacyRequest } from "@modelcontextprotocol/server";
+import { ResultSchema, ElicitResultSchema, CreateMessageResultWithToolsSchema, ListRootsResultSchema } from "@modelcontextprotocol/core";
 import { ApiError } from "./errors.js";
 import type { McpConnectorManager } from "./mcp-manager.js";
 
@@ -19,7 +12,6 @@ type GatewaySession = { connectionId: string; workspaceId: string; server: Serve
  * coordination belong exclusively to the connector manager. */
 export class LocalMcpGateway {
   private sessions = new Map<string, GatewaySession>();
-  private notifiedClients = new WeakSet<object>();
   private unregister: () => void;
   constructor(private manager: McpConnectorManager) {
     const stopRetire = manager.onRetire(async id => {
@@ -30,19 +22,7 @@ export class LocalMcpGateway {
         await session.server.close();
       }));
     });
-    const stopConnections = manager.onConnected((id, client) => this.observe(id, client));
-    this.unregister = () => { stopRetire(); stopConnections(); };
-  }
-
-  private observe(connectionId: string, client: Client) {
-    if (this.notifiedClients.has(client)) return;
-    this.notifiedClients.add(client);
-    const broadcast = (method: "notifications/tools/list_changed" | "notifications/resources/list_changed" | "notifications/prompts/list_changed") => {
-      for (const session of this.sessions.values()) if (session.connectionId === connectionId) void session.server.notification({ method }).catch(() => {});
-    };
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => broadcast("notifications/tools/list_changed"));
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => broadcast("notifications/resources/list_changed"));
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () => broadcast("notifications/prompts/list_changed"));
+    this.unregister = stopRetire;
   }
 
   async handle(request: Request, workspaceId: string, connectionId: string): Promise<Response> {
@@ -51,6 +31,10 @@ export class LocalMcpGateway {
     // every request, including requests carrying an established MCP session.
     const record = await this.manager.gatewayConnection(workspaceId, connectionId);
     if (record.config.enabled === false) return Response.json({ error: "connection_disabled" }, { status: 503 });
+    // Modern MCP is stateless. Preserve its envelopes, interactive rounds,
+    // tasks and subscription streams without translating or filtering payloads.
+    // Legacy clients below use the SDK's dual-era client as a protocol bridge.
+    if (!await isLegacyRequest(request.clone())) return this.manager.forwardModern(request, record);
     const id = request.headers.get("mcp-session-id");
     if (id) {
       const session = this.sessions.get(id);
@@ -87,46 +71,67 @@ export class LocalMcpGateway {
       await session.server.close();
     }
     if (this.sessions.size >= 256) throw new ApiError(429, "mcp_session_limit", "Too many active connector sessions.");
-    const client = await this.manager.client(record);
-    const upstream = client.getServerCapabilities();
-    const server = new Server({ name: "LegalWork MCP Gateway", version: "1.0.0" }, {
-      capabilities: {
-        ...(upstream?.tools ? { tools: upstream.tools } : {}),
-        ...(upstream?.resources ? { resources: { listChanged: upstream.resources.listChanged } } : {}),
-        ...(upstream?.prompts ? { prompts: upstream.prompts } : {}),
-      },
+    const capabilities = body.params.capabilities;
+    let server: Server | undefined;
+    let activeClient: Client | undefined;
+    let connecting: Promise<Client> | undefined;
+    const prepare = (client: Client) => {
+      if (capabilities.elicitation) client.setRequestHandler("elicitation/create", (message, ctx) => {
+        if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
+        return server.request(message, ElicitResultSchema, { signal: ctx.mcpReq.signal });
+      });
+      if (capabilities.sampling) client.setRequestHandler("sampling/createMessage", (message, ctx) => {
+        if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
+        return server.request(message, CreateMessageResultWithToolsSchema, { signal: ctx.mcpReq.signal });
+      });
+      if (capabilities.roots) client.setRequestHandler("roots/list", (message, ctx) => {
+        if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
+        return server.request(message, ListRootsResultSchema, { signal: ctx.mcpReq.signal });
+      });
+      client.fallbackRequestHandler = (message, ctx) => {
+        if (!server) throw new ApiError(503, "mcp_initializing", "The connector is initializing.");
+        return server.request(message, ResultSchema, { signal: ctx.mcpReq.signal });
+      };
+      client.fallbackNotificationHandler = async message => { await server?.notification(message); };
+    };
+    const upstreamClient = async () => {
+      if (activeClient?.transport) return activeClient;
+      connecting ??= this.manager.client(record, { capabilities, prepare });
+      try { activeClient = await connecting; return activeClient; }
+      finally { connecting = undefined; }
+    };
+    const client = await upstreamClient();
+    const downstream = new Server({ name: "LegalWork MCP Gateway", version: "1.0.0" }, {
+      capabilities: client.getServerCapabilities(),
       ...(client.getInstructions() ? { instructions: client.getInstructions() } : {}),
     });
-    // The SDK correlates concurrent requests and propagates cancellation. Tool
-    // calls are forwarded exactly once; a connection failure is never replayed.
-    if (upstream?.tools) {
-      server.setRequestHandler(ListToolsRequestSchema, async (message, extra) => (await this.manager.client(record)).listTools(message.params, { signal: extra.signal }));
-      server.setRequestHandler(CallToolRequestSchema, async (message, extra) => (await this.manager.client(record)).callTool(message.params, CallToolResultSchema, {
-        signal: extra.signal, timeout: record.config.timeout ?? 60_000,
-        onprogress: progress => {
-          const progressToken = message.params._meta?.progressToken;
-          if (progressToken !== undefined) void extra.sendNotification({ method: "notifications/progress", params: { ...progress, progressToken } }).catch(() => {});
-        },
-      }));
-    }
-    if (upstream?.resources) {
-      server.setRequestHandler(ListResourcesRequestSchema, async (message, extra) => (await this.manager.client(record)).listResources(message.params, { signal: extra.signal }));
-      server.setRequestHandler(ListResourceTemplatesRequestSchema, async (message, extra) => (await this.manager.client(record)).listResourceTemplates(message.params, { signal: extra.signal }));
-      server.setRequestHandler(ReadResourceRequestSchema, async (message, extra) => (await this.manager.client(record)).readResource(message.params, { signal: extra.signal }));
-    }
-    if (upstream?.prompts) {
-      server.setRequestHandler(ListPromptsRequestSchema, async (message, extra) => (await this.manager.client(record)).listPrompts(message.params, { signal: extra.signal }));
-      server.setRequestHandler(GetPromptRequestSchema, async (message, extra) => (await this.manager.client(record)).getPrompt(message.params, { signal: extra.signal }));
-    }
-    this.observe(connectionId, client);
+    server = downstream;
+    // A client is private to this downstream session. Server-initiated requests
+    // and MRTR fulfilment cannot leak into another workspace's conversation.
+    downstream.fallbackRequestHandler = async (message, ctx) => {
+      const progressToken = message.params?._meta?.progressToken;
+      return (await upstreamClient()).request(message, ResultSchema, {
+        signal: ctx.mcpReq.signal, timeout: record.config.timeout ?? 60_000,
+        ...(progressToken === undefined ? {} : { onprogress: progress => {
+          void ctx.mcpReq.notify({ method: "notifications/progress", params: { ...progress, progressToken } }).catch(() => {});
+        } }),
+      });
+    };
+    downstream.fallbackNotificationHandler = async message => {
+      const upstream = await upstreamClient();
+      // Roots changed is a legacy notification. Modern roots are requested
+      // afresh by each MRTR round and have no push-notification counterpart.
+      if (message.method === "notifications/roots/list_changed" && upstream.getProtocolEra() === "modern") return;
+      await upstream.notification(message);
+    };
     const responses = new Map<string | number, PendingResponse>();
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
       enableJsonResponse: false,
       enableDnsRebindingProtection: true,
       allowedHosts: [`127.0.0.1:${this.manager.config.port}`, `localhost:${this.manager.config.port}`],
-      onsessioninitialized: sessionId => { this.sessions.set(sessionId, { connectionId, workspaceId, server, transport, lastUsed: Date.now(), responses }); },
-      onsessionclosed: sessionId => { this.sessions.delete(sessionId); void server.close(); },
+      onsessioninitialized: sessionId => { this.sessions.set(sessionId, { connectionId, workspaceId, server: downstream, transport, lastUsed: Date.now(), responses }); },
+      onsessionclosed: sessionId => { this.sessions.delete(sessionId); void downstream.close(); },
     });
     // Drain actual protocol responses, rather than the HTTP Response object,
     // which is returned before an SSE tool operation finishes.
@@ -139,9 +144,11 @@ export class LocalMcpGateway {
         }
       }
     };
-    await server.connect(transport);
+    await downstream.connect(transport);
+    const close = downstream.onclose;
+    downstream.onclose = () => { close?.(); void activeClient?.close(); };
     try { return await transport.handleRequest(request, { parsedBody: body }); }
-    catch (error) { await server.close(); throw error; }
+    catch (error) { await downstream.close(); await activeClient?.close(); throw error; }
   }
 
   async close() {

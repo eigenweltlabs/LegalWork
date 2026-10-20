@@ -192,7 +192,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
             throw error;
           }
         },
-        complete: async (code) => unwrap(await authClient.mcp.auth.callback({ name, directory, code }, { headers: { "x-legalwork-oauth-state": authorizationState } })),
+        complete: async (code, issuer) => unwrap(await authClient.mcp.auth.callback({ name, directory, code }, { headers: { "x-legalwork-oauth-state": authorizationState, ...(issuer ? { "x-legalwork-oauth-issuer": issuer } : {}) } })),
         receiveCode: activeListenerId ? (state) => mcpOAuthWait({ listenerId: activeListenerId, state }) : undefined,
         dispose,
         notice,

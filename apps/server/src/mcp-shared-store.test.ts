@@ -261,6 +261,16 @@ describe("importing connectors from earlier builds", () => {
     expect(await listMcp(config, "ws_b", wsB)).toEqual([expect.objectContaining({ name: "legalmemory", source: "config.remote", config: FIBERY })]);
     expect((await readJsoncFile(join(wsA, "opencode.jsonc"), {})).data).toEqual({ mcp: {} });
   });
+  test("different existing workspace connections with the same name retain their own configuration", async () => {
+    const { root, config } = await setup();
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: { service: FIBERY } }));
+    await writeRuntimeOpencodeConfig(config, "ws_b", () => ({ mcp: { service: NOTION } }));
+    await importConnectorsIntoSharedRow(config, { runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: join(root, "global.json") });
+    expect((await readGlobalMcpMap(config)).service).toEqual(FIBERY);
+    expect((await readRuntimeOpencodeConfig(config, "ws_b")).mcp?.service).toEqual(NOTION);
+    expect((await engineMcp(config, "ws_b")).service).toEqual(NOTION);
+  });
+
   test("moves workspace rows and copies file entries into the shared row once", async () => {
     const { root, config } = await setup();
     const runtimeConfigFile = join(root, "runtime-opencode-config.json");
