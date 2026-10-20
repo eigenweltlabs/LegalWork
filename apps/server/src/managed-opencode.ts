@@ -199,6 +199,8 @@ export async function createManagedOpencodeServer(options: {
     ...process.env,
     ...features,
     ...options.env,
+    // FFF's background scan reads document contents; filename lookup can use ripgrep.
+    OPENCODE_DISABLE_FFF: "true",
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
@@ -207,6 +209,7 @@ export async function createManagedOpencodeServer(options: {
   const injectedEnv = Object.entries({
     ...features,
     ...(options.env ?? {}),
+    OPENCODE_DISABLE_FFF: "true",
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })

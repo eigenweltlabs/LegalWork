@@ -24,19 +24,18 @@ test("read-only clients keep visible but disabled import actions", () => {
   for (const button of importButtons) expect(button).toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
 });
 
-test("Browse directory is a single global action before Import on every category, including read-only clients", () => {
+test("Add keeps the category menu on every category, including read-only clients", () => {
   const sections: ExtensionsViewProps["initialSection"][] = ["plugins", "mcp", "skills", "storage"];
   for (const initialSection of sections) {
     for (const canEditPlugins of [true, false]) {
       const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection={initialSection} canEditPlugins={canEditPlugins} />);
-      const buttons = html.match(/<button\b[^>]*>Browse directory<\/button>/g) ?? [];
+      const buttons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?>Add(?:(?!<\/button>)[\s\S])*<\/button>/g) ?? [];
       expect(buttons).toHaveLength(1);
+      expect(buttons[0]).toContain('aria-haspopup="menu"');
       expect(buttons[0]).not.toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
-      expect(html.indexOf("Browse directory")).toBeLessThan(html.indexOf(">Import</button>"));
+      expect(html).not.toContain("Browse directory");
     }
   }
-  const busy = renderToStaticMarkup(<ExtensionsView {...props} busy />);
-  expect(busy).toMatch(/<button\b[^>]*\sdisabled=""[^>]*>Browse directory<\/button>/);
 });
 
 test("the public Plugins route selects the bundle tab in normal and developer modes", () => {
@@ -44,7 +43,8 @@ test("the public Plugins route selects the bundle tab in normal and developer mo
     const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="plugins" developerMode={developerMode} />);
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>)[\s\S])*Plugins<\/button>/);
     expect(html).toContain("Connectors");
-    expect(html).toContain("File storage");
+    expect(html).toContain("File integrations");
+    expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Connectors<\/button>/);
     expect(html).not.toContain("Engine plugins");
     expect(html).not.toContain("plugins.config_label");
   }
@@ -59,4 +59,10 @@ test("skill imports remain available when plugin editing is read-only, with one 
   const importButtons = html.match(/<button\b[^>]*>(?:(?!<\/button>)[\s\S])*?>Import<\/button>/g) ?? [];
   expect(importButtons).toHaveLength(1);
   expect(importButtons[0]).not.toMatch(/^<button\b[^>]*\sdisabled(?:=|[\s>])/);
+});
+
+test("legacy MCP links select Plugins and keep the connector library visible", () => {
+  const html = renderToStaticMarkup(<ExtensionsView {...props} initialSection="mcp" />);
+  expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>(?:(?!<\/button>)[\s\S])*Plugins<\/button>/);
+  expect(html).toMatch(/<div(?![^>]*\bhidden)[^>]*><p>Connectors<\/p>/);
 });

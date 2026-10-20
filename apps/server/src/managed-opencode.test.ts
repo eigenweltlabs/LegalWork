@@ -20,6 +20,7 @@ n += 1;
 fs.writeFileSync(counter, String(n));
 fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
 fs.writeFileSync(counter + ".vault-key", process.env.LEGALWORK_ENCRYPTION_KEY || "");
+fs.writeFileSync(counter + ".fff", process.env.OPENCODE_DISABLE_FFF || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -91,6 +92,22 @@ test("the engine never inherits the server's credential-vault encryption key", a
   try { expect(readFileSync(counter + ".vault-key", "utf8")).toBe(""); }
   finally { await server.close(); }
 });
+test("keeps FFF disabled in the child and execution details even if caller env enables it", async () => {
+  const { bin, counter } = fakeBin(0);
+  const server = await createManagedOpencodeServer({
+    bin,
+    cwd: dir!,
+    env: { FAKE_OPENCODE_COUNTER: counter, OPENCODE_DISABLE_FFF: "false" },
+  });
+  try {
+    expect(readFileSync(counter + ".fff", "utf8")).toBe("true");
+    expect(server.execution.env.find(entry => entry.name === "OPENCODE_DISABLE_FFF")).toEqual({
+      name: "OPENCODE_DISABLE_FFF", value: "true", redacted: false,
+    });
+  } finally {
+    await server.close();
+  }
+}, 20000);
 
 test("does NOT retry a non-lock start failure (fails fast)", async () => {
   // fail "forever" but with a lock message would retry; use a bin that exits

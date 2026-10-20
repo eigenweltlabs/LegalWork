@@ -204,6 +204,7 @@ export type SessionSurfaceProps = {
   pendingInteractionSessionIds?: string[];
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
+  retryPermissionInput?: () => void;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
@@ -390,7 +391,7 @@ function NoModelNotice(props: {
 
 /**
  * Banner shown above the composer when the selected model still points at the
- * Eigenwelt provider but the firm's free trial has lapsed — the paid gateway
+ * Eigenwelt provider but the firm's trial has lapsed — the paid gateway
  * is blocked, so sends would fail with a missing model. Offers the subscribe
  * path; picking another model also clears it.
  */
@@ -2172,6 +2173,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     permission={props.activePermission}
                     onOpenSession={props.onOpenInteractionSession}
                     busy={props.permissionReplyBusy}
+                    onRetryInput={props.retryPermissionInput}
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
                   />
