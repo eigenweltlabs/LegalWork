@@ -1,7 +1,7 @@
-import { closeTestRuntime } from "../runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "../runtime.test-helpers.js";
 import { z } from "zod";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
@@ -55,7 +55,7 @@ afterEach(async () => {
   globalThis.fetch = nativeFetch;
   await closeTestRuntime(config);
   for (const [key, value] of priorEnvironment) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-  await rm(root, { recursive: true, force: true });
+  await removeTestDirectory(root);
 });
 
 async function start(id = "gmail", connectionId?: string) {

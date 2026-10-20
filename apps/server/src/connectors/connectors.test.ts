@@ -1,7 +1,7 @@
-import { closeTestRuntime } from "../runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "../runtime.test-helpers.js";
 import { saveConnectorWriteSetting } from "./settings.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -97,7 +97,7 @@ afterEach(async () => {
   for (const [key, value] of restore) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
-  await rm(root, { recursive: true, force: true });
+  await removeTestDirectory(root);
 });
 
 test("registers discoverable tools for both mail providers", () => {

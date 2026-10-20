@@ -1,6 +1,6 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -21,7 +21,7 @@ const textSchema = z.object({ content: z.array(z.object({ type: z.literal("text"
 
 async function fixture(compressedDiscovery = false) {
   const root = await mkdtemp(join(tmpdir(), "mcp-protocol-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTestDirectory(root));
   const received: Array<{ method: string; authorization: string | null; cookie: string | null; session: string | null }> = [];
   let cancelled = 0;
   let started = () => {};

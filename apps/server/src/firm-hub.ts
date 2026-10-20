@@ -545,6 +545,10 @@ export async function setFirmHubMemberKey(config: ServerConfig, id: string, key:
 }
 
 /** Tests: forget the in-memory state for a runtime folder. */
+export async function drainFirmHubSyncForTests(config: ServerConfig): Promise<void> {
+  await runtimes.get(hubDir(config))?.running;
+}
+
 export function resetFirmHubRuntimeForTests(config: ServerConfig): void {
   runtimes.delete(hubDir(config));
 }

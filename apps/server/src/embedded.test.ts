@@ -1,7 +1,7 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
@@ -47,7 +47,7 @@ console.log("opencode server listening on http://127.0.0.1:" + server.port);
 
 test("managed agent authenticates wiki and storage tools after the preferred server port is occupied", async () => {
   const root = await mkdtemp(join(tmpdir(), "embedded-agent-port-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTestDirectory(root));
   const previous = { ...process.env };
   cleanup.push(async () => {
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
@@ -89,7 +89,7 @@ test("managed agent authenticates wiki and storage tools after the preferred ser
 
 test("startup stays unavailable until initialization succeeds and releases its listener on failure", async () => {
   const root = await mkdtemp(join(tmpdir(), "server-init-failure-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTestDirectory(root));
   const config = configFor(root);
   cleanup.push(() => closeTestRuntime(config));
   let boundPort = 0;
@@ -104,7 +104,7 @@ test("startup stays unavailable until initialization succeeds and releases its l
 
 test("an explicit missing desktop SDK prevents engine spawn and package downloads", async () => {
   const root = await mkdtemp(join(tmpdir(), "embedded-missing-sdk-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeTestDirectory(root));
   const previous = { ...process.env };
   cleanup.push(async () => {
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];

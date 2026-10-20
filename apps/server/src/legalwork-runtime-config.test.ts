@@ -8,6 +8,7 @@ import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
+  drainLegalworkRuntimeConfigWrites,
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
@@ -183,6 +184,18 @@ describe("legalwork runtime config file", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(mcp.stripe?.enabled).toBe(false);
+  });
+
+  test("another server's writes cannot rewrite this engine's connector configuration", async () => {
+    const { config } = await setup();
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const before = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
+    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
+    await writeRuntimeOpencodeConfig({ ...config }, "ws_1", () => ({
+      mcp: { other: { type: "remote", url: "https://other.example/mcp" } },
+    }));
+    await drainLegalworkRuntimeConfigWrites(config);
+    expect(await readFile(legalworkRuntimeConfigFilePath(config), "utf8")).toBe(before);
   });
 
   test("writes for other workspaces do not rewrite the primary file", async () => {

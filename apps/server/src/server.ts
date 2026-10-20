@@ -1240,7 +1240,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       stopOrgPolicy();
       stopFirmHub();
       stopTaskReminders();
-      stopScheduledTasks();
+      // Keep the store alive for an in-flight delivery's final bookkeeping
+      // without making server shutdown wait for a remote agent to finish.
+      void Promise.resolve(stopScheduledTasks()).then(() => scheduledTasks.close()).catch(error => {
+        logger.log("warn", `Could not close the scheduled-task store: ${String(error)}`);
+      });
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();

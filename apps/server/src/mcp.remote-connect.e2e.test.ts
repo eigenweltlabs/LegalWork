@@ -1,6 +1,6 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -70,7 +70,7 @@ describe("mcp remote connect flow", () => {
       await closeTestRuntime(config);
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-      await rm(workspaceRoot, { recursive: true, force: true });
+      await removeTestDirectory(workspaceRoot);
     }
   });
 });

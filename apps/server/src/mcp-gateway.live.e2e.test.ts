@@ -1,6 +1,6 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -48,6 +48,6 @@ test.skipIf(process.env.LEGALWORK_LIVE_MCP !== "1")("real Cloudflare documentati
     await stopMcpManager(config);
     listener.stop(true);
     await closeTestRuntime(config);
-    await rm(root, { recursive: true, force: true });
+    await removeTestDirectory(root);
   }
 }, 120000);

@@ -1,6 +1,6 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
@@ -58,7 +58,7 @@ async function withWorkspace(fn: (input: { root: string; config: ServerConfig })
     await closeTestRuntime(config);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-    await rm(root, { recursive: true, force: true });
+    await removeTestDirectory(root);
   }
 }
 

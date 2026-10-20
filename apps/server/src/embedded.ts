@@ -18,6 +18,7 @@ import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
 import {
   keepLegalworkRuntimeConfigFileFresh,
+  drainLegalworkRuntimeConfigWrites,
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
@@ -113,6 +114,13 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   }
 
   let stopMigration = async () => {};
+  let stopRuntimeConfig = () => {};
+  let manifestRefresh: Promise<unknown> = Promise.resolve();
+  const stopConfigWrites = async () => {
+    stopRuntimeConfig();
+    await manifestRefresh.catch(() => {});
+    await drainLegalworkRuntimeConfigWrites(config).catch(() => {});
+  };
   const server = await startServer(config, { modelDownloadFetch: options.modelDownloadFetch, onListening: async (port) => {
     const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
     if (!config.opencodeBaseUrl && options.manageOpencode) {
@@ -123,12 +131,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
         // on every runtime-DB write — so disposes always pick up current state.
         const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-        keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+        stopRuntimeConfig = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
         // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
         // the kept key (no-op when not signed in) with the firm's access token,
         // so the list reflects the admin's on/off choices, then rewrite the
         // engine config so the current models appear across every workspace.
-        void ensureFreshPlatformToken(config)
+        manifestRefresh = ensureFreshPlatformToken(config)
           .catch(() => null)
           .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
           .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
@@ -203,6 +211,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   } }).catch(async (error: unknown) => {
     await stopMigration();
+    await stopConfigWrites();
     await managed.engine?.close();
     await managed.catalog?.stop();
     throw error;
@@ -218,6 +227,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       : null,
     async stop() {
       await stopMigration();
+      await stopConfigWrites();
       await managed.engine?.close();
       await server.stop();
       await managed.catalog?.stop();

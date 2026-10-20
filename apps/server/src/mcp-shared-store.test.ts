@@ -1,4 +1,4 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,7 +39,7 @@ let previousXdg: string | undefined;
 afterEach(async () => {
   while (cleanups.length) cleanups.pop()?.();
   for (const config of configs.splice(0)) await closeTestRuntime(config);
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  while (roots.length) await removeTestDirectory(roots.pop()!);
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
   if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;

@@ -386,6 +386,10 @@ export async function readEngineEigenweltProvider(config: ServerConfig): Promise
 // job reads the latest runtime-DB state.
 const fileWriteQueue = new Map<string, Promise<void>>();
 
+export async function drainLegalworkRuntimeConfigWrites(config: ServerConfig): Promise<void> {
+  await fileWriteQueue.get(legalworkRuntimeConfigFilePath(config));
+}
+
 /**
  * Rebuild the engine-visible runtime config file from the runtime DB.
  * Atomic (temp file + rename) so the engine never reads a partial file
@@ -416,6 +420,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+    if (writeConfig !== config) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
     if (

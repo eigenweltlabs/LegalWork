@@ -1,8 +1,9 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { stageOpencodeSdk } from "../../desktop/scripts/prepare-opencode-sdk.mjs";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,6 +13,8 @@ import { mcpManager } from "./mcp-manager.js";
 import { runtimeMcpMapForWorkspace } from "./mcp.js";
 import { GLOBAL_MCP_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
+import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
 import type { ServerConfig } from "./types.js";
@@ -33,8 +36,9 @@ const statusSchema = z.record(z.string(), z.object({ status: z.string() }));
 
 test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and share refresh across workspaces without another sign-in", async () => {
   if (!binary) throw new Error("Missing engine binary");
-  const root = await mkdtemp(join(tmpdir(), "legalwork-manager-engines-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-manager-engines-")));
   const children: ChildProcess[] = [];
+  const diagnostics: Array<() => string> = [];
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let passed = false;
   const callback = createMcpOAuthCallbackBroker();
@@ -104,15 +108,15 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
       ? { ...baseEngineConfig, plugin: [pathToFileURL(join(root, "legacy-plugin.mjs")).href], mcp: { shared: upstream } } : baseEngineConfig));
     const env = { ...process.env };
     for (const key of Object.keys(env)) if (key.startsWith("OPENCODE_") || key.startsWith("LEGALWORK_")) delete env[key];
-    const engine = spawn(binary, ["serve", "--hostname", "127.0.0.1", "--port", new URL(workspace.baseUrl).port], {
-      cwd: workspace.path, env: { ...env, OPENCODE_CONFIG: join(workspace.path, "opencode.jsonc"), OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: join(root, "policy"),
+    const engine = spawn(binary, ["serve", "--print-logs", "--log-level", "DEBUG", "--hostname", "127.0.0.1", "--port", new URL(workspace.baseUrl).port], {
+      cwd: workspace.path, env: { ...env, OPENCODE_CONFIG: join(workspace.path, "opencode.jsonc"), OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
         ...(!legacy ? { LEGALWORK_SERVER_URL: `http://127.0.0.1:${config.port}`, LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config) } : {}),
-        OPENCODE_TEST_HOME: join(root, "home"), OPENCODE_DB: join(root, `${workspace.id}.sqlite`), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
-        OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: ["ignore", "ignore", "pipe"],
+        BUN_INSTALL_CACHE_DIR: join(root, "bun-install-cache"), OPENCODE_TEST_HOME: join(root, "engine-home"), OPENCODE_DB: join(root, `${workspace.id}.sqlite`), XDG_CONFIG_HOME: join(root, "engine-home", "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
+        OPENCODE_DISABLE_FFF: "true", OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_DISABLE_PROJECT_CONFIG: "true", OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: ["ignore", "ignore", "pipe"],
     });
-    let diagnostics = "";
-    engine.stderr?.on("data", chunk => { diagnostics = (diagnostics + chunk.toString()).slice(-16_384); });
-    engine.on("exit", () => { if (diagnostics) console.log(`Engine ${workspace.id} diagnostics: ${diagnostics}`); });
+    let output = "";
+    engine.stderr?.on("data", chunk => { output = (output + chunk.toString()).slice(-16_384); });
+    diagnostics.push(() => `Engine ${workspace.id}: ${output}`);
     children.push(engine);
     await until(async () => (await fetch(`${workspace.baseUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok, `engine ${workspace.id}`);
     return engine;
@@ -124,6 +128,11 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
     // Otherwise this fresh fixture can kill the installer while it holds a
     // package lock, delaying the next engine independently of OAuth migration.
     await writeFile(join(root, "legacy-plugin.mjs"), "export const LegacyFixture = async () => ({});\n");
+    // Match packaged desktop startup: use the installed SDK graph rather than
+    // making a fresh native engine run a separate package installer mid-test.
+    const sdk = join(root, "sdk");
+    await stageOpencodeSdk({ sourcePackage: resolve(import.meta.dir, "../node_modules/@opencode-ai/plugin"), destination: sdk, expectedVersion: "1.18.29" });
+    expect((await prepareManagedOpencodeDependencies({ ...config, agentSandboxEnabled: true }, sdk)).seeded).toBe(true);
     const oldEngine = await launchEngine(0, true);
     const listener = await callback.listen({ redirectUri: `http://127.0.0.1:${callbackPort}/mcp/oauth/callback` });
     const flow = z.object({ authorizationUrl: z.string() }).parse(await engineRequest(0, "/mcp/shared/auth", {}, 90_000));
@@ -192,7 +201,7 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
     await server?.stop();
     await closeTestRuntime(config);
     model.stop(true);
-    if (passed) await rm(root, { recursive: true, force: true });
-    else console.error(`Native MCP fixture retained for diagnosis: ${root}`);
+    if (passed) await removeTestDirectory(root);
+    else console.error(`Native MCP fixture retained for diagnosis: ${root}\n${diagnostics.map(read => read()).join("\n")}`);
   }
 }, 180_000);

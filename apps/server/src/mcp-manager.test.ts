@@ -1,8 +1,8 @@
-import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -39,7 +39,7 @@ function freePort() {
 
 export async function managedMcpFixture(env: Record<string, string> = {}) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-managed-mcp-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTestDirectory(root));
   const workspaces = [{ id: "ws_a", path: join(root, "a") }, { id: "ws_b", path: join(root, "b") }];
   await Promise.all(workspaces.map(item => mkdir(item.path)));
   const providerPort = freePort();
