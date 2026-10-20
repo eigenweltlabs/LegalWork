@@ -35,6 +35,7 @@ const migrationMessages = {
   busy: "Another LegalWork process is transferring these sign-ins. Close that process or wait for it to finish, then retry the transfer.",
   changed: "The old saved sign-ins changed during transfer. Retry after other applications have stopped using them.",
   claimed: "Another LegalWork profile already owns this saved sign-in. Use that profile, or sign in again here.",
+  recovery: "LegalWork cannot find the transfer record for this saved sign-in. Restore the original saved-sign-in location and retry, or sign in again.",
 };
 type MigrationReason = keyof typeof migrationMessages;
 type MigrationResult = { migrated: string[]; deferred: boolean };
@@ -153,7 +154,11 @@ async function transferLegacyMcpOAuth(config: ServerConfig, options: {
   }
   const pending = Object.entries(journal.entries).filter(([, entry]) => !entry.complete);
   if (changed) await vault.setEntry(journalKey, journalSchema, journal);
-  if (!pending.length) { manager.clearLegacyMigrationPending(); return { migrated: [], deferred: false }; }
+  if (!pending.length) {
+    if (manager.store.all().some(record => record.legacyHandoffPending && !record.reconnectRequired)) return { migrated: [], deferred: true, reason: "recovery" };
+    manager.clearLegacyMigrationPending();
+    return { migrated: [], deferred: false };
+  }
   for (const [, item] of pending) manager.legacyMigrationPending(item.target, item.revision,
     "Your saved connector sign-in is waiting to be transferred. Close OpenCode applications using the same saved sign-ins; LegalWork will retry automatically without a new sign-in.");
   const quiescent = options.quiescent ?? (() => legacyMcpQuiescent(new Set(), path));

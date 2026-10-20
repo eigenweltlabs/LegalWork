@@ -677,6 +677,9 @@ describe("legacy MCP credential handover", () => {
     const vault = new OAuthVault(oauthVaultPath(f.config));
     const journal = await vault.getEntry(journalKey, z.unknown());
     expect(JSON.stringify(journal)).toContain(f.entry.tokens.accessToken);
+    // A moved legacy location must not leave the staged flag spinning forever.
+    expect((await migrateLegacyMcpOAuth(f.config, { ...f.options, authPath: join(f.root, "moved", "mcp-auth.json") })).deferred).toBe(true);
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked" }, error: expect.stringContaining("transfer record") });
     f.listener.stop(true); f.config.port = 0;
     const server = await startServer(f.config);
     cleanups.push(() => server.stop());
