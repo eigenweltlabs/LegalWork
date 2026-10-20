@@ -32,6 +32,7 @@ function run(command, args, cwd, env) {
 run(nodeCmd, [resolve(repoRoot, "scripts/sandbox/verify-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);

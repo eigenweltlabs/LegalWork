@@ -113,6 +113,9 @@ export interface RecorderBridge {
     trash: (id: string) => Promise<void>;
     control: (input: { action: "status" | "start" | "stop"; title?: string; projectId?: string; recordingId?: string; sources?: ("microphone" | "system")[] }) => Promise<unknown>;
   };
+  /** The local profile's retained recordings. Library routes require owner access. */
+  listRecordings?: () => Promise<AudioRecordingMeta[]>;
+  readRecording?: (id: string) => Promise<AudioRecordingDetail | null>;
   listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
   readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
   /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */

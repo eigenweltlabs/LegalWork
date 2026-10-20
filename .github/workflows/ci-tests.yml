@@ -5,9 +5,6 @@ on:
     branches:
       - dev
       - codex/projects-akte-workspace
-  push:
-    branches:
-      - dev
   workflow_dispatch:
     inputs:
       package_desktop:
@@ -33,7 +30,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - name: Check sandbox inputs
         id: changes
         env:
@@ -54,13 +51,24 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
+  windows-meetings:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Test Windows meeting detection and native metadata helper
+        run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
+
   windows-drafts:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
@@ -87,7 +95,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -115,13 +123,18 @@ jobs:
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
 
+      - name: Verify recorder capture and dictation
+        run: |
+          pnpm --filter @legalwork/app test:recorder-capture
+          pnpm --filter @legalwork/app test:dictation
+
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
-      - name: Verify scheduling with the shipped engine
+      - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
@@ -141,6 +154,7 @@ jobs:
       - name: Verify report source evidence checks
         run: |
           python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -I -S apps/server/resources/agent-sandbox/bootstrap-pip.py
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" -m pip install python-docx==1.2.0
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-evidence.py
           "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-from-reviews.py
@@ -189,7 +203,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0

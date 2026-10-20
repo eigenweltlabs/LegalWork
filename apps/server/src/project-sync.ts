@@ -16,6 +16,7 @@ import type {
 import { z } from "zod";
 
 import { announceSyncChange } from "./app-sync-events.js";
+import { isCloudFolder } from "./cloud-folder.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { requireIntakeClient, type IntakeClient } from "./eigenwelt-intake.js";
 import { eigenweltProjectStorage, type RemoteFileIndex } from "./eigenwelt-project-storage.js";
@@ -200,6 +201,10 @@ function nameOf(workspace: WorkspaceInfo): string {
 
 function workspaceOf(config: ServerConfig, workspaceId: string): WorkspaceInfo | null {
   return config.workspaces.find((entry) => entry.id === workspaceId && entry.workspaceType !== "remote") ?? null;
+}
+
+function folderSettings(settings: ProjectSyncSettings, cloud: boolean): ProjectSyncSettings {
+  return cloud ? { ...settings, scope: { ...settings.scope, documents: false } } : settings;
 }
 
 async function folderAvailable(path: string): Promise<boolean> {
@@ -515,9 +520,11 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
 async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+  const cloud = await isCloudFolder(root);
+  const scope = folderSettings(link.settings, cloud).scope;
   const base = store.fileBase(link.projectId).entries();
-  const reviewed = await reviewedDocuments(link.settings.scope, root);
-  const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
+  const reviewed = cloud ? undefined : await reviewedDocuments(scope, root);
+  const attached = cloud ? undefined : new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
   let changed = 0;
   const folders = [root];
@@ -529,7 +536,7 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
       if (item.isDirectory()) folders.push(abs);
       if (!item.isFile()) continue;
       const path = abs.slice(root.length + 1).split(sep).join("/").normalize("NFC");
-      if (!scopeIncludes(link.settings.scope, path, reviewed, attached)) continue;
+      if (!scopeIncludes(scope, path, reviewed, attached)) continue;
       const key = fileKey(path);
       seen.add(key);
       const info = await stat(abs);
@@ -684,7 +691,8 @@ async function syncDocuments(
   // never because a server with another project list does not know it.
   const workspace = workspaceOf(config, link.workspaceId);
   if (!workspace || !(await folderAvailable(workspace.path))) return;
-  const scope = link.settings.scope;
+  const cloud = await isCloudFolder(workspace.path);
+  const scope = folderSettings(link.settings, cloud).scope;
   if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
@@ -707,9 +715,11 @@ async function syncDocuments(
           runner,
         })
       : null;
-    const reviewed = await reviewedDocuments(scope, workspace.path);
-    const attached = new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
+    // Reviews and calendar attachments must not re-enable document copying.
+    const reviewed = cloud ? undefined : await reviewedDocuments(scope, workspace.path);
+    const attached = cloud ? undefined : new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
     const files = await syncProjectFiles({
+      enabled: !cloud || scope.notes || scope.recordings,
       root: resolve(workspace.path),
       remote,
       base: store.fileBase(link.projectId),
@@ -733,7 +743,7 @@ async function syncDocuments(
     if (stale) index.clear();
     store.updateLink(link.workspaceId, {
       // Our own uploads move the project's time: the next round reconciles once more.
-      filesReconciledAt: reconcile && !stale ? link.remoteUpdatedAt : stale ? null : link.filesReconciledAt,
+      filesReconciledAt: cloud || stale ? null : reconcile ? link.remoteUpdatedAt : link.filesReconciledAt,
       allowDeletions: files.heldDeletions > 0 ? link.allowDeletions : false,
       lastSyncAt: Date.now(),
       lastError: null,
@@ -924,6 +934,8 @@ function stateOf(
 }
 
 export async function projectSyncStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
+  const cloud = await isCloudFolder(workspace.path);
+  const fileSharingDisabledReason = cloud ? "cloud_folder" : undefined;
   const store = await projectSyncStore(config);
   const { orgId, userId } = await connectedOrg(config);
   const link = store.linkByWorkspace(workspace.id);
@@ -937,7 +949,8 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
       viewerUserId: userId,
       // Whoever turns sync on here owns the project.
       ownerUserId: userId,
-      settings: { access: "members", memberIds: [], scope: DEFAULT_PROJECT_SCOPE },
+      settings: folderSettings({ access: "members", memberIds: [], scope: DEFAULT_PROJECT_SCOPE }, cloud),
+      fileSharingDisabledReason,
       state: offer ? "offered" : "local",
       lastSyncAt: null,
       error: null,
@@ -964,7 +977,8 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
     role: link.role,
     viewerUserId: userId,
     ownerUserId: link.ownerUserId,
-    settings: link.settings,
+    settings: folderSettings(link.settings, cloud),
+    fileSharingDisabledReason,
     state: stateOf(link, available, orgId !== null, round, pendingChanges),
     lastSyncAt: link.lastSyncAt === null ? null : new Date(link.lastSyncAt).toISOString(),
     error: link.lastError ?? round?.error ?? null,
@@ -1031,6 +1045,9 @@ export async function saveProjectSyncSettings(
   const { orgId, userId } = await connectedOrg(config);
   if (orgId === null) {
     throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to sync this project with your firm.");
+  }
+  if (settings.scope.documents && await isCloudFolder(workspace.path)) {
+    throw new ApiError(409, "project_sync_cloud_folder", "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead.");
   }
   const store = await projectSyncStore(config);
   const tasks = await taskStore(config);
@@ -1131,8 +1148,11 @@ export async function resolveProjectSync(
     // The project was passed over when it was listed: the next pull lists everything again.
     store.setPullCursor(offer.orgId, null);
     workspacesChanged(config);
+    // Folder inspection can be asynchronous (client config / native metadata).
+    // Do not start a background round before this action has returned its status.
+    const status = await projectSyncStatus(config, workspace);
     scheduleProjectSync(config, 0);
-    return projectSyncStatus(config, workspace);
+    return status;
   }
   const link = store.linkByWorkspace(workspace.id);
   if (!link) throw new ApiError(404, "project_not_synced", "This project does not sync.");

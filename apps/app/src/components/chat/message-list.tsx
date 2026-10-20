@@ -11,8 +11,9 @@ import { assistantHandoffPresentation } from "./assistant-handoff-presentation";
 import { assistantChatMessages, assistantReactions } from "./assistant-chat-presentation";
 import { DelegationCard } from "./delegation-card";
 import { AssistantNameCard } from "./assistant-name-card";
-import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { ScheduledRunCard, scheduledRunOf } from "./scheduled-run-card";
+import { ScheduledTaskToolCard, ScheduledTaskRunCard } from "./scheduled-task-card";
+import { parseScheduledRunMessage } from "@/react-app/domains/scheduled-tasks/scheduled-message";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
@@ -23,7 +24,6 @@ import { SubagentToolRows } from "./subagent-tool-row";
 import { ProjectContentsTool } from "./project/project-contents-card";
 
 import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -260,7 +260,6 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
   return <Tool toolPart={part} />
 }
 
-const EMPTY_MATTERS: Record<string, string> = {}
 
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
@@ -623,7 +622,8 @@ const UserMessage = React.memo(
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly, assistantChat } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
     const sender = assistantMessageSender(message)
-    const scheduledRun = scheduledRunOf(message)
+    const assistantScheduledRun = scheduledRunOf(message)
+    const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
 
     return (
       <Message
@@ -643,7 +643,7 @@ const UserMessage = React.memo(
                 {message.parts.filter(isFileUIPart).map((part, index) => (
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
-                {scheduledRun ? <ScheduledRunCard run={scheduledRun} created={getMessageCreated(message)} /> : message.parts.some((part) => part.type === "text" && part.text) ? (
+                {assistantScheduledRun ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
                     layoutId={assistantChat ? undefined : message.id}
                     data-user-message-bubble=""
@@ -966,14 +966,6 @@ function MessageGroup({
     () => assistantChat ? [] : filedTasksOf(items.flatMap((item) => item.message.parts)),
     [items, assistantChat],
   )
-  // Matter titles, resolved once and reused. A hit names its matter only by id.
-  const { data: legalMemoryMatters = EMPTY_MATTERS } = useQuery({
-    queryKey: ["legalmemory-matters", workspaceId] as const,
-    enabled: legalMemoryDocuments.length > 0 && Boolean(workspaceId && legalworkClient),
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-    queryFn: async () => (await legalworkClient!.legalMemoryMatters(workspaceId)).matters,
-  })
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
@@ -1015,7 +1007,6 @@ function MessageGroup({
         />
         <LegalMemorySourcesCard
           documents={legalMemoryDocuments}
-          matters={legalMemoryMatters}
           streaming={isStreaming}
         />
       </div> : null}

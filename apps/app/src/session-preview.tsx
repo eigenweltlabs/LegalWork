@@ -35,6 +35,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
@@ -65,20 +66,24 @@ initLocale();
 
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
+const platform = previewParams.get("platform");
+const captionHeight = previewParams.has("tall-titlebar") ? 64 : 44;
+if (platform === "mac" || platform === "windows") document.documentElement.classList.add("legalwork-electron", `legalwork-platform-${platform}`);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
 // `?subscription=ended&role=member` previews expiry without connected services.
 const subscriptionPreview = previewParams.get("subscription") === "ended";
-const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
+const trialPreview = previewParams.has("trial");
+const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
 const assistantPreview = previewParams.has("assistant");
 const modelSettingsPreview = previewParams.has("model-settings");
 const assistantToday = "2026-10-07";
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
-const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
+const model = { providerID: previewParams.get("provider") ?? (trialPreview ? "eigenwelt" : "openai"), modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
 const requestTooLarge = previewParams.has("requestTooLarge");
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
-const topUpPreview = previewParams.get("topup");
+const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : null);
 const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
@@ -109,6 +114,20 @@ const reply = "I've reviewed the sample terms and organized the key points.\n\n#
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (trialPreview && limitFixture.entitlements.entitlements) {
+  const endsAt = new Date(now + 3 * 86_400_000).toISOString();
+  limitFixture.usage.trial = { endsAt };
+  limitFixture.usage.billingInterval = previewParams.has("annual") ? "year" : "month";
+  limitFixture.usage.me.allowanceCents = limitPlan === "pro" ? 7000 : 2900;
+  limitFixture.usage.me.extraLimitCents = 0;
+  limitFixture.usage.me.baseExtraLimitCents = 0;
+  limitFixture.usage.me.resetsAt = endsAt;
+  limitFixture.usage.extraEnabled = false;
+  limitFixture.usage.me.blockedReason = "extra_disabled";
+  limitFixture.entitlements.entitlements.subscriptionStatus = "trialing";
+  limitFixture.entitlements.entitlements.trialEndsAt = endsAt;
+  queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
+}
 if (subscriptionPreview && limitFixture.entitlements.account && limitFixture.entitlements.entitlements) {
   limitFixture.entitlements.account.orgRole = limitFixture.usage.isAdmin ? "org:admin" : "org:member";
   limitFixture.entitlements.entitlements.subscriptionStatus = "canceled";
@@ -224,6 +243,23 @@ if (previewParams.has("sent-by")) {
 }
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+
+// `?statusStates` lines up one chat per sidebar indicator, each named after the
+// state it stands for, so the whole vocabulary can be compared in one look.
+const statusStateRows = ["idle", "thinking", "responding", "waiting", "compacting", "error", "unread"] as const;
+const statusStatesById: Record<string, string> = {};
+if (previewParams.has("statusStates")) {
+  for (const state of statusStateRows) {
+    saveSnapshot(snapshot(`visual-state-${state}`, state));
+    // `idle` draws nothing and `unread` comes from the inbox store below.
+    if (state !== "idle" && state !== "unread") statusStatesById[`visual-state-${state}`] = state;
+  }
+  useSessionInboxStore.setState({
+    trackingStartedAt: 1,
+    entries: { "visual-state-unread": { workspaceId: workspace.id, sessionId: "visual-state-unread", updatedAt: 2, assistantAt: 2 } },
+    readAt: {},
+  });
+}
 if (limitParam) {
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
@@ -480,6 +516,14 @@ const fixtureClient: LegalworkServerClient = {
     return limitFixture.usage;
   },
   eigenweltUsageAction: async (_workspaceId, action) => {
+    if (trialPreview && action.action === "trialSubscription") {
+      const quoteId = "215d5d04-97a9-431e-9ae7-67112023a0d4";
+      if (action.preview) return { quoteId, recurringAmountCents: previewParams.has("annual") ? limitPlan === "pro" ? 82800 : 34800 : limitPlan === "pro" ? 8900 : 3900, seatCount: 1, amountCents: previewParams.has("annual") ? limitPlan === "pro" ? 98532 : 41412 : limitPlan === "pro" ? 10591 : 4641, billingInterval: limitFixture.usage.billingInterval };
+      const allowance = limitPlan === "pro" ? 7000 : 3000;
+      const me = { ...limitFixture.usage.me, allowanceCents: allowance, remainingCents: allowance, availableMicros: allowance*10_000, blockedReason: null };
+      limitFixture.usage = { ...limitFixture.usage, trial: null, me, members: [me] };
+      return { status: "paid", quoteId };
+    }
     if (intentPreview && (action.action === "increaseLimit" || action.action === "enableExtraUsage")) {
       const previous = limitFixture.usage;
       const personal = action.action === "increaseLimit" && action.scope === "personal";
@@ -505,7 +549,7 @@ const fixtureClient: LegalworkServerClient = {
           extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpPending.amountCents,
           blockedReason: topUpPreview === "blocked" ? "member_limit" : null,
         };
-        limitFixture.usage = { ...limitFixture.usage, me, members: [me], walletCents: topUpPending.amountCents };
+        limitFixture.usage = { ...limitFixture.usage, me: { ...me, extraLimitCents: topUpPending.amountCents }, members: [me], extraEnabled: true, walletCents: topUpPending.amountCents };
         topUpPending = null;
       }
       return {
@@ -729,6 +773,10 @@ function SessionPreview() {
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
       <AssistantIntroModal open={announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
+      {platform === "windows" && <>
+        {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
+        <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
+      </>}
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
@@ -798,7 +846,7 @@ function SessionPreview() {
             assistantWorkspaceId: assistantPreview ? workspace.id : undefined,
             onOpenAssistant: assistantPreview ? () => { setOnboarding(state => state && { ...state, greetingUnread: false }); setSelectedSessionId(welcomeId); useSessionInboxStore.getState().open(welcomeId, workspace.id); } : undefined, assistantActive: assistantPreview && selectedSessionId === welcomeId,
             workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
-            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
+            sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
               setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);

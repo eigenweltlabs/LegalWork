@@ -2,15 +2,132 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
-  checkForUpdatesWithFeedFallback,
+  checkForUpdatesWithFeedFallback as checkUpdates,
+  isVersionNewer,
+  alphaFeedUrl,
+  serializeUpdaterTasks,
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
+  downloadUpdateReady,
 } from "./updater.mjs";
 
+const checkForUpdatesWithFeedFallback = (app, updater) => checkUpdates(app, updater, { resolveFeed: async () => { throw new Error("Simulated API outage"); } });
+
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+it("resolves each persisted channel to an exact release without permitting a downgrade", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-channel-test-"));
+  try {
+    for (const channel of ["stable", "prerelease", "alpha"]) {
+      await writeFile(path.join(root, "electron-updater-channel.v1.json"), JSON.stringify({ channel }));
+      const app = { isPackaged: true, getVersion: () => "5.0.0", getPath: () => root };
+      const updater = { feed: "", setFeedURL({ url }) { this.feed = url; }, async checkForUpdates() { return { updateInfo: { version: "4.0.0" } }; } };
+      const selected = { tag: "v4.0.0", releaseId: 1, kind: "stable", manifest: "latest.yml", assetNames: [], version: "4.0.0", feedUrl: "https://github.com/eigenweltlabs/legalwork/releases/download/v4.0.0" };
+      const { channelState } = await checkUpdates(app, updater, { resolveFeed: async (chosen) => {
+        assert.equal(chosen, channel === "alpha" && process.platform === "linux" ? "stable" : channel);
+        return selected;
+      } });
+      assert.equal(channelState.feedUrl, selected.feedUrl);
+      assert.equal(updater.feed, selected.feedUrl);
+      assert.equal(updater.allowDowngrade, false);
+      assert.equal(isVersionNewer("4.0.0", "5.0.0"), false);
+      assert.equal(isVersionNewer("4.0.0", "4.0.0"), false);
+      assert.equal(isVersionNewer("broken", "4.0.0"), false);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it("rejects mismatched manifests instead of silently switching release or channel", async () => {
+  const app = { isPackaged: true, getVersion: () => "3.0.0", getPath: () => "/nonexistent/legalwork-test" };
+  const updater = { setFeedURL() {}, async checkForUpdates() { return { updateInfo: { version: "8.0.0" } }; } };
+  await assert.rejects(checkUpdates(app, updater, { resolveFeed: async () => ({ tag: "v4.0.0", releaseId: 1, kind: "stable", manifest: "latest.yml", assetNames: [], version: "4.0.0", feedUrl: "https://github.com/example/v4" }) }), /manifest does not match/);
+  const empty = await checkUpdates(app, updater, { resolveFeed: async () => null });
+  assert.equal(empty.result, null);
+});
+
+it("serializes a channel switch behind a download and recovers after failed checks", async () => {
+  const run = serializeUpdaterTasks();
+  const events = [];
+  /** @type {() => void} */
+  let finish = () => assert.fail("download not started");
+  const download = run(async () => { events.push("download"); await new Promise((resolve) => { finish = () => resolve(undefined); }); events.push("downloaded"); });
+  const change = run(() => { events.push("channel changed"); });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["download"]);
+  finish();
+  await Promise.all([download, change]);
+  await assert.rejects(run(() => { throw new Error("offline"); }));
+  await run(() => events.push("new check"));
+  assert.deepEqual(events, ["download", "downloaded", "channel changed", "new check"]);
+});
+
+describe("downloadUpdateReady", () => {
+  it("waits for macOS to finish unpacking after the ZIP transfer", async () => {
+    const native = new EventEmitter();
+    let downloaded = false, ready = false;
+    const result = downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, native).then(() => { ready = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(downloaded, true);
+    assert.equal(ready, false);
+    native.emit("update-downloaded");
+    await result;
+    assert.equal(ready, true);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("reports an unpacking failure after downloadUpdate has already resolved", async () => {
+    const native = new EventEmitter();
+    const result = downloadUpdateReady({ async downloadUpdate() {} }, native);
+    const rejected = assert.rejects(result, /No space left on device/);
+    await new Promise((resolve) => setImmediate(resolve));
+    native.emit("error", new Error("ditto: No space left on device"));
+    await rejected;
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("subscribes before starting a cached download and still waits for its promise", async () => {
+    const native = new EventEmitter();
+    /** @type {() => void} */
+    let finish = () => assert.fail("download must start first");
+    let ready = false;
+    const result = downloadUpdateReady({ downloadUpdate() {
+      native.emit("update-downloaded");
+      return new Promise((resolve) => { finish = () => resolve(undefined); });
+    } }, native).then(() => { ready = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ready, false);
+    finish();
+    await result;
+    assert.equal(native.listenerCount("error"), 0);
+  });
+
+  it("cleans up native listeners when the download fails", async () => {
+    const native = new EventEmitter();
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, native), /Download failed/);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("times out a missing native completion event so retry remains possible", async () => {
+    const native = new EventEmitter();
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() {} }, native, 10), /could not finish preparing/);
+    assert.equal(native.listenerCount("error"), 0);
+    assert.equal(native.listenerCount("update-downloaded"), 0);
+  });
+
+  it("keeps the download promise as readiness off macOS", async () => {
+    let downloaded = false;
+    await downloadUpdateReady({ async downloadUpdate() { downloaded = true; } }, null);
+    assert.equal(downloaded, true);
+    await assert.rejects(downloadUpdateReady({ async downloadUpdate() { throw new Error("Download failed"); } }, null), /Download failed/);
+  });
+});
 
 it("keeps Windows installer architectures separate on every update feed", () => {
   for (const url of ["https://eigenweltlabs.com/legalwork/update", ELECTRON_UPDATER_FALLBACK_FEEDS.stable, "https://example.test/alpha"]) {
@@ -142,4 +259,11 @@ describe("staleUpdaterStatePaths", () => {
   it("is a no-op off macOS", { skip: process.platform === "darwin" }, () => {
     assert.deepEqual(staleUpdaterStatePaths(fakeApp), []);
   });
+});
+
+it("alpha fallback never offers an ARM-only macOS installer to an Intel Mac", () => {
+  assert.equal(alphaFeedUrl("darwin", "x64"), "https://eigenweltlabs.com/legalwork/update");
+  assert.match(alphaFeedUrl("darwin", "arm64"), /alpha-macos-latest$/);
+  assert.match(alphaFeedUrl("win32", "x64"), /alpha-windows-latest$/);
+  assert.match(alphaFeedUrl("win32", "arm64"), /alpha-windows-latest$/);
 });
