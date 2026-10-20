@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,12 +31,14 @@ import type { ServerConfig } from "./types.js";
  */
 
 const roots: string[] = [];
+const configs: ServerConfig[] = [];
 const cleanups: Array<() => void> = [];
 let previousDb: string | undefined;
 let previousXdg: string | undefined;
 
 afterEach(async () => {
   while (cleanups.length) cleanups.pop()?.();
+  for (const config of configs.splice(0)) await closeTestRuntime(config);
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -77,6 +80,7 @@ async function setup() {
     logFormat: "pretty",
     logRequests: false,
   };
+  configs.push(config);
   return { root, wsA, wsB, config };
 }
 

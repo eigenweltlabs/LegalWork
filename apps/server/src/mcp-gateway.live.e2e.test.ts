@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +8,6 @@ import { z } from "zod";
 import { LocalMcpGateway } from "./mcp-gateway.js";
 import { initializeMcpManager, stopMcpManager } from "./mcp-manager.js";
 import { addMcp, runtimeMcpMapForWorkspace } from "./mcp.js";
-import { closeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 test.skipIf(process.env.LEGALWORK_LIVE_MCP !== "1")("real Cloudflare documentation discovery and search through the managed gateway", async () => {
@@ -47,7 +47,7 @@ test.skipIf(process.env.LEGALWORK_LIVE_MCP !== "1")("real Cloudflare documentati
     await gateway.close();
     await stopMcpManager(config);
     listener.stop(true);
-    await closeRuntimeOpencodeConfig(config);
+    await closeTestRuntime(config);
     await rm(root, { recursive: true, force: true });
   }
 }, 120000);

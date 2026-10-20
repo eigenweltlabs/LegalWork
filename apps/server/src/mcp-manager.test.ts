@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -10,7 +11,7 @@ import { z } from "zod";
 import { LocalMcpGateway } from "./mcp-gateway.js";
 import { initializeMcpManager, McpConnectorManager, stopMcpManager } from "./mcp-manager.js";
 import { addMcp, removeMcp, listMcp, runtimeMcpMapForWorkspace, setMcpEnabled } from "./mcp.js";
-import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, readGlobalMcpMap, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_MCP_ID, readGlobalMcpMap, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { connectorVault } from "./connectors/store.js";
@@ -67,7 +68,7 @@ export async function managedMcpFixture(env: Record<string, string> = {}) {
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   const manager = initializeMcpManager(config);
-  cleanups.push(() => closeRuntimeOpencodeConfig(config));
+  cleanups.push(() => closeTestRuntime(config));
   cleanups.push(() => stopMcpManager(config));
   const gateway = new LocalMcpGateway(manager);
   cleanups.push(() => gateway.close());
@@ -801,9 +802,9 @@ describe("legacy MCP credential handover", () => {
   });
 
   test("process inventory recognizes native engines without matching similar app names", () => {
-    expect(hasOpencodeProcess("123 /Applications/LegalWork.app/Contents/Resources/sidecars/opencode-aarch64-apple-darwin\n")).toBe(true);
-    expect(hasOpencodeProcess("123 /usr/local/bin/opencode\n")).toBe(true);
-    expect(hasOpencodeProcess("123 /usr/bin/node\n124 /Applications/Code.app/Contents/MacOS/Electron\n")).toBe(false);
+    expect(hasOpencodeProcess("123 /Applications/LegalWork.app/Contents/Resources/sidecars/opencode-aarch64-apple-darwin\n", "darwin")).toBe(true);
+    expect(hasOpencodeProcess("123 /usr/local/bin/opencode\n", "linux")).toBe(true);
+    expect(hasOpencodeProcess("123 /usr/bin/node\n124 /Applications/Code.app/Contents/MacOS/Electron\n", "darwin")).toBe(false);
     expect(hasOpencodeProcess('"opencode-x64.exe","123","Console","1","2,000 K"', "win32")).toBe(true);
     expect(hasOpencodeProcess('"Code.exe","123","Console","1","2,000 K"', "win32")).toBe(false);
   });

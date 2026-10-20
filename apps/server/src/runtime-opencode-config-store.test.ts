@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,9 +51,11 @@ async function withWorkspace(fn: (input: { root: string; config: ServerConfig })
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
   const dbPath = join(root, "runtime.sqlite");
   process.env.LEGALWORK_RUNTIME_DB = dbPath;
+  const config = serverConfig(root, dbPath);
   try {
-    await fn({ root, config: serverConfig(root, dbPath) });
+    await fn({ root, config });
   } finally {
+    await closeTestRuntime(config);
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
     else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     await rm(root, { recursive: true, force: true });

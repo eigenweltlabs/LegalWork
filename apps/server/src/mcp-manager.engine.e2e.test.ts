@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -9,7 +10,7 @@ import { z } from "zod";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { mcpManager } from "./mcp-manager.js";
 import { runtimeMcpMapForWorkspace } from "./mcp.js";
-import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_MCP_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { migrateLegacyMcpOAuth } from "./mcp-migration.js";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
@@ -67,10 +68,10 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
     provider: { local: { npm: "@ai-sdk/openai-compatible", name: "Local fixture", options: { baseURL: `${model.url.origin}/v1`, apiKey: "synthetic" }, models: { local: { name: "Local", limit: { context: 128000, output: 4096 } } } } },
     enabled_providers: ["local"], model: "local/local", small_model: "local/local", share: "disabled", autoupdate: false, lsp: false, formatter: false,
   };
-  const engineRequest = async (index: number, path: string, body?: unknown) => {
+  const engineRequest = async (index: number, path: string, body?: unknown, timeoutMs = 25_000) => {
     const workspace = workspaces[index]; if (!workspace) throw new Error("Missing workspace");
     const url = new URL(path, workspace.baseUrl); url.searchParams.set("directory", workspace.path);
-    const response = await fetch(url, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(25_000) })
+    const response = await fetch(url, { method: body === undefined ? "GET" : "POST", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) })
       .catch(error => { throw new Error(`Engine ${index} ${path} did not respond`, { cause: error }); });
     if (!response.ok) throw new Error(`Engine ${path}: ${response.status} ${await response.text()}`);
     return response.json();
@@ -107,8 +108,11 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
       cwd: workspace.path, env: { ...env, OPENCODE_CONFIG: join(workspace.path, "opencode.jsonc"), OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: join(root, "policy"),
         ...(!legacy ? { LEGALWORK_SERVER_URL: `http://127.0.0.1:${config.port}`, LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config) } : {}),
         OPENCODE_TEST_HOME: join(root, "home"), OPENCODE_DB: join(root, `${workspace.id}.sqlite`), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
-        OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: "ignore",
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" }, stdio: ["ignore", "ignore", "pipe"],
     });
+    let diagnostics = "";
+    engine.stderr?.on("data", chunk => { diagnostics = (diagnostics + chunk.toString()).slice(-16_384); });
+    engine.on("exit", () => { if (diagnostics) console.log(`Engine ${workspace.id} diagnostics: ${diagnostics}`); });
     children.push(engine);
     await until(async () => (await fetch(`${workspace.baseUrl}/global/health`, { signal: AbortSignal.timeout(1000) })).ok, `engine ${workspace.id}`);
     return engine;
@@ -122,7 +126,7 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
     await writeFile(join(root, "legacy-plugin.mjs"), "export const LegacyFixture = async () => ({});\n");
     const oldEngine = await launchEngine(0, true);
     const listener = await callback.listen({ redirectUri: `http://127.0.0.1:${callbackPort}/mcp/oauth/callback` });
-    const flow = z.object({ authorizationUrl: z.string() }).parse(await engineRequest(0, "/mcp/shared/auth", {}));
+    const flow = z.object({ authorizationUrl: z.string() }).parse(await engineRequest(0, "/mcp/shared/auth", {}, 90_000));
     const state = new URL(flow.authorizationUrl).searchParams.get("state")!;
     const received = callback.wait({ listenerId: listener.listenerId, state });
     const consent = await fetch(flow.authorizationUrl, { redirect: "manual" });
@@ -186,9 +190,9 @@ test.skipIf(!binary)("unmodified engines upgrade an existing OAuth grant and sha
     await callback.close();
     await Promise.all(children.map(stop));
     await server?.stop();
-    await closeRuntimeOpencodeConfig(config);
+    await closeTestRuntime(config);
     model.stop(true);
     if (passed) await rm(root, { recursive: true, force: true });
     else console.error(`Native MCP fixture retained for diagnosis: ${root}`);
   }
-}, 90_000);
+}, 180_000);

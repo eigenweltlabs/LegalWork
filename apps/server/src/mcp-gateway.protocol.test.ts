@@ -1,3 +1,4 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +12,6 @@ import { createMcpHandler, inputRequired, inputResponse, McpServer } from "@mode
 import { LocalMcpGateway } from "./mcp-gateway.js";
 import { initializeMcpManager, stopMcpManager } from "./mcp-manager.js";
 import { addMcp, runtimeMcpMapForWorkspace } from "./mcp.js";
-import { closeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 const cleanups: Array<() => unknown | Promise<unknown>> = [];
@@ -77,7 +77,7 @@ async function fixture(compressedDiscovery = false) {
   };
   for (const workspace of config.workspaces) await mkdir(workspace.path);
   const manager = initializeMcpManager(config);
-  cleanups.push(() => closeRuntimeOpencodeConfig(config));
+  cleanups.push(() => closeTestRuntime(config));
   cleanups.push(() => stopMcpManager(config));
   const gateway = new LocalMcpGateway(manager);
   cleanups.push(() => gateway.close());

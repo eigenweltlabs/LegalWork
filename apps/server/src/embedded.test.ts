@@ -1,3 +1,5 @@
+import { closeTestRuntime } from "./runtime.test-helpers.js";
+import { spawnSync } from "node:child_process";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,6 +13,15 @@ import * as managedOpencode from "./managed-opencode.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
+
+function configFor(root: string): ServerConfig {
+  return {
+    host: "127.0.0.1", port: 0, configPath: join(root, "server.json"),
+    token: "test-client", hostToken: "test-host", workspaces: [], authorizedRoots: [],
+    readOnly: true, approval: { mode: "manual", timeoutMs: 1000 }, corsOrigins: [],
+    startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+  } satisfies ServerConfig;
+}
 
 // The child calls back using only the credentials and address it actually
 // inherited, rather than test code supplying the server's correct address.
@@ -46,10 +57,16 @@ test("managed agent authenticates wiki and storage tools after the preferred ser
     process.env[key] = join(root, key);
   delete process.env.LEGALWORK_OPENCODE_BASE_URL;
   delete process.env.OPENCODE_DB;
+  cleanup.push(() => closeTestRuntime(configFor(root)));
   const workspace = join(root, "workspace");
   await mkdir(workspace);
-  const bin = join(root, "engine");
-  await writeFile(bin, engine); await chmod(bin, 0o755);
+  const script = join(root, "engine.ts");
+  const bin = process.platform === "win32" ? join(root, "engine.exe") : script;
+  await writeFile(script, engine);
+  if (process.platform === "win32") {
+    const compiled = spawnSync(process.execPath, ["build", script, "--compile", "--outfile", bin], { encoding: "utf8" });
+    if (compiled.status !== 0) throw new Error(`Could not build engine fixture: ${compiled.stderr}`);
+  } else await chmod(bin, 0o755);
   const oldServer = await serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ code: "wrong_server" }, { status: 403 }) });
   cleanup.push(async () => oldServer.stop());
   const server = await startEmbeddedServer({
@@ -73,12 +90,8 @@ test("managed agent authenticates wiki and storage tools after the preferred ser
 test("startup stays unavailable until initialization succeeds and releases its listener on failure", async () => {
   const root = await mkdtemp(join(tmpdir(), "server-init-failure-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const config: ServerConfig = {
-    host: "127.0.0.1", port: 0, configPath: join(root, "server.json"),
-    token: "test-client", hostToken: "test-host", workspaces: [], authorizedRoots: [],
-    readOnly: true, approval: { mode: "manual", timeoutMs: 1000 }, corsOrigins: [],
-    startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
-  };
+  const config = configFor(root);
+  cleanup.push(() => closeTestRuntime(config));
   let boundPort = 0;
   await expect(startServer(config, { onListening: async port => {
     boundPort = port;
@@ -101,6 +114,7 @@ test("an explicit missing desktop SDK prevents engine spawn and package download
     process.env[key] = join(root, key);
   delete process.env.LEGALWORK_OPENCODE_BASE_URL;
   delete process.env.OPENCODE_DB;
+  cleanup.push(() => closeTestRuntime(configFor(root)));
   const workspace = join(root, "workspace"); await mkdir(workspace);
   const spawn = spyOn(managedOpencode, "createManagedOpencodeServer").mockRejectedValue(new Error("Engine must not be spawned"));
   try {
