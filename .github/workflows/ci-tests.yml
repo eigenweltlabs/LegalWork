@@ -119,7 +119,7 @@ jobs:
         run: pnpm --filter legalwork-server test
 
       - name: Verify server-owned MCP with the shipped engine
-        run: OPENCODE_TEST_BINARY="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.engine.e2e.test.ts
+        run: OPENCODE_TEST_BINARY="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/src/mcp-manager.engine.e2e.test.ts apps/server/src/mcp.recovery-lifecycle.e2e.test.ts
 
       - name: Verify scheduling and file search with the shipped engine
         run: |

@@ -35,6 +35,15 @@ packaged desktop checks and new Windows VM run are recorded in the PR’s curren
 validation report after completion; do not infer those results from older runs
 below.
 
+The macOS desktop build, ad-hoc signed arm64 package and isolated packaged startup
+passed. The packaged SDK graph, security fuses, bundled Node, DOCX/PDF tools and
+native ownership helper passed their probes. No installed application was
+modified. Older native recovery fixtures now create connectors through the
+server API, reject unsupported modern discovery correctly and send OAuth state
+headers; they also verify the connecting status and that delayed handshakes
+cannot re-enable disabled or removed connectors. CI runs these fixtures with the
+shipped OpenCode binary alongside the two-engine migration test.
+
 ## Current protocol revision — 20 October 2026
 
 The manager and gateway use official TypeScript SDK 2.3.1 and MCP 2026-07-28;
