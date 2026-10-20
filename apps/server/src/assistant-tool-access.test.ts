@@ -38,6 +38,8 @@ test("restricted Assistant children reject forbidden projects, native file escap
   await expect(guard("read", { filePath: globalSkill })).resolves.toBeUndefined();
   await expect(guard("write", { filePath: globalSkill })).rejects.toThrow("access rules");
   await expect(guard("read", { filePath: join(root, "library", "other", "SKILL.md") })).rejects.toThrow("access rules");
+  assistant.updateSettings({ ...settings, resourceIds: ["selected"] }, [{ id: "selected", kind: "skill", name: "Deleted project's resource", description: "Unavailable.", reference: globalSkill, projectId: "deleted", projectName: "Deleted project" }]);
+  await expect(guard("read", { filePath: globalSkill })).rejects.toThrow("access rules");
   // The human's ordinary project agents keep their existing permissions.
   await expect(assertAssistantToolAccess(config, assistant, join(root, "allowed"), "bash", {})).resolves.toBeUndefined();
   assistant.updateSettings({ ...settings, projectAccess: { mode: "all", projectIds: [] } });

@@ -58,5 +58,5 @@ export function assistantSettingsContext(settings: AssistantSettings, resources:
 /** Selected metadata is captured on save: no library scan or full package load on a chat turn. */
 export function createAssistantSettingsContext(config: ServerConfig, assistant: MainAssistant) {
   return () => assistantSettingsContext(assistant.settings(), assistant.resourceMetadata(), id =>
-    config.workspaces.some(project => project.id === id) && assistant.canAccessProject(id));
+    config.workspaces.some(project => project.id === id && project.workspaceType !== "remote") && assistant.canAccessProject(id));
 }
