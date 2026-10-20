@@ -1173,6 +1173,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setAwaitingAssistantBaseline(null);
     useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
+    // The user stopped the run, so anything it was blocked on is moot. Said
+    // out loud because `setRunStatus` keeps pending requests: an idle status
+    // by itself means the engine is waiting on the user, not that the request
+    // went away.
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "permission", []);
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "question", []);
     queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single
     // terminal event. The engine may or may not follow an abort with
