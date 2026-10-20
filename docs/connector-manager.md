@@ -90,6 +90,11 @@ The gateway preserves capabilities; it does not invent features an engine does
 not offer. The protocol packages are pinned to official TypeScript SDK 2.3.1;
 existing v1 consumers use its maintained 1.32.1 line.
 
+Adding a connector also supports modern-only providers. Setup validates legacy
+initialize results and, when necessary, sends a modern `server/discover` request
+with its required method header and metadata. An HTTP 200 JSON-RPC error is not
+mistaken for an anonymous successful connection.
+
 OAuth callbacks preserve RFC 9207's issuer parameter from the desktop broker or
 manual callback URL through the authenticated server callback. The SDK validates
 that issuer before exchanging the code. Client registrations and tokens remain
@@ -114,10 +119,12 @@ connection generation, and PKCE. A pending sign-in survives engine rebuilds.
 Managed desktop/server startup transfers existing custom OAuth MCP grants before
 starting its new engine. The desktop first stops its previous managed runtime.
 The importer then checks for other OpenCode processes; when ownership is unclear,
-it leaves the old grant untouched. The connector reports that its saved sign-in is waiting, rather than requesting
-a replacement login. Startup retries every ten seconds after those processes
-close; only the exact new gateway engine PID is excluded from that ownership
-check. Recoverable transfer errors leave the app usable and are retried. Externally attached engines are not automatically taken over.
+it leaves the old grant untouched. The connector reports that its saved sign-in
+is waiting, rather than requesting a replacement login. Startup retries every
+ten seconds after those processes close; only the exact new gateway engine PID
+is excluded from that ownership check. Recoverable transfer errors leave the
+app usable and are retried. Externally attached engines are not automatically
+taken over.
 
 Different existing workspace configurations keep their separate bindings. Grants
 are matched by connector name, provider URL and OAuth client; genuinely ambiguous
@@ -170,14 +177,17 @@ during refresh, shared reconnect status, fresh login, and an empty engine MCP
 credential store. Runtime gateway credentials are also rejected by management
 and internal configuration endpoints. CI runs this test with the shipped engine.
 
-Local validation used released OpenCode 1.18.29 on macOS arm64, SHA-256
-`9c46fd8b183c575453ce1b57a4d6500e34f5d19825e8f2653356415355992188`.
-CI runs this integration on Linux and macOS; see the PR checks for the current
-handover revision.
+The current protocol and migration matrix, native-engine results, live-provider
+checks, Windows VM coverage and limitations are recorded in
+[`docs/reviews/connector-manager-live-qa.md`](reviews/connector-manager-live-qa.md).
+The optional live Cloudflare test can be run without credentials or a paid model:
 
-Validation passed: 124 focused server tests, 81 app tests, two desktop key-storage
-tests, and the separate native-engine test. Five older engine-specific checks
-were skipped in the focused server invocation; the new two-process manager test
-was executed separately with the released binary. The server build, app
-typecheck, packaged dependency check, built Node import, and a Node encrypted-vault
-round trip also passed. Store ownership is checked with a separate child process.
+```sh
+LEGALWORK_LIVE_MCP=1 bun test --preload ./apps/server/test-preload.ts \
+  apps/server/src/mcp-gateway.live.e2e.test.ts
+```
+
+Protocol compatibility follows the official
+[MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28)
+and [TypeScript SDK 2.3.1](https://github.com/modelcontextprotocol/typescript-sdk/releases/tag/v2.3.1).
+Downgrade migration is outside this change's scope.

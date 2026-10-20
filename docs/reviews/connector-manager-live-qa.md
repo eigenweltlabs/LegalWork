@@ -1,4 +1,113 @@
-# Connector manager: Electron and live-provider QA
+# Connector manager: migration, protocol and platform QA
+
+## Current protocol revision — 20 October 2026
+
+The manager and gateway use official TypeScript SDK 2.3.1 and MCP 2026-07-28;
+remaining SDK v1 consumers use 1.32.1. Protocol packages are mirrored into the
+desktop package graph, checked by the existing packaging test. OpenCode is stock
+1.18.29; this change does not patch it.
+
+The current macOS arm64 checks use Bun 1.4.2, matching CI:
+
+- Full server: **2,455 passed, 73 skipped**, 23,211 assertions, 299 files,
+  using the ordinary `pnpm --filter legalwork-server test` timeout.
+- Full app: **1,638 passed**, 108,759 assertions.
+- Desktop: **263 passed, 3 skipped** in the Node test runner.
+- Server and app TypeScript checks, server build, packaged dependency checks and
+  importing the built manager/gateway with bundled Node 22.23.2 passed.
+- Native OpenCode upgrade: **1 passed, 31 assertions**, repeated after the
+  SDK upgrade and OAuth lifecycle fix. The old engine's actual saved grant is
+  transferred before two gateway-connected engines execute tools. Concurrent
+  refresh, rebuilt folder bindings, logout during refresh and fresh login pass
+  without a new authorization grant during migration.
+- Real Cloudflare discovery and `search_cloudflare_documentation` passed using
+  the modern protocol: two tools, successful documentation result. This optional
+  live test is tracked as `mcp-gateway.live.e2e.test.ts`.
+
+The seven modern protocol tests cover stateless discovery, tool metadata,
+resources, prompts, Tasks extension forwarding, URL elicitation continuation,
+subscription streams/catalog notifications, request cancellation isolation and
+gzip decoding. Four concurrent interactive requests across two legacy clients
+also bridge modern MRTR elicitation, sampling and roots, with the optional
+standalone GET SSE stream deliberately disabled. Callbacks remain on their
+originating POST stream and in the correct workspace.
+
+Migration regressions cover deferred ownership and automatic retry, unreadable
+source/vault, encrypted backup failure, interrupted retirement/activation,
+cross-profile claims, partial multi-connector completion after token rotation,
+concurrent logout, changing legacy sources, distinct same-name workspace
+configurations, ambiguous accounts and preserved built-in connector grants.
+
+OAuth regressions validate issuer-bearing RFC 9207 callbacks before code exchange,
+additional-scope consent without losing the old grant, and stale permission
+challenges after a newer sign-in. CI exposed a real lock cycle: finishing sign-in
+waited for a gateway response whose authentication check needed the same queue.
+Credential commit now releases the queue before old transports drain; the
+regression completes in about 240 ms instead of relying on an HTTP idle timeout.
+A challenge after a 401 refresh now checks the replacement token. Startup failure
+diagnostics also wait for child stdio to close, preserving the actual lock/error
+message used by the engine retry decision.
+
+The connector setup probe also understands modern-only providers: it validates
+legacy initialize results, then tries `server/discover` with the required method
+header and per-request metadata before considering older transports. Tests use
+the official SDK HTTP handler, including an OAuth provider returning an HTTP 200
+JSON-RPC method error for legacy initialize. Ordinary setup and exact-URL import
+both pass. The focused discovery/protocol run passed **29 tests, 94 assertions**.
+
+## Windows GCloud VM — 20 October 2026
+
+Tested on a disposable **Windows Server 2025 Datacenter x64** VM in GCloud
+`eigenwelt-test-lab`, using native Node 24.22.0, Bun 1.4.2, pnpm 11.4.0 and stock
+Windows OpenCode 1.18.29. Download checksums and the exact source archive checksum
+were verified before execution. All accounts and project files were synthetic;
+no production connector grant was copied to the VM.
+
+The combined matrix at `05c6a6710a73bf915b7b23f34da5eb584bdf179e` passed:
+
+| Check | Result |
+| --- | --- |
+| Frozen dependency installation and server build/typecheck | Passed |
+| Migration, OAuth, protocol, embedded lifecycle and runtime regression | **229 passed, 0 failed; 1,406 assertions across 12 files** |
+| Native Windows two-engine upgrade | **1 passed, 31 assertions**, including clean process/database teardown |
+| Desktop callback and issuer propagation | **8 passed, 0 failed** |
+| Built Node runtime vault/importer | Encrypted handover, built-in storage grant preservation, restart and manager/gateway imports passed |
+| Real Cloudflare upstream | Modern discovery, two tools and a successful documentation search passed |
+
+The native upgrade fixture stages the same flattened plugin SDK package graph as
+the desktop resources, then starts the unmodified engine. A bare engine in a
+fresh Windows home stalled in its background dependency installer; the fixture
+now exercises the application's bundled dependency path. It does not patch the
+engine or depend on an existing user's package cache.
+
+Windows testing exposed configuration listeners leaking across embedded profiles,
+background config writes surviving shutdown, and SQLite/reminder-store handles
+remaining open after tests. Runtime listeners now belong to one config and are
+unsubscribed on shutdown/start failure; writes drain before close. Reminder
+delivery bookkeeping drains before its store closes, and Bun SQLite adapters
+close strictly so Windows releases native handles. Regressions cover profile
+isolation and delivery bookkeeping during stop. Process-ownership detection also
+ran against a real Windows executable detected through `tasklist`.
+
+This is native headless Windows runtime, protocol, callback and actual OpenCode
+process coverage. It is **not** an interactive Windows Electron/installer test.
+The final three-file setup-discovery delta at
+`2026b29d9ba787061b4f4e365787281b69112b90` also passed on the same VM:
+server build/typecheck, **29 discovery/protocol tests with 94 assertions**, and
+live Cloudflare connector setup through the built native Node runtime. Its source
+archive SHA-256 was
+`a6f20dc6a9d042eb0546910762f4babda18e8d4336b20902b6ab8d1020399c1b`;
+the combined matrix archive SHA-256 was
+`ca96345f24cc050272bdd26c10f1ba2551cb530a02a9cd3c1c524db583c1c6b2`.
+Historical browser screenshots remain macOS evidence.
+
+The historical real Linear browser/OAuth results below are from the prior SDK
+revision. They have **not** been repeated against Linear with SDK 2.3.1; current
+rotating OAuth and issuer/scope failure checks use the controlled provider. The
+current real-provider test is Cloudflare. Screenshots below document the earlier
+Electron run; this revision's new evidence is automated protocol/process testing.
+
+## Earlier Electron and real Linear validation — 19 October 2026
 
 Tested on 19 October 2026, macOS arm64, Electron 43.7.5, stock OpenCode 1.18.29. The native engine SHA-256 was `9c46fd8b183c575453ce1b57a4d6500e34f5d19825e8f2653356415355992188`.
 
@@ -41,8 +150,9 @@ multi-connector completion after token rotation, concurrent logout, unreadable
 vaults, provider/client mismatch, name collisions, and another profile trying to
 adopt a restored old grant. LegalMemory appliance features share the new token
 owner rather than reading retired credentials from the old file.
-An unreadable legacy file is preserved and transfer is deferred; it does not
-prevent the app from starting and offering a fresh sign-in.
+An unreadable legacy file is preserved and transfer is deferred. The app starts,
+shows that transfer is waiting and retries; it does not replace the saved grant
+with an unnecessary sign-in attempt.
 
 - Focused server/runtime/storage/appliance checks: **291 passed, 5 skipped**,
   1,614 assertions across 24 files.
@@ -55,7 +165,7 @@ background package installs held locks. The new engine then waited for those
 stale locks. The fixture now loads an inert plugin so the old engine finishes
 that setup before sign-in and shutdown. No OpenCode patch is involved. The
 previous vault-reuse revision subsequently passed both Linux and macOS CI;
-the handover revision must pass its own checks.
+the current revision is validated separately above.
 
 ## Shared-vault revision
 
@@ -139,7 +249,7 @@ Fault injection and inspection ran in an unshipped Electron entry wrapper, confi
 - Stock-engine integration: **1 passed**, 26 assertions, two real unmodified engine processes.
 - App connector regression: **81 passed**, 276 assertions; changed connection-store suite also rerun with all direct engine writes rejected.
 - App TypeScript check and server build passed. The initial desktop vault-key tests passed before that implementation was removed in the shared-vault revision.
-- Full server suite: **2,341 passed, 68 skipped, 2 failed**. The same two failures reproduced on an archive of base `e3900fa44b0215167da1845637ccc3c9f26a601e`, using the same Bun 1.3.14 and installed dependencies: `serve-node.test.ts` streaming-error handling and `wiki/store.test.ts` graph-poll invalidation. Neither implementation nor test file differs from the base. The full local suite is therefore not green.
+- Full server suite: **2,341 passed, 68 skipped, 2 failed**. The same two failures reproduced on an archive of base `e3900fa44b0215167da1845637ccc3c9f26a601e`, using the same Bun 1.3.14 and installed dependencies: `serve-node.test.ts` streaming-error handling and `wiki/store.test.ts` graph-poll invalidation. Neither implementation nor test file differs from the base. That historical local run was not green; the current Bun 1.4.2 full-suite result is recorded above.
 
 Re-run the core automated checks from the repository root:
 
@@ -161,4 +271,4 @@ To reproduce the manual flow, launch `pnpm dev:electron` with a new `LEGALWORK_E
 
 ## Limits
 
-Real-provider coverage is macOS with Linear and Cloudflare. Firm Hub behavior, terminal OAuth errors, opaque provider URLs, legacy SSE and the remaining protocol cases use the controlled integration fixtures. Windows/Linux and real firm deployments were not exercised interactively in this run. Built-in Google/Microsoft adapters are outside this custom remote MCP manager path; preservation of their shared vault entries is covered by the regression tests.
+Real Linear browser coverage is the earlier macOS revision described above. Firm Hub behavior, terminal OAuth errors, opaque provider URLs, legacy SSE and OAuth failure injection use controlled integration fixtures. Real firm deployments have not been exercised interactively. Built-in Google/Microsoft adapters remain on their existing server-owned path; preservation of their shared vault entries is covered by regression tests. Protocol features also depend on the engine's negotiated capabilities; the gateway cannot add features the engine does not implement.
