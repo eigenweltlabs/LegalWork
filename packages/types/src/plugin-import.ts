@@ -40,7 +40,7 @@ export type PluginImportPreview = {
   /** Short-lived, server-owned preparation bound to this source, scope and workspace. */
   validationId?: string;
 };
-export type PluginImportRequest = { source: PluginImportSource; root?: string; scope: PluginImportScope; detectFormat?: boolean; digest?: string; validationId?: string; recheck?: boolean; acknowledgePartial?: boolean; asWorkflow?: boolean };
+export type PluginImportRequest = { source: PluginImportSource; root?: string; scope: PluginImportScope; detectFormat?: boolean; digest?: string; validationId?: string; recheck?: boolean; acknowledgePartial?: boolean; asWorkflow?: boolean; workflowSkillsOnly?: boolean };
 
 /** A new MCP connection, optionally bundled with existing skills and connectors. */
 export type PluginCreateConnector =

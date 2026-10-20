@@ -157,7 +157,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setSourceLabel(label);
     setStep("review");
     try {
-      const items = await props.store.previewPluginImports({ source: nextSource, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, ...(props.initialSource === nextSource ? { root: props.initialRoot } : {}) });
+      const items = await props.store.previewPluginImports({ source: nextSource, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, workflowSkillsOnly: Boolean(props.initialAsWorkflow && !props.initialSource), ...(props.initialSource === nextSource ? { root: props.initialRoot } : {}) });
       if (!mounted.current) return;
       if (!items.length) throw new Error(t("extensions.import_failed"));
       setSource(nextSource);
@@ -218,7 +218,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalling(true);
     setError(null);
     try {
-      const result = installed ?? await installReviewedPluginImport(props.store, { source, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, acknowledgePartial }, selected, items => {
+      const result = installed ?? await installReviewedPluginImport(props.store, { source, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, workflowSkillsOnly: Boolean(props.initialAsWorkflow && !props.initialSource), acknowledgePartial }, selected, items => {
         if (!mounted.current) return;
         setPreviews(items);
         setSelectedRoot(items.find(item => item.root === selected.root)?.root ?? items[0]?.root ?? "");
@@ -243,7 +243,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
     setInstalled(null);
     setError(null);
     try {
-      const checked = await props.store.previewPluginImports({ source, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, root, recheck });
+      const checked = await props.store.previewPluginImports({ source, scope, detectFormat: true, asWorkflow: props.initialAsWorkflow, workflowSkillsOnly: Boolean(props.initialAsWorkflow && !props.initialSource), root, recheck });
       if (mounted.current) setPreviews(items => items.map(item => checked.find(result => result.root === item.root) ?? item));
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t("extensions.import_failed")); }
     finally { if (mounted.current) setBusy(false); }

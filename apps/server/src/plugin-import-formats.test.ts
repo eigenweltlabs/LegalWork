@@ -61,7 +61,7 @@ test("OpenAI's portable auth profile reaches compatibility checks instead of a g
 
 test("Workflows detects both plugin hosts and keeps bundles intact; plain skills become workflows", async () => {
   for (const manifest of [".codex-plugin/plugin.json", ".claude-plugin/plugin.json"]) {
-    const [plan] = await resolvePluginImports(archive({ [manifest]: '{"name":"review-kit"}', "skills/review/SKILL.md": skill, ".mcp.json": '{"mcpServers":{"docs":{"url":"https://docs.example/mcp"}}}' }, { asWorkflow: true }), "/project");
+    const [plan] = await resolvePluginImports(archive({ [manifest]: '{"name":"review-kit"}', "skills/review/SKILL.md": skill, ".mcp.json": '{"mcpServers":{"docs":{"url":"https://docs.example/mcp"}}}' }, { asWorkflow: true, workflowSkillsOnly: true }), "/project");
     expect(plan?.resolved.plugin.sourceKind).toBe("plugin");
     expect(plan?.preview.components.map(component => component.type)).toEqual(["skill", "mcp"]);
     expect(plan?.preview.components[0]?.installedName).not.toStartWith("workflow-");
@@ -70,6 +70,15 @@ test("Workflows detects both plugin hosts and keeps bundles intact; plain skills
   const [plain] = await resolvePluginImports(archive({ "SKILL.md": skill }, { asWorkflow: true }), "/project");
   expect(plain?.preview.components[0]?.installedName).toStartWith("workflow-assistant-");
   expect(plain?.preview.provenance?.asWorkflow).toBe(true);
+  // Existing saved provenance uses asWorkflow without the new chooser mode.
+  // Updating it must retain the original component names and package identity.
+  const legacy = archive({ ".codex-plugin/plugin.json": '{"name":"review-kit"}', "skills/review/SKILL.md": skill }, { asWorkflow: true });
+  const [original] = await resolvePluginImports(legacy, "/project");
+  const [updated] = await resolvePluginImports(archive({ ".codex-plugin/plugin.json": '{"name":"review-kit"}', "skills/review/SKILL.md": `${skill}\nCheck the revised document.` }, { asWorkflow: original?.preview.provenance?.asWorkflow }), "/project");
+  expect(updated?.preview.components[0]?.installedName).toStartWith("workflow-assistant-");
+  expect(updated?.preview.id).toBe(original?.preview.id);
+  expect(updated?.preview.digest).not.toBe(original?.preview.digest);
+  expect(updated?.preview.provenance?.asWorkflow).toBe(true);
 });
 
 test("OpenAI marketplace path forms keep manifest-free bundles separate", async () => {

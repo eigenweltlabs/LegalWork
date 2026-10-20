@@ -21,7 +21,7 @@ const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
 const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional(), pluginRoot: z.string().max(4096).optional() });
 const sourceSchema = z.object({ provider: z.enum(["chatgpt", "claude"]), path: z.string().min(1).optional(), marketplace: z.string().max(4096).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), filename: z.string().max(256).optional(), connector: connectorSchema.optional(), url: z.string().max(2048).optional(), ref: z.string().max(256).optional(), directory: z.string().max(4096).optional() });
-const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional() });
+const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional(), workflowSkillsOnly: z.boolean().optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const parsed = requestSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
@@ -533,9 +533,9 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     const selected = subFiles(files, root);
     const marketplace = marketplaces.get(root);
     const provider = detectFormat ? selected.has(".codex-plugin/plugin.json") || selected.has("plugin.json") ? "chatgpt" : selected.has(".claude-plugin/plugin.json") ? "claude" : marketplace?.provider ?? request.source.provider : request.source.provider;
-    // A plugin stays a bundle even when reached through Workflows. Only plain
-    // skill imports are converted into workflow entries.
-    const asWorkflow = request.asWorkflow && !marketplace && !["plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json"].some(path => selected.has(path));
+    // The workflow chooser converts only plain skill packages. Keep the older
+    // explicit conversion contract for saved imports and their updates.
+    const asWorkflow = request.asWorkflow && (!request.workflowSkillsOnly || !marketplace && !["plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json"].some(path => selected.has(path)));
     return remote
       ? planPluginFiles(selected, root, { provider, scope: request.scope, asWorkflow, marketplaceEntry: marketplace?.entry, origin: { provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot)
       : planPackage(selected, root, { ...request, asWorkflow, source: { ...request.source, provider } }, workspaceRoot, [], marketplace?.entry);
