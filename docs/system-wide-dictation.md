@@ -48,6 +48,29 @@ imports and other dictation. Temporary audio and transcripts are discarded and
 never enter recording history. The microphone control is unavailable in the web
 client, where the native local transcription service is absent.
 
+The square stop button transcribes into the draft for review. The adjacent
+arrow button transcribes and sends the completed draft, including any existing
+text and attachments. Silence, cancellation, a departed chat, or failed
+transcription does not send a message. Repeated clicks cannot send twice.
+
+The floating microphone can be dragged to the bottom, left, or right
+edge of a display. Three drop targets appear during the drag. Its position
+and display are saved across restarts; starting dictation keeps that position.
+Hovering reveals Dictate and Record meeting actions, horizontally at the bottom
+and vertically at either side, with side labels opening toward the screen.
+At either side, the full recording pill and live waveform are vertical too;
+cancel, stop, and meeting controls remain upright in a column.
+
+For a branded macOS development app, the app bundle must include
+`NSAppleEventsUsageDescription` and the
+`com.apple.security.automation.apple-events` signing entitlement.
+Without the usage description, macOS rejects the request without showing a
+prompt or adding the app to Automation settings. Keep the same bundle ID and
+signing identity when repairing the bundle, then launch it through macOS
+LaunchServices so permissions belong to LegalWork Dev. Continue using
+`http://localhost:5173`, the existing `com.eigenweltlabs.legalwork.dev` profile,
+and the `~/.legalwork/legalwork-orchestrator-dev` runtime data.
+
 ## Meeting recording and detection
 
 Hover over the floating microphone to reveal **Record meeting**. This also
@@ -76,6 +99,17 @@ a transcript tab leaves capture running, and reopening it resumes the live
 view. Completed tabs keep the saved transcript when later recordings or
 dictation begin. Transcript tabs follow the viewer's existing split, window,
 and layout persistence behavior.
+
+Completed transcripts include a People panel. Edit a name there to rename
+that speaker throughout the recording, or add another person. A speaker menu
+can assign a turn to a different person or reassign all of that speaker's
+segments. For a turn containing several segments, each segment also has its
+own assignment menu. Corrections preserve the transcript text and timestamps,
+persist across restarts, and update the JSON, text, SRT, and Markdown exports.
+Speaker editing becomes available once recording and diarization finish.
+Each People row shows its segment count and explicit rename and remove controls.
+Removing a speaker reassigns their segments to another person or leaves them
+unassigned, without deleting text or audio. Unused speakers can also be removed.
 
 **Settings > Recorder > Meetings > Detect meetings** is enabled by default.
 Automatic detection is available on Windows 10/11 and macOS 14.2+. Zoom,
@@ -380,3 +414,11 @@ On each target OS:
 19. Deny automatic paste (remove Accessibility on macOS) and dictate: the
     transcript stays on the clipboard, the HUD reports the failure, and the
     temporary dictation is deleted from Recorder history.
+
+The overlay expands only while the pointer is over it. Pressing and dragging the microphone collapses the controls, follows the native pointer, and snaps to the left, right, or bottom when released. Cancelling a drag clears the hover and capture state. Native pointer checks also clear hover when a window moves without a Chromium mouse-leave event.
+
+Settings → Recorder → Dictate anywhere → Overlay color offers White, Black, and Follow app mode (the default). This choice is stored with the dictation settings, applies immediately to the floating controls and dock preview, and survives app restarts.
+
+Recording a meeting also requires Screen & System Audio Recording access on macOS, separately from dictation permissions. Enable the actual development bundle (LegalWork Dev), not just the installed LegalWork app. If the development bundle is absent from that pane, add it with + and restart it using the standard dev profile.
+
+The overlay sits four points from the work area edge. Side pills stay 30 points wide during both dictation and meeting recording. Attention messages appear on hover and clear after four seconds, even when the recording status refreshes.

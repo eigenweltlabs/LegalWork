@@ -52,6 +52,7 @@ export function RecorderSettingsView(props: {
     const requested = searchParams.get("tab");
     if (requested === "dictation" || requested === "models" || requested === "meetings") setTab(requested);
   }, [searchParams]);
+  const [changingAppearance, setChangingAppearance] = useState(false);
   const [changingDictation, setChangingDictation] = useState(false);
   const [changingMeetingDetection, setChangingMeetingDetection] = useState(false);
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
@@ -256,6 +257,36 @@ export function RecorderSettingsView(props: {
 
         <DictationSetupDialog open={dictationSetupOpen} onOpenChange={setDictationSetupOpen} />
         <DictationMicrophoneSetting />
+
+        <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs font-medium text-ink">{t("recorder.overlay_color")}</div>
+            <div className="mt-1 text-sm text-subtext">{t("recorder.overlay_color_description")}</div>
+          </div>
+          <Select
+            value={dictation?.appearance ?? "app"}
+            items={[
+              { value: "app", label: t("recorder.overlay_color_app") },
+              { value: "white", label: t("recorder.overlay_color_white") },
+              { value: "black", label: t("recorder.overlay_color_black") },
+            ]}
+            disabled={!dictation || changingAppearance}
+            onValueChange={(value) => {
+              if (value !== "app" && value !== "white" && value !== "black") return;
+              setChangingAppearance(true);
+              void store.setDictationAppearance(value).finally(() => setChangingAppearance(false));
+            }}
+          >
+            <SelectTrigger size="sm" className="w-[200px] shrink-0" aria-label={t("recorder.overlay_color")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="app">{t("recorder.overlay_color_app")}</SelectItem>
+              <SelectItem value="white">{t("recorder.overlay_color_white")}</SelectItem>
+              <SelectItem value="black">{t("recorder.overlay_color_black")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {loginItem !== null ? (
           <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">

@@ -37,7 +37,7 @@ import type {
 
 import { formatBytes } from "../../../app/utils";
 import { PremiumUpgradeDialog } from "./model-tier-select";
-import { MODEL_TIERS, isPremiumEntitled, tierForModelId, tierName, tierTagline, type ModelTier } from "./model-tiers";
+import { MODEL_TIERS, isPremiumEntitled, usePremiumEntitled, tierForModelId, tierName, tierTagline, type ModelTier } from "./model-tiers";
 import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
 
@@ -180,6 +180,7 @@ export function SetupStep(props: {
 
 export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) {
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const upsell = usePremiumUpsell();
   const [sim, setSim] = useState<SimState>({
     mic: "not-determined",
@@ -331,7 +332,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
     const model = bootstrap?.models.find((entry) => entry.id === tier.modelId);
     // Demo always shows the locked premium state so the upsell is demoable
     // even on an entitled machine.
-    const unlocked = !demo && (isPremiumEntitled() || store.unlockedModels.includes(tier.modelId));
+    const unlocked = !demo && (premiumEntitled || store.unlockedModels.includes(tier.modelId));
     const premiumLocked = tier.premium && !unlocked;
     const deviceLocked = Boolean(model?.requiresFastDevice ?? tier.requiresFastDevice) && !fastDevice && !unlocked;
     return { premiumLocked, deviceLocked };
@@ -497,7 +498,7 @@ export function RecorderSetup(props: { demo: boolean; onFinished: () => void }) 
                               {t("recorder.model_recommended")}
                             </Badge>
                           ) : null}
-                          {tier.premium ? (
+                          {tier.premium && (demo || !premiumEntitled) ? (
                             <Badge className="gap-1 text-2xs">
                               <Sparkles className="size-2.5" />
                               {t("recorder.tier_premium_locked")}

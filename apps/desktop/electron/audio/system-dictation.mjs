@@ -124,6 +124,8 @@ export class SystemDictationService {
     this.onCancel = options.onCancel;
     this.onState = options.onState ?? (() => {});
     this.onStatus = options.onStatus ?? (() => {});
+    /** @type {import("@legalwork/types/audio").AudioDictationAppearance} */
+    this.appearance = "app";
     this.enabled = false;
     this.registered = false;
     this.registeredAccelerator = null;
@@ -154,6 +156,7 @@ export class SystemDictationService {
     try {
       const parsed = JSON.parse(await readFile(this.settingsPath, "utf8"));
       this.enabled = parsed?.enabled === true;
+      if (["app", "white", "black"].includes(parsed?.appearance)) this.appearance = parsed.appearance;
       if (typeof parsed?.accelerator === "string" && parsed.accelerator.trim()) {
         this.accelerator = parsed.accelerator.trim();
         this.customAccelerator = parsed.customAccelerator === true;
@@ -183,6 +186,7 @@ export class SystemDictationService {
   /** @returns {import("@legalwork/types/audio").AudioSystemDictationStatus} */
   status() {
     return {
+      appearance: this.appearance,
       enabled: this.enabled,
       registered: this.registered,
       accelerator: this.accelerator,
@@ -225,6 +229,15 @@ export class SystemDictationService {
       }
     }
     this.error = "No system-wide dictation shortcut is available. Another app may be using it.";
+  }
+
+  /** @param {unknown} appearance */
+  async setAppearance(appearance) {
+    if (appearance !== "app" && appearance !== "white" && appearance !== "black") throw new Error("Invalid overlay color.");
+    this.appearance = appearance;
+    await this.persist();
+    this.onStatus(this.status());
+    return this.status();
   }
 
   async setEnabled(enabled) {
@@ -274,6 +287,7 @@ export class SystemDictationService {
     return writeFile(
       this.settingsPath,
       `${JSON.stringify({
+        appearance: this.appearance,
         enabled: this.enabled,
         accelerator: this.accelerator,
         customAccelerator: this.customAccelerator,

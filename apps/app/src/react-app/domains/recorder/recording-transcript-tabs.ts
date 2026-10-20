@@ -10,7 +10,14 @@ export function recordingTranscriptTab(recording: Pick<AudioRecordingMeta, "id" 
 
 export function requestRecordingTranscript(recording: AudioRecordingMeta, workspaceId?: string | null): void {
   if (recording.ephemeral || !workspaceId) return;
-  requestPanelTab(recordingTranscriptTab(recording), { kind: "workspace", workspaceId });
+  requestPanelTab(recordingTranscriptTab(recording), { kind: "workspace", workspaceId }, { besideChat: true });
+}
+
+export function requestStartedRecordingTranscript(recording: AudioRecordingMeta): void {
+  // The recording's project determines its destination, including when chosen
+  // on the global recorder. Unlinked global/overlay captures stay in place.
+  const projectId = recording.projectIds?.[0];
+  if (projectId) requestRecordingTranscript(recording, projectId);
 }
 
 export function closeRecordingTranscriptTabs(recordingId: string): void {
@@ -23,7 +30,7 @@ export function closeRecordingTranscriptTabs(recordingId: string): void {
 }
 
 /** Open workspace transcripts once per new capture. Navigation never stops capture. */
-export function useAutoOpenRecordingTranscript(workspaceId?: string | null): void {
+export function useAutoOpenRecordingTranscript(): void {
   const recording = useRecorderStore(state => state.recording);
   const dictationId = useRecorderStore(state => state.dictationRecordingId);
   const opened = useRef<string | null>(recording?.id ?? null);
@@ -32,6 +39,6 @@ export function useAutoOpenRecordingTranscript(workspaceId?: string | null): voi
     // Observe global captures too, so entering a workspace later does not
     // unexpectedly open an already-running recording there.
     opened.current = recording.id;
-    if (workspaceId) requestRecordingTranscript(recording, recording.projectIds?.[0] ?? workspaceId);
-  }, [recording, dictationId, workspaceId]);
+    requestStartedRecordingTranscript(recording);
+  }, [recording, dictationId]);
 }

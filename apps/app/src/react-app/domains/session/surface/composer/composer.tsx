@@ -63,6 +63,7 @@ type ComposerProps = {
   mentions: Record<string, ComposerMentionKind>;
   onDraftChange: (value: string) => void;
   onSend: () => void | Promise<void>;
+  onSendDictation?: (draft: string) => void | Promise<void>;
   onStop: () => void | Promise<void>;
   busy: boolean;
   queuedCount: number;
@@ -236,8 +237,13 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     draftRef.current = props.draft;
   }, [props.draft]);
-  const dictation = useComposerDictation(props.draftScopeKey, text => {
-    props.onDraftChange(appendDictatedText(draftRef.current, text));
+  const dictation = useComposerDictation(props.draftScopeKey, async (text, send) => {
+    const nextDraft = appendDictatedText(draftRef.current, text);
+    props.onDraftChange(nextDraft);
+    if (send && !props.disabled && !props.inputDisabled && !props.uploading && props.active !== false) {
+      await props.onSendDictation?.(nextDraft);
+      return;
+    }
     requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus());
   }, props.active);
   useEffect(() => {
@@ -1033,7 +1039,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             />
 
             {/* Action row — attachments, quick actions, model controls, and send */}
-            {dictation.active ? <ComposerDictationBar dictation={dictation} /> : (
+            {dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || props.inputDisabled || props.uploading || !props.onSendDictation} /> : (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2">
               <div className="contents">
                 <input

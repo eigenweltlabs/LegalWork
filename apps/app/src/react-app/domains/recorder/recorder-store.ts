@@ -12,7 +12,6 @@ import {
   audioMeetingGet,
   audioMeetingDetectionSet,
   audioMeetingSetState,
-  audioMeetingOpen,
   audioCapturePermissions,
   audioCapturePermissionsRequest,
   audioDiarizationDownload,
@@ -29,6 +28,7 @@ import {
   audioSystemDictationReadiness,
   audioSystemDictationRepairPermission,
   audioSystemDictationRequestPermission,
+  audioSystemDictationSetAppearance,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetShortcut,
   audioSystemDictationSetShortcutCapture,
@@ -66,6 +66,7 @@ import type {
   AudioMeetingStatus,
   AudioSystemDictationRuntimeState,
   AudioSystemDictationStatus,
+  AudioDictationAppearance,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
   AudioTranscriptSegment,
@@ -123,6 +124,8 @@ export type CopilotEntry = {
   at: number;
 };
 
+let liveTranscriptShareRevision = 0;
+
 export type RecorderState = {
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
@@ -143,6 +146,9 @@ export type RecorderState = {
   copilotEntries: CopilotEntry[];
   /** Session whose chat currently mirrors the live transcript to a file, if any. */
   liveTranscriptSessionId: string | null;
+  liveTranscriptWorkspacePath: string | null;
+  liveTranscriptNotifiedSessions: string[];
+  liveTranscriptDismissedPaths: string[];
   error: string | null;
   systemDictation: AudioSystemDictationStatus | null;
   meeting: AudioMeetingStatus | null;
@@ -151,7 +157,7 @@ export type RecorderState = {
   dictationMicrophones: AudioDictationMicrophoneState | null;
   dictationState: AudioSystemDictationRuntimeState;
   dictationRecordingId: string | null;
-  composerDictation: { ownerId: string; onComplete: (text: string) => void } | null;
+  composerDictation: { ownerId: string; onComplete: (text: string) => void | Promise<void> } | null;
   composerDictationLevel: number;
   modelId: string;
   language: AudioTranscribeLanguage;
@@ -221,12 +227,13 @@ type RecorderActions = {
   requestDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
   /** Reset the app's own stale TCC entries for one permission, then re-prompt. */
   repairDictationPermission: (kind: AudioDictationPermissionKind) => Promise<void>;
+  setDictationAppearance: (appearance: AudioDictationAppearance) => Promise<void>;
   setSystemDictationEnabled: (enabled: boolean) => Promise<void>;
   setSystemDictationShortcut: (accelerator: string) => Promise<boolean>;
   setSystemDictationShortcutCapture: (active: boolean) => Promise<void>;
   openSystemDictationSettings: () => Promise<void>;
   startSystemDictation: () => Promise<void>;
-  startComposerDictation: (ownerId: string, onComplete: (text: string) => void, signal?: AbortSignal) => Promise<void>;
+  startComposerDictation: (ownerId: string, onComplete: (text: string) => void | Promise<void>, signal?: AbortSignal) => Promise<void>;
   refreshMeeting: () => Promise<void>;
   setMeetingDetection: (enabled: boolean) => Promise<void>;
   startMeetingRecording: (title?: string) => Promise<void>;
@@ -245,7 +252,7 @@ type RecorderActions = {
    * no-reply message) that a growing transcript file exists to check. Returns
    * true when armed. Stops automatically when the recording ends.
    */
-  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client) => Promise<boolean>;
+  startLiveTranscriptShare: (sessionId: string, workspacePath: string, directory?: string, sessionClient?: Client, automatic?: boolean) => Promise<boolean>;
   stopLiveTranscriptShare: () => Promise<void>;
   setOverlayVisible: (visible: boolean) => Promise<void>;
   ask: (question: string) => Promise<void>;
@@ -678,7 +685,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       case "live-transcript-stopped": {
         // Recording ended → the workspace mirror is finalized; reset the toggle.
-        set({ liveTranscriptSessionId: null });
+        set({ liveTranscriptSessionId: null, liveTranscriptWorkspacePath: null });
         break;
       }
       case "overlay-visibility": {
@@ -715,6 +722,9 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     overlayVisible: false,
     copilotEntries: [],
     liveTranscriptSessionId: null,
+    liveTranscriptWorkspacePath: null,
+    liveTranscriptNotifiedSessions: [],
+    liveTranscriptDismissedPaths: [],
     error: null,
     systemDictation: null,
     meeting: null,
@@ -889,6 +899,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
     },
 
+    setDictationAppearance: async (appearance) => {
+      try {
+        set({ systemDictation: await audioSystemDictationSetAppearance(appearance), error: null });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
     setSystemDictationEnabled: async (enabled) => {
       if (!enabled && !get().composerDictation && (get().dictationRecordingId || get().dictationState === "starting")) {
         await get().cancelRecording();
@@ -967,7 +985,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         if (suspendEpoch !== startEpoch) { await audioMeetingSetState("idle").catch(() => {}); return; }
         const message = error instanceof Error ? error.message : String(error);
         await audioMeetingSetState("error", undefined, message).catch(() => {});
-        await audioMeetingOpen().catch(() => {});
       } finally { meetingStartPending = false; }
     },
 
@@ -1243,6 +1260,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           }
           set({
             recording: meta,
+            liveTranscriptNotifiedSessions: [],
+            liveTranscriptDismissedPaths: [],
             recordingStartedAt: Date.now(),
             dictationRecordingId: options?.systemDictation ? meta.id : null,
             dictationState: options?.systemDictation ? "listening" : get().dictationState,
@@ -1330,7 +1349,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             set({ dictationState: "inserting" });
             await setDictationFeedback("inserting").catch(() => {});
             try {
-              if (composerDictation) composerDictation.onComplete(text);
+              if (composerDictation) await composerDictation.onComplete(text);
               else {
                 const result = await audioSystemDictationPaste(text);
                 dictationError = result.error;
@@ -1349,6 +1368,11 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           ).catch(() => {});
         }
         if (isSystemDictation) dictationSettleAt = Date.now();
+        if (!isSystemDictation) {
+          const meeting = await audioMeetingSetState(captureError ? "error" : "idle", undefined, captureError ?? undefined)
+            .catch(() => get().meeting);
+          set({ meeting });
+        }
         set((state) => ({
           recording: null,
           recordingStartedAt: null,
@@ -1371,7 +1395,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
               ? state.recordings.filter((item) => item.id !== meta.id)
               : [meta, ...state.recordings.filter((item) => item.id !== meta.id)]),
         }));
-        if (captureError) await audioMeetingSetState("error", undefined, captureError).catch(() => {});
       } catch (error) {
         captureHandle = null;
         // A failed capture flush still closes the graph. Discard its
@@ -1558,12 +1581,17 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       return transcriptText(source, 100_000).trim();
     },
 
-    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient) => {
+    startLiveTranscriptShare: async (sessionId, workspacePath, directory, sessionClient, automatic = false) => {
       const root = workspacePath?.trim();
       if (!root) {
         set({ error: t("recorder.context_inject_no_session") });
         return false;
       }
+      const recordingId = get().recording?.id;
+      if (!recordingId || get().recording?.ephemeral) return false;
+      if (automatic && get().liveTranscriptDismissedPaths.includes(root)) return false;
+      if (get().liveTranscriptWorkspacePath === root && get().liveTranscriptNotifiedSessions.includes(sessionId)) return true;
+      const request = ++liveTranscriptShareRevision;
       let fileName = "live-call-transcript.md";
       try {
         const result = await audioLiveTranscriptStart(root);
@@ -1577,10 +1605,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return false;
       }
 
+      if (request !== liveTranscriptShareRevision || get().recording?.id !== recordingId) return false;
+      set({ liveTranscriptSessionId: sessionId, liveTranscriptWorkspacePath: root,
+        liveTranscriptDismissedPaths: get().liveTranscriptDismissedPaths.filter(path => path !== root) });
       // Tell the agent — once, invisibly (synthetic + noReply) — that a growing
       // transcript file exists to read on demand. No repeated pasting.
       const client = sessionClient ?? copilotContext?.getClient();
-      if (client) {
+      if (client && !get().liveTranscriptNotifiedSessions.includes(sessionId)) {
+        set({ liveTranscriptNotifiedSessions: [...get().liveTranscriptNotifiedSessions, sessionId] });
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {
           unwrap(
@@ -1595,13 +1627,15 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           // The file is already live; a failed notice shouldn't block the toggle.
         }
       }
-      set({ liveTranscriptSessionId: sessionId });
-      return true;
+      return get().recording?.id === recordingId && get().liveTranscriptWorkspacePath === root;
     },
 
     stopLiveTranscriptShare: async () => {
+      liveTranscriptShareRevision += 1;
+      const root = get().liveTranscriptWorkspacePath;
+      if (root) set({ liveTranscriptDismissedPaths: [...get().liveTranscriptDismissedPaths, root] });
       await audioLiveTranscriptStop().catch(() => {});
-      set({ liveTranscriptSessionId: null });
+      set({ liveTranscriptSessionId: null, liveTranscriptWorkspacePath: null });
     },
 
     setOverlayVisible: async (visible) => {

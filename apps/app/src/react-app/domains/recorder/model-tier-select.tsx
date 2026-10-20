@@ -30,6 +30,7 @@ import { t } from "@/i18n";
 import {
   MODEL_TIERS,
   isPremiumEntitled,
+  usePremiumEntitled,
   tierForModelId,
   tierName,
   tierTagline,
@@ -89,6 +90,7 @@ function TierRow(props: {
 }) {
   const { tier } = props;
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const model = store.bootstrap?.models.find((entry) => entry.id === tier.modelId);
   const installed = model?.state === "installed";
   const downloading = model?.state === "downloading";
@@ -112,7 +114,7 @@ function TierRow(props: {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-ink">{tierName(tier.key)}</span>
-          {tier.premium ? (
+          {tier.premium && !premiumEntitled ? (
             <Badge className="gap-1 text-2xs">
               <Sparkles className="size-2.5" />
               {t("recorder.tier_premium_locked")}

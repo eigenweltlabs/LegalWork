@@ -38,12 +38,14 @@ import type {
   AudioMeetingStatus,
   AudioTapApp,
   AudioRecordingDetail,
+  AudioTranscriptEdit,
   AudioRecordingMeta,
   AudioRecordingStartInput,
   AudioSaveToWorkspaceResult,
   AudioSystemDictationPasteResult,
   AudioSystemDictationRuntimeState,
   AudioSystemDictationStatus,
+  AudioDictationAppearance,
   AudioTranscribeLanguage,
   AudioTranscriberStatus,
 } from "./audio.js";
@@ -699,6 +701,7 @@ export type DesktopCommandMap = {
   audioRecordingCancel: { args: [recordingId: string]; result: unknown };
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
+  audioRecordingEditTranscript: { args: [recordingId: string, edit: AudioTranscriptEdit]; result: AudioRecordingDetail };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
@@ -740,6 +743,10 @@ export type DesktopCommandMap = {
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
   audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetAppearance: {
+    args: [appearance: AudioDictationAppearance];
+    result: AudioSystemDictationStatus;
+  };
   audioSystemDictationSetEnabled: {
     args: [enabled: boolean];
     result: AudioSystemDictationStatus;

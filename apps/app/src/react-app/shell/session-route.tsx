@@ -38,7 +38,7 @@ import {
   takePendingTasksPaneRequest,
   type TasksPaneOpenDetail,
 } from "../domains/tasks/tasks-pane-request";
-import { useAutoOpenRecordingTranscript } from "../domains/recorder/recording-transcript-tabs";
+import { requestRecordingTranscript, useAutoOpenRecordingTranscript } from "../domains/recorder/recording-transcript-tabs";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   registerRecorderCopilotContext,
@@ -409,12 +409,6 @@ export function SessionRoute() {
     navigate("/recorder");
   };
   const showTasksPane = useCallback(() => navigate("/tasks"), [navigate]);
-  useEffect(() => {
-    const openRecorder = () => { setRecorderProject(null); navigate("/recorder"); };
-    window.addEventListener("legalwork:open-recorder", openRecorder);
-    if (new URLSearchParams(location.search).get("recorder") === "1") openRecorder();
-    return () => window.removeEventListener("legalwork:open-recorder", openRecorder);
-  }, [navigate, location.search]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -510,6 +504,22 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  useEffect(() => {
+    const openRecorder = () => {
+      const recording = useRecorderStore.getState().recording;
+      const projectId = recording?.projectIds?.[0];
+      if (recording && !recording.ephemeral && projectId) {
+        requestRecordingTranscript(recording, projectId);
+        if (routeWorkspaceId !== projectId) navigate(workspaceSessionRoute(projectId) + "?view=workspace");
+        return;
+      }
+      setRecorderProject(null);
+      navigate(recording && !recording.ephemeral ? `/recorder?recording=${encodeURIComponent(recording.id)}` : "/recorder");
+    };
+    window.addEventListener("legalwork:open-recorder", openRecorder);
+    if (new URLSearchParams(location.search).get("recorder") === "1") openRecorder();
+    return () => window.removeEventListener("legalwork:open-recorder", openRecorder);
+  }, [navigate, location.search, routeWorkspaceId]);
   const currentSessionRoute = useRef({ sessionId: selectedSessionId, workspaceId: selectedWorkspaceId });
   currentSessionRoute.current = { sessionId: selectedSessionId, workspaceId: selectedWorkspaceId };
   const wikis = useQuery({
@@ -778,8 +788,25 @@ export function SessionRoute() {
   useEffect(() => {
     void useRecorderStore.getState().init();
   }, []);
-  useAutoOpenRecordingTranscript(projectViewFromPath(location.pathname) ? null
-    : showRecorder ? recorderProject?.id : routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null));
+  useAutoOpenRecordingTranscript();
+  const activeRecording = useRecorderStore(state => state.recording);
+  const recordingChatSessionId = usePanelTabStore(state => {
+    if (!routeWorkspaceId || !location.pathname.startsWith(workspaceSessionRoute(routeWorkspaceId))) return null;
+    const panel = state.sessions[workspacePanelKey(routeWorkspaceId)];
+    const visibleChats = panel?.tabs.filter(tab => tab.type === "chat" && panel.panes.some(pane => pane.activeTabId === tab.id));
+    const chat = visibleChats?.find(tab => tab.type === "chat" && tab.sessionId === selectedSessionId) ?? visibleChats?.[0];
+    return chat?.type === "chat" ? chat.sessionId : null;
+  });
+  // The workspace route can have a visible chat without a session in its URL.
+  // Pick that chat too, while leaving parked tabs and other workspaces alone.
+  useEffect(() => {
+    if (!routeWorkspaceId || !recordingChatSessionId || selectedWorkspace?.workspaceType === "remote"
+      || !activeRecording || activeRecording.ephemeral || !activeRecording.projectIds?.includes(routeWorkspaceId)
+      || !selectedWorkspaceRoot || !opencodeClient) return;
+    void useRecorderStore.getState().startLiveTranscriptShare(
+      recordingChatSessionId, selectedWorkspaceRoot, selectedWorkspaceRoot, opencodeClient, true,
+    );
+  }, [activeRecording, routeWorkspaceId, recordingChatSessionId, selectedWorkspaceRoot, selectedWorkspace?.workspaceType, opencodeClient]);
   useEffect(() => {
     registerRecorderCopilotContext({
       getClient: () => opencodeClient,
@@ -2779,8 +2806,14 @@ export function SessionRoute() {
           </div>
         ) : showRecorder ? (
           <RecorderPane
+            recordingId={new URLSearchParams(location.search).get("recording")}
+            onRecordingChange={(id) => navigate(id ? `/recorder?recording=${encodeURIComponent(id)}` : "/recorder")}
             workspaceId={recorderProject?.id}
             project={recorderProject}
+            projects={sidebarWorkspaces.map(workspace => ({
+              id: workspace.id,
+              name: workspace.displayNameResolved || workspace.name || workspace.id,
+            }))}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())

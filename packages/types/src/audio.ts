@@ -214,14 +214,25 @@ export type AudioRecordingMeta = {
   ephemeral?: boolean;
   /** Number of distinct speakers identified, or null when not diarized. */
   speakerCount?: number | null;
+  /** User-supplied names keyed by stable, zero-based speaker id. */
+  speakerNames?: Record<string, string>;
   /** Explicit project associations; global recordings may remain unassigned. */
   projectIds?: string[];
+  /** Completed workspace transcript copies kept in sync with this recording. */
+  workspaceTranscriptPaths?: string[];
 };
 
 export type AudioRecordingDetail = {
   meta: AudioRecordingMeta;
   segments: AudioTranscriptSegment[];
 };
+
+export type AudioTranscriptEdit =
+  | { type: "rename-speaker"; speaker: number; name: string }
+  | { type: "add-speaker"; name: string }
+  | { type: "remove-speaker"; speaker: number; reassignTo: number | null }
+  | { type: "assign-segments"; segmentIds: string[]; speaker: number | null }
+  | { type: "reassign-speaker"; from: number; to: number | null };
 
 export type AudioTranscriberState = "idle" | "loading" | "ready" | "error";
 
@@ -233,6 +244,7 @@ export type AudioTranscriberStatus = {
 
 export type AudioSystemDictationPlatform = "darwin" | "windows" | "linux";
 export type AudioSystemDictationMode = "tap" | "hold";
+export type AudioDictationAppearance = "app" | "white" | "black";
 
 export type AudioDictationMicrophoneInput = { id: string; name: string };
 export type AudioDictationMicrophone = AudioDictationMicrophoneInput & {
@@ -256,6 +268,7 @@ export type AudioDictationNativeInputs = {
 };
 
 export type AudioSystemDictationStatus = {
+  appearance: AudioDictationAppearance;
   enabled: boolean;
   registered: boolean;
   accelerator: string;

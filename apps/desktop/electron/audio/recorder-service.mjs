@@ -14,6 +14,7 @@
  */
 
 import fs from "node:fs";
+import { finished } from "node:stream/promises";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { AudioModelManager } from "./model-manager.mjs";
 import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
+import { editTranscriptSpeakers } from "./transcript-edit.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +47,24 @@ function sanitizeFileName(name) {
 
 function stripExtension(name) {
   return String(name ?? "").replace(/\.[a-z0-9]{1,8}$/i, "").trim();
+}
+
+const WORKSPACE_TRANSCRIPT_END = "\n> Recording ended. Changes made in the recording tab are reflected here automatically.\n";
+const WORKSPACE_TRANSCRIPT_NOTE = "> Recorded locally, on-device. New segments are appended during recording. Edit speakers in the recording tab; this file updates automatically.";
+
+function workspaceTranscriptOwnerPath(filePath) {
+  return path.join(path.dirname(filePath), `.${path.basename(filePath)}.json`);
+}
+
+function workspaceTranscriptHeader(meta) {
+  return `# ${meta.title}\n\n${WORKSPACE_TRANSCRIPT_NOTE}\n\n## Transcript\n\n`;
+}
+
+function workspaceTranscriptBody(meta, segments) {
+  return segments.map(segment => {
+    const label = speakerLabel(segment.speaker, meta.speakerNames);
+    return `**[${formatClockTime(segment.startMs)}]** ${label ? `${label}: ` : ""}${segment.text}\n\n`;
+  }).join("");
 }
 
 export class RecorderService {
@@ -134,6 +154,7 @@ export class RecorderService {
      *   sizeBytes: number,
      *   startedAt: number,
      *   audioStream: import('node:fs').WriteStream | null,
+     *   transcriptStream?: import('node:fs').WriteStream,
      *   resolveFinalized: (() => void) | null,
      *   importAudioPath?: string,
      *   diarize?: boolean,
@@ -147,7 +168,9 @@ export class RecorderService {
      * recording is continuously written to a markdown file in a workspace so
      * the agent can read the latest conversation on demand (composer "Live
      * call" toggle). Cleared when toggled off or the recording ends.
-     * @type {{ workspacePath: string, filePath: string, fileName: string } | null}
+     * @type {{ workspacePath: string, filePath: string, fileName: string,
+     * live: { meta: import("@legalwork/types/audio").AudioRecordingMeta, segments: import("@legalwork/types/audio").AudioTranscriptSegment[] },
+     * written: number, initialized: boolean, queued: boolean, ended: boolean, endWritten: boolean } | null}
      */
     this.liveTranscript = null;
     this.liveTranscriptWriteQueue = Promise.resolve();
@@ -165,7 +188,12 @@ export class RecorderService {
     }
     const fileName = RecorderService.LIVE_TRANSCRIPT_FILE;
     const filePath = path.join(root, fileName);
-    this.liveTranscript = { workspacePath: root, filePath, fileName };
+    const live = this.currentLiveSegments();
+    if (!live) return { ok: false, filePath: null, fileName: null, error: "No recording is active." };
+    if (this.liveTranscript?.filePath !== filePath || this.liveTranscript.live.meta.id !== live.meta.id) {
+      this.liveTranscript = { workspacePath: root, filePath, fileName, live,
+        written: 0, initialized: false, queued: false, ended: false, endWritten: false };
+    }
     void this.writeLiveTranscript();
     return { ok: true, filePath, fileName, error: null };
   }
@@ -214,32 +242,80 @@ export class RecorderService {
     return null;
   }
 
-  writeLiveTranscript() {
+  writeLiveTranscript(ended = false) {
     const target = this.liveTranscript;
     if (!target) return this.liveTranscriptWriteQueue;
-    const live = this.currentLiveSegments();
-    const recording = Boolean(live);
-    const segments = live?.segments ?? [];
-    const title = live?.meta?.title ?? "Live call";
-    const body = [
-      `# ${title}`,
-      "",
-      recording
-        ? "> Live transcript — recorded locally, on-device. This file keeps growing until the recording ends."
-        : "> Recording ended. This is the final transcript.",
-      "",
-      "## Transcript",
-      "",
-      ...(segments.length
-        ? segments.map((segment) => `**[${formatClockTime(segment.startMs)}]** ${segment.text}`)
-        : ["_Waiting for speech…_"]),
-      "",
-    ].join("\n");
-    // Serialize writes so overlapping segment events never interleave.
-    this.liveTranscriptWriteQueue = this.liveTranscriptWriteQueue
-      .then(() => (this.liveTranscript ? fsp.writeFile(target.filePath, body) : undefined))
-      .catch(() => {});
+    target.ended ||= ended;
+    if (target.queued) return this.liveTranscriptWriteQueue;
+    target.queued = true;
+    // One coalesced append job, regardless of how many segments arrive while
+    // disk I/O is pending. Never queue copies of the entire meeting transcript.
+    this.liveTranscriptWriteQueue = this.liveTranscriptWriteQueue.then(async () => {
+      if (this.liveTranscript !== target) return;
+      if (!target.initialized) {
+        await fsp.writeFile(workspaceTranscriptOwnerPath(target.filePath), JSON.stringify({ recordingId: target.live.meta.id }));
+        await fsp.writeFile(target.filePath, workspaceTranscriptHeader(target.live.meta));
+        target.initialized = true;
+      }
+      while (this.liveTranscript === target && target.written < target.live.segments.length) {
+        const batch = target.live.segments.slice(target.written, target.written + 100);
+        const body = workspaceTranscriptBody(target.live.meta, batch);
+        await fsp.appendFile(target.filePath, body);
+        target.written += batch.length;
+      }
+      if (this.liveTranscript === target && target.ended && !target.endWritten) {
+        await fsp.appendFile(target.filePath, WORKSPACE_TRANSCRIPT_END);
+        target.endWritten = true;
+      }
+    }).catch(error => {
+      this.broadcast({ type: "recording-error", recordingId: target.live.meta.id,
+        error: `Could not save the live transcript: ${error.message}` });
+    }).finally(() => { target.queued = false; });
     return this.liveTranscriptWriteQueue;
+  }
+
+  /** Update managed copies after corrections, including after an app restart. */
+  syncWorkspaceTranscripts(meta, segments) {
+    const operation = this.liveTranscriptWriteQueue.then(async () => {
+      for (const filePath of meta.workspaceTranscriptPaths ?? []) {
+        if (path.basename(filePath) !== RecorderService.LIVE_TRANSCRIPT_FILE) continue;
+        const owner = await fsp.readFile(workspaceTranscriptOwnerPath(filePath), "utf8")
+          .then(JSON.parse).catch(error => {
+            if (error.code === "ENOENT" || error instanceof SyntaxError) return null;
+            throw error;
+          });
+        if (owner?.recordingId !== meta.id) continue;
+        const current = await fsp.readFile(filePath, "utf8").catch(error => {
+          if (error.code === "ENOENT") return "";
+          throw error;
+        });
+        // The path is reused by later calls. Never replace another recording,
+        // or a file the user has replaced with an unrelated document.
+        if (!current.startsWith("# ") || !current.includes(`\n\n${WORKSPACE_TRANSCRIPT_NOTE}\n\n`)) continue;
+        const body = workspaceTranscriptHeader(meta) + workspaceTranscriptBody(meta, segments) + WORKSPACE_TRANSCRIPT_END;
+        const temporary = `${filePath}.${meta.id}.tmp`;
+        try {
+          await fsp.writeFile(temporary, body);
+          await fsp.rename(temporary, filePath);
+        } finally {
+          await fsp.rm(temporary, { force: true });
+        }
+      }
+    });
+    // Serialize with live writes so editing an older call cannot race a new
+    // recording taking ownership of the same workspace file.
+    this.liveTranscriptWriteQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  createTranscriptJournal(meta) {
+    const stream = fs.createWriteStream(path.join(meta.folderPath, "transcript.jsonl"));
+    stream.on("error", error => {
+      meta.status = "error";
+      meta.error = `Could not save transcript segments: ${error.message}`;
+      this.broadcast({ type: "recording-error", recordingId: meta.id, error: meta.error });
+    });
+    return stream;
   }
 
   // ── window fan-out ──────────────────────────────────────────────────────
@@ -450,10 +526,12 @@ export class RecorderService {
           endMs: message.endMs,
           text: message.text,
           final: message.type === "segment",
+          speaker: Number.isInteger(message.speaker) && message.speaker >= 0 ? message.speaker : null,
         };
         const recording = this.activeRecordings.get(message.streamId);
         if (recording && segment.final) {
           recording.segments.push(segment);
+          recording.transcriptStream?.write(`${JSON.stringify(segment)}\n`);
           // Mirror the growing transcript to the workspace file if armed.
           if (this.liveTranscript) void this.writeLiveTranscript();
         }
@@ -462,6 +540,11 @@ export class RecorderService {
           streamId: message.streamId,
           segment,
         });
+        break;
+      }
+      case "diarize-error": {
+        this.broadcast({ type: "recording-error", recordingId: message.streamId,
+          error: `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
         break;
       }
       case "partial-clear": {
@@ -576,6 +659,7 @@ export class RecorderService {
       sizeBytes: 0,
       startedAt: Date.now(),
       audioStream,
+      transcriptStream: this.createTranscriptJournal(meta),
       resolveFinalized: null,
       diarize,
       speakerTurns: null,
@@ -597,19 +681,17 @@ export class RecorderService {
       // blocker and the active entry would leak until quit.
       this.activeRecordings.delete(id);
       this.powerSessions.release(`recording:${id}`);
-      await new Promise((resolve) => audioStream.end(resolve));
+      await finishStream(audioStream);
+      await finishStream(recording.transcriptStream);
       await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
-    // Arm the worker to tee this stream's PCM for the finalize diarization
-    // pass. Sent before any PCM flows (the renderer starts capture after this
-    // resolves), and processed regardless of recognizer readiness.
+    // Identify speakers on bounded speech segments while recording.
     if (diarize && this.worker) {
       const paths = this.modelManager.diarizationModelPaths();
       this.worker.postMessage({
         type: "diarize-begin",
         streamId: id,
-        pcmPath: path.join(folderPath, "diarize.f32"),
         segModel: paths.segmentation,
         embModel: paths.embedding,
         threshold: 0.5,
@@ -644,9 +726,7 @@ export class RecorderService {
     this.pendingPcm.delete(recordingId);
 
     // Flush the VAD → wait for the trailing segments before writing files.
-    // When diarizing, the worker also reads the recording back and runs the
-    // speaker pass before replying, which can take tens of seconds — give it a
-    // generous window and tell the UI what's happening.
+    // Speaker labels arrive with segments. Finalization only drains the tail.
     if (this.worker && this.workerReady) {
       if (recording.diarize) this.broadcast({ type: "recording-diarizing", recordingId });
       const finalizeTimeout = recording.diarize ? 10 * 60_000 : 15_000;
@@ -661,7 +741,8 @@ export class RecorderService {
     }
     this.activeRecordings.delete(recordingId);
 
-    await new Promise((resolve) => recording.audioStream.end(resolve));
+    await finishStream(recording.audioStream);
+    await finishStream(recording.transcriptStream);
 
     const meta = recording.meta;
     meta.durationMs = stoppedAt - recording.startedAt;
@@ -671,16 +752,24 @@ export class RecorderService {
     meta.transcriptPath = path.join(meta.folderPath, "transcript.json");
 
     const segments = recording.segments.sort((a, b) => a.startMs - b.startMs);
-    meta.speakerCount = assignSpeakers(segments, recording.speakerTurns);
+    meta.speakerCount = recording.speakerTurns?.length
+      ? assignSpeakers(segments, recording.speakerTurns)
+      : new Set(segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker])).size || null;
+    if (this.liveTranscript?.live.meta.id === recordingId) {
+      meta.workspaceTranscriptPaths = [...new Set([
+        ...meta.workspaceTranscriptPaths ?? [], this.liveTranscript.filePath,
+      ])];
+    }
     await writeTranscriptFiles(meta, segments);
     await writeMeta(meta.folderPath, meta);
     // Recording ended → finalize the live-transcript mirror (one last write
     // with the "ended" header) and stop tracking; the file stays in place.
     if (this.liveTranscript && !this.currentLiveSegments()) {
-      await this.writeLiveTranscript().catch(() => {});
+      await this.writeLiveTranscript(true);
       this.liveTranscript = null;
       this.broadcast({ type: "live-transcript-stopped" });
     }
+    await this.syncWorkspaceTranscripts(meta, segments);
     return meta;
   }
 
@@ -695,11 +784,12 @@ export class RecorderService {
     }
     // Imported files have no live webm stream (audioStream === null).
     if (recording.audioStream) {
-      await new Promise((resolve) => recording.audioStream.end(resolve));
+      await finishStream(recording.audioStream);
     }
+    await finishStream(recording.transcriptStream);
     await fsp.rm(recording.meta.folderPath, { recursive: true, force: true });
     if (this.liveTranscript && !this.currentLiveSegments()) {
-      await this.writeLiveTranscript().catch(() => {});
+      await this.writeLiveTranscript(true);
       this.liveTranscript = null;
       this.broadcast({ type: "live-transcript-stopped" });
     }
@@ -744,6 +834,7 @@ export class RecorderService {
       sizeBytes: 0,
       startedAt: Date.now(),
       audioStream: null,
+      transcriptStream: this.createTranscriptJournal(meta),
       resolveFinalized: null,
       importAudioPath: audioPath,
     };
@@ -756,6 +847,7 @@ export class RecorderService {
     } catch (error) {
       this.activeRecordings.delete(id);
       this.powerSessions.release(`recording:${id}`);
+      await finishStream(recording.transcriptStream);
       await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
@@ -817,6 +909,7 @@ export class RecorderService {
     if (meta.status !== "error") meta.status = "complete";
     meta.transcriptPath = path.join(meta.folderPath, "transcript.json");
 
+    await finishStream(recording.transcriptStream);
     await writeTranscriptFiles(meta, segments);
     await writeMeta(meta.folderPath, meta);
     return meta;
@@ -845,13 +938,18 @@ export class RecorderService {
         }
         continue;
       }
-      metas.push(meta);
+      if (meta.status === "recording" && !this.activeRecordings.has(meta.id)) {
+        const recovered = await this.getRecording(meta.id);
+        if (recovered) metas.push(recovered.meta);
+      } else metas.push(meta);
     }
     metas.sort((a, b) => b.createdAt - a.createdAt);
     return metas;
   }
 
   async getRecording(recordingId) {
+    const active = this.activeRecordings.get(recordingId);
+    if (active) return { meta: active.meta, segments: [...active.segments] };
     const folderPath = path.join(this.recordingsDir, recordingId);
     const meta = await readMeta(folderPath);
     if (!meta) return null;
@@ -861,9 +959,53 @@ export class RecorderService {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed?.segments)) segments = parsed.segments;
     } catch {
-      // transcript may not exist (recording failed mid-way)
+      // Recover completed segments after an interrupted recording, tolerating
+      // a partially written final line. Audio has also been streamed to disk.
+      const journal = await fsp.readFile(path.join(folderPath, "transcript.jsonl"), "utf8").catch(() => "");
+      for (const line of journal.split("\n")) {
+        try { const segment = JSON.parse(line); if (segment.final && typeof segment.text === "string") segments.push(segment); }
+        catch { /* incomplete tail */ }
+      }
+    }
+    if (meta.status === "recording") {
+      meta.status = "error";
+      meta.error = "Recording was interrupted. Saved audio and transcript segments have been recovered.";
+      meta.segmentCount = segments.length;
+      meta.durationMs = segments.reduce((end, segment) => Math.max(end, segment.endMs), 0);
+      meta.sizeBytes = meta.audioPath ? (await fsp.stat(meta.audioPath).catch(() => null))?.size ?? 0 : 0;
+      meta.transcriptPath = path.join(folderPath, "transcript.json");
+      meta.speakerCount = new Set(segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker])).size || null;
+      await writeTranscriptFiles(meta, segments);
+      await writeMeta(folderPath, meta);
     }
     return { meta, segments };
+  }
+
+  transcriptEdits = new Map();
+
+  /** Serialize corrections so two open transcript tabs cannot overwrite each other. */
+  async updateSavedTranscript(recordingId, update) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(recordingId)) throw new Error("Invalid recording.");
+    const previous = this.transcriptEdits.get(recordingId) ?? Promise.resolve();
+    const operation = previous.catch(() => {}).then(async () => {
+      const detail = await this.getRecording(recordingId);
+      if (!detail || detail.meta.ephemeral) throw new Error("Recording not found.");
+      if (this.activeRecordings.has(recordingId) || detail.meta.status === "recording") throw new Error("Finish recording before editing speakers.");
+      const updated = update(detail);
+      // Always resolve the destination ourselves, never trust a path in metadata.
+      updated.meta.folderPath = path.join(this.recordingsDir, recordingId);
+      await writeTranscriptFiles(updated.meta, updated.segments);
+      await writeMeta(updated.meta.folderPath, updated.meta);
+      await this.syncWorkspaceTranscripts(updated.meta, updated.segments);
+      return updated;
+    });
+    this.transcriptEdits.set(recordingId, operation);
+    try { return await operation; }
+    finally { if (this.transcriptEdits.get(recordingId) === operation) this.transcriptEdits.delete(recordingId); }
+  }
+
+  editTranscript(recordingId, edit) {
+    return this.updateSavedTranscript(recordingId, detail => editTranscriptSpeakers(detail, edit));
   }
 
   /**
@@ -978,12 +1120,9 @@ export class RecorderService {
         active.meta.title = nextTitle;
         await writeMeta(active.meta.folderPath, active.meta);
       } else {
-        const folderPath = path.join(this.recordingsDir, recordingId);
-        const meta = await readMeta(folderPath);
-        if (meta) {
-          meta.title = nextTitle;
-          await writeMeta(folderPath, meta);
-        }
+        await this.updateSavedTranscript(recordingId, detail => ({
+          ...detail, meta: { ...detail.meta, title: nextTitle },
+        }));
       }
     }
     return this.listRecordings();
@@ -1048,7 +1187,8 @@ export class RecorderService {
     for (const recording of this.activeRecordings.values()) {
       this.powerSessions.release(`recording:${recording.meta.id}`);
       try {
-        recording.audioStream.end();
+        recording.audioStream?.end();
+        recording.transcriptStream?.end();
       } catch {
         // shutting down
       }
@@ -1058,6 +1198,12 @@ export class RecorderService {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+async function finishStream(stream) {
+  if (!stream) return;
+  stream.end();
+  await finished(stream).catch(() => {}); // errors are reported by the stream listener
+}
 
 function defaultRecordingTitle() {
   const now = new Date();
@@ -1155,8 +1301,8 @@ export function assignSpeakers(segments, turns) {
   return order.size || null;
 }
 
-function speakerLabel(speaker) {
-  return speaker == null ? null : `Speaker ${speaker + 1}`;
+function speakerLabel(speaker, names) {
+  return speaker == null ? null : names?.[speaker] ?? `Speaker ${speaker + 1}`;
 }
 
 export async function writeTranscriptFiles(meta, segments) {
@@ -1172,6 +1318,7 @@ export async function writeTranscriptFiles(meta, segments) {
         language: meta.language,
         modelId: meta.modelId,
         sources: meta.sources,
+        speakerNames: meta.speakerNames,
         segments,
       },
       null,
@@ -1181,7 +1328,7 @@ export async function writeTranscriptFiles(meta, segments) {
 
   const srt = segments
     .map((segment, index) => {
-      const label = speakerLabel(segment.speaker);
+      const label = speakerLabel(segment.speaker, meta.speakerNames);
       const text = label ? `${label}: ${segment.text}` : segment.text;
       return `${index + 1}\n${formatSrtTime(segment.startMs)} --> ${formatSrtTime(segment.endMs)}\n${text}\n`;
     })
@@ -1190,7 +1337,7 @@ export async function writeTranscriptFiles(meta, segments) {
 
   const txt = segments
     .map((segment) => {
-      const label = speakerLabel(segment.speaker);
+      const label = speakerLabel(segment.speaker, meta.speakerNames);
       return label ? `${label}: ${segment.text}` : segment.text;
     })
     .join("\n");
@@ -1210,7 +1357,7 @@ export async function writeTranscriptFiles(meta, segments) {
     "",
     ...segments.map((segment) => {
       const time = formatClockTime(segment.startMs);
-      const label = speakerLabel(segment.speaker);
+      const label = speakerLabel(segment.speaker, meta.speakerNames);
       const prefix = label ? `**[${time}] ${label}:**` : `**[${time}]**`;
       return `${prefix} ${segment.text}`;
     }),

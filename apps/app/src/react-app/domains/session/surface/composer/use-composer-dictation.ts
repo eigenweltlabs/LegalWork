@@ -9,11 +9,13 @@ export function appendDictatedText(draft: string, text: string): string {
 }
 
 /** Own capture by composer and draft scope, including while native startup is pending. */
-export function useComposerDictation(scope: string | undefined, onInsert: (text: string) => void, visible = true) {
+export function useComposerDictation(scope: string | undefined, onInsert: (text: string, send: boolean) => void | Promise<void>, visible = true) {
   const instance = useId();
   const ownerId = `${instance}:${scope ?? ""}`;
   const current = useRef({ ownerId, onInsert });
   const pendingStart = useRef<AbortController | null>(null);
+  const sendAfterTranscription = useRef(false);
+  const finishing = useRef(false);
   current.current = { ownerId, onInsert };
   const [error, setError] = useState<string | null>(null);
   const active = useRecorderStore(state => state.composerDictation?.ownerId === ownerId);
@@ -62,22 +64,31 @@ export function useComposerDictation(scope: string | undefined, onInsert: (text:
     start: async () => {
       if (!supported || blocked || !visible) return;
       setError(null);
+      sendAfterTranscription.current = false;
+      finishing.current = false;
       const controller = new AbortController();
       pendingStart.current = controller;
       try {
         await useRecorderStore.getState().startComposerDictation(ownerId, text => {
-          if (!controller.signal.aborted && current.current.ownerId === ownerId) current.current.onInsert(text);
+          if (!controller.signal.aborted && current.current.ownerId === ownerId) return current.current.onInsert(text, sendAfterTranscription.current);
         }, controller.signal);
       } catch (error) {
         if (current.current.ownerId === ownerId) setError(error instanceof Error ? error.message : String(error));
       }
     },
-    finish: async () => {
+    finish: async (send = false) => {
       const recorder = useRecorderStore.getState();
-      if (recorder.composerDictation?.ownerId !== ownerId || phase !== "listening") return;
-      await recorder.stopRecording();
-      const message = useRecorderStore.getState().error;
-      if (message && current.current.ownerId === ownerId) setError(message);
+      if (finishing.current || recorder.finalizing || recorder.composerDictation?.ownerId !== ownerId || recorder.dictationState !== "listening") return;
+      finishing.current = true;
+      sendAfterTranscription.current = send;
+      try {
+        await recorder.stopRecording();
+        const message = useRecorderStore.getState().error;
+        if (message && current.current.ownerId === ownerId) setError(message);
+      } finally {
+        finishing.current = false;
+        sendAfterTranscription.current = false;
+      }
     },
     label: supported ? blocked && !active ? t("recorder.stop_session_first") : t("composer.dictation_start") : t("composer.dictation_desktop"),
   };

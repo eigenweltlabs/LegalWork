@@ -1,34 +1,40 @@
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createJSONStorage } from "zustand/middleware";
 import type { AudioRecordingDetail, AudioRecordingMeta, AudioTranscriptSegment } from "@legalwork/types/audio";
 import { recordingTime, transcriptTurns } from "../src/react-app/domains/recorder/recording-transcript";
 import { useRecorderStore } from "../src/react-app/domains/recorder/recorder-store";
+import { createPanelTabStore, usePanelTabStore, PANEL_OPEN_TAB_EVENT } from "../src/react-app/domains/session/panel/panel-tab-store";
+import { recordingTranscriptTab, requestRecordingTranscript, requestStartedRecordingTranscript, closeRecordingTranscriptTabs } from "../src/react-app/domains/recorder/recording-transcript-tabs";
+import { RecordingTranscript, RecordingTranscriptPanel } from "../src/react-app/domains/recorder/recording-transcript-panel";
+import { RecordingTranscriptPage } from "../src/react-app/domains/recorder/recording-transcript-page";
 
-const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-const previousSessionStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+let previousWindow: PropertyDescriptor | undefined;
+let previousStorage: PropertyDescriptor | undefined;
+let previousSessionStorage: PropertyDescriptor | undefined;
+let previousPanels = usePanelTabStore.getState();
 const events = new EventTarget();
 const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 Object.defineProperty(events, "location", { value: { href: "http://localhost/#/recorder" } });
-Object.defineProperty(globalThis, "window", { configurable: true, value: events });
-Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
-Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
-const { usePanelTabStore, PANEL_OPEN_TAB_EVENT } = await import("../src/react-app/domains/session/panel/panel-tab-store");
-const { recordingTranscriptTab, requestRecordingTranscript, closeRecordingTranscriptTabs } = await import("../src/react-app/domains/recorder/recording-transcript-tabs");
-const { RecordingTranscript, RecordingTranscriptPanel } = await import("../src/react-app/domains/recorder/recording-transcript-panel");
-const { RecordingTranscriptPage } = await import("../src/react-app/domains/recorder/recording-transcript-page");
-usePanelTabStore.persist.setOptions({ storage: createJSONStorage(() => storage) });
+Object.defineProperty(events, "localStorage", { value: storage });
+Object.defineProperty(events, "sessionStorage", { value: storage });
 const initialState = { ...useRecorderStore.getInitialState() };
 const setRenderState = (state: Partial<typeof initialState>) => Object.assign(useRecorderStore.getInitialState(), state);
 beforeEach(() => {
+  previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  previousSessionStorage = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  previousPanels = usePanelTabStore.getState();
+  Object.defineProperty(globalThis, "window", { configurable: true, value: events });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+  Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
   setRenderState(initialState);
   usePanelTabStore.setState({ sessions: {}, transcriptArtifactTargets: {} });
 });
-afterAll(() => {
+afterEach(() => {
   setRenderState(initialState);
+  usePanelTabStore.setState(previousPanels, true);
   if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
   else Reflect.deleteProperty(globalThis, "window");
   if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
@@ -95,11 +101,14 @@ test("recording tabs deduplicate and survive browser and artifact synchronizatio
 });
 
 test("recording tabs survive workspace layout persistence", () => {
+  // The shared store may have been imported without browser storage by another
+  // test. Build a fresh persisted store while this test's storage is installed.
+  const panels = createPanelTabStore();
   const tab = recordingTranscriptTab(recording);
-  usePanelTabStore.getState().openTab("workspace:project", tab);
-  const state = usePanelTabStore.getState();
-  const persisted = usePanelTabStore.persist.getOptions().partialize?.(state);
-  const restored = usePanelTabStore.persist.getOptions().merge?.(persisted, { ...state, sessions: {} });
+  panels.getState().openTab("workspace:project", tab);
+  const state = panels.getState();
+  const persisted = panels.persist.getOptions().partialize?.(state);
+  const restored = panels.persist.getOptions().merge?.(persisted, { ...state, sessions: {} });
   expect(restored?.sessions["workspace:project"].tabs).toEqual([tab]);
   expect(restored?.sessions["workspace:project"].activeTabId).toBe(tab.id);
 });
@@ -148,6 +157,24 @@ test("only workspace transcript requests open viewer tabs; global recordings and
     requestRecordingTranscript(recording, "project");
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ ...recordingTranscriptTab(recording), destination: { kind: "workspace", workspaceId: "project" } });
+  } finally { events.removeEventListener(PANEL_OPEN_TAB_EVENT, listener); }
+});
+
+test("unlinked starts stay in place; choosing a project opens its transcript even from the global recorder", () => {
+  const requests: unknown[] = [];
+  const listener = (event: Event) => { if (event instanceof CustomEvent) requests.push(event.detail); };
+  events.addEventListener(PANEL_OPEN_TAB_EVENT, listener);
+  try {
+    requestStartedRecordingTranscript(recording);
+    requestStartedRecordingTranscript({ ...recording, ephemeral: true, projectIds: ["recording-project"] });
+    expect(requests).toHaveLength(0);
+    requestStartedRecordingTranscript({ ...recording, projectIds: ["recording-project"] });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ destination: { kind: "workspace", workspaceId: "recording-project" }, openBesideChat: true });
+    // Explicitly attaching a global recording still opens it beside chat.
+    requestRecordingTranscript(recording, "currently-open-workspace");
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ destination: { kind: "workspace", workspaceId: "currently-open-workspace" }, openBesideChat: true });
   } finally { events.removeEventListener(PANEL_OPEN_TAB_EVENT, listener); }
 });
 

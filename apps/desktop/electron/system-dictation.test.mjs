@@ -692,3 +692,34 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
   service.dispose();
   await rm(userDataDir, { recursive: true, force: true });
 });
+
+
+test("overlay appearance defaults to app mode, persists each choice, and rejects invalid values", async () => {
+  const userDataDir = await tempDir();
+  const updates = [];
+  const options = {
+    userDataDir, platform: "win32", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.appearance),
+  };
+  try {
+    const service = new SystemDictationService(options);
+    assert.equal((await service.initialize()).appearance, "app");
+    for (const appearance of ["white", "black", "app"]) {
+      assert.equal((await service.setAppearance(appearance)).appearance, appearance);
+      const restored = new SystemDictationService(options);
+      assert.equal((await restored.initialize()).appearance, appearance);
+      restored.dispose();
+    }
+    await assert.rejects(service.setAppearance("invalid"), /Invalid overlay color/);
+    assert.equal(service.status().appearance, "app");
+    assert.deepEqual(updates.slice(-1), ["app"]);
+    service.dispose();
+    await writeFile(path.join(userDataDir, "system-dictation.json"), JSON.stringify({ appearance: "old-value" }));
+    const migrated = new SystemDictationService(options);
+    assert.equal((await migrated.initialize()).appearance, "app");
+    migrated.dispose();
+  } finally {
+    await rm(userDataDir, { recursive: true, force: true });
+  }
+});

@@ -2455,6 +2455,9 @@ const desktopCommandHandlers = {
   "audioRecordingGet": async (event, ...args) => {
       return recorderService().getRecording(String(args[0] ?? ""));
   },
+  "audioRecordingEditTranscript": async (event, ...args) => {
+      return recorderService().editTranscript(String(args[0] ?? ""), args[1]);
+  },
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },
@@ -2502,6 +2505,9 @@ const desktopCommandHandlers = {
   },
   "audioSystemDictationGet": async (event, ...args) => {
       return systemDictation.status();
+  },
+  "audioSystemDictationSetAppearance": async (event, ...args) => {
+      return systemDictation.setAppearance(args[0]);
   },
   "audioSystemDictationSetEnabled": async (event, ...args) => {
       try {

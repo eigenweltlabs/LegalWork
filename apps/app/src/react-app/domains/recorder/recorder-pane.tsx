@@ -363,16 +363,25 @@ export function RecordingRow(props: {
 export function RecorderPane(props: {
   workspacePath: string | null;
   workspaceId?: string;
+  recordingId?: string | null;
+  onRecordingChange?: (id: string | null) => void;
   project?: { id: string; name: string } | null;
+  projects?: { id: string; name: string }[];
   /** Local workspaces offered as save targets (selected workspace first). */
   workspaceTargets?: RecorderWorkspaceTarget[];
 }) {
   const store = useRecorderStore();
   const [title, setTitle] = useState("");
   const titleInputId = useId();
+  const projectInputId = useId();
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const projects = props.projects ?? [];
+  const recordingProjectId = props.project?.id ?? projects.find(project => project.id === selectedProjectId)?.id;
   const [dragActive, setDragActive] = useState(false);
   const [recordingsPage, setRecordingsPage] = useState(0);
-  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
+  const [localRecordingId, setLocalRecordingId] = useState<string | null>(null);
+  const selectedRecordingId = props.recordingId === undefined ? localRecordingId : props.recordingId;
+  const setSelectedRecordingId = props.onRecordingChange ?? setLocalRecordingId;
   const [dictateInfoDismissed, setDictateInfoDismissed] = useState(() => {
     try {
       return localStorage.getItem(DICTATE_INFO_DISMISSED_KEY) === "1";
@@ -638,13 +647,30 @@ export function RecorderPane(props: {
               <label htmlFor={titleInputId} className="lw-recorder-field-label">{t("recorder.recording_title_label")}</label>
               <Input id={titleInputId} value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder={t("recorder.title_placeholder")} disabled={isCaptureBusy || store.starting} />
             </div>
+            {!props.project ? (
+              <div className="w-56 min-w-0 shrink-0">
+                <label htmlFor={projectInputId} className="lw-recorder-field-label">{t("recorder.project_optional")}</label>
+                <Select
+                  value={recordingProjectId ?? ""}
+                  items={[{ value: "", label: t("projects.no_project") }, ...projects.map(project => ({ value: project.id, label: project.name }))]}
+                  onValueChange={value => { if (typeof value === "string") setSelectedProjectId(value); }}
+                  disabled={isCaptureBusy || store.starting}
+                >
+                  <SelectTrigger id={projectInputId} className="w-full"><FolderOpen /><SelectValue /></SelectTrigger>
+                  <SelectContent align="start" className="max-h-80">
+                    <SelectItem value="">{t("projects.no_project")}</SelectItem>
+                    {projects.map(project => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {isRecording ? (
               <Button disabled={store.finalizing} onClick={() => void store.stopRecording()}>
                 {store.finalizing ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Square data-icon="inline-start" />}
                 {t(store.finalizing ? "recorder.finishing" : "recorder.stop")}
               </Button>
             ) : (
-              <Button disabled={!canRecord} onClick={() => void store.startRecording(title || undefined, { projectId: props.project?.id })}>
+              <Button disabled={!canRecord} onClick={() => void store.startRecording(title || undefined, { projectId: recordingProjectId })}>
                 {store.starting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Mic data-icon="inline-start" />}
                 {t(store.starting ? "recorder.starting_recording" : "recorder.record")}
               </Button>

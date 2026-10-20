@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, FileAudio, FileText, Loader2, X } from "lucide-react";
-import type { AudioRecordingDetail, AudioTranscriptSegment } from "@legalwork/types/audio";
-import { audioRecordingGet } from "@/app/lib/desktop";
+import type { AudioRecordingDetail, AudioTranscriptEdit, AudioTranscriptSegment } from "@legalwork/types/audio";
+import { audioRecordingEditTranscript, audioRecordingGet } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
@@ -12,10 +12,10 @@ import { type RecordingPanelTab, usePanelTabStore } from "../session/panel/panel
 import { ArtifactFrame } from "../session/artifacts/artifact-frame";
 import { useRecorderStore } from "./recorder-store";
 import { recordingTime, transcriptTurns } from "./recording-transcript";
+import { RecordingSpeakers, SpeakerAssignment, SPEAKER_COLORS } from "./recording-speakers";
 import "./recording-transcript-panel.css";
 
 const EMPTY_SEGMENTS: AudioTranscriptSegment[] = [];
-const SPEAKER_COLORS = ["var(--lw-file-word)", "var(--lw-file-image)", "var(--lw-file-sheet)", "var(--lw-file-slides)"];
 
 function TranscriptDuration({ startedAt, durationMs }: { startedAt: number | null; durationMs: number }) {
   const [now, setNow] = useState(Date.now);
@@ -71,10 +71,35 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
     });
   }, [queryClient, queryKey, liveRecording, liveSegments, startedAt, finalizing]);
 
-  const meta = liveRecording ?? savedRecording ?? detail.data?.meta;
+  const meta = liveRecording ?? detail.data?.meta ?? savedRecording;
   const segments = liveRecording ? liveSegments : detail.data?.segments ?? EMPTY_SEGMENTS;
   const turns = useMemo(() => transcriptTurns(segments, partial), [segments, partial]);
-  const speakers = new Set(segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker])).size;
+  const segmentCounts = new Map<number, number>();
+  for (const segment of segments) if (segment.speaker != null) segmentCounts.set(segment.speaker, (segmentCounts.get(segment.speaker) ?? 0) + 1);
+  const speakers = segmentCounts.size;
+  const people = [...new Set([
+    ...turns.flatMap(turn => turn.speaker === null ? [] : [turn.speaker]),
+    ...Object.keys(meta?.speakerNames ?? {}).map(Number),
+  ])].sort((a, b) => a - b).map(id => ({ id, name: meta?.speakerNames?.[id] ?? t("recorder.speaker_label", { n: id + 1 }), segmentCount: segmentCounts.get(id) ?? 0 }));
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const edit = async (change: AudioTranscriptEdit) => {
+    if (liveRecording || savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const updated = await audioRecordingEditTranscript(recordingId, change);
+      queryClient.setQueryData(queryKey, updated);
+      await useRecorderStore.getState().refreshRecordings();
+      return true;
+    } catch (error) {
+      toast.error(t("recorder.speaker_save_failed"), { description: error instanceof Error ? error.message : String(error) });
+      return false;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -98,7 +123,10 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(turns.map(turn => turn.segments.map(segment => segment.text).join(" ")).join("\n\n"));
+      await navigator.clipboard.writeText(turns.map(turn => {
+        const name = people.find(person => person.id === turn.speaker)?.name;
+        return `${name ? `${name}: ` : ""}${turn.segments.map(segment => segment.text).join(" ")}`;
+      }).join("\n\n"));
       setCopied(true);
     } catch {
       toast.error(t("recorder.transcript_copy_failed"));
@@ -115,39 +143,45 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
   }
 
   return (
-    <div className="lw-recording-transcript">
+    <div
+      ref={scrollRef}
+      className="lw-recording-transcript"
+      aria-label={t("recorder.last_transcript")}
+      onScroll={event => {
+        const node = event.currentTarget;
+        followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+      }}
+    >
       <header className="lw-recording-transcript-header">
         <div className="min-w-0">
           <h1>{meta?.title ?? title}</h1>
-          {meta ? <p>{new Date(meta.createdAt).toLocaleDateString(currentLocale(), { dateStyle: "medium" })} · {new Date(meta.createdAt).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" })}</p> : null}
+          <div className="lw-recording-transcript-details">
+            {meta ? <span>{new Date(meta.createdAt).toLocaleDateString(currentLocale(), { dateStyle: "medium" })} · {new Date(meta.createdAt).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" })}</span> : null}
+            <TranscriptDuration startedAt={finalizing ? null : startedAt} durationMs={detail.data?.meta.durationMs ?? meta?.durationMs ?? 0} />
+            {speakers > 0 ? <span>{t("recorder.transcript_speakers", { count: speakers })}</span> : null}
+            {liveRecording ? <span className="lw-recording-transcript-status" role="status">
+              {finalizing ? <Loader2 className="size-3.5 animate-spin" /> : <span className="lw-recording-transcript-dot" aria-hidden="true" />}
+              {t(finalizing ? "recorder.finishing" : "recorder.transcript_live")}
+            </span> : null}
+          </div>
         </div>
-        <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
+        <div className="lw-recording-transcript-actions">
+          <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
+          <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording)} live={Boolean(liveRecording)} edit={edit} />
+        </div>
       </header>
-      <div className="lw-recording-transcript-meta">
-        <span>{t("recorder.last_transcript")}</span>
-        {speakers > 0 ? <span>{t("recorder.transcript_speakers", { count: speakers })}</span> : null}
-        <TranscriptDuration startedAt={finalizing ? null : startedAt} durationMs={detail.data?.meta.durationMs ?? meta?.durationMs ?? 0} />
-        {liveRecording ? <span className="lw-recording-transcript-status" role="status">
-          {finalizing ? <Loader2 className="size-3.5 animate-spin" /> : <span className="lw-recording-transcript-dot" aria-hidden="true" />}
-          {t(finalizing ? "recorder.finishing" : "recorder.transcript_live")}
-        </span> : null}
-      </div>
-      <div
-        ref={scrollRef}
-        className="lw-recording-transcript-body"
-        aria-label={t("recorder.last_transcript")}
-        onScroll={event => {
-          const node = event.currentTarget;
-          followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-        }}
-      >
+      <div className="lw-recording-transcript-body">
         {turns.length === 0 ? <div className="lw-recording-transcript-empty"><FileText className="size-6" /><p>{t(liveRecording ? "recorder.waiting_for_speech" : "recorder.transcript_empty")}</p></div> : turns.map(turn => (
           <section key={turn.id} className="lw-recording-transcript-turn">
             <div className="lw-recording-transcript-speaker">
-              {turn.speaker === null ? null : <span style={{ color: SPEAKER_COLORS[turn.speaker % SPEAKER_COLORS.length] }}>{t("recorder.speaker_label", { n: turn.speaker + 1 })}</span>}
+              {liveRecording ? (turn.speaker === null ? null : <span style={{ color: SPEAKER_COLORS[turn.speaker % SPEAKER_COLORS.length] }}>{people.find(person => person.id === turn.speaker)?.name}</span>)
+                : <SpeakerAssignment speaker={turn.speaker} speakers={people} segmentIds={turn.segments.map(segment => segment.id)} disabled={saving} edit={edit} />}
               <time>{recordingTime(turn.startMs)}</time>
             </div>
-            <p className="lw-recording-transcript-words">{turn.segments.map((segment, index) => <span key={segment.id} className={segment.final ? undefined : "lw-recording-transcript-partial"}>{index > 0 ? " " : null}{segment.text}</span>)}</p>
+            <div className="lw-recording-transcript-words">{turn.segments.map(segment => <div key={segment.id} className="lw-transcript-segment">
+              <span className={segment.final ? undefined : "lw-recording-transcript-partial"}>{segment.text}</span>
+              {!liveRecording && turn.segments.length > 1 ? <SpeakerAssignment compact speaker={segment.speaker ?? null} speakers={people} segmentIds={[segment.id]} disabled={saving} edit={edit} /> : null}
+            </div>)}</div>
           </section>
         ))}
       </div>

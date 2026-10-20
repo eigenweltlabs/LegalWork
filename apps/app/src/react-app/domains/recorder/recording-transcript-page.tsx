@@ -16,7 +16,7 @@ export function RecordingTranscriptPage(props: {
   const isRecording = recording?.id === props.recordingId && !recording.ephemeral;
 
   return <div className="lw-recorder h-full w-full">
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-[960px] flex-col py-6">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1200px] flex-col py-6">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6">
         <Button variant="ghost" size="sm" onClick={props.onBack}>
           <ChevronLeft data-icon="inline-start" />{props.backLabel}

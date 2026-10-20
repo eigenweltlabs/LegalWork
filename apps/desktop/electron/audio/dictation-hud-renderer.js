@@ -1,6 +1,7 @@
 import { dictationMotionProfile } from "./dictation-motion.js";
 
 const bridge = window.dictationHud;
+if (new URLSearchParams(location.search).has("preview")) document.body.dataset.preview = "true";
 const bar = document.getElementById("bar");
 const notice = document.getElementById("notice");
 const label = document.getElementById("label");
@@ -71,6 +72,14 @@ function animateMeter(now) {
 }
 
 bridge.onState((value) => {
+  document.documentElement.dataset.theme = value.dark ? "dark" : "light";
+  document.documentElement.dataset.appearance = value.appearance || "app";
+  if (value.preview) {
+    document.body.dataset.preview = "true";
+    document.body.dataset.dock = value.dock;
+    return;
+  }
+  document.body.dataset.dock = value.dock || "bottom";
   const changed = currentState !== value.state;
   currentState = value.state;
   document.body.dataset.state = value.state;
@@ -81,7 +90,7 @@ bridge.onState((value) => {
   const labels = translations[value.locale] || translations.en;
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
-  document.body.dataset.meetingAvailable = String(Boolean(value.meeting));
+  document.body.dataset.meetingAvailable = "true";
   document.getElementById("start").disabled = !value.enabled || !value.registered;
   const detected = value.state === "idle" ? value.meeting?.detected : null;
   document.getElementById("meeting-prompt").hidden = !detected;
@@ -92,6 +101,7 @@ bridge.onState((value) => {
     document.getElementById(id).title = text;
   }
   document.getElementById("meeting-record").textContent = labels.meetingRecord;
+  document.getElementById("meeting-start-label").textContent = labels.meetingStart;
   document.documentElement.lang = value.locale;
   for (const action of ["start", "stop", "cancel", "dismiss"]) {
     const button = document.getElementById(action);
@@ -100,7 +110,7 @@ bridge.onState((value) => {
     button.title = action === "start" ? "" : actionLabel + (action === "cancel" ? " · Esc" : "");
   }
   startLabel.textContent = labels.dictate;
-  label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? labels.error : value.message || labels[value.state] || "";
+  label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? (value.dock !== "bottom" && value.message) || labels.error : value.message || labels[value.state] || "";
   bar.setAttribute("aria-label", labels[value.state] || labels.start);
   const instruction = (value.mode === "hold" ? labels.release : labels.finish).replace("{shortcut}", shortcut);
   notice.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? value.message : value.state === "idle"
@@ -108,7 +118,7 @@ bridge.onState((value) => {
     ? [labels.listening, value.microphoneName, instruction].filter(Boolean).join(" · ") : labels.slow;
   if (value.state === "idle") {
     idleNotice = notice.textContent;
-    if (document.getElementById("meeting-start").matches(":hover")) notice.textContent = meetingStartNotice;
+    if (document.getElementById("meeting-start").dataset.hovered === "true") notice.textContent = meetingStartNotice;
   }
   notice.setAttribute("aria-hidden", !hint && !["listening", "error", "meeting-starting", "meeting-recording", "meeting-error"].includes(value.state));
   if (changed) {
@@ -141,8 +151,6 @@ for (const action of ["start", "stop", "cancel", "dismiss"]) document.getElement
 for (const action of ["meeting-start", "meeting-stop", "meeting-open", "meeting-dismiss"]) document.getElementById(action).addEventListener("click", () => bridge.action(action));
 document.getElementById("meeting-record").addEventListener("click", () => bridge.action("meeting-start"));
 document.getElementById("meeting-close").addEventListener("click", () => bridge.action("meeting-dismiss"));
-document.getElementById("meeting-start").addEventListener("mouseenter", () => { if (currentState === "idle") notice.textContent = meetingStartNotice; });
-document.getElementById("meeting-start").addEventListener("mouseleave", () => { if (currentState === "idle") notice.textContent = idleNotice; });
 setInterval(() => {
   const seconds = meetingStartedAt ? Math.max(0, Math.floor((Date.now() - meetingStartedAt) / 1000)) : 0;
   document.getElementById("meeting-time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -151,11 +159,73 @@ bar.addEventListener("click", (event) => {
   if (currentState === "idle" && !event.target.closest("button")) bridge.action("start");
 });
 let interactive = false;
-document.addEventListener("mousemove", (event) => {
-  const next = Boolean(event.target.closest("#bar, #meeting-prompt"));
+let pointerDrag = null;
+let suppressClick = false;
+function setHover(target) {
+  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
+  for (const id of ["start", "meeting-start"]) {
+    document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
+  }
+  if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;
+  const next = Boolean(pointerDrag || target?.closest("#bar, #meeting-prompt"));
   if (interactive !== next) { interactive = next; bridge.pointer(next); }
+}
+function updatePointer(x, y) {
+  if (pointerDrag) return;
+  setHover(document.elementFromPoint(x, y));
+}
+function clearDrag() {
+  const previous = pointerDrag;
+  pointerDrag = null;
+  document.body.dataset.dragging = "false";
+  if (previous && bar.hasPointerCapture(previous.id)) bar.releasePointerCapture(previous.id);
+  setHover(null);
+}
+bridge.onCursor(({ x, y, reset }) => {
+  if (reset) clearDrag();
+  else updatePointer(x, y);
 });
-document.addEventListener("mouseleave", () => { interactive = false; bridge.pointer(false); });
+bar.addEventListener("pointerdown", event => {
+  if (event.button !== 0) return;
+  suppressClick = false;
+  if (event.target.closest("button") && !event.target.closest("#start")) return;
+  pointerDrag = { id: event.pointerId, x: event.screenX, y: event.screenY, moving: false };
+  // Do not leave focus behind on a mouse-only, non-activating overlay.
+  event.preventDefault();
+  bar.setPointerCapture(event.pointerId);
+});
+bar.addEventListener("pointermove", event => {
+  if (!pointerDrag || pointerDrag.id !== event.pointerId) return;
+  if (!pointerDrag.moving && Math.hypot(event.screenX - pointerDrag.x, event.screenY - pointerDrag.y) >= 5) {
+    pointerDrag.moving = true;
+    suppressClick = true;
+    document.body.dataset.dragging = "true";
+    setHover(null);
+    // Collapse before measuring so the microphone follows the pointer itself.
+    const rect = bar.getBoundingClientRect();
+    bridge.drag("start", { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  }
+  if (pointerDrag.moving) bridge.drag("move");
+});
+function finishDrag(event, save) {
+  if (!pointerDrag || pointerDrag.id !== event.pointerId) return;
+  const moving = pointerDrag.moving;
+  clearDrag();
+  if (moving) bridge.drag(save ? "end" : "cancel");
+}
+bar.addEventListener("pointerup", event => finishDrag(event, true));
+bar.addEventListener("pointercancel", event => finishDrag(event, false));
+bar.addEventListener("lostpointercapture", event => finishDrag(event, false));
+bar.addEventListener("click", event => {
+  // Keep this guard until the next press, including clicks delivered after IPC.
+  if (suppressClick) { event.preventDefault(); event.stopImmediatePropagation(); }
+}, true);
+document.addEventListener("mousemove", event => updatePointer(event.clientX, event.clientY));
+document.addEventListener("mouseleave", () => { if (!pointerDrag) setHover(null); });
+window.addEventListener("blur", () => {
+  if (pointerDrag?.moving) bridge.drag("cancel");
+  clearDrag();
+});
 document.getElementById("start").addEventListener("contextmenu", event => {
   event.preventDefault();
   if (currentState === "idle") bridge.action("microphone-menu");

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Mic, Square, X } from "lucide-react";
+import { ArrowUp, Mic, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { t } from "@/i18n";
@@ -52,13 +52,14 @@ function DictationWaveform() {
   return <canvas ref={canvas} className="lw-composer-dictation-wave" aria-hidden="true" />;
 }
 
-export function ComposerDictationBar({ dictation }: { dictation: ComposerDictation }) {
+export function ComposerDictationBar({ dictation, sendDisabled }: { dictation: ComposerDictation; sendDisabled?: boolean }) {
   const transcribing = dictation.phase === "transcribing" || dictation.phase === "inserting";
   return <div className="lw-composer-dictation" data-testid="composer-dictation-active">
     <Button type="button" variant="ghost" size="icon" className="shrink-0 rounded-full bg-muted/60" onClick={dictation.cancel} title={t("composer.dictation_cancel")} aria-label={t("composer.dictation_cancel")}><X className="size-[18px]" /></Button>
     {transcribing ? <div className="lw-composer-dictation-working" role="status"><span className="lw-composer-dictation-dots" aria-hidden="true"><i /><i /><i /></span>{t("composer.dictation_transcribing")}</div>
       : <><DictationWaveform /><span className="sr-only" role="status">{t("composer.dictation_listening")}</span></>}
-    <Button type="button" size="icon" className="shrink-0 rounded-full" disabled={dictation.phase !== "listening"} onClick={() => void dictation.finish()} title={t("composer.dictation_finish")} aria-label={t("composer.dictation_finish")}><Square className="size-3" fill="currentColor" /></Button>
+    <Button type="button" variant="secondary" size="icon" className="shrink-0 rounded-full" disabled={dictation.phase !== "listening"} onClick={() => void dictation.finish()} title={t("composer.dictation_finish")} aria-label={t("composer.dictation_finish")}><Square className="size-3" fill="currentColor" /></Button>
+    <Button type="button" size="icon" className="shrink-0 rounded-full" disabled={sendDisabled || dictation.phase !== "listening"} onClick={() => void dictation.finish(true)} title={t("composer.dictation_send")} aria-label={t("composer.dictation_send")} data-testid="composer-dictation-send"><ArrowUp className="size-[18px]" /></Button>
   </div>;
 }
 

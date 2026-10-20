@@ -48,8 +48,13 @@ export function AppHome(props: AppHomeProps) {
   const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const copiedFiles = useRef(new Map<string, File>());
-  const dictation = useComposerDictation(props.projectId ?? "home", spoken => {
-    setText(current => appendDictatedText(current, spoken));
+  const dictation = useComposerDictation(props.projectId ?? "home", async (spoken, submit) => {
+    const nextText = appendDictatedText(text, spoken);
+    setText(nextText);
+    if (submit) {
+      await sendText(nextText);
+      return;
+    }
     requestAnimationFrame(focusPrompt);
   });
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
@@ -68,15 +73,15 @@ export function AppHome(props: AppHomeProps) {
     setText((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${staged.map(homeAttachmentToken).join(" ")} `);
     requestAnimationFrame(focusPrompt);
   };
-  const send = async () => {
-    if (!canSend || sendingRef.current) return;
+  const sendText = async (message: string) => {
+    if (props.disabled || !message.trim() || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
     setDragging(false);
     setError(null);
     try {
       // Keep the submitted view until navigation has a populated conversation.
-      const active = await Promise.all(activeHomeAttachments(text, attachments).map(async attachment => {
+      const active = await Promise.all(activeHomeAttachments(message, attachments).map(async attachment => {
         if (!attachment.clipboardSource) return attachment;
         if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
         let file = copiedFiles.current.get(attachment.value);
@@ -87,13 +92,14 @@ export function AppHome(props: AppHomeProps) {
         }
         return { ...attachment, source: file };
       }));
-      await props.onSend(text, active);
+      await props.onSend(message, active);
     } catch (error) {
       setError(error instanceof Error ? error.message : t("home.send_failed"));
       sendingRef.current = false;
       setSending(false);
     }
   };
+  const send = () => { if (canSend) return sendText(text); };
 
   const editor = <LexicalPromptEditor
     value={sending ? "" : text} mentions={mentions} disabled={busy}
@@ -108,7 +114,7 @@ export function AppHome(props: AppHomeProps) {
       addAttachments(Array.from(event.clipboardData.files));
     }}
   />;
-  const controls = <>{dictation.active ? <ComposerDictationBar dictation={dictation} /> : <div className="lw-home-composer-controls">
+  const controls = <>{dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || sending} /> : <div className="lw-home-composer-controls">
     <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
     <div className="lw-home-model-controls">
       {props.selectedModel ? <>

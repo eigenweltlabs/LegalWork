@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen } from "electron";
 import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { dockBounds, DOCKS, nearestDock } from "./dictation-dock.mjs";
 
-const WIDTH = 440;
-const HEIGHT = 220;
-const BOTTOM_GAP = 4;
 const CHANNEL = "legalwork:dictation-hud";
 
 /** A non-activating control bar: clicking it must preserve the paste target. */
@@ -22,10 +22,29 @@ export class DictationHud {
     this.meeting = null;
     /** @type {"en" | "de" | null} */
     this.locale = null;
-    /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform">} */
-    this.status = { enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
+    /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform" | "appearance">} */
+    this.status = { appearance: "app", enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
     this.hideTimer = null;
+    this.settleKey = "";
     this.updateVersion = 0;
+    this.dock = "bottom";
+    this.displayId = null;
+    this.drag = null;
+    this.dragTimer = null;
+    this.cursorTimer = null;
+    /** @type {BrowserWindow | null} */
+    this.dockPreview = null;
+    this.positionPath = path.join(app.getPath("userData"), "dictation-hud-position.json");
+    this.positionLoaded = null;
+    this.displayEventsRegistered = false;
+    this.positionWrites = Promise.resolve();
+    this.onDrag = (event, phase, anchor) => {
+      if (!this.window || event.sender !== this.window.webContents) return;
+      if (phase === "start") this.beginDrag(anchor);
+      else if (phase === "move") this.moveDrag();
+      else if (phase === "end" || phase === "cancel") this.endDrag(phase === "end");
+    };
+    this.onDisplayChange = () => { if (!this.drag && this.window && !this.window.isDestroyed()) this.positionWindow(); };
     this.onAction = (event, action) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
@@ -43,12 +62,18 @@ export class DictationHud {
     };
     this.onPointer = (event, interactive) => {
       if (!this.window || event.sender !== this.window.webContents || typeof interactive !== "boolean") return;
+      if (this.drag) return;
       this.window.setIgnoreMouseEvents(!interactive, { forward: true });
     };
     this.onTheme = () => this.sendState();
     ipcMain.on(`${CHANNEL}:action`, this.onAction);
     ipcMain.on(`${CHANNEL}:pointer`, this.onPointer);
+    ipcMain.on(`${CHANNEL}:drag`, this.onDrag);
     nativeTheme.on("updated", this.onTheme);
+  }
+
+  get dark() {
+    return this.status.appearance === "black" || (this.status.appearance !== "white" && nativeTheme.shouldUseDarkColors);
   }
 
   get displayState() {
@@ -64,12 +89,24 @@ export class DictationHud {
   async ensureWindow() {
     if (this.windowPromise) return this.windowPromise;
     if (this.window && !this.window.isDestroyed()) return this.window;
-    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    if (!this.displayEventsRegistered) {
+      screen.on("display-metrics-changed", this.onDisplayChange);
+      screen.on("display-removed", this.onDisplayChange);
+      this.displayEventsRegistered = true;
+    }
+    if (!this.positionLoaded) this.positionLoaded = readFile(this.positionPath, "utf8").then(raw => {
+      const saved = JSON.parse(raw);
+      if (DOCKS.includes(saved.dock)) this.dock = saved.dock;
+      if (Number.isInteger(saved.displayId)) this.displayId = saved.displayId;
+    }).catch(() => {});
+    await this.positionLoaded;
+    // Another state update may have created the window while the position loaded.
+    if (this.windowPromise) return this.windowPromise;
+    if (this.window && !this.window.isDestroyed()) return this.window;
+    const display = this.display();
+    this.displayId = display.id;
     const window = new BrowserWindow({
-      width: WIDTH,
-      height: HEIGHT,
-      x: Math.round(area.x + (area.width - WIDTH) / 2),
-      y: area.y + area.height - HEIGHT - BOTTOM_GAP,
+      ...dockBounds(display.workArea, this.dock),
       ...(process.platform === "darwin" ? { type: "panel" } : {}),
       frame: false,
       transparent: true,
@@ -93,6 +130,11 @@ export class DictationHud {
       },
     });
     this.window = window;
+    // Native windows can move without Chromium receiving a mouseleave event.
+    this.cursorTimer = setInterval(() => {
+      if (!window.isDestroyed() && window.isVisible() && !this.drag) this.sendCursor();
+    }, 50);
+    window.on("closed", () => { clearInterval(this.cursorTimer); clearInterval(this.dragTimer); });
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     window.setContentProtection(true);
@@ -108,6 +150,93 @@ export class DictationHud {
     return this.windowPromise;
   }
 
+  display() {
+    return screen.getAllDisplays().find(display => display.id === this.displayId) ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  }
+
+  positionWindow() {
+    const display = this.display();
+    this.displayId = display.id;
+    this.window?.setBounds(dockBounds(display.workArea, this.dock));
+    this.sendState();
+  }
+
+  sendCursor(reset = false) {
+    if (!this.window || this.window.isDestroyed()) return;
+    const point = screen.getCursorScreenPoint();
+    const bounds = this.window.getBounds();
+    this.window.webContents.send(`${CHANNEL}:cursor`, { x: point.x - bounds.x, y: point.y - bounds.y, reset });
+  }
+
+  beginDrag(anchor) {
+    if (!this.window || this.drag) return;
+    const point = screen.getCursorScreenPoint();
+    const bounds = this.window.getBounds();
+    this.drag = { offsetX: point.x - bounds.x, offsetY: point.y - bounds.y, dock: this.dock, displayId: this.displayId };
+    if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
+      && anchor.x >= 0 && anchor.x <= bounds.width && anchor.y >= 0 && anchor.y <= bounds.height) {
+      this.drag.offsetX = anchor.x;
+      this.drag.offsetY = anchor.y;
+    }
+    this.dragTimer = setInterval(() => this.moveDrag(), 16);
+    this.window.setIgnoreMouseEvents(false);
+    this.moveDrag();
+    this.dockPreview = new BrowserWindow({
+      ...screen.getDisplayNearestPoint(point).workArea,
+      ...(process.platform === "darwin" ? { type: "panel" } : {}),
+      frame: false, transparent: true, focusable: false, skipTaskbar: true, alwaysOnTop: true,
+      hasShadow: false, resizable: false, show: false,
+      webPreferences: {
+        preload: fileURLToPath(new URL("./dictation-hud-preload.cjs", import.meta.url)),
+        contextIsolation: true, nodeIntegration: false, sandbox: true,
+      },
+    });
+    const preview = this.dockPreview;
+    preview.setAlwaysOnTop(true, "pop-up-menu");
+    preview.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+    preview.setIgnoreMouseEvents(true);
+    preview.setContentProtection(true);
+    preview.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    preview.webContents.on("will-navigate", event => event.preventDefault());
+    void preview.loadFile(fileURLToPath(new URL("./dictation-hud.html", import.meta.url)), { query: { preview: "1" } }).then(() => {
+      if (preview.isDestroyed() || !this.drag) return;
+      this.moveDrag();
+      preview.showInactive();
+    }).catch(() => { if (this.dockPreview === preview) this.endDrag(false); });
+  }
+
+  moveDrag() {
+    if (!this.drag || !this.window) return;
+    const point = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(point);
+    this.window.setPosition(Math.round(point.x - this.drag.offsetX), Math.round(point.y - this.drag.offsetY));
+    if (this.dockPreview && !this.dockPreview.isDestroyed()) {
+      this.dockPreview.setBounds(display.workArea);
+      this.dockPreview.webContents.send(`${CHANNEL}:state`, { preview: true, dock: nearestDock(display.workArea, point), appearance: this.status.appearance, dark: this.dark });
+    }
+  }
+
+  endDrag(save) {
+    if (!this.drag) return;
+    if (save) {
+      const point = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(point);
+      this.displayId = display.id;
+      this.dock = nearestDock(display.workArea, point);
+      const saved = JSON.stringify({ dock: this.dock, displayId: this.displayId });
+      this.positionWrites = this.positionWrites.catch(() => {}).then(() => writeFile(this.positionPath, saved));
+      void this.positionWrites.catch(error => console.warn("[dictation-hud] Could not save position", error));
+    }
+    this.drag = null;
+    clearInterval(this.dragTimer);
+    this.dragTimer = null;
+    this.dockPreview?.destroy();
+    this.dockPreview = null;
+    this.positionWindow();
+    this.window?.setIgnoreMouseEvents(true, { forward: true });
+    this.sendCursor(true);
+  }
+
   sendState() {
     if (!this.window || this.window.isDestroyed()) return;
     this.window.webContents.send(`${CHANNEL}:state`, {
@@ -115,9 +244,10 @@ export class DictationHud {
       meeting: this.meeting,
       message: this.message,
       microphoneName: this.microphoneName,
+      dock: this.dock,
       locale: this.locale || (app.getLocale().startsWith("de") ? "de" : "en"),
       ...this.status,
-      dark: nativeTheme.shouldUseDarkColors,
+      dark: this.dark,
     });
   }
 
@@ -166,12 +296,25 @@ export class DictationHud {
 
   async setState(state, message = "", locale = this.locale) {
     const version = ++this.updateVersion;
-    if (this.hideTimer) clearTimeout(this.hideTimer);
-    this.hideTimer = null;
-    const previous = this.state;
     this.state = state;
     this.message = message;
     this.locale = locale;
+    const displayed = this.displayState;
+    const settleMs = ["error", "meeting-error"].includes(displayed) ? 4_000
+      : displayed === "idle" && message ? 2_000
+      : ["success", "cancelled"].includes(displayed) ? 1_200 : 0;
+    const settleKey = settleMs ? JSON.stringify([displayed, message, this.meeting?.error]) : "";
+    // Status refreshes must not keep a transient notice alive indefinitely.
+    if (settleKey !== this.settleKey) {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+      this.settleKey = settleKey;
+      if (settleMs) this.hideTimer = setTimeout(() => {
+        this.hideTimer = null;
+        if (this.displayState === "meeting-error") this.actions.onMeetingDismiss?.();
+        else void this.setState("idle");
+      }, settleMs);
+    }
     const resting = state === "idle";
     const meetingVisible = this.meeting && (this.meeting.detectionEnabled || this.meeting.state !== "idle");
     if (resting && !meetingVisible && (!this.status.enabled || !this.status.registered || this.status.shortcutCaptureActive)) {
@@ -180,16 +323,8 @@ export class DictationHud {
     }
     const window = await this.ensureWindow();
     if (version !== this.updateVersion || window.isDestroyed()) return;
-    if (state === "starting" && ["idle", "success", "cancelled", "error"].includes(previous)) {
-      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-      window.setPosition(Math.round(area.x + (area.width - WIDTH) / 2), area.y + area.height - HEIGHT - BOTTOM_GAP);
-    }
     this.sendState();
     window.showInactive();
-    const settleMs = state === "idle" && message ? 2_000 : state === "error" ? 8_000 : ["success", "cancelled"].includes(state) ? 1_200 : 0;
-    if (settleMs) this.hideTimer = setTimeout(() => {
-      if (version === this.updateVersion) void this.setState("idle");
-    }, settleMs);
   }
 
   /** @param {number} level */
@@ -201,10 +336,18 @@ export class DictationHud {
 
   destroy() {
     this.updateVersion += 1;
+    clearInterval(this.cursorTimer);
+    clearInterval(this.dragTimer);
     if (this.hideTimer) clearTimeout(this.hideTimer);
     ipcMain.removeListener(`${CHANNEL}:action`, this.onAction);
     ipcMain.removeListener(`${CHANNEL}:pointer`, this.onPointer);
+    ipcMain.removeListener(`${CHANNEL}:drag`, this.onDrag);
     nativeTheme.removeListener("updated", this.onTheme);
+    if (this.displayEventsRegistered) {
+      screen.removeListener("display-metrics-changed", this.onDisplayChange);
+      screen.removeListener("display-removed", this.onDisplayChange);
+    }
+    this.dockPreview?.destroy();
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
     this.window = null;
   }

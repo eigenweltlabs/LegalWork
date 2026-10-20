@@ -19,7 +19,7 @@ import { formatBytes } from "../../../app/utils";
 import { t } from "@/i18n";
 import type { AudioModelDiskCandidate, AudioModelState } from "@legalwork/types/audio";
 
-import { isPremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
+import { usePremiumEntitled, tierForModelId, tierName, tierTagline } from "./model-tiers";
 import { PremiumUpgradeDialog } from "./model-tier-select";
 import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
@@ -27,10 +27,11 @@ import { useRecorderStore } from "./recorder-store";
 function ModelRow(props: { model: AudioModelState; recommended: boolean; selected: boolean }) {
   const { model } = props;
   const store = useRecorderStore();
+  const premiumEntitled = usePremiumEntitled();
   const upsell = usePremiumUpsell();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const fastDevice = store.bootstrap?.device?.fastDevice ?? false;
-  const unlocked = isPremiumEntitled() || store.unlockedModels.includes(model.id);
+  const unlocked = premiumEntitled || store.unlockedModels.includes(model.id);
   const tier = tierForModelId(model.id);
   const name = tier ? tierName(tier.key) : model.label;
   const tagline = tier ? tierTagline(tier.key) : model.description;
@@ -73,7 +74,7 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-ink">{name}</span>
-            {isPremium ? (
+            {isPremium && !premiumEntitled ? (
               <Badge className="gap-1 text-2xs">
                 <Sparkles className="size-2.5" />
                 {t("recorder.tier_premium_locked")}

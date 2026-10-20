@@ -15,7 +15,7 @@ const bootstrap: AudioRecorderBootstrap = {
   modelsDir: "/tmp/models", recordingsDir: "/tmp/recordings",
 };
 const status = {
-  enabled: true, registered: true, accelerator: "Control+D", defaultAccelerator: "Control+D", customAccelerator: false,
+  appearance: "app", enabled: true, registered: true, accelerator: "Control+D", defaultAccelerator: "Control+D", customAccelerator: false,
   mode: "hold", supportsHold: true, shortcutCaptureActive: false, platform: "darwin", accessibility: "granted", error: null,
 } satisfies NonNullable<ReturnType<typeof store.getState>["systemDictation"]>;
 
@@ -34,6 +34,7 @@ let captureCallbacks: CaptureCallbacks | null = null;
 let captureOptions: { dictation?: boolean } | undefined;
 let cancelled = 0;
 let deleted = 0;
+let liveShareStarts: string[] = [];
 let captureStops = 0;
 let captureStarts = 0;
 let pasteError: string | null = null;
@@ -83,8 +84,8 @@ mock.module("../src/app/lib/desktop", () => ({
   audioSystemDictationMicrophonesUpdate: noop, audioSystemDictationMicrophoneSelect: noop, audioSystemDictationMicrophoneActive: noop,
   audioSystemDictationGet: async () => status, audioSystemDictationOpenSettings: noop, audioSystemDictationReadiness: noop,
   audioSystemDictationRepairPermission: noop, audioSystemDictationRequestPermission: noop, audioSystemDictationSetEnabled: noop,
-  audioSystemDictationSetShortcut: noop, audioSystemDictationSetShortcutCapture: noop,
-  audioLiveTranscriptStart: noop, audioLiveTranscriptStop: noop, audioImportStart: noop, audioImportSource: noop, audioImportFinish: noop,
+  audioSystemDictationSetAppearance: noop, audioSystemDictationSetShortcut: noop, audioSystemDictationSetShortcutCapture: noop,
+  audioLiveTranscriptStart: async (root: string) => { liveShareStarts.push(root); return { ok: true, fileName: "live-call-transcript.md" }; }, audioLiveTranscriptStop: noop, audioImportStart: noop, audioImportSource: noop, audioImportFinish: noop,
   audioRecordingRename: noop, audioRecordingSaveToWorkspace: noop, desktopBridge: {},
 }));
 const { useRecorderStore: store } = await import("../src/react-app/domains/recorder/recorder-store");
@@ -101,10 +102,10 @@ beforeEach(async () => {
   feedback.length = 0; pasted.length = 0; cancelled = 0; deleted = 0; captureStops = 0; captureStarts = 0; pasteError = null;
   meterPackets.length = 0; captureCallbacks = null;
   meetingPackets.length = 0; meetingFeedback.length = 0; recordingInputs.length = 0;
-  retainedRecordings = []; meetingOpens = 0;
+  retainedRecordings = []; meetingOpens = 0; liveShareStarts = [];
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
-  store.setState({ initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
+  store.setState({ liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
     recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
     permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"] });
   await store.getState().init();
@@ -157,6 +158,39 @@ test("silent composer dictation ends without an error or inserting text", async 
   await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
   await store.getState().stopRecording();
   expect(inserted).toEqual([]); expect(store.getState().error).toBeNull(); expect(feedback).toEqual([]);
+});
+
+test("transcribe-and-send waits for transcription and sends exactly once while completion is pending", async () => {
+  const sent: string[] = [];
+  const transcriptReady = deferred<AudioRecordingMeta>();
+  const sendReady = deferred<void>();
+  stopResult = transcriptReady.promise;
+  await store.getState().startComposerDictation("chat-one", async text => {
+    sent.push(text);
+    await sendReady.promise;
+  });
+  const finish = store.getState().stopRecording();
+  await delay(10);
+  expect(sent).toEqual([]);
+  transcriptReady.resolve(meta);
+  await delay(10);
+  expect(sent).toEqual([transcript]);
+  await store.getState().stopRecording();
+  expect(sent).toHaveLength(1);
+  expect(store.getState().finalizing).toBe(true);
+  sendReady.resolve();
+  await finish;
+  expect(store.getState().composerDictation).toBeNull();
+  expect(deleted).toBe(1);
+});
+
+test("a failed asynchronous composer completion reports the error and releases capture", async () => {
+  await store.getState().startComposerDictation("chat-one", async () => { throw new Error("Message could not be sent"); });
+  await store.getState().stopRecording();
+  expect(store.getState().error).toBe("Message could not be sent");
+  expect(store.getState().composerDictation).toBeNull();
+  expect(deleted).toBe(1);
+  expect(pasted).toEqual([]);
 });
 
 test("a canceled composer start cannot acquire the microphone after initialization", async () => {
@@ -361,7 +395,10 @@ test("the floating meeting request captures both sources and retains its recordi
   captureCallbacks?.onMeter?.(0.6);
   expect(meetingPackets).toEqual([{ id: meta.id, level: 0.6 }]);
   handleEvent({ type: "meeting-recording-stop" }); await delay(20);
-  expect(meetingFeedback).toEqual(["starting", "recording", "saving"]);
+  expect(meetingFeedback).toEqual(["starting", "recording", "saving", "idle"]);
+  expect(store.getState().meeting?.state).toBe("idle");
+  expect(store.getState().recording).toBeNull();
+  expect(meetingOpens).toBe(0);
   expect(store.getState().recordings[0].ephemeral).toBe(false);
   expect(pasted).toEqual([]); expect(deleted).toBe(0);
 });
@@ -382,11 +419,11 @@ test("a meeting click during model discovery waits for bootstrap instead of repo
   expect(captureStarts).toBe(1); expect(meetingOpens).toBe(0);
 });
 
-test("meeting capture failure rolls back and opens the recorder for recovery", async () => {
+test("meeting capture failure reports the error without opening or navigating the app", async () => {
   captureResult = Promise.reject(new Error("Device unavailable"));
   await store.getState().startMeetingRecording();
   expect(cancelled).toBe(1); expect(meetingFeedback.at(-1)).toBe("error");
-  expect(meetingOpens).toBe(1); expect(store.getState().recording).toBeNull();
+  expect(meetingOpens).toBe(0); expect(store.getState().recording).toBeNull();
 });
 
 test("a failed final capture packet still saves the meeting audio already on disk", async () => {
@@ -396,4 +433,45 @@ test("a failed final capture packet still saves the meeting audio already on dis
   expect(store.getState().recordings[0].ephemeral).toBe(false);
   expect(store.getState().error).toBe("Capture tail failed");
   expect(cancelled).toBe(0); expect(deleted).toBe(0); expect(store.getState().finalizing).toBe(false);
+});
+
+
+test("automatic live attachment respects opt-out and starts fresh for the next recording", async () => {
+  await store.getState().startRecording("Meeting", { projectId: "project-a" });
+  expect(await store.getState().startLiveTranscriptShare("chat-a", "/workspace-a", undefined, undefined, true)).toBe(true);
+  expect(store.getState().liveTranscriptWorkspacePath).toBe("/workspace-a");
+  await store.getState().stopLiveTranscriptShare();
+  expect(await store.getState().startLiveTranscriptShare("chat-b", "/workspace-a", undefined, undefined, true)).toBe(false);
+  expect(liveShareStarts).toEqual(["/workspace-a"]);
+  expect(await store.getState().startLiveTranscriptShare("chat-b", "/workspace-a")).toBe(true);
+  await store.getState().stopLiveTranscriptShare();
+  await store.getState().cancelRecording();
+  await store.getState().startRecording("Next meeting", { projectId: "project-a" });
+  expect(await store.getState().startLiveTranscriptShare("chat-a", "/workspace-a", undefined, undefined, true)).toBe(true);
+});
+
+test("dictation cannot be shared as a live meeting", async () => {
+  await store.getState().startRecording("Dictation", { systemDictation: true });
+  expect(await store.getState().startLiveTranscriptShare("chat", "/workspace")).toBe(false);
+  expect(liveShareStarts).toEqual([]);
+});
+
+
+test("Stop immediately marks a meeting as finishing, then clears both recording indicators", async () => {
+  const pending = deferred<AudioRecordingMeta>();
+  stopResult = pending.promise;
+  await store.getState().startMeetingRecording();
+  const stopping = store.getState().stopRecording();
+  await delay(10);
+  expect(captureStops).toBe(1);
+  expect(store.getState().finalizing).toBe(true);
+  expect(meetingFeedback.at(-1)).toBe("saving");
+  await store.getState().stopRecording();
+  expect(captureStops).toBe(1);
+  pending.resolve({ ...meta, ephemeral: false, status: "complete" });
+  await stopping;
+  expect(store.getState().recording).toBeNull();
+  expect(store.getState().finalizing).toBe(false);
+  expect(store.getState().meeting?.state).toBe("idle");
+  expect(meetingOpens).toBe(0);
 });
