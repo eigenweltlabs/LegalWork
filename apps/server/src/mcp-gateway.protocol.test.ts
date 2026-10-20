@@ -12,6 +12,7 @@ import { createMcpHandler, inputRequired, inputResponse, McpServer } from "@mode
 import { LocalMcpGateway } from "./mcp-gateway.js";
 import { initializeMcpManager, stopMcpManager } from "./mcp-manager.js";
 import { addMcp, runtimeMcpMapForWorkspace } from "./mcp.js";
+import { probeMcpServer } from "./mcp-probe.js";
 import type { ServerConfig } from "./types.js";
 
 const cleanups: Array<() => unknown | Promise<unknown>> = [];
@@ -100,6 +101,14 @@ async function fixture(compressedDiscovery = false) {
   };
   return { config, manager, handler, received, entry, modern, waiting, cancelled: () => cancelled };
 }
+
+test("a modern-only server passes the Add connector discovery probe", async () => {
+  const f = await fixture();
+  const record = f.manager.store.all()[0];
+  if (!record) throw new Error("No fixture connector");
+  for (const exactUrl of [false, true]) expect(await probeMcpServer(record.config.url, { exactUrl })).toMatchObject({ auth: "none", reachable: true, transport: "streamable-http" });
+  expect(f.received.map(message => message.method)).toEqual(["initialize", "server/discover", "initialize", "server/discover"]);
+});
 
 test("2026-07-28 MCP stays stateless through the gateway, including metadata, resources, prompts and Tasks extension requests", async () => {
   const f = await fixture();
