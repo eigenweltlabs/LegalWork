@@ -20,7 +20,7 @@ const de = {
   "assistant.instructions_hint": "Legen Sie fest, wie Ihr Assistant arbeiten soll. Gespeicherte Änderungen gelten ab seinem nächsten Schritt.",
   "assistant.instructions_placeholder": "Zum Beispiel: Auf Deutsch schreiben und Entscheidungen kurz erklären.",
   "assistant.resources": "Plugins, Workflows und Skills",
-  "assistant.resources_hint": "Wählen Sie Ressourcen, die Ihr Assistant kennen soll. Er delegiert die Ausführung an Subagents oder Projekt-Sessions. Nur Beschreibungen und Verweise werden seinem Kontext hinzugefügt.",
+  "assistant.resources_hint": "Wählen Sie die bevorzugten Ressourcen Ihres Assistants.",
   "assistant.resources_search": "Ressourcen suchen…",
   "assistant.resources_global": "Projektübergreifend",
   "assistant.resources_empty": "Keine passenden Ressourcen.",

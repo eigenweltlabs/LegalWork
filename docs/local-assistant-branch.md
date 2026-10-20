@@ -149,3 +149,12 @@ resource, then verify the next message uses them. Exercise each project access
 mode, including a denied project read/delegation and a permitted one. Reopen
 settings after restarting LegalWork to confirm persistence. Check keyboard labels,
 search, scrolling and save feedback in Electron. Rendered UI review remains pending.
+
+Resource selection UI follow-up: the three resource categories now use compact
+rows with Add pickers and removable selected chips. Search/descriptions appear
+inside each picker, and closed pickers do not mount their library lists. A live
+Vite component preview with sample data verified search filtering, selection,
+chip removal, Escape/focus return and save feedback. Six focused app tests, app
+typecheck and EN/DE completeness pass. The production Electron screen receives
+this change through the running dev server's hot reload; its real preferences
+were not modified for the preview.

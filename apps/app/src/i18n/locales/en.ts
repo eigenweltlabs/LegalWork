@@ -10,7 +10,7 @@ export default {
   "assistant.instructions_hint": "Tell your Assistant how you want it to work. Saved changes apply on its next turn.",
   "assistant.instructions_placeholder": "For example: Write in German and explain decisions briefly.",
   "assistant.resources": "Plugins, Workflows and Skills",
-  "assistant.resources_hint": "Choose resources your Assistant should know about. It delegates the work to subagents or project sessions; only descriptions and references are added to its context.",
+  "assistant.resources_hint": "Choose your Assistant’s preferred resources.",
   "assistant.resources_search": "Search resources…",
   "assistant.resources_global": "Global",
   "assistant.resources_empty": "No matching resources.",

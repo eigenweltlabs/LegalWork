@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { t } from "@/i18n";
+import { AssistantResourcePicker } from "./assistant-resource-picker";
 
 export function AssistantBehaviorSettings({ client }: { client: LegalworkServerClient }) {
   const cache = useQueryClient();
@@ -40,12 +41,10 @@ export function AssistantBehaviorForm({ settings, catalog, onSave }: {
   const id = useId();
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(settings);
-  const [resourceSearch, setResourceSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<"saved" | "error" | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const resources = catalog.resources.filter(item => `${item.name} ${item.description} ${item.projectName ?? ""}`.toLocaleLowerCase().includes(resourceSearch.toLocaleLowerCase()));
   const missing = draft.resourceIds.filter(ref => !catalog.resources.some(item => item.id === ref));
   const projects = catalog.projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()));
   const missingProjects = draft.projectAccess.projectIds.filter(ref => !catalog.projects.some(project => project.id === ref));
@@ -64,20 +63,12 @@ export function AssistantBehaviorForm({ settings, catalog, onSave }: {
       <div className="space-y-3 border-t border-border pt-5">
         <div className="space-y-1"><h3 className="text-sm font-medium">{t("assistant.resources")}</h3><p className="text-xs text-muted-foreground">{t("assistant.resources_hint")}</p></div>
         {catalog.unavailable.length > 0 && <p role="status" className="text-xs text-muted-foreground">{t("assistant.resources_partial")}</p>}
-        <Input aria-label={t("assistant.resources_search")} placeholder={t("assistant.resources_search")} value={resourceSearch} onChange={event => setResourceSearch(event.target.value)} />
-        {resourceKinds.map(({ kind, label }) => <details key={kind} className="group border-b border-border pb-3" open={resourceSearch ? true : undefined}>
-          <summary className="cursor-pointer text-sm font-medium">{t(label)} <span className="ml-1 text-xs font-normal text-muted-foreground">({catalog.resources.filter(item => item.kind === kind && draft.resourceIds.includes(item.id)).length})</span></summary>
-          <div className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-2">
-            {resources.filter(item => item.kind === kind).map(item => <label key={item.id} className="flex cursor-pointer items-start gap-3">
-              <Checkbox className="mt-0.5" checked={draft.resourceIds.includes(item.id)} onCheckedChange={checked => { setDraft({ ...draft, resourceIds: toggle(draft.resourceIds, item.id, checked) }); setStatus(null); }} />
-              <span className="min-w-0 space-y-0.5"><span className="block text-sm">{item.name}<span className="ml-2 text-xs text-muted-foreground">{item.projectName ?? t("assistant.resources_global")}</span></span>
-                {item.description && <span className="block text-xs text-muted-foreground">{item.description}</span>}
-                {item.projectId && catalog.projects.some(project => project.id === item.projectId) && !projectAllowed(draft, item.projectId) && <span className="block text-xs text-muted-foreground">{t("assistant.resource_project_blocked")}</span>}
-              </span>
-            </label>)}
-            {!resources.some(item => item.kind === kind) && <p className="text-xs text-muted-foreground">{t("assistant.resources_empty")}</p>}
-          </div>
-        </details>)}
+        <div>
+          {resourceKinds.map(({ kind, label }) => <AssistantResourcePicker key={kind} kind={kind} label={t(label)} resources={catalog.resources.filter(item => item.kind === kind)}
+            selectedIds={draft.resourceIds} disabled={saving}
+            projectAllowed={projectId => !catalog.projects.some(project => project.id === projectId) || projectAllowed(draft, projectId)}
+            onToggle={(resourceId, checked) => { setDraft({ ...draft, resourceIds: toggle(draft.resourceIds, resourceId, checked) }); setStatus(null); }} />)}
+        </div>
         {missing.map(ref => <label key={ref} className="flex items-center gap-3 text-xs text-muted-foreground"><Checkbox checked onCheckedChange={() => setDraft({ ...draft, resourceIds: draft.resourceIds.filter(item => item !== ref) })} />{t("assistant.resource_unavailable")}</label>)}
       </div>
       <div className="space-y-3 border-t border-border pt-5">
