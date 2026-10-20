@@ -143,6 +143,8 @@ choices leave recovery available if saving the choice itself fails. These
 controls apply to personal, plugin and Firm Hub connectors. Restart resumes the
 durable handover with a new bounded batch; diagnostic retry counters are local
 to the running server. Enabling/disabling a connector preserves a blocked state.
+Transport recovery never replaces a migration error with a reconnecting status
+or retries a transport whose saved-sign-in transfer is still blocked.
 
 Different existing workspace configurations keep their separate bindings. Grants
 are matched by connector name, provider URL and OAuth client; genuinely ambiguous

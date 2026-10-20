@@ -19,6 +19,7 @@ import { connectorVault } from "./connectors/store.js";
 import { McpManagerStore } from "./mcp-manager-store.js";
 import { hasOpencodeProcess, migrateLegacyMcpOAuth, retryLegacyMcpMigration, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
 import { startServer } from "./server.js";
+import { McpRecovery } from "./mcp-recovery.js";
 import { engineAccessToken } from "./legalmemory-fetch.js";
 import type { ServerConfig } from "./types.js";
 
@@ -646,10 +647,19 @@ describe("legacy MCP credential handover", () => {
       await setMcpEnabled(f.config, "ws_a", name, true);
       expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked" } });
       f.listener.stop(true); f.config.port = 0;
+      const engine = Bun.serve({ port: 0, fetch: () => Response.json({ [name]: { status: "failed", error: "Gateway unavailable" } }) });
+      cleanups.push(() => engine.stop(true));
+      f.config.opencodeBaseUrl = `http://127.0.0.1:${engine.port}`;
       const server = await startServer(f.config);
       cleanups.push(() => server.stop());
       const endpoint = `http://127.0.0.1:${server.port}/workspace/ws_a/mcp/${name}/migration`;
       const headers = { "x-legalwork-host-token": f.config.hostToken, "content-type": "application/json" };
+      const recovering = spyOn(McpRecovery.prototype, "isRecovering").mockReturnValue(true);
+      try {
+        const polled = await fetch(`http://127.0.0.1:${server.port}/workspace/ws_a/opencode/mcp`, { headers });
+        expect(polled.status).toBe(200);
+        expect(await polled.json()).toMatchObject({ [name]: { status: "failed", migration: { state: "blocked" } } });
+      } finally { recovering.mockRestore(); }
       const gateway = await f.gatewayEntry();
       expect((await fetch(endpoint, { method: "POST", headers: gateway.headers, body: JSON.stringify({ action: "retry" }) })).status).toBe(401);
       available = true;

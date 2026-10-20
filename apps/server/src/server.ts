@@ -1350,6 +1350,9 @@ async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInf
       return mcpRecoveryStatuses.parse(result.data);
     };
     const statuses = snapshot === undefined ? await readStatuses() : mcpRecoveryStatuses.parse(snapshot);
+    if (isRecord(snapshot)) for (const [name, status] of Object.entries(snapshot)) {
+      if (isRecord(status) && status.migration) delete statuses[name];
+    }
     await mcpRecovery(config).recover({
       engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
       directory, statuses, readStatuses,
@@ -1563,6 +1566,7 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
       void recoverWorkspaceMcp(input.config, workspace, sessionDirectory, statuses).catch(() => {});
       const engine = resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl ?? "";
       for (const name of Object.keys(statuses)) {
+        if (isRecord(statuses[name]) && statuses[name].migration) continue;
         if (mcpRecovery(input.config).isRecovering(engine, sessionDirectory, name)) statuses[name] = { status: "connecting", message: "Reconnecting to your connector…" };
       }
     }
