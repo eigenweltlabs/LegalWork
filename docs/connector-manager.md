@@ -122,13 +122,26 @@ The importer compares other OpenCode processes’ credential-store paths with th
 legacy source. Engines using another store do not block migration. If inspection
 is denied or ownership is unclear, it leaves the old grant untouched. The connector reports that its saved sign-in
 is waiting, rather than requesting a replacement login. Startup retries every
-ten seconds after conflicting processes close; only the exact new gateway engine
+ten seconds, for at most six unsuccessful attempts per batch; only the exact new gateway engine
 PID is excluded without inspection. macOS uses a bundled native helper, Linux
 reads `/proc`, and Windows reads the process environment through Win32. Only
 HOME/USERPROFILE and XDG_DATA_HOME path variables leave those readers; command
 lines and other environment values are not returned. Recoverable transfer errors leave the
-app usable and are retried. Externally attached engines are not automatically
+app usable and are retried within that batch. Externally attached engines are not automatically
 taken over.
+
+After repeated failures the connector reports **Sign-in transfer needs attention**
+instead of spinning indefinitely. Its explanation distinguishes conflicting
+engines, source-file access, encrypted-vault access, another transfer, changed
+credentials and a grant already claimed by another profile. Arbitrary error
+messages are not exposed. A cross-profile claim blocks immediately.
+**Retry transfer** runs a fresh bounded batch and reconnects the engine without
+requesting OAuth. **Sign in again** explicitly fences the old connection
+generation and opens normal OAuth; it preserves the source or encrypted journal.
+That action is unavailable while the encrypted vault cannot be opened. These
+controls apply to personal, plugin and Firm Hub connectors. Restart resumes the
+durable handover with a new bounded batch; diagnostic retry counters are local
+to the running server. Enabling/disabling a connector preserves a blocked state.
 
 Different existing workspace configurations keep their separate bindings. Grants
 are matched by connector name, provider URL and OAuth client; genuinely ambiguous

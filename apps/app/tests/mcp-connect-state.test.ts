@@ -39,6 +39,9 @@ describe("MCP connection outcomes", () => {
     expect(mcpConnectOutcome(entry, { status: "disabled" }, false)).toBe("failed");
     expect(mcpConnectOutcome(entry, undefined, false)).toBe("pending");
   });
+  test("a blocked migration cannot fall through to automatic OAuth", () => {
+    expect(mcpConnectOutcome({ ...entry, oauth: true }, { status: "failed", error: "Transfer paused", migration: { state: "blocked", canReconnect: true } }, false)).toBe("failed");
+  });
 
   test("manual sign-in retains the saved server identity, endpoint and complete OAuth configuration", () => {
     const configured = mcpAuthEntryFromServer({
@@ -63,6 +66,7 @@ let config = "{}";
 let status: McpStatusMap = {};
 let saveError = "";
 let serverAdds: unknown[] = [];
+let migrationActions: unknown[] = [];
 let engineAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
 let reloads: Array<{ reason: ReloadReason; trigger?: ReloadTrigger }> = [];
@@ -151,6 +155,7 @@ describe("connection store success reporting", () => {
     status = { "test-server": { status: "connected" } };
     saveError = "";
     serverAdds = [];
+    migrationActions = [];
     engineAdds = [];
     analyticsEvents = [];
     reloads = [];
@@ -176,6 +181,13 @@ describe("connection store success reporting", () => {
       value: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const pathname = new URL(request.url).pathname;
+        if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/migration$/.test(pathname)) {
+          const body: unknown = await request.json();
+          migrationActions.push(body);
+          if (saveError) return Response.json({ code: "recovery_failed", message: saveError }, { status: 500 });
+          status = { "test-server": { status: "needs_auth" } };
+          return Response.json({ ok: true });
+        }
         if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/enabled$/.test(pathname)) {
           serverEnables.push(await request.json());
           remoteSaveStarted?.();
@@ -212,6 +224,41 @@ describe("connection store success reporting", () => {
     if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
     else Reflect.deleteProperty(globalThis, "window");
     globalThis.fetch = originalFetch;
+  });
+
+  test("retrying a transfer uses the server recovery API without opening OAuth", async () => {
+    const store = makeStore();
+    try {
+      expect(await store.retryMcpMigration("test-server")).toBe(true);
+      expect(migrationActions).toEqual([{ action: "retry" }]);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+      expect(serverAdds).toHaveLength(0);
+    } finally { store.dispose(); }
+  });
+
+  test("switching workspaces before recovery resolves cannot mutate the other workspace", async () => {
+    const store = makeStore();
+    try {
+      const retry = store.retryMcpMigration("test-server");
+      selectedWorkspaceId = "another-workspace";
+      expect(await retry).toBe(false);
+      expect(migrationActions).toHaveLength(0);
+    } finally { store.dispose(); }
+  });
+
+  test.each([false, true])("explicit migration reconnect opens OAuth only after server recovery succeeds (failure=%s)", async failure => {
+    const store = makeStore();
+    status = { "test-server": { status: "failed", error: "Transfer paused", migration: { state: "blocked", canReconnect: true } } };
+    try {
+      await store.refreshMcpServers();
+      if (failure) saveError = "Vault unavailable";
+      const saved = store.getSnapshot().mcpServers[0];
+      if (!saved) throw new Error("Missing saved connector");
+      await store.authorizeMcp(saved);
+      expect(migrationActions).toEqual([{ action: "reconnect" }]);
+      expect(store.getSnapshot().mcpAuthModalOpen).toBe(!failure);
+      expect(serverAdds).toHaveLength(0);
+    } finally { store.dispose(); }
   });
 
   test("saved connector configuration is visible while engine status is still loading", async () => {

@@ -795,6 +795,22 @@ export function createConnectionsStore(options: {
     return legalworkClient.registerMcpClient(legalworkWorkspaceId, { url, ...(headers ? { headers } : {}) });
   }
 
+  async function recoverMcpMigration(name: string, action: "retry" | "reconnect") {
+    const workspaceKey = getMcpAuthWorkspaceKey();
+    try {
+      const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } = await resolveMcpLegalworkTarget("write");
+      if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) return false;
+      if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) throw new Error(t("mcp.connect_server_first"));
+      await legalworkClient.recoverMcpMigration(legalworkWorkspaceId, name, action);
+      if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) return false;
+      await refreshMcpServers({ includeStatus: true });
+      return !disposed && workspaceKey === getMcpAuthWorkspaceKey();
+    } catch (error) {
+      if (!disposed && workspaceKey === getMcpAuthWorkspaceKey()) setStateField("mcpStatus", error instanceof Error ? error.message : t("mcp.connection_failed"));
+      return false;
+    }
+  }
+
   async function authorizeMcp(entry: McpServerEntry) {
     if (entry.config.type !== "remote" || entry.config.oauth === false) {
       setStateField("mcpStatus", t("mcp.login_unavailable"));
@@ -804,6 +820,12 @@ export function createConnectionsStore(options: {
     cancelPendingMcpAuth();
     const generation = pendingMcpAuthGeneration;
     const workspaceKey = getMcpAuthWorkspaceKey();
+    const status = state.mcpStatuses[entry.name];
+    if (status && "migration" in status && status.migration) {
+      if (!status.migration.canReconnect || status.migration.state !== "blocked") return;
+      if (!(await recoverMcpMigration(entry.name, "reconnect"))) return;
+      if (disposed || generation !== pendingMcpAuthGeneration || workspaceKey !== getMcpAuthWorkspaceKey()) return;
+    }
     if (entry.config.enabled === false) {
       if (!(await updateMcpEnabled(entry.name, true))) return;
       if (disposed || generation !== pendingMcpAuthGeneration || workspaceKey !== getMcpAuthWorkspaceKey()) return;
@@ -1159,6 +1181,7 @@ export function createConnectionsStore(options: {
     registerMcpClient,
     cancelPendingMcpAuth,
     authorizeMcp,
+    retryMcpMigration: (name: string) => recoverMcpMigration(name, "retry"),
     logoutMcpAuth,
     removeMcp,
     setMcpEnabled,

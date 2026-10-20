@@ -1,8 +1,9 @@
 import { closeTestRuntime, removeTestDirectory } from "./runtime.test-helpers.js";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,7 +17,8 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { connectorVault } from "./connectors/store.js";
 import { McpManagerStore } from "./mcp-manager-store.js";
-import { hasOpencodeProcess, migrateLegacyMcpOAuth, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
+import { hasOpencodeProcess, migrateLegacyMcpOAuth, retryLegacyMcpMigration, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
+import { startServer } from "./server.js";
 import { engineAccessToken } from "./legalmemory-fetch.js";
 import type { ServerConfig } from "./types.js";
 
@@ -612,7 +614,7 @@ describe("legacy MCP credential handover", () => {
     const original = await readFile(f.authPath);
     expect((await migrateLegacyMcpOAuth(f.config, { ...f.options, quiescent: async () => available })).deferred).toBe(true);
     expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "connecting", message: expect.stringContaining("retry automatically") });
-    await expect(f.connect()).rejects.toThrow("waiting to be transferred");
+    await expect(f.connect()).rejects.toThrow("same connector credentials");
     await expect(f.manager.startAuthorization("ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_pending" });
     expect(await readFile(f.authPath)).toEqual(original);
     const stop = startLegacyMcpMigrationRetry(f.config, () => new Set([123]), { ...f.options, quiescent: async () => available, intervalMs: 5 });
@@ -623,6 +625,94 @@ describe("legacy MCP credential handover", () => {
     expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
     expect((await f.stats()).authorizationGrants).toBe(1);
     expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+  });
+
+  test("persistent conflicts pause after six attempts and a manual retry recovers without another sign-in", async () => {
+    const f = await legacyFixture();
+    const original = await readFile(f.authPath);
+    let available = false, checks = 0;
+    const quiescent = async () => { checks++; return available; };
+    await migrateLegacyMcpOAuth(f.config, { ...f.options, quiescent });
+    const stop = startLegacyMcpMigrationRetry(f.config, () => new Set(), { ...f.options, quiescent, intervalMs: 5 });
+    try {
+      await until(async () => (await f.manager.status("ws_a", name))?.status === "failed", "bounded migration retries");
+      expect(await f.manager.status("ws_b", name)).toMatchObject({ status: "failed", migration: { state: "blocked", canReconnect: true }, error: expect.stringContaining("Another OpenCode application") });
+      expect(checks).toBe(6);
+      await Bun.sleep(40);
+      expect(checks).toBe(6);
+      expect(await readFile(f.authPath)).toEqual(original);
+      await expect(f.manager.startAuthorization("ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_blocked" });
+      await setMcpEnabled(f.config, "ws_a", name, false);
+      await setMcpEnabled(f.config, "ws_a", name, true);
+      expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked" } });
+      f.listener.stop(true); f.config.port = 0;
+      const server = await startServer(f.config);
+      cleanups.push(() => server.stop());
+      const endpoint = `http://127.0.0.1:${server.port}/workspace/ws_a/mcp/${name}/migration`;
+      const headers = { "x-legalwork-host-token": f.config.hostToken, "content-type": "application/json" };
+      const gateway = await f.gatewayEntry();
+      expect((await fetch(endpoint, { method: "POST", headers: gateway.headers, body: JSON.stringify({ action: "retry" }) })).status).toBe(401);
+      available = true;
+      expect((await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ action: "retry" }) })).status).toBe(200);
+      await Promise.all([retryLegacyMcpMigration(f.config), retryLegacyMcpMigration(f.config)]);
+      expect(f.manager.store.all()[0]?.tokens?.access_token).toBe(f.entry.tokens.accessToken);
+      expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
+      expect((await f.stats()).authorizationGrants).toBe(1);
+    } finally { await stop(); }
+  });
+
+  test("a blocked activation can reconnect through the API without erasing its encrypted recovery copy", async () => {
+    const f = await legacyFixture();
+    const put = f.manager.store.put.bind(f.manager.store);
+    const write = spyOn(f.manager.store, "put").mockImplementation(async record => {
+      if (!record.legacyHandoffPending) throw new Error("activation failure including secret=must-not-leak");
+      await put(record);
+    });
+    try { for (let i = 0; i < 6; i++) await migrateLegacyMcpOAuth(f.config, f.options); }
+    finally { write.mockRestore(); }
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked" } });
+    expect(JSON.stringify(await f.manager.status("ws_a", name))).not.toContain("must-not-leak");
+    expect(JSON.parse(await readFile(f.authPath, "utf8"))).toEqual({ unrelated: f.source.unrelated });
+    const journalKey = `managed-mcp-migration:${createHash("sha256").update(await realpath(f.authPath)).digest("hex")}`;
+    const vault = new OAuthVault(oauthVaultPath(f.config));
+    const journal = await vault.getEntry(journalKey, z.unknown());
+    expect(JSON.stringify(journal)).toContain(f.entry.tokens.accessToken);
+    f.listener.stop(true); f.config.port = 0;
+    const server = await startServer(f.config);
+    cleanups.push(() => server.stop());
+    const endpoint = `http://127.0.0.1:${server.port}/workspace/ws_a/mcp/${name}/migration`;
+    expect((await fetch(endpoint, { method: "POST", body: JSON.stringify({ action: "reconnect" }) })).status).toBe(401);
+    const reconnect = await fetch(endpoint, { method: "POST", headers: { "x-legalwork-host-token": f.config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ action: "reconnect" }) });
+    expect(reconnect.status).toBe(200);
+    expect(await vault.getEntry(journalKey, z.unknown())).toEqual(journal);
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "needs_auth" });
+    await f.signIn();
+    const newTokens = f.manager.store.all()[0]?.tokens;
+    expect(newTokens?.access_token).not.toBe(f.entry.tokens.accessToken);
+    await migrateLegacyMcpOAuth(f.config, f.options);
+    expect(f.manager.store.all()[0]?.tokens).toEqual(newTokens);
+    expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
+    expect((await f.stats()).authorizationGrants).toBe(2);
+  });
+
+  test("permanent vault failure explains the blocker and does not offer to overwrite credentials", async () => {
+    const f = await legacyFixture();
+    const source = await readFile(f.authPath), destination = await readFile(f.manager.store.path);
+    await stopMcpManager(f.config);
+    const prior = process.env.LEGALWORK_ENCRYPTION_KEY;
+    process.env.LEGALWORK_ENCRYPTION_KEY = "unavailable-existing-key";
+    const manager = initializeMcpManager(f.config);
+    try {
+      for (let i = 0; i < 6; i++) await migrateLegacyMcpOAuth(f.config, f.options);
+      expect(await manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked", canReconnect: false }, error: expect.stringContaining("encryption key") });
+      expect(await readFile(f.authPath)).toEqual(source);
+      expect(await readFile(manager.store.path)).toEqual(destination);
+    } finally {
+      if (prior === undefined) delete process.env.LEGALWORK_ENCRYPTION_KEY;
+      else process.env.LEGALWORK_ENCRYPTION_KEY = prior;
+    }
+    await manager.reconcile();
+    expect((await migrateLegacyMcpOAuth(f.config, f.options)).migrated).toEqual([name]);
   });
 
   test("only the owned gateway engine PID is excluded from ownership checks on Windows and Unix", () => {

@@ -52,6 +52,7 @@ import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, existingMcpScope, listMcp, removeMcp, runtimeMcpMapForWorkspace, setMcpEnabled, type McpScope } from "./mcp.js";
 import { initializeMcpManager, managedMcpEngineEntries, mcpManager, stopMcpManager } from "./mcp-manager.js";
 import { LocalMcpGateway } from "./mcp-gateway.js";
+import { retryLegacyMcpMigration } from "./mcp-migration.js";
 import { isMcpSecureStorageError } from "./mcp-manager-store.js";
 import { hasConnectorRuntimeCapability } from "./connectors/capability.js";
 import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
@@ -4981,6 +4982,34 @@ function createRoutes(
     });
     const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp/:name/migration", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = ctx.params.name;
+    validateMcpName(name);
+    const { action } = z.object({ action: z.enum(["retry", "reconnect"]) }).parse(await readJsonBody(ctx.request));
+    const manager = mcpManager(config);
+    const status = await manager?.status(workspace.id, name);
+    if (!manager || !status || !("migration" in status) || !status.migration) throw new ApiError(409, "mcp_migration_not_pending", "This connector no longer needs a sign-in transfer.");
+    await requireApproval(ctx, { workspaceId: workspace.id, action: `mcp.migration.${action}`,
+      summary: action === "retry" ? `Retry saved sign-in transfer for ${name}` : `Sign in again to ${name}`, paths: [manager.store.path] });
+    if (action === "retry") {
+      await retryLegacyMcpMigration(config);
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [name]).catch(() => undefined);
+      await syncSharedMcpToOtherWorkspaces(config, workspace, [name]);
+    }
+    else {
+      if (!status.migration.canReconnect) throw new ApiError(503, "mcp_secure_storage_unreadable", "Restore access to the app encryption key before signing in again.");
+      // Logout fences the old generation. The original sign-in or encrypted
+      // handover journal remains available; no recovery copy is removed here.
+      await manager.logout(workspace.id, name);
+    }
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+      action: `mcp.migration.${action}`, target: name, summary: `Connector migration recovery: ${action}`, timestamp: Date.now() });
+    return jsonResponse({ ok: true });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/mcp/:name/auth", "client", async (ctx) => {

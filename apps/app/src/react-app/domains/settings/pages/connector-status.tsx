@@ -1,4 +1,6 @@
-import type { McpServerEntry, McpStatus } from "@/app/types";
+import { useState } from "react";
+import type { McpMigrationStatus, McpServerEntry, McpStatus } from "@/app/types";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { connectorNeedsSetup } from "@/app/mcp-configuration";
 
@@ -60,6 +62,26 @@ export function ConnectorStatus({ state }: { state: ConnectorState }) {
     {dot ? <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} /> : null}
     {label}
   </span>;
+}
+
+export function McpMigrationRecovery(props: {
+  migration: McpMigrationStatus; message: string | null; busy: boolean;
+  onRetry?: () => Promise<unknown>; onReconnect: () => void | Promise<void>;
+}) {
+  const [working, setWorking] = useState(false);
+  const act = async (operation: () => unknown) => {
+    setWorking(true);
+    try { await operation(); } finally { setWorking(false); }
+  };
+  const blocked = props.migration.state === "blocked";
+  return <div role={blocked ? "alert" : "status"} className="space-y-3 rounded-lg border border-border p-3 text-xs leading-5">
+    <p className="font-medium">{t(blocked ? "mcp.migration_blocked" : "mcp.migration_waiting")}</p>
+    <p className="text-muted-foreground">{props.message}</p>
+    {blocked ? <div className="flex flex-wrap gap-2">
+      {props.onRetry ? <Button variant="outline" size="sm" disabled={props.busy || working} onClick={() => void act(() => props.onRetry?.())}>{t("mcp.migration_retry")}</Button> : null}
+      {props.migration.canReconnect ? <Button size="sm" disabled={props.busy || working} onClick={() => void act(props.onReconnect)}>{t("mcp.migration_reconnect")}</Button> : null}
+    </div> : null}
+  </div>;
 }
 
 /** A plugin can have usable skills alongside connectors that still need setup. */

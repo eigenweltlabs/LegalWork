@@ -59,7 +59,8 @@ export class McpConnectorManager {
   private configurationMutations = new Map<string, Promise<unknown>>();
   private runtimes = new Map<string, ConnectionRuntime>();
   private retired = new Set<string>();
-  private legacyPending = new Map<string, { revision: string; message: string }>();
+  private legacyPending = new Map<string, { revision: string; message: string; blocked?: boolean }>();
+  private migrationIssue?: { message: string; blocked: boolean };
   private closeGateways = new Set<(id: string) => Promise<void>>();
   private connectedListeners = new Set<(id: string, client: Client) => void>();
   private stopFirmEvents: () => void;
@@ -123,9 +124,11 @@ export class McpConnectorManager {
         if (!previous || previous.id !== input.managedConnectionId) throw missing();
         const enabled = input.enabled !== false;
         if ((previous.config.enabled !== false) === enabled) return previous;
+        const migration = this.legacyPending.get(previous.id);
         await this.retire(previous);
         const record = { ...previous, config: { ...previous.config, enabled }, revision: randomUUID() };
         await this.store.put(record);
+        if (migration) this.legacyPending.set(record.id, { ...migration, revision: record.revision });
         return record;
       }
       const config = remoteMcpSchema.parse(input);
@@ -138,11 +141,13 @@ export class McpConnectorManager {
         if (scope.startsWith(FIRM_MCP_SCOPE)) this.store.hydrate(key, config);
         return { ...previous, config };
       }
+      const migration = sameIdentity ? this.legacyPending.get(previous.id) : undefined;
       if (previous) await this.retire(previous);
       const record: ManagedMcpRecord = {
         ...(sameIdentity ? previous : {}), id: sameIdentity ? previous.id : randomUUID(), key, revision: randomUUID(), config, configurationHash,
       };
       await this.store.put(record);
+      if (migration) this.legacyPending.set(record.id, { ...migration, revision: record.revision });
       return record;
     });
   }
@@ -188,10 +193,21 @@ export class McpConnectorManager {
     const record = this.store.all().find(item => item.id === id);
     if (record?.revision === revision && !record.reconnectRequired && (record.legacyHandoffPending || (!record.tokens && !record.legacyMigration))) this.legacyPending.set(id, { revision, message });
   }
+  legacyMigrationIssue(message: string, blocked: boolean) {
+    this.migrationIssue = { message, blocked };
+    for (const record of this.store.all()) {
+      if (record.reconnectRequired || record.config.oauth === false || (!record.legacyHandoffPending && (record.tokens || record.legacyMigration))) continue;
+      this.legacyPending.set(record.id, { revision: record.revision, message, blocked });
+    }
+  }
+  resetLegacyMigrationIssue() {
+    this.migrationIssue = undefined;
+    for (const [id, pending] of this.legacyPending) this.legacyPending.set(id, { ...pending, blocked: false });
+  }
   clearLegacyMigrationPending(id?: string) { if (id) this.legacyPending.delete(id); else this.legacyPending.clear(); }
   private assertMigrationReady(record: ManagedMcpRecord) {
     const pending = this.legacyPending.get(record.id);
-    if (record.legacyHandoffPending || (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired)) throw new ApiError(503, "mcp_migration_pending", pending?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically.");
+    if (record.legacyHandoffPending || (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired)) throw new ApiError(503, pending?.blocked ? "mcp_migration_blocked" : "mcp_migration_pending", pending?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically.");
   }
 
   private async reconcileFirmConnections() {
@@ -582,12 +598,21 @@ export class McpConnectorManager {
   async status(workspaceId: string, name: string) {
     let found;
     try { found = await this.find(workspaceId, name); }
-    catch (error) { if (isMcpSecureStorageError(error)) return { status: "failed", error: error.message }; throw error; }
+    catch (error) {
+      if (isMcpSecureStorageError(error) || error instanceof ApiError && error.code === "mcp_manager_in_use") return { status: "failed", error: this.migrationIssue?.message ?? error.message,
+        ...(this.migrationIssue ? { migration: { state: this.migrationIssue.blocked ? "blocked" : "waiting", canReconnect: false } } : {}) };
+      throw error;
+    }
     if (!found) return undefined;
     const current = this.current(found.record.key);
     if (current.config.enabled === false) return { status: "disabled" };
     const migration = this.legacyPending.get(current.id);
-    if (current.legacyHandoffPending || (migration?.revision === current.revision && !current.tokens && !current.reconnectRequired)) return { status: "connecting", message: migration?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically." };
+    if (current.legacyHandoffPending || (migration?.revision === current.revision && !current.tokens && !current.reconnectRequired)) {
+      const message = migration?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically.";
+      return migration?.blocked
+        ? { status: "failed", error: message, migration: { state: "blocked", canReconnect: true } }
+        : { status: "connecting", message, migration: { state: "waiting", canReconnect: true } };
+    }
     if (current.reconnectRequired) return { status: "needs_auth", error: signin().message };
     return this.runtime(current).status;
   }
