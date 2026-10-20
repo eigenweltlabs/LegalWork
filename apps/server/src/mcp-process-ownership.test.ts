@@ -11,7 +11,9 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 test("credential paths honor absolute XDG data paths and platform home defaults", () => {
   expect(processAuthPath({ HOME: "/home/user", XDG_DATA_HOME: "/data with spaces" }, "linux")).toBe("/data with spaces/opencode/mcp-auth.json");
-  expect(processAuthPath({ HOME: "/home/user", XDG_DATA_HOME: "relative" }, "darwin")).toBe("/home/user/.local/share/opencode/mcp-auth.json");
+  expect(processAuthPath({ HOME: "/home/user" }, "darwin")).toBe("/home/user/.local/share/opencode/mcp-auth.json");
+  expect(processAuthPath({ HOME: "/home/user", XDG_DATA_HOME: "relative" }, "darwin")).toBeUndefined();
+  expect(processAuthPath({ USERPROFILE: "C:\\Users\\test", XDG_DATA_HOME: "C:relative" }, "win32")).toBeUndefined();
   expect(processAuthPath({ USERPROFILE: "C:\\Users\\test user" }, "win32")).toBe("C:\\Users\\test user\\.local\\share\\opencode\\mcp-auth.json");
   expect(processAuthPath({ XDG_DATA_HOME: "D:\\data" }, "win32")).toBe("D:\\data\\opencode\\mcp-auth.json");
   expect(processAuthPath({ HOME: "relative" }, "linux")).toBeUndefined();

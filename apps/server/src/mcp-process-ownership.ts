@@ -86,7 +86,9 @@ async function macHelper() {
 export function processAuthPath(paths: Paths, platform = process.platform) {
   const path = platform === "win32" ? win32 : posix;
   const data = paths.XDG_DATA_HOME;
-  if (data && path.isAbsolute(data)) return path.join(data, "opencode", "mcp-auth.json");
+  // OpenCode accepts relative XDG paths too. Without its working directory we
+  // cannot prove their ownership; do not incorrectly assume the home default.
+  if (data) return path.isAbsolute(data) ? path.join(data, "opencode", "mcp-auth.json") : undefined;
   const home = platform === "win32" ? paths.USERPROFILE : paths.HOME;
   return home && path.isAbsolute(home) ? path.join(home, ".local", "share", "opencode", "mcp-auth.json") : undefined;
 }
