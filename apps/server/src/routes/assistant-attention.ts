@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import { AssistantAttentionRefSchema, AssistantAttentionReplySchema, AssistantAttentionPresentSchema } from "@legalwork/types/main-assistant";
+import { AssistantAttentionRefSchema, AssistantAttentionReplySchema, AssistantAttentionPresentSchema } from "../assistant-schema.js";
 import { ApiError } from "../errors.js";
 import { isMainAssistant } from "../main-assistant.js";
 import { readAssistantAttention, replyToAssistantAttention } from "../assistant-attention.js";

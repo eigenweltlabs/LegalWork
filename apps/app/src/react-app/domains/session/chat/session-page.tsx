@@ -1419,7 +1419,12 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {canRenderWorkspace && <div ref={setWorkspaceHost} className="h-full min-h-0" />}
+              {canRenderWorkspace && <div className="flex h-full min-h-0 flex-col">
+                {props.sidebar.assistantActive && props.surface && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface} />}
+                {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
+                  permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
+                <div ref={setWorkspaceHost} className="min-h-0 flex-1" />
+              </div>}
 
               {!showDelayedSessionLoadingState && !canRenderWorkspace && !showStartupSkeleton ? (
                 <div className={`mx-auto h-full max-w-[800px] overflow-y-auto px-6 pb-8 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-3"}`}>
@@ -1554,9 +1559,6 @@ export function SessionPage(props: SessionPageProps) {
       </DocumentPane>)}
       {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
-          {props.sidebar.assistantActive && props.surface && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface} />}
-          {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
-            permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
           <SidePanel
             renderWikiTab={renderWikiTab}
             onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}

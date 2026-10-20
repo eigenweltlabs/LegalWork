@@ -1043,8 +1043,8 @@ export function ReactSessionComposer(props: ComposerProps) {
 
             {/* Action row — attachments, quick actions, model controls, and send */}
             {dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || props.inputDisabled || props.uploading || !props.onSendDictation} /> : (
-            <div className={props.assistantName ? "contents" : "mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--lw-border-subtle)] pt-2"}>
-              <div className="contents">
+            <div className={props.assistantName ? "contents" : "mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2"}>
+              <div className={props.assistantName ? "contents" : "flex min-w-0 flex-1 flex-wrap items-center gap-1.5"}>
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1080,8 +1080,8 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <Paperclip size={16} />
                 </button>
-                </>}
-                {!props.assistantName && <><Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
+                </>}{!props.assistantName && <>
+                <Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
                   <PopoverTrigger
                     type="button"
                     className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}

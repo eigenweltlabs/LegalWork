@@ -676,8 +676,8 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
         requireInteractiveRun(context);
         const { actionId, args, userRequested } = uiExecuteArgsSchema.parse(rawArgs);
-        await requireRequestedAssistantUi(context, userRequested);
         const browserContext = actionId.startsWith("browser.") ? await requireBrowserNetwork(context) : {};
+        await requireRequestedAssistantUi(context, userRequested);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: { actionId, args: { ...args, ...browserContext }, callerSessionId: context.sessionID },

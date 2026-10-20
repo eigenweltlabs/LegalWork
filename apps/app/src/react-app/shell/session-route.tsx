@@ -1,3 +1,4 @@
+import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
@@ -560,7 +561,7 @@ export function SessionRoute() {
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
   const assistant = useQuery({
     queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(); },
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);

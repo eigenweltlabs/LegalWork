@@ -4,7 +4,8 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ASSISTANT_DELIVERABLE_INSTRUCTIONS, ASSISTANT_FOLLOW_UP_INSTRUCTIONS, ConversationLanguageSchema, returnedLanguageInstructions } from "./assistant-handoff.js";
-import { AssistantAttentionItemSchema, AssistantAttentionPresentSchema, type AssistantAttentionItem } from "@legalwork/types/main-assistant";
+import { AssistantAttentionItemSchema, AssistantAttentionPresentSchema } from "./assistant-schema.js";
+import type { AssistantAttentionItem } from "@legalwork/types/main-assistant";
 
 const attentionCardSchema = AssistantAttentionPresentSchema.extend({ visible: z.boolean(), presentedAt: z.number() });
 

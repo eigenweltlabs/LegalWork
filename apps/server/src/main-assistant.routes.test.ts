@@ -66,6 +66,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     const call = (path, method="GET", body, token="fixture") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
     try {
       assert.equal((await call("/assistant/current", "POST", {}, "wrong")).status, 401);
+      for (const path of ["/assistant/cloud", "/assistant/channel-history", "/assistant/channel-days", "/assistant/channel-context"])
+        assert.equal((await call(path)).status, 404, "Cloud-only routes must not ship in the local assistant");
+      assert.equal((await call("/assistant/cloud", "POST", {})).status, 404);
+      assert.equal((await call("/assistant/cloud", "DELETE")).status, 404);
       const projectFields = [{ id: "our_client", label: "Our client", type: "text", value: null }];
       const [a, b] = await Promise.all([call("/assistant/current", "POST", { projectFields }), call("/assistant/current", "POST", {})]);
       const assistant = await a.json(); assert.deepEqual(await b.json(), assistant);

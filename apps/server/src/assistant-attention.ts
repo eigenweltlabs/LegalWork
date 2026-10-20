@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { AssistantAttentionItemSchema, type AssistantAttentionItem, type AssistantAttentionReply } from "@legalwork/types/main-assistant";
+import { AssistantAttentionItemSchema } from "./assistant-schema.js";
+import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import { CalculationCardSchema } from "./calculations/schema.js";
 import { ReviewToolCardSchema } from "./reviews/schema.js";
 import { ScheduledTaskSchema } from "./scheduled-tasks/schema.js";

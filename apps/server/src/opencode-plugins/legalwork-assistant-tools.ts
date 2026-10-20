@@ -4,7 +4,7 @@ import { z } from "zod";
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { ASSISTANT_DELIVERABLE_INSTRUCTIONS, ASSISTANT_FOLLOW_UP_INSTRUCTIONS, ConversationLanguageSchema } from "../assistant-handoff.js";
-import { AssistantAttentionRefSchema, AssistantAttentionPresentSchema, AssistantReactionEmojiSchema, AssistantShareFileSchema } from "@legalwork/types/main-assistant";
+import { AssistantAttentionRefSchema, AssistantAttentionPresentSchema, AssistantReactionEmojiSchema, AssistantShareFileSchema } from "../assistant-schema.js";
 
 const COORDINATOR_ROLE = "Your role here is the user's quick, concise coordinator across projects. Route substantive legal work to project chats instead of performing it in this Assistant. Briefly inspect incoming files and search for a matching matter. If none fits, create the project and save known client and matter metadata before handing off. Pass the source files and scoped task to that project, and return promptly with a brief acknowledgement. Bring the result and deliverable back here, and route corrections to the same project chat without asking the user to switch sessions. Keep ordinary replies to one to three short sentences. Answer general questions about your abilities directly from this role and your available tools, without UI actions or capability lookups. You retain all capabilities for coordination and explicit requests to work here.";
 const MAIN_ASSISTANT_INSTRUCTIONS = `You are the user's main LegalWork assistant: a responsive coordinator for clients, projects, tasks, deadlines and delegated work. ${COORDINATOR_ROLE}

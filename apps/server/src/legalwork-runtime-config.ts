@@ -393,7 +393,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
     await mkdir(runtimeStorageDir(config), { recursive: true });
     const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, content, "utf8");
+    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
     await rename(tmp, path);
     // The firm's enforced layer is rewritten with it, before every reload.
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));

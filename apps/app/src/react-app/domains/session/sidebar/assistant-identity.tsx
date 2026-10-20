@@ -84,11 +84,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="mb-4 space-y-3 rounded-xl bg-muted/40 p-3">
-                <label className="flex items-start justify-between gap-4">
-                  <span className="min-w-0 space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
-                    <span className="block text-xs leading-relaxed text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
-                  <Switch className="mt-0.5 shrink-0" aria-label={t("assistant.desktop_notifications")} checked={desktopNotifications} onCheckedChange={setDesktopNotifications} />
-                </label>
+                <AssistantDesktopNotifications enabled={desktopNotifications} onChange={setDesktopNotifications} />
                 {modelSettings && <div className="space-y-1 border-t border-border/60 pt-2">
                   <div className="flex items-center justify-between gap-3"><span className="shrink-0 text-xs text-muted-foreground">{t("assistant.model")}</span>
                     <div className="flex min-w-0 justify-end"><ModelSelect value={modelSettings.selectedModel} locked={modelSettings.modelSelectorLocked} disabled={saving} open={modelSettings.modelPickerOpen} onOpenChange={modelSettings.onModelPickerOpenChange} onChange={modelSettings.onModelChange} /></div>
@@ -111,4 +107,12 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
       </form>
     </DialogContent>
   </Dialog>;
+}
+
+export function AssistantDesktopNotifications({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
+  return <label className="flex items-start justify-between gap-4">
+    <span className="min-w-0 space-y-1"><span className="block text-sm font-medium">{t("assistant.desktop_notifications")}</span>
+      <span className="block text-xs leading-relaxed text-muted-foreground">{t("assistant.desktop_notifications_hint")}</span></span>
+    <Switch className="mt-0.5 shrink-0" aria-label={t("assistant.desktop_notifications")} checked={enabled} onCheckedChange={onChange} />
+  </label>;
 }
