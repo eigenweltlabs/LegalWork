@@ -160,3 +160,37 @@ test("assistant-created project schemas preserve custom defaults across restart 
   f.config.readOnly = true;
   expect(() => resumed.updateProjectDefaults([field])).toThrow("writable");
 });
+
+test("Assistant preferences persist independently of appearance and keep daily history", async () => {
+  const f = await fixture();
+  expect(f.assistant.settings()).toEqual({ systemPromptAddition: "", resourceIds: [], projectAccess: { mode: "all", projectIds: [] } });
+  const current = await f.assistant.current();
+  const prompt = "Write clear German replies.\n".repeat(600);
+  const resource = { id: "skill-one", kind: "skill", name: "Research", description: "Find evidence", reference: "/library/research/SKILL.md", projectId: null, projectName: null } satisfies import("@legalwork/types/main-assistant").AssistantResource;
+  const saved = f.assistant.updateSettings({ systemPromptAddition: prompt, resourceIds: [resource.id, resource.id], projectAccess: { mode: "include", projectIds: ["a", "a"] } }, [resource]);
+  expect(saved.resourceIds).toEqual([resource.id]);
+  expect(saved.projectAccess.projectIds).toEqual(["a"]);
+  const reopened = await f.factory();
+  expect(reopened.settings()).toEqual(saved);
+  expect(reopened.resourceMetadata()).toEqual([resource]);
+  expect((await reopened.current()).day).toEqual(current.day);
+  expect(reopened.profile()).toEqual({ name: null, icon: "dot" });
+  expect(reopened.settings().systemPromptAddition).toBe(prompt);
+  f.config.readOnly = true;
+  expect(() => reopened.updateSettings(saved)).toThrow("writable");
+});
+
+test("all four project access modes keep the Assistant workspace and handle future projects", async () => {
+  const f = await fixture();
+  const workspace = await f.assistant.workspace();
+  const cases: Array<[string, boolean[]]> = [
+    ["all", [true, true, true]], ["none", [false, false, false]],
+    ["include", [true, false, false]], ["exclude", [false, true, true]],
+  ];
+  for (const [mode, expected] of cases) {
+    f.assistant.updateSettings({ systemPromptAddition: "", resourceIds: [], projectAccess: { mode, projectIds: ["a"] } });
+    expect(["a", "b", "future"].map(id => f.assistant.canAccessProject(id))).toEqual(expected);
+    expect(f.assistant.canAccessProject(workspace.id)).toBe(true);
+    if (!expected[0]) expect(() => f.assistant.assertProjectAccess("a")).toThrow("allowed projects");
+  }
+});

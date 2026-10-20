@@ -1,4 +1,4 @@
-import { assistantWorkspace, requireMainAssistant } from "./assistant-workspace.js";
+import { assistantWorkspace, assistantProjectIds, requireMainAssistant } from "./assistant-workspace.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "../scheduled-tasks/access.js";
 import { z } from "zod";
 import { ScheduledTaskInputSchema, TaskScheduleSchema } from "@legalwork/types/scheduled-tasks";
@@ -69,7 +69,10 @@ export const LegalWorkScheduledTaskTools = async (runtime: { client?: ReturnType
           const params = new URLSearchParams();
           for (const [key, value] of Object.entries(input)) if (value !== undefined) params.set(key, String(value));
           const response = await fetch(`${serverUrl()}/scheduled-tasks?${params}`, { headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(30000) });
-          return JSON.stringify({ ok: response.ok, referenceData: await response.json() });
+          if (!response.ok) throw new Error("Could not list scheduled tasks.");
+          const data = z.object({ tasks: z.array(z.looseObject({ workspaceId: z.string() })) }).passthrough().parse(await response.json());
+          const allowed = await assistantProjectIds();
+          return JSON.stringify({ ok: true, referenceData: { ...data, tasks: data.tasks.filter(task => allowed.has(task.workspaceId)) } });
         } catch (error) { return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
       } },
     legalwork_schedule_projects: { description: "List projects accessible to this scheduled run. Access is determined by the run's agent, not by tool arguments.", args: {}, execute: (_raw: unknown, context: OpenCodeContext) => projectRequest(context) },
@@ -105,13 +108,18 @@ async function projectRequest(context: OpenCodeContext, route?: "contents" | "co
     const response = await fetch(`${serverUrl()}/scheduled-tasks/projects`, { headers, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error("Could not verify project access.");
     const { projects } = z.object({ projects: z.array(z.object({ id: z.string(), name: z.string(), path: z.string() })) }).parse(await response.json());
-    const allowed = projects.filter(project => context.agent === ALL_PROJECTS_TASK_AGENT || project.id === current);
+    const assistant = await fetch(`${serverUrl()}/assistant`, { headers, signal: AbortSignal.timeout(10000) });
+    if (!assistant.ok) throw new Error("Could not verify scheduled project access.");
+    const main = z.object({ workspace: z.object({ id: z.string() }).nullable() }).parse(await assistant.json());
+    const selected = main.workspace?.id === current ? await assistantProjectIds() : null;
+    const allowed = projects.filter(project => (context.agent === ALL_PROJECTS_TASK_AGENT || project.id === current) && (!selected || selected.has(project.id)));
     if (!route) return JSON.stringify({ projects: allowed });
     const target = input.projectId ?? current;
     if (!allowed.some(project => project.id === target)) throw new Error("This scheduled task cannot access that project.");
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(input)) if (key !== "projectId" && value !== undefined) params.set(key, String(value));
-    const content = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(target)}/project/${route}?${params}`, { headers, signal: AbortSignal.timeout(30000) });
+    const path = main.workspace?.id === current ? `/assistant/projects/${encodeURIComponent(target)}/${route}` : `/workspace/${encodeURIComponent(target)}/project/${route}`;
+    const content = await fetch(`${serverUrl()}${path}?${params}`, { headers, signal: AbortSignal.timeout(30000) });
     return JSON.stringify({ ok: content.ok, referenceData: await content.json() });
   } catch (error) { return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
 }

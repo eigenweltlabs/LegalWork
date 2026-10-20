@@ -229,3 +229,39 @@ test("only deliberately described cards persist; legacy activity and repeat pres
     expect(reopened.presentation({ ...card, revision: "v2" }).visible).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("revoked project access suspends background reads and returns, including a notice already queued", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-revoked-return-"));
+  let allowed = false, reads = 0, idle = false;
+  const sent: string[] = [];
+  try {
+    const tracker = await AssistantDelegations.open(join(root, "runtime.sqlite"), {
+      allowed: () => allowed,
+      result: async () => { reads++; return { messageId: "result", outcome: "reply", text: "Private project result." }; },
+      destination: async () => ({ workspaceId: "assistant", sessionId: "today" }),
+      idle: async () => idle, hasMessage: async () => false,
+      send: async (_, notice) => { sent.push(notice.text); },
+    });
+    tracker.track(delegation);
+    await tracker.tick();
+    expect(reads).toBe(0); expect(tracker.list("assistant")).toEqual([]); expect(tracker.hasPendingWork("assistant")).toBe(false);
+    allowed = true;
+    await tracker.tick(); // Busy destination, no result sent.
+    expect(reads).toBe(1); expect(sent).toEqual([]);
+    idle = true;
+    let revokeDuringIdle = true;
+    // Queue a notice, then revoke access before the final delivery check.
+    const reopened = await AssistantDelegations.open(join(root, "runtime.sqlite"), {
+      allowed: () => allowed,
+      result: async () => ({ messageId: "result", outcome: "reply", text: "Private project result." }),
+      destination: async () => ({ workspaceId: "assistant", sessionId: "today" }),
+      idle: async () => { if (revokeDuringIdle) { allowed = false; revokeDuringIdle = false; } return true; },
+      hasMessage: async () => false, send: async (_, notice) => { sent.push(notice.text); },
+    });
+    await reopened.tick(); expect(sent).toEqual([]);
+    await reopened.tick(); expect(sent).toEqual([]);
+    allowed = true;
+    await reopened.tick(); expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Private project result.");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -52,3 +52,22 @@ test("the Assistant panel reads only explicitly presented cards and hiding never
     ]);
   } finally { await server.stop(true); }
 });
+
+test("Assistant behavior settings use the server persistence and catalog with owner authentication", async () => {
+  const settings = { systemPromptAddition: "Write in German.", resourceIds: ["skill/ref"], projectAccess: { mode: "exclude", projectIds: ["private"] } };
+  let persisted = { ...settings, systemPromptAddition: "" };
+  const catalog = { resources: [], projects: [{ id: "private", name: "Private" }], unavailable: [] };
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    expect(request.headers.get("x-legalwork-host-token")).toBe("host-fixture");
+    if (new URL(request.url).pathname === "/assistant/settings/catalog") return Response.json(catalog);
+    if (request.method === "PATCH") persisted = await request.json();
+    return Response.json({ settings: persisted });
+  } });
+  try {
+    const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "host-fixture" });
+    expect((await client.assistantSettings()).settings.systemPromptAddition).toBe("");
+    expect(await client.updateAssistantSettings(settings)).toEqual({ settings });
+    expect(await client.assistantSettings()).toEqual({ settings });
+    expect(await client.assistantSettingsCatalog()).toEqual(catalog);
+  } finally { await server.stop(true); }
+});

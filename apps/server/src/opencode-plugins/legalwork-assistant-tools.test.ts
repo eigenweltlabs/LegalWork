@@ -5,6 +5,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
   const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
   const calls: string[] = [];
   let name = "Maya";
+  let preferences = "Prefer German replies; delegate research with the selected skill reference.";
   const writes: { path: string; method: string; body: unknown }[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     expect(request.headers.get("authorization")).toBe("Bearer fixture");
@@ -12,6 +13,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     if (request.method !== "GET") writes.push({ path: url.pathname, method: request.method, body: await request.json() });
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "assistant", path: "/Assistant" }] });
     if (url.pathname === "/assistant") return Response.json({ workspace: { id: "assistant", path: "/Assistant" }, profile: { name } });
+    if (url.pathname === "/assistant/settings/context") return Response.json({ context: preferences });
     return Response.json({ ok: true });
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
@@ -25,12 +27,17 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     const turn: { message: { id: string }; parts: object[] } = { message: { id: "msg_1" }, parts: [] };
     await plugin["chat.message"]({ sessionID: "today" }, turn);
     expect(JSON.stringify(turn.parts)).toContain("Maya");
-    name = "Momo";
+    expect(JSON.stringify(turn.parts)).toContain(preferences);
+    const originalParts = JSON.stringify(turn.parts);
+    name = "Momo"; preferences = "Prefer concise English replies; use the new workflow reference.";
     await plugin["experimental.chat.system.transform"]({}, after);
     expect(after).toEqual(before); expect(before.system.join(" ")).not.toContain("Maya");
     const next: typeof turn = { message: { id: "msg_2" }, parts: [] };
     await plugin["chat.message"]({ sessionID: "today" }, next);
     expect(JSON.stringify(next.parts)).toContain("Momo");
+    expect(JSON.stringify(next.parts)).toContain(preferences);
+    expect(JSON.stringify(turn.parts)).toBe(originalParts);
+    expect(after.system.join(" ")).not.toContain(preferences);
     const project = await LegalWorkAssistantTools({ directory: "/Aster" });
     const other: typeof turn = { message: { id: "msg_3" }, parts: [] };
     await project["chat.message"]({ sessionID: "other" }, other);
@@ -38,7 +45,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     await plugin.tool.legalwork_assistant_project_set_metadata.execute({ projectId: "matter/id", revision: 4, values: { client: "Nordstern" } });
     await plugin.tool.legalwork_assistant_delegate.execute({ projectId: "matter/id", title: "Review agreement", conversationLanguage: "en", prompt: "Review the uploaded agreement", scope: "Save review notes", files: ["uploads/agreement.pdf"], initializeProject: true }, { directory: "/Assistant", sessionID: "today" });
     expect(writes).toEqual([
-      { path: "/workspace/matter%2Fid/project/metadata", method: "PATCH", body: { revision: 4, values: { client: "Nordstern" } } },
+      { path: "/assistant/projects/matter%2Fid/metadata", method: "PATCH", body: { revision: 4, values: { client: "Nordstern" } } },
       { path: "/assistant/delegate", method: "POST", body: { workspaceId: "matter/id", sourceWorkspaceId: "assistant", sourceSessionId: "today", title: "Review agreement", conversationLanguage: "en", prompt: "Review the uploaded agreement", scope: "Save review notes", files: ["uploads/agreement.pdf"], initializeProject: true } },
     ]);
     const card = { workspaceId: "matter/id", sessionId: "child", id: "request", revision: "current", title: "Approve report edits?", description: "Allow the project to save the proposed edits." };
@@ -80,12 +87,36 @@ test("project creation returns the schema used to save known client metadata bef
     await plugin.tool.legalwork_assistant_project_set_metadata.execute({ projectId: data.project.id, revision: data.details.revision, values: { [data.details.fields[0].id]: "Northbridge" } });
     expect(calls).toEqual([
       { path: "/assistant/projects", body: { name: "Northbridge acquisition" } },
-      { path: "/workspace/new-matter/project/metadata", body: { revision: 1, values: { our_client: "Northbridge" } } },
+      { path: "/assistant/projects/new-matter/metadata", body: { revision: 1, values: { our_client: "Northbridge" } } },
     ]);
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"]({}, output);
     expect(output.system.join(" ")).toContain("SAME turn");
     expect(output.system.join(" ")).toContain("before delegation so the project is searchable by client right away");
+  } finally {
+    server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+  }
+});
+
+test("Assistant tool guard also covers research children without forwarding file contents or affecting ordinary project agents", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const checked: unknown[] = [];
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/assistant") return Response.json({ workspace: { path: "/Assistant" } });
+    const input = await request.json(); checked.push(input);
+    return Response.json(input.args.projectId === "private" ? { error: "Project denied" } : { ok: true }, { status: input.args.projectId === "private" ? 403 : 200 });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
+  try {
+    const child = await LegalWorkAssistantTools({ directory: "/Assistant" });
+    await expect(child["tool.execute.before"]({ tool: "legalwork_assistant_delegate" }, { args: { projectId: "private", prompt: "PRIVATE_DOCUMENT_CONTENT" } })).rejects.toThrow("403");
+    expect(checked).toEqual([{ directory: "/Assistant", tool: "legalwork_assistant_delegate", args: { projectId: "private" } }]);
+    const project = await LegalWorkAssistantTools({ directory: "/Matter" });
+    await project["tool.execute.before"]({ tool: "bash" }, { args: {} });
+    expect(checked).toHaveLength(1);
   } finally {
     server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;

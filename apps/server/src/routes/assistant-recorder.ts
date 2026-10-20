@@ -18,9 +18,11 @@ export function registerAssistantRecorderRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  canAccessProject?: (id: string) => boolean;
   requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
 }) {
   const { config, routes, jsonResponse } = options;
+  const visible = (item: AudioRecordingMeta) => (item.projectIds ?? []).every(id => options.canAccessProject?.(id) !== false);
   const library = () => {
     if (!config.recorder?.library) throw new ApiError(503, "recorder_unavailable", "The global recorder is available in the desktop app.");
     return config.recorder.library;
@@ -35,7 +37,12 @@ export function registerAssistantRecorderRoutes(options: {
     const id = recordingId.parse(raw);
     const detail = await library().read(id);
     if (!detail || detail.meta.ephemeral) throw new ApiError(404, "recording_missing", "Recording not found.");
+    if (!visible(detail.meta)) throw new ApiError(403, "assistant_project_access_denied", "This recording belongs to a project outside the Assistant's allowed projects.");
     return detail;
+  };
+  const recordingAccess = async (id: string) => {
+    const detail = await library().read(id);
+    if (detail && !visible(detail.meta)) throw new ApiError(403, "assistant_project_access_denied", "This recording belongs to a project outside the Assistant's allowed projects.");
   };
   const approve = async (ctx: RequestContext, action: string, summary: string) => {
     const assistant = config.workspaces.find(isMainAssistant);
@@ -55,7 +62,7 @@ export function registerAssistantRecorderRoutes(options: {
         after = cursor;
       } catch { throw new ApiError(400, "recording_cursor", "Keep the same filters with a valid cursor."); }
     }
-    const candidates = (await library().list()).filter(item => !item.ephemeral && (!input.projectId || item.projectIds?.includes(input.projectId)) && (!after || item.createdAt < after.createdAt || (item.createdAt === after.createdAt && item.id.localeCompare(after.id) < 0)))
+    const candidates = (await library().list()).filter(item => !item.ephemeral && visible(item) && (!input.projectId || item.projectIds?.includes(input.projectId)) && (!after || item.createdAt < after.createdAt || (item.createdAt === after.createdAt && item.id.localeCompare(after.id) < 0)))
       .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id));
     const items = []; let scanned = 0;
     for (const item of candidates.slice(0, 100)) {
@@ -102,11 +109,17 @@ export function registerAssistantRecorderRoutes(options: {
     await library().trash(detail.meta.id);
     return { ok: true, id: detail.meta.id, trashed: true };
   });
-  route("GET", "recorder", () => library().control({ action: "status" }));
+  route("GET", "recorder", async () => {
+    const status = await library().control({ action: "status" });
+    const parsed = z.object({ recording: z.object({ id: z.string() }).nullable().optional() }).safeParse(status);
+    if (parsed.success && parsed.data.recording) await recordingAccess(parsed.data.recording.id);
+    return status;
+  });
   route("POST", "recorder", async ctx => {
     const input = z.object({ action: z.enum(["start", "stop"]), title: z.string().trim().min(1).max(120).optional(), projectId: z.string().optional(), recordingId: recordingId.optional(), sources: z.array(z.enum(["microphone", "system"])).min(1).max(2).optional() }).parse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (input.projectId) await options.resolveWorkspace(config, input.projectId);
     if (input.action === "stop" && !input.recordingId) throw new ApiError(400, "recording_required", "Use the active recording ID from recorder status.");
+    if (input.action === "stop" && input.recordingId) await recordingAccess(input.recordingId);
     await approve(ctx, `recorder.${input.action}`, `${input.action === "start" ? "Start audio capture" : "Stop recording " + input.recordingId}`);
     return library().control(input);
   });

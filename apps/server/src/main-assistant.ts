@@ -5,8 +5,8 @@ import { createDefaultProjectFolder, defaultProjectRoot, parseProjectFieldDefaul
 import { registerLocalProject } from "./routes/workspaces.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
-import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE } from "./assistant-schema.js";
-import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-schema.js";
+import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantResource } from "@legalwork/types/main-assistant";
 import { hasAssistantInteraction } from "./assistant-onboarding.js";
 
 export const MAIN_ASSISTANT_PRESET = "main-assistant";
@@ -43,6 +43,7 @@ export class MainAssistant {
     const db = await openSqlite(dbPath);
     db.exec("CREATE TABLE IF NOT EXISTS assistant_days (workspace_id TEXT NOT NULL, date TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(workspace_id, date))");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_profiles (workspace_id TEXT PRIMARY KEY, name TEXT, icon TEXT NOT NULL)");
+    db.exec("CREATE TABLE IF NOT EXISTS assistant_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings TEXT NOT NULL, routing TEXT NOT NULL)");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_onboarding (workspace_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, name TEXT NOT NULL, icon TEXT)");
     if (!db.all("PRAGMA table_info(assistant_onboarding)").some(column => column.name === "agent_named")) db.exec("ALTER TABLE assistant_onboarding ADD COLUMN agent_named INTEGER NOT NULL DEFAULT 0");
     db.exec("CREATE TABLE IF NOT EXISTS assistant_greeting_views (workspace_id TEXT PRIMARY KEY)");
@@ -59,6 +60,39 @@ export class MainAssistant {
     const workspace = this.config.workspaces.find(isMainAssistant);
     const row = workspace ? this.db.get("SELECT name, icon FROM assistant_profiles WHERE workspace_id = ?", [workspace.id]) : null;
     return row ? AssistantProfileSchema.parse(row) : DEFAULT_ASSISTANT_PROFILE;
+  }
+
+  settings(): AssistantSettings {
+    const row = this.db.get("SELECT settings FROM assistant_settings WHERE id = 1");
+    return AssistantSettingsSchema.parse(row ? JSON.parse(String(row.settings)) : DEFAULT_ASSISTANT_SETTINGS);
+  }
+
+  resourceMetadata(): AssistantResource[] {
+    const row = this.db.get("SELECT routing FROM assistant_settings WHERE id = 1");
+    return row ? AssistantResourceSchema.array().parse(JSON.parse(String(row.routing))) : [];
+  }
+
+  updateSettings(input: unknown, resources: AssistantResource[] = []) {
+    if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
+    const parsed = AssistantSettingsSchema.parse(input);
+    const settings = { ...parsed, resourceIds: [...new Set(parsed.resourceIds)],
+      projectAccess: { ...parsed.projectAccess, projectIds: [...new Set(parsed.projectAccess.projectIds)] } };
+    const available = new Map([...this.resourceMetadata(), ...resources].map(resource => [resource.id, resource]));
+    const routing = [...available.values()].filter(resource => settings.resourceIds.includes(resource.id));
+    this.db.run("INSERT INTO assistant_settings (id, settings, routing) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET settings = excluded.settings, routing = excluded.routing", [JSON.stringify(settings), JSON.stringify(routing)]);
+    this.changed();
+    return settings;
+  }
+
+  canAccessProject(id: string) {
+    if (this.config.workspaces.some(workspace => workspace.id === id && isMainAssistant(workspace))) return true;
+    const access = this.settings().projectAccess;
+    return access.mode === "all" || access.mode === "include" && access.projectIds.includes(id)
+      || access.mode === "exclude" && !access.projectIds.includes(id);
+  }
+
+  assertProjectAccess(id: string) {
+    if (!this.canAccessProject(id)) throw new ApiError(403, "assistant_project_access_denied", "This project is outside the Assistant's allowed projects. Change its access in Settings → Assistant.");
   }
 
   projectDefaults() {

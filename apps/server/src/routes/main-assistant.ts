@@ -9,8 +9,10 @@ import { isMainAssistant, type MainAssistant } from "../main-assistant.js";
 import { createDefaultProjectFolder, defaultProjectRoot, readProjectDetails } from "../project-store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { registerLocalProject } from "./workspaces.js";
-import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { AssistantAvatarIconSchema, AssistantProfileSchema } from "../assistant-schema.js";
+import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
+import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
+import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
+import { assertAssistantToolAccess } from "../assistant-tool-access.js";
 import { projectMatch } from "../assistant-project-search.js";
 import { searchFingerprint } from "../assistant-session-search.js";
 import { assistantProjectOverview } from "../assistant-project-overview.js";
@@ -47,15 +49,73 @@ export function registerMainAssistantRoutes(options: {
   changed: () => void;
   requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
 }) {
+  const resolveWorkspace = options.resolveWorkspace;
+  options = { ...options, resolveWorkspace: (config, id) => { options.assistant.assertProjectAccess(id); return resolveWorkspace(config, id); } };
   const { config, assistant, routes, jsonResponse } = options;
-  registerAssistantSearchRoutes(options);
-  registerAssistantRecorderRoutes(options);
+  registerAssistantSearchRoutes({ ...options, canAccessProject: id => assistant.canAccessProject(id) });
+  registerAssistantRecorderRoutes({ ...options, canAccessProject: id => assistant.canAccessProject(id) });
   registerAssistantAttentionRoutes(options);
   registerAssistantChatRoutes(options);
   registerAssistantSessionRoutes(options);
   const accessible = (id: string) => options.resolveWorkspace(config, id);
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, preset: workspace.preset, workspaceType: workspace.workspaceType });
+  const settingsContext = createAssistantSettingsContext(config, assistant);
+  addRoute(routes, "POST", "/assistant/tool-access", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    const input = z.object({ directory: z.string().min(1), tool: z.string().min(1), args: z.record(z.string(), z.unknown()) }).safeParse(await options.readJsonBodyLimited(ctx.request, 1024 * 1024));
+    if (!input.success) throw new ApiError(400, "assistant_tool_access", "Provide the Assistant working directory, tool name and scope arguments.");
+    await assertAssistantToolAccess(config, assistant, input.data.directory, input.data.tool, input.data.args);
+    return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "GET", "/assistant/settings", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    return jsonResponse({ settings: assistant.settings() });
+  });
+  addRoute(routes, "PATCH", "/assistant/settings", "client", async ctx => {
+    write(ctx);
+    // Settings govern the agent; changing them is a human settings action, not an agent tool.
+    options.requireClientScope(ctx, "owner");
+    const parsed = AssistantSettingsSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 1024 * 1024));
+    if (!parsed.success) throw new ApiError(400, "assistant_settings", "Check the Assistant instructions, selected resources and project access mode.");
+    const catalog = parsed.data.resourceIds.length ? await assistantSettingsCatalog(config) : { resources: [] };
+    return jsonResponse({ settings: assistant.updateSettings(parsed.data, catalog.resources) });
+  });
+  addRoute(routes, "GET", "/assistant/settings/catalog", "client", async ctx => {
+    options.requireClientScope(ctx, "owner");
+    return jsonResponse(await assistantSettingsCatalog(config));
+  });
+  addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    return jsonResponse({ context: settingsContext() });
+  });
+  addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    return jsonResponse({ projectIds: config.workspaces.filter(project => assistant.canAccessProject(project.id)).map(project => project.id) });
+  });
+  addRoute(routes, "GET", "/assistant/access/:id", "client", async ctx => {
+    options.requireClientScope(ctx, "viewer");
+    await accessible(ctx.params.id);
+    return jsonResponse({ ok: true });
+  });
+  // Reuse project validation and audit logic, with an Assistant-specific access check first.
+  for (const [method, path, target] of [["GET", "contents", "contents"], ["GET", "content", "content"], ["GET", "details", "setup"], ["PATCH", "metadata", "metadata"]]) {
+    addRoute(routes, method, `/assistant/projects/:id/${path}`, "client", async ctx => {
+      await accessible(ctx.params.id);
+      const route = matchRoute(routes, method, `/workspace/${encodeURIComponent(ctx.params.id)}/project/${target}`);
+      if (!route) throw new ApiError(404, "not_found", "Project tool unavailable.");
+      return route.handler({ ...ctx, params: route.params });
+    });
+  }
+  for (const path of ["calendar/:itemId", "search/files"]) {
+    addRoute(routes, "GET", `/assistant/projects/:id/${path}`, "client", async ctx => {
+      await accessible(ctx.params.id);
+      const suffix = path.replace(":itemId", encodeURIComponent(ctx.params.itemId ?? ""));
+      const route = matchRoute(routes, "GET", `/workspace/${encodeURIComponent(ctx.params.id)}/${suffix}`);
+      if (!route) throw new ApiError(404, "not_found", "Project tool unavailable.");
+      return route.handler({ ...ctx, params: route.params });
+    });
+  }
   addRoute(routes, "GET", "/assistant", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
@@ -132,7 +192,7 @@ export function registerMainAssistantRoutes(options: {
     const projects = [];
     const unavailable: string[] = [];
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
-    const local = config.workspaces.filter(entry => entry.workspaceType !== "remote");
+    const local = config.workspaces.filter(entry => entry.workspaceType !== "remote" && assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
       const batch = await Promise.all(local.slice(offset, offset + 16).map(async entry => {
@@ -180,6 +240,8 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "POST", "/assistant/projects", "client", async ctx => {
     write(ctx);
+    const access = assistant.settings().projectAccess;
+    if (access.mode === "none" || access.mode === "include") throw new ApiError(403, "assistant_project_access_denied", "Allow access to new projects in Settings → Assistant before creating a project.");
     const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!parsed.success) throw new ApiError(400, "project_name", "A project name is required.");
     const folderPath = await createDefaultProjectFolder(parsed.data.name, defaultProjectRoot(config.projectsDirectory));

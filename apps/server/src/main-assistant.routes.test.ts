@@ -342,6 +342,58 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const restricted = await (await call(overviewUrl)).json();
       assert.equal(restricted.tasks.available, false); assert.equal(restricted.calendar.available, false);
       assert.equal(restricted.tasks.items, undefined); assert.equal(restricted.calendar.items, undefined);
+      // Human settings persist without creating/replacing conversations. Agent tools enforce them.
+      const hostCall = (path, method = "GET", body) => fetch(base + path, { method, headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      const settings = (await (await hostCall("/assistant/settings")).json()).settings;
+      assert.equal(settings.projectAccess.mode, "all");
+      assert.equal((await call("/assistant/settings", "PATCH", settings)).status, 403, "Agent bearer cannot change its own access");
+      assert.equal((await call("/assistant/settings/catalog")).status, 403);
+      assert.equal((await call("/assistant/settings", "PATCH", settings, viewer)).status, 403);
+      assert.equal((await hostCall("/assistant/settings", "PATCH", { ...settings, projectAccess: { mode: "invalid", projectIds: [] } })).status, 400);
+      const skillPath = join(folder, ".opencode", "skills", "selected-resource", "SKILL.md");
+      await mkdir(join(folder, ".opencode", "skills", "selected-resource"), { recursive: true });
+      await writeFile(skillPath, "---\\nname: selected-resource\\ndescription: Search the evidence with care.\\n---\\nPRIVATE_FULL_SKILL_BODY");
+      await mkdir(join(folder, ".opencode", "skills", "workflow-example"), { recursive: true });
+      await writeFile(join(folder, ".opencode", "skills", "workflow-example", "SKILL.md"), "---\\nname: workflow-example\\ndescription: Prepare a report.\\nkind: workflow\\n---\\nPRIVATE_FULL_WORKFLOW_BODY");
+      const catalog = await (await hostCall("/assistant/settings/catalog")).json();
+      const selectedSkill = catalog.resources.find(resource => resource.name === "selected-resource");
+      assert.ok(selectedSkill); assert.equal(selectedSkill.projectId, "matter");
+      assert.equal(catalog.resources.find(resource => resource.name === "workflow-example").kind, "workflow");
+      const sessionCount = sessions.size;
+      const custom = { ...settings, systemPromptAddition: "Answer clearly in German.", resourceIds: [selectedSkill.id], projectAccess: { mode: "include", projectIds: ["matter"] } };
+      assert.equal((await hostCall("/assistant/settings", "PATCH", custom)).status, 200);
+      assert.deepEqual((await (await hostCall("/assistant/settings")).json()).settings, custom);
+      const context = (await (await call("/assistant/settings/context")).json()).context;
+      assert.ok(context.includes(custom.systemPromptAddition)); assert.ok(context.includes("selected-resource"));
+      assert.ok(context.includes("Search the evidence with care.")); assert.ok(!context.includes("PRIVATE_FULL_SKILL_BODY"));
+      assert.ok(!context.includes("workflow-example"));
+      assert.equal(sessions.size, sessionCount, "Saving preferences must keep chat history intact");
+      assert.equal((await call("/assistant/projects/matter/details")).status, 200);
+      assert.equal((await call("/assistant/projects/matter/contents?kind=files")).status, 200);
+      assert.equal((await call("/assistant/projects/" + project.project.id + "/details")).status, 403);
+      const allowedProjects = await (await call("/assistant/projects")).json();
+      assert.deepEqual(new Set(allowedProjects.projects.map(item => item.id)), new Set([assistant.workspace.id, "matter"]));
+      assert.deepEqual(allowedProjects.unavailable, []);
+      for (const path of [overviewUrl, "/assistant/projects/" + project.project.id + "/calendar/missing", "/assistant/projects/" + project.project.id + "/search/files?q=secret", "/assistant/tasks?projectId=" + project.project.id, "/assistant/calendar?from=2026-10-01&to=2026-11-01&projectId=" + project.project.id,
+        "/assistant/sessions/search?query=contract&scope=project&projectId=" + project.project.id, "/assistant/projects/" + project.project.id + "/content?kind=files&id=test.txt"])
+        assert.equal((await call(path)).status, 403, path);
+      assert.equal((await call("/assistant/delegate", "POST", input)).status, 403);
+      assert.equal((await call("/assistant/share-file", "POST", { workspaceId: assistant.workspace.id, sessionId: assistant.day.sessionId, projectId: project.project.id, path: "test.txt", title: "Forbidden file" })).status, 403);
+      assert.equal((await call("/assistant/session-control", "POST", { ...control, action: "list_queue" })).status, 403);
+      assert.equal((await call("/assistant/projects", "POST", { name: "Must not be created" })).status, 403);
+      assert.equal(sessions.size, sessionCount);
+      assert.equal((await call("/assistant/access/" + project.project.id)).status, 403);
+      // Ordinary desktop project access is unaffected by the Assistant preference.
+      assert.equal((await call("/workspace/" + project.project.id + "/project/setup")).status, 200);
+      for (const [mode, ids, allowMatter] of [["none", [], false], ["include", [], false], ["exclude", ["matter"], false], ["exclude", [], true], ["all", [], true]]) {
+        const changed = { ...custom, projectAccess: { mode, projectIds: ids } };
+        assert.equal((await hostCall("/assistant/settings", "PATCH", changed)).status, 200);
+        assert.equal((await call("/assistant/projects/matter/details")).status, allowMatter ? 200 : 403);
+        const nowContext = (await (await call("/assistant/settings/context")).json()).context;
+        assert.equal(nowContext.includes("Search the evidence with care."), allowMatter);
+        assert.equal((await call("/assistant/access/" + assistant.workspace.id)).status, 200);
+      }
+      assert.equal((await hostCall("/assistant/settings", "PATCH", settings)).status, 200);
       config.readOnly = true; assert.equal((await call("/assistant/recordings/rec-2", "DELETE")).status, 403); assert.equal((await call("/assistant/current", "POST", {})).status, 403);
       console.log("assistant HTTP checks passed");
     } finally { await server.stop(); engine.stop(true); }

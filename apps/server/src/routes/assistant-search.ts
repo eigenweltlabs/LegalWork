@@ -24,6 +24,7 @@ export function registerAssistantSearchRoutes(options: {
   routes: Route[]; config: ServerConfig; jsonResponse: (value: unknown, status?: number) => Response;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  canAccessProject?: (id: string) => boolean;
 }) {
   const { config, routes, jsonResponse } = options;
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
@@ -33,7 +34,7 @@ export function registerAssistantSearchRoutes(options: {
       if (workspace.workspaceType === "remote") throw new ApiError(400, "local_project", "Search an accessible local or synced project.");
       return { workspaces: [workspace], unavailable: [] };
     }
-    const candidates = config.workspaces.filter(workspace => workspace.workspaceType !== "remote");
+    const candidates = config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && options.canAccessProject?.(workspace.id) !== false);
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });
@@ -73,7 +74,7 @@ export function registerAssistantSearchRoutes(options: {
     read(ctx);
     const input = query(z.object({ ...page, from: z.iso.date(), to: z.iso.date(), kind: z.enum(["deadline", "event", "task"]).optional() }), ctx);
     if (input.to <= input.from || input.to > addDays(input.from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
-    const accessible = input.projectId ? await projects(input.projectId) : { workspaces: config.workspaces.filter(workspace => workspace.workspaceType !== "remote"), unavailable: [] };
+    const accessible = await projects(input.projectId);
     const fingerprint = searchFingerprint([input.query, input.from, input.to, input.kind, input.projectId]);
     let after = "";
     if (input.cursor) {

@@ -6,6 +6,29 @@ export const AssistantIconSchema = z.enum([...AssistantAvatarIconSchema.options,
 export const AssistantProfileSchema = z.object({ name: z.string().trim().min(1).max(60).nullable(), icon: AssistantIconSchema });
 export type AssistantIcon = z.infer<typeof AssistantIconSchema>;
 export type AssistantProfile = z.infer<typeof AssistantProfileSchema>;
+export const AssistantProjectAccessSchema = z.object({
+  mode: z.enum(["all", "none", "exclude", "include"]),
+  projectIds: z.array(z.string().min(1)),
+});
+export const AssistantSettingsSchema = z.object({
+  systemPromptAddition: z.string(),
+  resourceIds: z.array(z.string().min(1)),
+  projectAccess: AssistantProjectAccessSchema,
+}).strict();
+export type AssistantSettings = z.infer<typeof AssistantSettingsSchema>;
+export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
+  systemPromptAddition: "", resourceIds: [], projectAccess: { mode: "all", projectIds: [] },
+};
+export const AssistantResourceSchema = z.object({
+  id: z.string(), kind: z.enum(["plugin", "workflow", "skill"]), name: z.string(), description: z.string(),
+  reference: z.string(), projectId: z.string().nullable(), projectName: z.string().nullable(),
+});
+export type AssistantResource = z.infer<typeof AssistantResourceSchema>;
+export type AssistantSettingsCatalog = {
+  resources: AssistantResource[];
+  projects: Array<{ id: string; name: string }>;
+  unavailable: string[];
+};
 export const AssistantSharedFilesSchema = z.array(z.object({
   name: z.string().min(1), path: z.string().min(1), bytes: z.number().nonnegative().optional(),
 })).max(20);

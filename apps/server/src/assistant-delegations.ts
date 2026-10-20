@@ -29,6 +29,7 @@ function notificationMessageId() {
   return `msg_${time}${randomBytes(7).toString("hex")}`;
 }
 export type DelegationExecutor = {
+  allowed?: (delegation: TrackedDelegation) => boolean;
   result: (delegation: TrackedDelegation) => Promise<DelegationResult | null>;
   destination: (delegation: TrackedDelegation) => Promise<Destination>;
   idle: (destination: Destination) => Promise<boolean>;
@@ -76,7 +77,7 @@ export class AssistantDelegations {
   list(sourceWorkspaceId: string) {
     return this.db.all("SELECT data FROM assistant_delegations ORDER BY rowid DESC")
       .map(row => delegationSchema.parse(JSON.parse(String(row.data))))
-      .filter(item => item.sourceWorkspaceId === sourceWorkspaceId);
+      .filter(item => item.sourceWorkspaceId === sourceWorkspaceId && this.executor.allowed?.(item) !== false);
   }
   hasPendingWork(sourceWorkspaceId: string) {
     // Internal children return decisions only; their parent owns completion.
@@ -125,6 +126,7 @@ export class AssistantDelegations {
       if (this.stopped) return;
       try {
         const delegation = delegationSchema.parse(JSON.parse(String(row.data)));
+        if (this.executor.allowed?.(delegation) === false) continue;
         let notice = row.notice ? noticeSchema.parse(JSON.parse(String(row.notice))) : null;
         if (!notice) {
           const result = await this.executor.result(delegation);
@@ -160,7 +162,7 @@ export class AssistantDelegations {
           notice = { ...notice, ...destination, messageId: notificationMessageId() };
           this.db.run("UPDATE assistant_delegations SET notice = ? WHERE session_id = ?", [JSON.stringify(notice), delegation.sessionId]);
         }
-        if (this.stopped || !await this.executor.idle(notice)) continue;
+        if (this.stopped || !await this.executor.idle(notice) || this.executor.allowed?.(delegation) === false) continue;
         await this.executor.send(delegation, notice);
       } catch (error) {
         // Retain the pending record for reconnect or restart; never equate a failed read with completion.

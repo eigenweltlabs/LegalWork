@@ -98,3 +98,54 @@ unrelated failures recorded above.
 Existing daily history is retained. This prevents future briefing-history
 buildup; it does not retroactively compact today's old transcript or reduce the
 separate baseline of system instructions and advertised tool schemas.
+
+## Assistant behavior and project access
+
+Settings → Assistant now contains additional instructions, searchable selections of
+installed Plugins / Workflows / Skills, and project access: all, none, all except
+selected, or only selected. The Assistant's own workspace stays accessible. New
+projects are included in `all` and `exclude`; `include` and `none` refuse Assistant
+project creation until the user changes access. Appearance and behavior save
+independently. Preferences are local to this LegalWork server, like the current
+local Assistant; they are not a new Clerk account isolation mechanism.
+
+Only selected resource names, descriptions and exact references enter the
+Assistant's conversation context. Selection does not install or enable packages,
+connectors, or permissions. Workers load instructions in an isolated subagent or
+allowed project session. Routing metadata is captured when settings are saved,
+so replies do not rescan project libraries. Unavailable selections remain saved
+and removable. Re-save selections after updating an installed resource to refresh
+its captured description/reference metadata.
+
+Additional instructions and routing preferences use the existing hidden app-state
+reminder on the next turn, instead of changing the system prefix or replacing
+history. System-transform text stays fixed for prompt caching. Results remain
+uncapped.
+
+The server enforces project policy on Assistant searches, reads, metadata edits,
+calendar/file lookups, delegation, follow-ups, attention and shared files.
+Linked recordings and scheduled project reads follow the same scope. Native
+research children in the Assistant directory also run the tool guard. Restricted
+modes refuse unscoped shell execution and generic cross-project task tools;
+scoped Assistant tools and workers in allowed projects remain available.
+Revocation suspends background result reads/delivery from denied projects, including
+already queued notices. Only an owner/host may change behavior settings; the
+managed agent's collaborator token cannot grant itself access.
+
+This is an Assistant project policy, not an OS sandbox for installed plugins or
+connectors. Existing desktop permissions still govern those integrations. A change
+does not abort running project sessions or remove content already read into a chat.
+
+Validation for these settings:
+
+- `pnpm --dir apps/server exec bun test src/main-assistant.test.ts src/main-assistant.routes.test.ts src/assistant-settings.test.ts src/assistant-tool-access.test.ts src/assistant-delegations.test.ts src/assistant-scheduled-work.test.ts src/assistant-scheduled-work.routes.test.ts src/opencode-plugins/legalwork-assistant-tools.test.ts src/opencode-plugins/legalwork-scheduled-task-tools.test.ts`: 31 tests pass.
+- `pnpm --dir apps/app exec bun test tests/assistant-behavior-settings.test.tsx tests/main-assistant-client.test.ts`: 5 tests pass.
+- Library regression checks (`src/skills.test.ts`, `src/global-skills.test.ts`, `src/skill-composition.test.ts`): 27 tests pass. The combined settings/library run has 58 passes.
+- The pinned-engine fixture test passes with 155 assertions after adding preference/access endpoints to its fake backend.
+- Server build, app typecheck, and i18n completeness pass (6,994 EN/DE keys).
+
+Manual review: open Settings → Assistant, save instructions and at least one
+resource, then verify the next message uses them. Exercise each project access
+mode, including a denied project read/delegation and a permitted one. Reopen
+settings after restarting LegalWork to confirm persistence. Check keyboard labels,
+search, scrolling and save feedback in Electron. Rendered UI review remains pending.

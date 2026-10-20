@@ -8,6 +8,7 @@ import { t } from "@/i18n";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 import { AssistantDesktopNotifications } from "../../session/sidebar/assistant-identity";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
+import { AssistantBehaviorSettings } from "./assistant-behavior-settings";
 import { SettingsStack } from "../settings-section";
 
 export function AssistantSettingsView({ client, onModels }: {
@@ -26,6 +27,7 @@ export function AssistantSettingsView({ client, onModels }: {
       cache.setQueryData(["main-assistant-profile", client.baseUrl], { ...query.data, profile: saved.profile });
       await Promise.all(["main-assistant", "assistant-onboarding"].map(name => cache.invalidateQueries({ queryKey: [name, client.baseUrl] })));
     }} />
+    <AssistantBehaviorSettings client={client} />
     <div className="border-t border-border pt-5"><AssistantDesktopNotifications enabled={notifications} onChange={setNotifications} /></div>
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5"><div className="space-y-1"><h3 className="text-sm font-medium">{t("assistant.model")}</h3><p className="text-xs text-muted-foreground">{t("assistant.settings_models_hint")}</p></div><Button variant="outline" onClick={onModels}>{t("settings.tab_ai")}<ArrowRight className="size-4" /></Button></div>
   </SettingsStack>;

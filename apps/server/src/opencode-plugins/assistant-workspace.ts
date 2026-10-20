@@ -6,7 +6,23 @@ export async function assistantWorkspace(context: OpenCodeContext, projectId?: s
   const current = await resolveWorkspaceId(context, { requireDirectory: true });
   if (!projectId || projectId === current) return current;
   await requireMainAssistant(current);
+  await assertAssistantProjectAccess(projectId);
   return projectId;
+}
+
+export async function assertAssistantProjectAccess(projectId: string) {
+  const response = await fetch(`${serverUrl()}/assistant/access/${encodeURIComponent(projectId)}`, {
+    headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error("This project is outside the Assistant's allowed projects or is unavailable. Change access in Settings → Assistant.");
+}
+
+export async function assistantProjectIds() {
+  const response = await fetch(`${serverUrl()}/assistant/access`, {
+    headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error("Could not verify Assistant project access.");
+  return new Set(z.object({ projectIds: z.array(z.string()) }).parse(await response.json()).projectIds);
 }
 
 export async function requireMainAssistant(current: string) {

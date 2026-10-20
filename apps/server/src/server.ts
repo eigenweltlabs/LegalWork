@@ -970,6 +970,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     return { client, session };
   };
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
+    allowed: delegation => !config.workspaces.some(workspace => workspace.id === delegation.sourceWorkspaceId && isMainAssistant(workspace)) || mainAssistant.canAccessProject(delegation.workspaceId),
     result: async delegation => {
       const { client, session } = await delegationSession(delegation.workspaceId, delegation.sessionId);
       if (session.time.archived) return null;
