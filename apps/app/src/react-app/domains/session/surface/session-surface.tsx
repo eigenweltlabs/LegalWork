@@ -205,6 +205,7 @@ export type SessionSurfaceProps = {
   pendingInteractionSessionIds?: string[];
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
+  retryPermissionInput?: () => void;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
@@ -391,7 +392,7 @@ function NoModelNotice(props: {
 
 /**
  * Banner shown above the composer when the selected model still points at the
- * Eigenwelt provider but the firm's free trial has lapsed — the paid gateway
+ * Eigenwelt provider but the firm's trial has lapsed — the paid gateway
  * is blocked, so sends would fail with a missing model. Offers the subscribe
  * path; picking another model also clears it.
  */
@@ -1180,6 +1181,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     setAwaitingAssistantBaseline(null);
     useSessionActivityStore.getState().clearError(props.workspaceId, props.sessionId);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, IDLE_STATUS);
+    // The user stopped the run, so anything it was blocked on is moot. Said
+    // out loud because `setRunStatus` keeps pending requests: an idle status
+    // by itself means the engine is waiting on the user, not that the request
+    // went away.
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "permission", []);
+    useSessionActivityStore.getState().replaceWaitingRequests(props.workspaceId, props.sessionId, "question", []);
     queryClient.setQueryData(statusQueryKey, IDLE_STATUS);
     // Take the run-start marker here so this stop is the run's single
     // terminal event. The engine may or may not follow an abort with
@@ -2181,6 +2188,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     permission={props.activePermission}
                     onOpenSession={props.onOpenInteractionSession}
                     busy={props.permissionReplyBusy}
+                    onRetryInput={props.retryPermissionInput}
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
                   />
