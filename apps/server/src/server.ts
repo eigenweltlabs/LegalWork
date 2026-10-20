@@ -5003,9 +5003,7 @@ function createRoutes(
     }
     else {
       if (!status.migration.canReconnect) throw new ApiError(503, "mcp_secure_storage_unreadable", "Restore access to the app encryption key before signing in again.");
-      // Logout fences the old generation. The original sign-in or encrypted
-      // handover journal remains available; no recovery copy is removed here.
-      await manager.logout(workspace.id, name);
+      await manager.prepareMigrationReconnect(workspace.id, name);
     }
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
       action: `mcp.migration.${action}`, target: name, summary: `Connector migration recovery: ${action}`, timestamp: Date.now() });

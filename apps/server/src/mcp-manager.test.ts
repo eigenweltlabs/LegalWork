@@ -682,6 +682,12 @@ describe("legacy MCP credential handover", () => {
     cleanups.push(() => server.stop());
     const endpoint = `http://127.0.0.1:${server.port}/workspace/ws_a/mcp/${name}/migration`;
     expect((await fetch(endpoint, { method: "POST", body: JSON.stringify({ action: "reconnect" }) })).status).toBe(401);
+    const failure = spyOn(f.manager.store, "put").mockRejectedValueOnce(new Error("credential storage is unavailable"));
+    try {
+      expect((await fetch(endpoint, { method: "POST", headers: { "x-legalwork-host-token": f.config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ action: "reconnect" }) })).status).toBe(503);
+      expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "failed", migration: { state: "blocked" } });
+      expect(await vault.getEntry(journalKey, z.unknown())).toEqual(journal);
+    } finally { failure.mockRestore(); }
     const reconnect = await fetch(endpoint, { method: "POST", headers: { "x-legalwork-host-token": f.config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ action: "reconnect" }) });
     expect(reconnect.status).toBe(200);
     expect(await vault.getEntry(journalKey, z.unknown())).toEqual(journal);
@@ -690,6 +696,8 @@ describe("legacy MCP credential handover", () => {
     const newTokens = f.manager.store.all()[0]?.tokens;
     expect(newTokens?.access_token).not.toBe(f.entry.tokens.accessToken);
     await migrateLegacyMcpOAuth(f.config, f.options);
+    expect(f.manager.store.all()[0]?.tokens).toEqual(newTokens);
+    await expect(f.manager.prepareMigrationReconnect("ws_a", name)).rejects.toMatchObject({ code: "mcp_migration_not_pending" });
     expect(f.manager.store.all()[0]?.tokens).toEqual(newTokens);
     expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
     expect((await f.stats()).authorizationGrants).toBe(2);

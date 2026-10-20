@@ -205,6 +205,27 @@ export class McpConnectorManager {
     for (const [id, pending] of this.legacyPending) this.legacyPending.set(id, { ...pending, blocked: false });
   }
   clearLegacyMigrationPending(id?: string) { if (id) this.legacyPending.delete(id); else this.legacyPending.clear(); }
+  async prepareMigrationReconnect(workspaceId: string, name: string) {
+    const found = await this.find(workspaceId, name);
+    if (!found) throw missing();
+    await this.exclusive(found.record.key, async () => {
+      const current = this.current(found.record.key, found.record.revision);
+      const pending = this.legacyPending.get(current.id);
+      if (!current.legacyHandoffPending && !(pending?.revision === current.revision && !current.tokens && !current.reconnectRequired)) {
+        throw new ApiError(409, "mcp_migration_not_pending", "This connector no longer needs a sign-in transfer.");
+      }
+      const next = { ...current, revision: randomUUID(), tokens: undefined, expiresAt: undefined,
+        reconnectRequired: true, legacyHandoffPending: undefined };
+      // Migration already gates provider access. Save the user's replacement
+      // choice before fencing the old generation, so a failed write stays retryable.
+      // Its encrypted handover journal is intentionally retained.
+      try { await this.store.put(next); }
+      catch { throw new ApiError(503, "mcp_migration_reconnect_failed", "LegalWork could not save your sign-in choice. Your saved sign-in is preserved. Restore access to the credential vault and try again."); }
+      this.retired.add(current.revision);
+      this.legacyPending.delete(current.id);
+      this.runtime(next);
+    });
+  }
   private assertMigrationReady(record: ManagedMcpRecord) {
     const pending = this.legacyPending.get(record.id);
     if (record.legacyHandoffPending || (pending?.revision === record.revision && !record.tokens && !record.reconnectRequired)) throw new ApiError(503, pending?.blocked ? "mcp_migration_blocked" : "mcp_migration_pending", pending?.message ?? "Your saved connector sign-in is being transferred. LegalWork will retry automatically.");

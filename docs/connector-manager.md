@@ -139,6 +139,7 @@ messages are not exposed. A cross-profile claim blocks immediately.
 requesting OAuth. **Sign in again** explicitly fences the old connection
 generation and opens normal OAuth; it preserves the source or encrypted journal.
 That action is unavailable while the encrypted vault cannot be opened. These
+choices leave recovery available if saving the choice itself fails. These
 controls apply to personal, plugin and Firm Hub connectors. Restart resumes the
 durable handover with a new bounded batch; diagnostic retry counters are local
 to the running server. Enabling/disabling a connector preserves a blocked state.
