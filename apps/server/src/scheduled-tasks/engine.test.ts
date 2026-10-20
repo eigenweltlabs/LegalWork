@@ -59,8 +59,9 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
     if (tools.length) modelRequests.push({ tools, toolDefinitions: JSON.stringify(input.tools), toolResults, system, users });
     const morning = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("every morning"));
     const delegation = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("Delegate this work"));
+    const background = users.some(text => text.includes("Run research through a subagent"));
     const callTool = tools.length > 0 && toolResults.length < (morning ? 2 : 1);
-    const call = delegation ? { name: "legalwork_assistant_delegate", arguments: JSON.stringify({ projectId: "other", title: "Review agreement", conversationLanguage: "en", prompt: "Review the liability clauses", scope: "Draft for review" }) } : morning
+    const call = background ? { name: "task", arguments: JSON.stringify({ subagent_type: "general", description: "Research fixture", prompt: "NATIVE_WORKER_REQUEST: Read the fixture source, then return a concise verified summary." }) } : delegation ? { name: "legalwork_assistant_delegate", arguments: JSON.stringify({ projectId: "other", title: "Review agreement", conversationLanguage: "en", prompt: "Review the liability clauses", scope: "Draft for review" }) } : morning
       ? toolResults.length === 0
         ? { name: "legalwork_schedule_clock", arguments: "{}" }
         : { name: "legalwork_schedule_create", arguments: JSON.stringify({ title: "Morning deadlines", prompt: "Review this project's deadlines.", schedule: { kind: "rrule", startAt: "2026-10-25T06:00:00", rrule: "FREQ=DAILY" } }) }
@@ -190,6 +191,26 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
         expect(sourceReads).toEqual(["/workspace/other/project/content"]);
       }
     }
+    // A real child session starts with empty history; the parent link does not clone context.
+    const parent = await client.session.create({ title: "Daily coordinator" }, { throwOnError: true });
+    await client.session.prompt({ sessionID: parent.data.id, noReply: true, parts: [{ type: "text", text: "PRIVATE_PARENT_CONTEXT_MARKER" }] }, { throwOnError: true });
+    const worker = await client.session.create({ parentID: parent.data.id, title: "Isolated scheduled research" }, { throwOnError: true });
+    expect(worker.data.parentID).toBe(parent.data.id);
+    expect((await client.session.messages({ sessionID: worker.data.id }, { throwOnError: true })).data).toEqual([]);
+    const firstWorkerRequest = modelRequests.length;
+    await client.session.prompt({ sessionID: worker.data.id, agent: ALL_PROJECTS_TASK_AGENT, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Read the fixture source in this isolated worker." }] }, { throwOnError: true, signal: AbortSignal.timeout(25000) });
+    expect(modelRequests.length).toBeGreaterThan(firstWorkerRequest);
+    expect(modelRequests.slice(firstWorkerRequest).every(request => !request.users.join(" ").includes("PRIVATE_PARENT_CONTEXT_MARKER"))).toBe(true);
+    expect((await client.session.messages({ sessionID: parent.data.id }, { throwOnError: true })).data).toHaveLength(1);
+    const nativeStart = modelRequests.length;
+    await client.session.prompt({ sessionID: parent.data.id, agent: ALL_PROJECTS_TASK_AGENT, model: { providerID: "fixture", modelID: "fixture" }, parts: [{ type: "text", text: "Run research through a subagent." }] }, { throwOnError: true, signal: AbortSignal.timeout(25000) });
+    const nativeRequests = modelRequests.slice(nativeStart);
+    const childRequests = nativeRequests.filter(request => request.users.some(text => text.includes("NATIVE_WORKER_REQUEST")));
+    expect(childRequests.length).toBeGreaterThan(0);
+    expect(childRequests.every(request => !request.users.join(" ").includes("PRIVATE_PARENT_CONTEXT_MARKER"))).toBe(true);
+    const coordinatorRequests = nativeRequests.filter(request => request.users.some(text => text.includes("Run research through a subagent")));
+    expect(coordinatorRequests.length).toBeGreaterThan(1);
+    expect(coordinatorRequests.every(request => !request.toolResults.join(" ").includes("Source message 22"))).toBe(true);
     expect(uiActions).toBe(0);
     expect(documentReads).toBeGreaterThan(0);
   } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }

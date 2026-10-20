@@ -3,8 +3,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
-import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
-import { ScheduledTaskRunner } from "./scheduled-tasks/runner.js";
 import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig } from "./types.js";
 
@@ -149,28 +147,6 @@ test("the device calendar date handles midnight and daylight-saving days in diff
     expect(await child.exited).toBe(0);
     expect(JSON.parse(output)).toEqual(expected);
   }
-});
-
-test("assistant schedules resolve the daily chat on each run and never bind yesterday's context", async () => {
-  const f = await fixture();
-  const first = await f.assistant.current();
-  const store = await ScheduledTaskStore.open(join(f.root, "schedules.sqlite"));
-  let clock = Date.parse("2026-10-07T10:00:00Z");
-  const task = store.create(first.workspace.id, { title: "Review", prompt: "Check delegated work", sessionId: null, reuseChat: false, projectAccess: "all", pinSession: false,
-    schedule: { kind: "interval", startAt: "2026-10-07T11:00:00Z", timeZone: "UTC", minutes: 1440 } }, clock);
-  const deliveries: string[] = [];
-  const runner = new ScheduledTaskRunner(store, {
-    available: async () => true,
-    resolveSession: async () => (await f.assistant.current()).day.sessionId,
-    createSession: async () => { throw new Error("Must not create a per-task chat"); },
-    send: async (_task, id) => { deliveries.push(id); },
-  }, () => clock);
-  clock += 3600000; await runner.tick();
-  f.setTime(new Date(2026, 9, 8, 11)); clock += 86400000; await runner.tick();
-  expect(deliveries).toEqual([first.day.sessionId, (await f.assistant.current()).day.sessionId]);
-  expect(new Set(deliveries).size).toBe(2);
-  expect(store.get(first.workspace.id, task.id).sessionId).toBeNull();
-  expect(store.runs(task.id).every(run => run.status === "sent" && !run.pinSession)).toBe(true);
 });
 
 test("assistant-created project schemas preserve custom defaults across restart and clear their values", async () => {

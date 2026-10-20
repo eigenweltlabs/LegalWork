@@ -7,6 +7,36 @@ import { openSqlite } from "./runtime-db.js";
 
 const delegation: TrackedDelegation = { workspaceId: "matter", sessionId: "review", sourceWorkspaceId: "assistant", sourceSessionId: "yesterday", title: "Review terms", scope: "Read and report, no edits", model: { providerID: "provider", modelID: "model" } };
 
+test("scheduled workers return a bounded result once, after the main conversation becomes idle", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-scheduled-return-"));
+  const path = join(root, "runtime.sqlite");
+  const sent: Parameters<DelegationExecutor["send"]>[1][] = [];
+  const persisted = new Set<string>();
+  let idle = false;
+  const executor: DelegationExecutor = {
+    result: async () => ({ messageId: "briefing", outcome: "reply", text: "Saved briefings/2026-10-20.md.\n" + "Detailed research. ".repeat(20000) + "PRIVATE_HISTORY_END" }),
+    destination: async () => ({ workspaceId: "assistant", sessionId: "today" }),
+    idle: async () => idle, hasMessage: async (_, id) => persisted.has(id),
+    send: async (_, notice) => { sent.push(notice); persisted.add(notice.messageId); },
+  };
+  try {
+    const tracker = await AssistantDelegations.open(path, executor);
+    tracker.track({ ...delegation, scheduledTaskId: "00000000-0000-4000-8000-000000000001" });
+    await tracker.tick(); expect(sent).toHaveLength(0);
+    idle = true;
+    const reopened = await AssistantDelegations.open(path, executor);
+    await reopened.tick(); await reopened.tick();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text.length).toBeLessThan(7000);
+    expect(sent[0].text).toContain("briefings/2026-10-20.md");
+    expect(sent[0].text).toContain("Result truncated");
+    expect(sent[0].text).toContain("Do not repeat its research");
+    expect(sent[0].text).not.toContain("PRIVATE_HISTORY_END");
+    await (await AssistantDelegations.open(path, executor)).tick();
+    expect(sent).toHaveLength(1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("delegations persist, wait for a real reply and an idle Assistant, and return to the current day once", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-return-"));
   const path = join(root, "runtime.sqlite");

@@ -15,6 +15,9 @@ preserving the existing branch history. Local improvements were selected from
 - Assistant identity and approval controls outside the movable document pane.
 - Project-field defaults passed when creating the Assistant workspace.
 - Bundled runtime schemas and owner-only runtime configuration files.
+- Scheduled Assistant work in fresh child sessions, with only a bounded final
+  result returned to the daily conversation. Multi-step interactive research is
+  routed to the native general subagent by the coordinator instructions.
 - Current `dev` connector, browser, document, billing and workspace behavior.
   Browser network policy is checked before Assistant UI navigation permission;
   both restrictions remain enforced.
@@ -70,3 +73,28 @@ Final results: app 1,653 passed / 3 initialization errors; server 2,437 passed /
 i18n completeness, 8 desktop notification/recorder tests, and the focused Assistant
 and browser-policy checks pass. The built server CLI also starts under Node.
 These are recorded separately; this branch split is not a release sign-off.
+
+## Keeping the coordinator context small
+
+Assistant schedules, including the morning briefing, run in a fresh worker each
+time. The worker is linked to the daily chat through its parent ID, without
+copying that chat's messages. Work can start while the main chat is busy; an
+unfinished worker prevents overlapping repeats of the same schedule. Scheduled
+permissions, wiki authority and an explicitly selected model remain enforced.
+
+The existing durable delegation queue returns only the worker's final response,
+capped at 2,400 characters, plus routing references. It waits until the daily
+chat is idle, survives restarts and avoids replaying results. Detailed records
+and saved reports remain accessible from the worker and project files.
+
+Validation includes 52 focused scheduling/Assistant tests, 5 existing HTTP/result
+and queue tests, a live scheduler test with a busy main chat, and a fixture-model
+test against the actual pinned engine. The latter verifies empty child history
+and native general-subagent execution without forwarding parent context or raw
+child tool results into the coordinator. No live model/account is used by these
+tests. The subsequent full server run has 2,455 passes, 50 skips and the same two
+unrelated failures recorded above.
+
+Existing daily history is retained. This prevents future briefing-history
+buildup; it does not retroactively compact today's old transcript or reduce the
+separate baseline of system instructions and advertised tool schemas.

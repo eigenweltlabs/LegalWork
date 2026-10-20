@@ -14,6 +14,7 @@ const delegationSchema = z.object({
   title: z.string(), scope: z.string(), model: z.object({ providerID: z.string(), modelID: z.string() }).nullable(),
   conversationLanguage: ConversationLanguageSchema.optional(), // Existing tracked chats predate language handoff.
   inputOnly: z.boolean().optional(), // Internal child agents report decisions, not duplicate completion summaries.
+  scheduledTaskId: z.string().uuid().optional(),
 });
 export type TrackedDelegation = z.infer<typeof delegationSchema>;
 const destinationSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
@@ -126,8 +127,10 @@ export class AssistantDelegations {
         const delegation = delegationSchema.parse(JSON.parse(String(row.data)));
         let notice = row.notice ? noticeSchema.parse(JSON.parse(String(row.notice))) : null;
         if (!notice) {
-          const result = await this.executor.result(delegation);
-          if (!result) { this.pendingWork.set(delegation.sessionId, true); continue; }
+          const received = await this.executor.result(delegation);
+          if (!received) { this.pendingWork.set(delegation.sessionId, true); continue; }
+          const result = delegation.scheduledTaskId && received.text.length > 2400
+            ? { ...received, text: received.text.slice(0, 2300) + "\n[Result truncated; full details remain in the worker session.]" } : received;
           const id = resultId(result);
           if (this.db.get("SELECT 1 FROM assistant_delegation_receipts WHERE session_id = ? AND result_id = ?", [delegation.sessionId, id])) {
             this.pendingWork.set(delegation.sessionId, false);
@@ -138,7 +141,7 @@ export class AssistantDelegations {
           if (!await this.executor.idle(destination)) continue;
           const messageId = notificationMessageId();
           const chatUrl = `/workspace/${encodeURIComponent(delegation.workspaceId)}/session/${encodeURIComponent(delegation.sessionId)}`;
-          const text = `A delegated project chat has returned. Read the result and give the user a concise update here. Keep follow-up in this Assistant conversation; do not offer a link to open the project chat. The project identifiers below are routing context for follow-ups, not a navigation instruction. A reply can be a question or partial result, not proof of successful completion. Distinguish completed work, blockers, requests for input and interruptions. Read pending questions or approvals with legalwork_assistant_attention. Choose whether a card is necessary for a concrete user decision; only then call legalwork_assistant_attention_present with a concise title and an explanation of exactly what the user must decide. This is not an activity feed: never present file reads, review-result reads, routine progress or every available widget. Do not present the same request again or resurface a hidden card. The user can respond there without leaving this chat. Do not answer or approve on the user's behalf. You may ask a question naturally here and relay the user's explicit answer using legalwork_assistant_attention_answer. Do not restart cancelled work or expand the authorized scope. ${returnedLanguageInstructions(delegation.conversationLanguage)} ${ASSISTANT_DELIVERABLE_INSTRUCTIONS} ${ASSISTANT_FOLLOW_UP_INSTRUCTIONS}${referenceSeparator}${JSON.stringify({ ...delegation, ...result, chatUrl })}`;
+          const text = `${delegation.scheduledTaskId ? "A scheduled background worker has returned. Keep the main conversation clean: use this bounded result and share its saved deliverable. Do not repeat its research or load its transcripts unless the user asks for details. " : ""}A delegated project chat has returned. Read the result and give the user a concise update here. Keep follow-up in this Assistant conversation; do not offer a link to open the project chat. The project identifiers below are routing context for follow-ups, not a navigation instruction. A reply can be a question or partial result, not proof of successful completion. Distinguish completed work, blockers, requests for input and interruptions. Read pending questions or approvals with legalwork_assistant_attention. Choose whether a card is necessary for a concrete user decision; only then call legalwork_assistant_attention_present with a concise title and an explanation of exactly what the user must decide. This is not an activity feed: never present file reads, review-result reads, routine progress or every available widget. Do not present the same request again or resurface a hidden card. The user can respond there without leaving this chat. Do not answer or approve on the user's behalf. You may ask a question naturally here and relay the user's explicit answer using legalwork_assistant_attention_answer. Do not restart cancelled work or expand the authorized scope. ${returnedLanguageInstructions(delegation.conversationLanguage)} ${ASSISTANT_DELIVERABLE_INSTRUCTIONS} ${ASSISTANT_FOLLOW_UP_INSTRUCTIONS}${referenceSeparator}${JSON.stringify({ ...delegation, ...result, chatUrl })}`;
           this.db.run("UPDATE assistant_delegations SET notice = ? WHERE session_id = ? AND notice IS NULL", [JSON.stringify({ ...destination, messageId, text, resultId: id }), delegation.sessionId]);
           notice = noticeSchema.parse(JSON.parse(String(this.db.get("SELECT notice FROM assistant_delegations WHERE session_id = ?", [delegation.sessionId])?.notice)));
         }

@@ -7,6 +7,7 @@ import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
 import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
+import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import { AssistantDelegations } from "./assistant-delegations.js";
 import { readDelegationResult } from "./assistant-delegation-result.js";
 import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
@@ -900,12 +901,22 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     return workspace;
   };
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
-    resolveSession: async task => isMainAssistant(await scheduledWorkspace(task)) ? (await mainAssistant.current()).day.sessionId : null,
+    resolveSession: async task => {
+      const workspace = await scheduledWorkspace(task);
+      return isMainAssistant(workspace) ? createAssistantScheduledSession(task, mainAssistant, createWorkspaceOpencodeClient(config, workspace)) : null;
+    },
     available: async task => {
       if (config.readOnly) return false;
       const workspace = await scheduledWorkspace(task);
-      const status = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
-      const target = isMainAssistant(workspace) ? (await mainAssistant.current()).day.sessionId : task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      const client = createWorkspaceOpencodeClient(config, workspace);
+      const status = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      const target = isMainAssistant(workspace) ? scheduledTasks.runs(task.id)[0]?.sessionId : task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      if (isMainAssistant(workspace) && target) {
+        const previous = await client.session.get({ sessionID: target }, { signal: AbortSignal.timeout(10000) });
+        // Legacy runs used the daily conversation itself; they must not block background work.
+        if (previous.response.status === 404 || (previous.data && !previous.data.parentID)) return true;
+        unwrapOpencodeResult(previous, "/session");
+      }
       return !target || !status[target] || status[target].type === "idle";
     },
     createSession: async task => {
@@ -926,11 +937,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope,
-        scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
-      const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
-        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
-          metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } }] }, { signal: AbortSignal.timeout(30000) });
+      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
+      const work = isMainAssistant(workspace) ? await prepareAssistantScheduledWork(task, workspace, session, client, delegations)
+        : { model: task.model, prompt: `[Scheduled task: ${task.title}]\n\n${task.prompt}` };
+      const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(work.model ? { model: work.model } : {}),
+        parts: [{ type: "text", text: work.prompt, metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true),
   });
