@@ -1,12 +1,8 @@
 name: Release App
 
 on:
-  # A v* tag push auto-builds the release, but it is created as a DRAFT and is
-  # NOT rolled out to users automatically — see the "Leave release as a draft"
-  # step. Publish the draft manually in the GitHub Releases UI to go live.
-  push:
-    tags:
-      - "v*"
+  # Recovery branch only: rebuild Intel from the unchanged v0.2.12 tag,
+  # applying the tested packaging hook and reusing the successful artifacts.
   workflow_dispatch:
     inputs:
       tag:
@@ -62,12 +58,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sandbox-runtime:
-    uses: ./.github/workflows/sandbox-runtime.yml
-    needs: resolve-release
-    with:
-      ref: ${{ needs.resolve-release.outputs.release_tag }}
-      run_tests: false
   resolve-release:
     name: Resolve Release Metadata
     # SignPath trusted builds require every job leading to the Windows signing
@@ -103,6 +93,11 @@ jobs:
           DEFAULT_BUILD_ELECTRON: ${{ vars.RELEASE_PUBLISH_ELECTRON }}
         run: |
           set -euo pipefail
+
+          [ "$INPUT_TAG" = v0.2.12 ]
+          [ "$INPUT_DRAFT" = true ]
+          [ "$INPUT_PUBLISH_SIDECARS" = false ]
+          [ "$INPUT_PUBLISH_NPM" = false ]
 
           TAG_INPUT="${INPUT_TAG:-}"
           if [ -n "$TAG_INPUT" ]; then
@@ -263,7 +258,7 @@ jobs:
 
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
-    needs: [resolve-release, verify-release, sandbox-runtime]
+    needs: [resolve-release, verify-release]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     # Apple notarization routes first-time/new-account submissions to "in-depth
@@ -283,42 +278,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
-            os_type: macos
-            artifact: electron-macos-arm64
-            electron_args: "--mac --arm64"
-            target_triple: aarch64-apple-darwin
-            executable: mac-arm64/LegalWork.app/Contents/MacOS/LegalWork
           - platform: macos-15-intel
             os_type: macos
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
             executable: mac/LegalWork.app/Contents/MacOS/LegalWork
-          - platform: ubuntu-24.04
-            os_type: linux
-            artifact: electron-linux-x64
-            electron_args: "--linux --x64"
-            target_triple: x86_64-unknown-linux-gnu
-            executable: linux-unpacked/legalwork
-          - platform: ubuntu-24.04-arm
-            os_type: linux
-            artifact: electron-linux-arm64
-            electron_args: "--linux --arm64"
-            target_triple: aarch64-unknown-linux-gnu
-            executable: linux-arm64-unpacked/legalwork
-          - platform: windows-2022
-            os_type: windows
-            artifact: electron-windows-x64
-            electron_args: "--win --x64"
-            target_triple: x86_64-pc-windows-msvc
-            executable: win-unpacked/LegalWork.exe
-          - platform: windows-11-arm
-            os_type: windows
-            artifact: electron-windows-arm64
-            electron_args: "--win --arm64"
-            target_triple: aarch64-pc-windows-msvc
-            executable: win-arm64-unpacked/LegalWork.exe
 
     steps:
       - name: Checkout
@@ -331,6 +296,16 @@ jobs:
         if: matrix.os_type == 'windows'
         shell: pwsh
         run: git config --global core.longpaths true
+
+      - name: Apply tested notarization retry hook to the original release source
+        env:
+          RECOVERY_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = 8b6d2b9a6beb5d26781bb625cd749c0289cfd073 ]
+          git fetch --no-tags origin "$RECOVERY_REVISION"
+          git show "$RECOVERY_REVISION:apps/desktop/scripts/electron-after-sign.cjs" > apps/desktop/scripts/electron-after-sign.cjs
+          git diff --exit-code -- . ':(exclude)apps/desktop/scripts/electron-after-sign.cjs'
 
       - name: Validate SignPath configuration (Windows)
         if: matrix.os_type == 'windows' && (env.SIGNPATH_PROJECT_SLUG != '' || env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != '')
@@ -419,6 +394,8 @@ jobs:
         with:
           name: sandbox-runtime-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
           path: ${{ runner.temp }}/sandbox-runtime
+          run-id: 39665449329
+          github-token: ${{ github.token }}
       - name: Unpack protected runtime
         shell: bash
         run: |
@@ -625,7 +602,15 @@ jobs:
         with:
           node-version: 24
 
-      - name: Download Electron updater manifest artifacts
+      - name: Download successful platform manifests from the original release
+        uses: actions/download-artifact@v4
+        with:
+          pattern: electron-*
+          path: ${{ runner.temp }}/electron-dist
+          run-id: 39665449329
+          github-token: ${{ github.token }}
+
+      - name: Download recovered Intel updater manifest
         uses: actions/download-artifact@v4
         with:
           pattern: electron-*
