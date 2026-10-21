@@ -3,7 +3,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { mkdtempSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, ipcMain, nativeTheme, screen } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, screen } from "electron";
 import { DictationHud } from "../electron/audio/dictation-hud.mjs";
 import { DOCKS, dockBounds, nearestDock } from "../electron/audio/dictation-dock.mjs";
 
@@ -56,6 +56,31 @@ app.whenReady().then(async () => {
     const prefs = window.webContents.getLastWebPreferences();
     assert.equal(prefs.sandbox, true);
     assert.equal(prefs.nodeIntegration, false);
+    if (process.platform === "darwin" && screen.getAllDisplays().length > 1) {
+      const focusWindows = [];
+      try {
+        for (const display of screen.getAllDisplays()) {
+          const area = display.workArea;
+          const target = new BrowserWindow({ x: area.x + 100, y: area.y + 100, width: 300, height: 200, show: false });
+          focusWindows.push(target);
+          target.show();
+          target.focus();
+          await delay(500);
+          const deadline = Date.now() + 3_000;
+          while (hud.displayId !== display.id && Date.now() < deadline) await delay(50);
+          assert.equal(hud.displayId, display.id, "the HUD follows keyboard focus to another screen while the cursor stays put");
+          assert.deepEqual(window.getBounds(), dockBounds(area, "bottom"));
+          assert.equal(window.isFocused(), false, "following another screen never steals the target's focus");
+        }
+        console.log("PASS: native keyboard focus followed across two displays without moving the cursor");
+      } finally {
+        focusWindows.forEach(target => target.destroy());
+      }
+    }
+    // The remaining cases control the OS pointer deterministically.
+    hud.stopWatchingDisplay?.();
+    hud.stopWatchingDisplay = null;
+    hud.focusedDisplayId = null;
     await window.webContents.executeJavaScript(`(() => {
       window.dictationAudioContexts = 0;
       const NativeAudioContext = window.AudioContext;
@@ -89,8 +114,16 @@ app.whenReady().then(async () => {
       input({ type: "mouseMove", ...point });
       await delay(350);
       const icon = await window.webContents.executeJavaScript(`(() => {const r=document.querySelector('#start svg').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,hit:document.elementFromPoint(${point.x},${point.y})?.closest('button')?.id};})()`);
-      assert.ok(Math.abs(icon.x - point.x) < 1 && Math.abs(icon.y - point.y) < 1, `${locale}: bottom microphone stays under the pointer after expansion`);
+      assert.ok(Math.abs(icon.x - point.x) < 1 && Math.abs(icon.y - point.y) < 1, `${locale}: bottom microphone stays under the pointer on hover`);
       assert.equal(icon.hit, "start");
+      const compact = await window.webContents.executeJavaScript(`(() => {
+        const start=document.getElementById('start'),meeting=document.getElementById('meeting-start'),label=document.getElementById('start-label'),r=label.getBoundingClientRect();
+        return {startWidth:start.getBoundingClientRect().width,meetingWidth:meeting.getBoundingClientRect().width,labelOpacity:getComputedStyle(label).opacity,labelAbove:r.bottom<start.getBoundingClientRect().top};
+      })()`);
+      assert.equal(compact.startWidth, 28, "hovering does not widen the microphone button");
+      assert.equal(compact.meetingWidth, 28, "the meeting button stays an icon in both languages");
+      assert.equal(compact.labelOpacity, "1");
+      assert.equal(compact.labelAbove, true, "the label appears above the bottom button");
       const rect = await window.webContents.executeJavaScript(`(() => {const r=document.getElementById('bar').getBoundingClientRect();return {left:r.left,right:r.right};})()`);
       assert.ok(rect.left >= 0 && rect.right <= 440, "expanded controls fit inside their native window");
     }
@@ -378,7 +411,7 @@ app.whenReady().then(async () => {
     input({ type: "mouseMove", x: Math.round(idleBounds.x), y: Math.round(idleBounds.y) });
     await delay(400);
     const hover = await window.webContents.executeJavaScript(`({width:document.getElementById('bar').getBoundingClientRect().width,buttonWidth:document.getElementById('meeting-start').getBoundingClientRect().width,opacity:getComputedStyle(document.getElementById('meeting-start')).opacity})`);
-    assert.equal(hover.width, 232); assert.equal(hover.buttonWidth, 134); assert.equal(hover.opacity, "1");
+    assert.equal(hover.width, 62); assert.equal(hover.buttonWidth, 28); assert.equal(hover.opacity, "1");
     assert.equal(await window.webContents.executeJavaScript("document.getElementById('meeting-start-label').textContent"), "Record meeting");
     assert.equal(await window.webContents.executeJavaScript(`(() => {const bar=document.getElementById('bar').getBoundingClientRect();const button=document.getElementById('meeting-start').getBoundingClientRect();return button.left>=bar.left && button.right<=bar.right;})()`), true, "the revealed meeting button stays inside the expanded tile");
     assert.equal(await window.webContents.executeJavaScript(`(() => {const button=document.getElementById('meeting-start').getBoundingClientRect();return document.elementFromPoint(button.x+button.width/2,button.y+button.height/2)?.closest('button')?.id;})()`), "meeting-start", "the hover hit area never intercepts the meeting button");
@@ -390,7 +423,7 @@ app.whenReady().then(async () => {
     await hud.setState("idle", "", "de");
     await delay(350);
     assert.equal(await window.webContents.executeJavaScript("document.getElementById('meeting-start-label').textContent"), "Besprechung aufnehmen");
-    assert.equal(await window.webContents.executeJavaScript("document.getElementById('bar').getBoundingClientRect().width"), 282);
+    assert.equal(await window.webContents.executeJavaScript("document.getElementById('bar').getBoundingClientRect().width"), 62);
     await hud.setStatus({ ...status, enabled: false });
     await hud.setState("idle", "", "en");
     actions.length = 0;

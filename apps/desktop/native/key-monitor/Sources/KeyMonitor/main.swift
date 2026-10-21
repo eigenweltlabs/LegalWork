@@ -334,6 +334,28 @@ private func runMeetingActivityMode() -> Never {
     exit(0)
 }
 
+// NSScreen.main follows keyboard focus across apps, without an Accessibility
+// query or an additional permission. Keep a run loop for AppKit screen updates.
+private func runFocusedDisplayMode() -> Never {
+    let application = NSApplication.shared
+    application.setActivationPolicy(.prohibited)
+    let parent = getppid()
+    var previous = Int.min
+    let emit = {
+        if getppid() != parent { exit(0) }
+        let id = (NSScreen.main?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.intValue ?? -1
+        if id != previous {
+            previous = id
+            emitJSON([("displayId", id == -1 ? "null" : String(id))])
+        }
+    }
+    emit()
+    let timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in emit() }
+    RunLoop.main.add(timer, forMode: .common)
+    RunLoop.main.run()
+    exit(0)
+}
+
 private let modeArguments = CommandLine.arguments.dropFirst()
 if let mode = modeArguments.first {
     switch mode {
@@ -343,6 +365,7 @@ if let mode = modeArguments.first {
     case "--request-automation": runAutomationMode(askUser: true)
     case "--dictation-input": runDictationInputMode()
     case "--meeting-activity": runMeetingActivityMode()
+    case "--watch-focused-display": runFocusedDisplayMode()
     default:
         FileHandle.standardError.write(Data("Unknown mode: \(mode)\n".utf8))
         exit(64)

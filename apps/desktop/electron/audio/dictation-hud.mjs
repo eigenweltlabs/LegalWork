@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dockBounds, DOCKS, nearestDock } from "./dictation-dock.mjs";
+import { watchFocusedDisplay } from "./focused-display.mjs";
 
 const CHANNEL = "legalwork:dictation-hud";
 
@@ -29,6 +30,8 @@ export class DictationHud {
     this.updateVersion = 0;
     this.dock = "bottom";
     this.displayId = null;
+    this.focusedDisplayId = null;
+    this.stopWatchingDisplay = null;
     this.drag = null;
     this.dragTimer = null;
     this.cursorTimer = null;
@@ -44,7 +47,9 @@ export class DictationHud {
       else if (phase === "move") this.moveDrag();
       else if (phase === "end" || phase === "cancel") this.endDrag(phase === "end");
     };
-    this.onDisplayChange = () => { if (!this.drag && this.window && !this.window.isDestroyed()) this.positionWindow(); };
+    this.onDisplayChange = () => {
+      if (!this.drag && this.window && !this.window.isDestroyed()) { this.followDisplay(); this.positionWindow(); }
+    };
     this.onAction = (event, action) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
@@ -92,6 +97,7 @@ export class DictationHud {
     if (!this.displayEventsRegistered) {
       screen.on("display-metrics-changed", this.onDisplayChange);
       screen.on("display-removed", this.onDisplayChange);
+      screen.on("display-added", this.onDisplayChange);
       this.displayEventsRegistered = true;
     }
     if (!this.positionLoaded) this.positionLoaded = readFile(this.positionPath, "utf8").then(raw => {
@@ -130,11 +136,21 @@ export class DictationHud {
       },
     });
     this.window = window;
+    this.stopWatchingDisplay = watchFocusedDisplay(id => {
+      this.focusedDisplayId = id;
+      this.followDisplay();
+    });
     // Native windows can move without Chromium receiving a mouseleave event.
     this.cursorTimer = setInterval(() => {
-      if (!window.isDestroyed() && window.isVisible() && !this.drag) this.sendCursor();
+      if (!window.isDestroyed() && window.isVisible() && !this.drag) {
+        if (!screen.getAllDisplays().some(display => display.id === this.focusedDisplayId)) this.followDisplay();
+        this.sendCursor();
+      }
     }, 50);
-    window.on("closed", () => { clearInterval(this.cursorTimer); clearInterval(this.dragTimer); });
+    window.on("closed", () => {
+      clearInterval(this.cursorTimer); clearInterval(this.dragTimer);
+      this.stopWatchingDisplay?.(); this.stopWatchingDisplay = null;
+    });
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     window.setContentProtection(true);
@@ -152,6 +168,17 @@ export class DictationHud {
 
   display() {
     return screen.getAllDisplays().find(display => display.id === this.displayId) ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  }
+
+  followDisplay() {
+    if (this.drag || !this.window || this.window.isDestroyed()) return;
+    const display = screen.getAllDisplays().find(display => display.id === this.focusedDisplayId)
+      ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    if (display.id === this.displayId) return;
+    this.displayId = display.id;
+    this.positionWindow();
+    this.window.setIgnoreMouseEvents(true, { forward: true });
+    this.sendCursor(true);
   }
 
   positionWindow() {
@@ -338,6 +365,8 @@ export class DictationHud {
     this.updateVersion += 1;
     clearInterval(this.cursorTimer);
     clearInterval(this.dragTimer);
+    this.stopWatchingDisplay?.();
+    this.stopWatchingDisplay = null;
     if (this.hideTimer) clearTimeout(this.hideTimer);
     ipcMain.removeListener(`${CHANNEL}:action`, this.onAction);
     ipcMain.removeListener(`${CHANNEL}:pointer`, this.onPointer);
@@ -346,6 +375,7 @@ export class DictationHud {
     if (this.displayEventsRegistered) {
       screen.removeListener("display-metrics-changed", this.onDisplayChange);
       screen.removeListener("display-removed", this.onDisplayChange);
+      screen.removeListener("display-added", this.onDisplayChange);
     }
     this.dockPreview?.destroy();
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
