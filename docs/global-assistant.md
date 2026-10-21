@@ -65,7 +65,7 @@ Search scope (chip), source (provenance on each staged item) and execution targe
 
 `apps/raycast-legalwork` reads `launcher-pairing.json` (written by Settings, Assistant launcher, with mode 0600 and a per-session token). Launch URLs carry identifiers only; selected text is staged over the loopback connection as a one-time context that expires after five minutes.
 
-## Screenshots (web smoke run, no engine attached)
+## Screenshots (smoke runs, no engine attached)
 
 Taken against the panel route served by Vite with an isolated LegalWork server over two sample matters. These show the rendered surfaces; the Electron window, shortcuts and capture need the desktop run listed below.
 
@@ -76,6 +76,7 @@ Taken against the panel route served by Vite with an isolated LegalWork server o
 | Work view with status and project filters | ![Work](screenshots/global-assistant/panel-work.jpg) |
 | `? …`: explicit ask mode; the first message starts a new conversation | ![Ask](screenshots/global-assistant/panel-ask.jpg) |
 | The same panel embedded in Home on `Cmd/Ctrl+K`, with `t` activating the Tasks category | ![Embedded dialog](screenshots/global-assistant/home-embedded-dialog-tasks.jpg) |
+| The panel as its own Electron window on macOS (dev build, isolated profile without projects): the `f` chip and the two-character hint | ![Electron panel](screenshots/global-assistant/electron-panel-macos.jpg) |
 
 ## Verification
 
@@ -84,5 +85,7 @@ Automated:
 - `pnpm --filter legalwork-server typecheck`, server unit tests for conversations, submissions, file index, search, actions, staged context, work and delegation destination.
 - `pnpm --filter @legalwork/app typecheck`, `pnpm --filter @legalwork/app test:i18n`, app unit tests for alias parsing, keyboard stability, draft handoff and crash reconciliation, voice ownership, deep links, search session cancellation and merging, conversation resolution.
 - `pnpm --filter @legalwork/desktop typecheck:electron`, `check:electron`, desktop unit tests for settings, shortcuts, origin validation and insertion, pairing, placement and the service's invocation path.
+
+Electron runtime check on macOS (dev build, isolated profile, no engine), driven over the renderer's IPC bridge: the app boots with the launcher service (`launcherStatus` reports the global shortcut as registered without conflicts and the native helper capabilities for selection, insertion, capture and origin); `launcherWindowControl("show")` opens the panel window on the launcher route, which loads the catalog and the conversation list; `f ab` queries `/launcher/search` and renders the Files chip with its coverage; Escape first clears the query and then hides the window; enabling the companion creates the dictation HUD window with the Assistant handle; Raycast pairing writes `launcher-pairing.json` with mode 0600 and removes it on disable.
 
 Manual and platform tests that still need a real device run are listed in the pull request: macOS Spaces/fullscreen, Windows foreground-lock and mixed DPI, sleep/wake, Raycast cold start and the end-to-end recording.
