@@ -65,6 +65,18 @@ Search scope (chip), source (provenance on each staged item) and execution targe
 
 `apps/raycast-legalwork` reads `launcher-pairing.json` (written by Settings, Assistant launcher, with mode 0600 and a per-session token). Launch URLs carry identifiers only; selected text is staged over the loopback connection as a one-time context that expires after five minutes.
 
+## Screenshots (web smoke run, no engine attached)
+
+Taken against the panel route served by Vite with an isolated LegalWork server over two sample matters. These show the rendered surfaces; the Electron window, shortcuts and capture need the desktop run listed below.
+
+| | |
+| --- | --- |
+| `f Mietvertrag`: the Files chip, project and path per result, coverage "Indexing, names only so far", footer "Enter: Open" | ![Files search](screenshots/global-assistant/panel-files-search.jpg) |
+| `/`: app actions with their execution kind (opens, runs locally, agent work) | ![Commands](screenshots/global-assistant/panel-commands.jpg) |
+| Work view with status and project filters | ![Work](screenshots/global-assistant/panel-work.jpg) |
+| `? …`: explicit ask mode; the first message starts a new conversation | ![Ask](screenshots/global-assistant/panel-ask.jpg) |
+| The same panel embedded in Home on `Cmd/Ctrl+K`, with `t` activating the Tasks category | ![Embedded dialog](screenshots/global-assistant/home-embedded-dialog-tasks.jpg) |
+
 ## Verification
 
 Automated:

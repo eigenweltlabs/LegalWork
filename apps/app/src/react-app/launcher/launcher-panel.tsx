@@ -49,11 +49,12 @@ export function LauncherPanel() {
   const mode: "search" | "command" | "ask" | "conversation" = store.view === "conversation" ? "conversation" : entry.mode;
 
   // Conversation binding: read-only lookup first; a conversation is only created by an explicit action.
+  // Callbacks read the store imperatively: depending on the whole store object would re-run effects on every state change.
   const bindCurrent = useCallback(async () => {
     const current = await client.assistantConversationCurrent();
-    store.bindConversation(current.conversation);
+    useLauncherStore.getState().bindConversation(current.conversation);
     return current.conversation;
-  }, [client, store]);
+  }, [client]);
   useEffect(() => { void bindCurrent().catch(() => undefined); }, [bindCurrent]);
   const conversation = store.conversation;
   useEffect(() => {
@@ -84,7 +85,7 @@ export function LauncherPanel() {
 
   // Search: two-phase session bound to the current category and scope.
   const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content }, signal)), [client]);
-  useEffect(() => session.subscribe(snapshot => store.setResults(snapshot.items, snapshot.sources, snapshot.pending, snapshot.error)), [session, store]);
+  useEffect(() => session.subscribe(snapshot => useLauncherStore.getState().setResults(snapshot.items, snapshot.sources, snapshot.pending, snapshot.error)), [session]);
   useEffect(() => {
     if (mode !== "search" || !store.input.trim() && !store.category && !store.scope) { if (mode !== "search") session.cancel(); return; }
     session.search({ query: entry.text, kinds: store.category ? [store.category] : [...LAUNCHER_SEARCH_KINDS], projectId: store.scope?.id ?? null });
@@ -120,18 +121,19 @@ export function LauncherPanel() {
     const current = useLauncherStore.getState().conversation;
     if (current && !current.archived) return current;
     const { conversation: created } = await client.createAssistantConversation({ origin: surface });
-    store.bindConversation(created);
+    useLauncherStore.getState().bindConversation(created);
     await drafts.claim(created.id, owner);
     return { conversationId: created.id, sessionId: created.sessionId, workspaceId: created.workspaceId, title: created.title, archived: false };
-  }, [client, drafts, owner, store, surface]);
+  }, [client, drafts, owner, surface]);
   const startNewConversation = useCallback(async () => {
+    const state = useLauncherStore.getState();
     const { conversation: created } = await client.createAssistantConversation({ origin: surface });
-    store.bindConversation(created);
-    store.setInput(""); store.replaceContext([]); store.setTarget({ kind: "assistant" }); setSubmission(null);
+    state.bindConversation(created);
+    state.setInput(""); state.replaceContext([]); state.setTarget({ kind: "assistant" }); setSubmission(null);
     await drafts.claim(created.id, owner);
-    store.setView("conversation");
+    state.setView("conversation");
     inputRef.current?.focus();
-  }, [client, drafts, owner, store, surface]);
+  }, [client, drafts, owner, surface]);
 
   const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }) => {
     const trimmed = text.trim();
@@ -282,9 +284,9 @@ export function LauncherPanel() {
   useEffect(() => {
     if (!store.invocation) return;
     const invocation = store.invocation;
-    store.setInvocation(null);
+    useLauncherStore.getState().setInvocation(null);
     applyInvocation(invocation);
-  }, [store.invocation, applyInvocation, store]);
+  }, [store.invocation, applyInvocation]);
 
   // Keyboard contract. The footer says what Enter does.
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
