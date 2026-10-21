@@ -19,6 +19,7 @@ import { CorpusService } from "./corpus/service.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
+import { listRecordingLibrary, readRecordingTranscript } from "./recording-library.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
@@ -2047,6 +2048,16 @@ function createRoutes(
     resolveWorkspace,
     getStore: () => openBenchmarkStore(config),
     runner: benchmarkRunner,
+  });
+
+  addRoute(routes, "GET", "/recorder/recordings", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    return jsonResponse(await listRecordingLibrary(config, Object.fromEntries(ctx.url.searchParams)));
+  });
+
+  addRoute(routes, "GET", "/recorder/recordings/:recordingId", "client", async (ctx) => {
+    requireClientScope(ctx, "owner");
+    return jsonResponse(await readRecordingTranscript(config, ctx.params.recordingId, Object.fromEntries(ctx.url.searchParams)));
   });
 
   const recorderUnavailable = () => ({

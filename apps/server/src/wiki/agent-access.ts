@@ -132,6 +132,9 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
+  // Recording reads inherit the authenticated session's scope. The library
+  // routes separately require owner access, including after a scope downgrade.
+  if (method === "GET" && /^\/recorder\/recordings(?:\/[^/]+)?$/.test(pathname)) return true;
   if (method === "GET" && /^\/wikis\/[^/]+\/sessions\/[^/]+\/projects(?:\/[^/]+\/(?:files|read))?$/.test(pathname)) return true;
   if (method === "POST" && /^\/wikis\/[^/]+\/sessions\/[^/]+\/projects\/[^/]+\/access$/.test(pathname)) return true;
   if (method === "POST" && /^\/workspace\/[^/]+\/view-generations\/[^/]+$/.test(pathname)) return true;

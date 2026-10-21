@@ -1117,6 +1117,12 @@ const runtimeManager = createRuntimeManager({
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listRecordings: () => recorderService().listRecordings(),
+    readRecording: async (id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail && !detail.meta.ephemeral ? detail : null;
+    },
     listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
       .filter((recording) => recording.projectIds?.includes(projectId))
       .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),

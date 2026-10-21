@@ -77,6 +77,8 @@ Sandbox advertisement (for capability discovery):
 
 ## Endpoints
 
+- `GET /recorder/recordings` (desktop owner: full retained library; optional `period=today|yesterday`, inclusive `from`/`to`, `timeZone`, title/speaker `query`, `projectId`, `limit`, `cursor`)
+- `GET /recorder/recordings/:id` (desktop owner: current transcript and speaker names; `offset`/`limit` pagination)
 - `GET /health`
 - `GET /status`
 - `GET /capabilities`
