@@ -126,6 +126,11 @@ jobs:
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
 
+      - name: Verify recorder capture and dictation
+        run: |
+          pnpm --filter @legalwork/app test:recorder-capture
+          pnpm --filter @legalwork/app test:dictation
+
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 

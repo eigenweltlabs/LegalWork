@@ -290,6 +290,7 @@ export function RecordingRow(props: {
             <span>{new Date(recording.createdAt).toLocaleDateString(currentLocale(), { dateStyle: "medium" })}</span>
             <span className="tabular-nums">{new Date(recording.createdAt).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" })}</span>
             <span className="tabular-nums">{formatDuration(recording.durationMs)}</span>
+            {recording.speakerProcessing ? <span className="inline-flex items-center gap-1"><Loader2 className="size-3 animate-spin" />{t("recorder.diarize_identifying")}</span> : null}
           </div>
           {savedTo ? (
             <div className="mt-1 truncate text-xs text-success">

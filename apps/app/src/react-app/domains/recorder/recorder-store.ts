@@ -140,7 +140,7 @@ export type RecorderState = {
   recording: AudioRecordingMeta | null;
   recordingStartedAt: number | null;
   segments: AudioTranscriptSegment[];
-  partial: AudioTranscriptSegment | null;
+  partials: AudioTranscriptSegment[];
   recordings: AudioRecordingMeta[];
   openedRecording: AudioRecordingDetail | null;
   /** A file drag-dropped for transcription is being decoded/transcribed. */
@@ -552,23 +552,46 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         break;
       }
       case "transcript-partial": {
-        if (state.recording?.id === event.streamId) set({ partial: event.segment });
+        if (state.recording?.id === event.streamId) set(current => ({ partials: [...current.partials.filter(partial => partial.source !== event.segment.source), ...(event.parts ?? [event.segment])] }));
         break;
       }
       case "transcript-segment": {
         if (state.recording?.id === event.streamId) {
           set((current) => ({
             segments: [...current.segments, event.segment].sort((a, b) => a.startMs - b.startMs),
-            partial:
-              current.partial && current.partial.endMs <= event.segment.endMs ? null : current.partial,
+            partials: current.partials.filter(partial => partial.source !== event.segment.source || partial.endMs > event.segment.endMs),
           }));
+        }
+        break;
+      }
+      case "transcript-speakers-updated": {
+        if (state.recording?.id === event.streamId) {
+          const updates = new Map(event.segments.map(segment => [segment.id, segment]));
+          const replaced = new Set(event.replacedIds ?? event.segments.map(segment => segment.id));
+          set(current => ({
+            segments: [...current.segments.filter(segment => !replaced.has(segment.id) && !updates.has(segment.id)), ...event.segments].sort((a, b) => a.startMs - b.startMs),
+            recording: current.recording ? { ...current.recording, speakerNames: event.speakerNames } : null,
+          }));
+        }
+        break;
+      }
+      case "recording-warning": {
+        if (state.recording?.id === event.recordingId) set({ error: event.error });
+        break;
+      }
+      case "recording-updated": {
+        set(current => ({ recordings: current.recordings.map(meta => meta.id === event.meta.id ? event.meta : meta) }));
+        if (state.openedRecording?.meta.id === event.meta.id) {
+          void audioRecordingGet(event.meta.id).then(detail => {
+            if (get().openedRecording?.meta.id === event.meta.id) set({ openedRecording: detail });
+          }).catch(() => {});
         }
         break;
       }
       case "transcript-partial-clear": {
         if (state.recording?.id === event.streamId) {
           set((current) => ({
-            partial: current.partial && current.partial.endMs <= event.endMs ? null : current.partial,
+            partials: current.partials.filter(partial => partial.source !== event.source || partial.endMs > event.endMs),
           }));
         }
         break;
@@ -736,7 +759,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     recording: null,
     recordingStartedAt: null,
     segments: [],
-    partial: null,
+    partials: [],
     recordings: [],
     openedRecording: null,
     importing: null,
@@ -1230,15 +1253,14 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           return;
         }
 
-        set({ error: null, permissionsNeeded: [], segments: [], partial: null, copilotEntries: [], diarizing: false });
+        set({ error: null, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
         let startedMetaId: string | null = null;
         // Speaker identification is always on for retained recordings once the
         // models are present; never a one-shot dictation.
         const diarize =
-          get().transcriptionSource === "local" &&
           options?.diarize !== false &&
           options?.systemDictation !== true &&
-          bootstrap?.diarization.installed === true;
+          (get().transcriptionSource === "cloud" || bootstrap?.diarization.installed === true);
         // The start window (model cold-load + getUserMedia + track settle) is
         // seconds wide; if the machine sleeps inside it, roll the whole thing
         // back instead of latching a recording nobody can see.
@@ -1253,6 +1275,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             language,
             modelId,
             sources,
+            separateSources: sources.length > 1,
             ephemeral: options?.systemDictation === true,
             projectId: options?.projectId,
             diarize,
@@ -1262,7 +1285,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           captureHandle = await startCapture(
             sources,
             {
-              onPcm: (chunk) => audio?.sendPcm?.(meta.id, chunk),
+              onPcm: (chunk, source) => audio?.sendPcm?.(meta.id, chunk, source),
               onMeter: (level) => {
                 if (get().composerDictation) set({ composerDictationLevel: level });
                 else if (options?.systemDictation) audio?.sendDictationLevel?.(level);
@@ -1270,7 +1293,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
               },
               onMicrophone: options?.systemDictation && !get().composerDictation
                 ? (name) => { void audioSystemDictationMicrophoneActive(name).catch(() => {}); } : undefined,
-              onMediaChunk: (chunk) => audio?.sendMediaChunk?.(meta.id, chunk),
+              onMediaChunk: (chunk, source) => audio?.sendMediaChunk?.(meta.id, chunk, source),
               onSourceEnded: () => {
                 if (get().recording?.id === meta.id) void get().stopRecording();
               },
@@ -1419,7 +1442,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           composerDictation: null,
           composerDictationLevel: 0,
           dictationState: isSystemDictation && dictationError ? "error" : "idle",
-          partial: null,
+          partials: [],
           levels: {},
           diarizing: false,
           finalizing: false,
@@ -1492,7 +1515,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         composerDictation: null,
         composerDictationLevel: 0,
         dictationState: "idle",
-        partial: null,
+        partials: [],
         segments: [],
         levels: {},
         diarizing: false,

@@ -723,3 +723,47 @@ test("overlay appearance defaults to app mode, persists each choice, and rejects
     await rm(userDataDir, { recursive: true, force: true });
   }
 });
+
+for (const releaseOrder of [["<", "Control"], ["Control", "<"]]) {
+  test(`Ctrl+< captures, persists and releases with ${releaseOrder[0]} released first`, async (t) => {
+    const { service, keyMonitor, events } = await gestureService(t);
+    await service.setShortcutCapture(true);
+    await keyMonitor.emit("down", "Control");
+    await keyMonitor.emit("down", "<");
+    await keyMonitor.emit("down", "<"); // Native repeat must not change the chord.
+    await keyMonitor.emit("up", releaseOrder[0]);
+    assert.equal(service.status().shortcutCaptureActive, true);
+    await keyMonitor.emit("up", releaseOrder[1]);
+    assert.equal(service.status().shortcutCaptureActive, false);
+    assert.equal(service.status().accelerator, "Control+<");
+    assert.equal(service.status().registered, true);
+    assert.equal(service.status().error, null);
+    assert.deepEqual(events, [], "setting a shortcut must not start recording");
+    const saved = JSON.parse(await readFile(service.settingsPath, "utf8"));
+    assert.equal(saved.accelerator, "Control+<");
+    assert.equal((await service.initialize()).accelerator, "Control+<");
+
+    await keyMonitor.emit("down", "Control");
+    t.mock.timers.tick(600);
+    assert.deepEqual(events, [], "Control alone does not activate a two-key shortcut");
+    await keyMonitor.emit("down", "<");
+    await keyMonitor.emit("down", "<");
+    assert.deepEqual(events, ["start"]);
+    t.mock.timers.tick(600);
+    await keyMonitor.emit("up", releaseOrder[0]);
+    await keyMonitor.emit("up", releaseOrder[1]);
+    assert.deepEqual(events, ["start", "finish"], "releasing either key finishes exactly once");
+  });
+}
+
+test("punctuation shortcuts support Plus and still reject multiple non-modifier keys", async (t) => {
+  const { service } = await gestureService(t);
+  for (const key of ["<", ">", ",", ".", ";", "'", "\\", "Plus"]) {
+    const status = await service.setShortcut(`Control+${key}`);
+    assert.equal(status.accelerator, `Control+${key}`);
+    assert.equal(status.error, null);
+  }
+  const invalid = await service.setShortcut("Control+<+D");
+  assert.match(invalid.error, /Choose one key/);
+  assert.equal(invalid.accelerator, "Control+Plus");
+});

@@ -50,7 +50,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
   const dictationId = useRecorderStore(state => state.dictationRecordingId);
   const liveRecording = recording?.id === recordingId && !recording.ephemeral && recording.id !== dictationId ? recording : null;
   const liveSegments = useRecorderStore(state => liveRecording ? state.segments : EMPTY_SEGMENTS);
-  const partial = useRecorderStore(state => liveRecording ? state.partial : null);
+  const partials = useRecorderStore(state => liveRecording ? state.partials : EMPTY_SEGMENTS);
   const startedAt = useRecorderStore(state => liveRecording ? state.recordingStartedAt : null);
   const finalizing = useRecorderStore(state => Boolean(liveRecording && state.finalizing));
   const savedRecording = useRecorderStore(state => state.recordings.find(item => item.id === recordingId));
@@ -60,7 +60,11 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
     queryFn: () => audioRecordingGet(recordingId),
     enabled: !liveRecording,
     retry: false,
+    refetchInterval: query => query.state.data?.meta.speakerProcessing ? 2000 : false,
   });
+  useEffect(() => {
+    if (!liveRecording) void queryClient.invalidateQueries({ queryKey });
+  }, [savedRecording, liveRecording, queryClient, queryKey]);
 
   // Preserve the text while the completed, speaker-labeled transcript loads.
   useEffect(() => {
@@ -73,7 +77,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
 
   const meta = liveRecording ?? detail.data?.meta ?? savedRecording;
   const segments = liveRecording ? liveSegments : detail.data?.segments ?? EMPTY_SEGMENTS;
-  const turns = useMemo(() => transcriptTurns(segments, partial), [segments, partial]);
+  const turns = useMemo(() => transcriptTurns(segments, partials), [segments, partials]);
   const segmentCounts = new Map<number, number>();
   for (const segment of segments) if (segment.speaker != null) segmentCounts.set(segment.speaker, (segmentCounts.get(segment.speaker) ?? 0) + 1);
   const speakers = segmentCounts.size;
@@ -84,7 +88,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const edit = async (change: AudioTranscriptEdit) => {
-    if (liveRecording || savingRef.current) return false;
+    if (liveRecording || meta?.speakerProcessing || savingRef.current) return false;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -163,11 +167,15 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
               {finalizing ? <Loader2 className="size-3.5 animate-spin" /> : <span className="lw-recording-transcript-dot" aria-hidden="true" />}
               {t(finalizing ? "recorder.finishing" : "recorder.transcript_live")}
             </span> : null}
+            {meta?.speakerProcessing ? <span className="lw-recording-transcript-status" role="status">
+              <Loader2 className="size-3.5 animate-spin" />{t("recorder.diarize_identifying")}
+            </span> : null}
           </div>
+          {meta?.speakerError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.speakerError}</p> : null}
         </div>
         <div className="lw-recording-transcript-actions">
           <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
-          <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording)} live={Boolean(liveRecording)} edit={edit} />
+          <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />
         </div>
       </header>
       <div className="lw-recording-transcript-body">
@@ -175,12 +183,12 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
           <section key={turn.id} className="lw-recording-transcript-turn">
             <div className="lw-recording-transcript-speaker">
               {liveRecording ? (turn.speaker === null ? null : <span style={{ color: SPEAKER_COLORS[turn.speaker % SPEAKER_COLORS.length] }}>{people.find(person => person.id === turn.speaker)?.name}</span>)
-                : <SpeakerAssignment speaker={turn.speaker} speakers={people} segmentIds={turn.segments.map(segment => segment.id)} disabled={saving} edit={edit} />}
+                : <SpeakerAssignment speaker={turn.speaker} speakers={people} segmentIds={turn.segments.map(segment => segment.id)} disabled={saving || Boolean(meta?.speakerProcessing)} edit={edit} />}
               <time>{recordingTime(turn.startMs)}</time>
             </div>
             <div className="lw-recording-transcript-words">{turn.segments.map(segment => <div key={segment.id} className="lw-transcript-segment">
               <span className={segment.final ? undefined : "lw-recording-transcript-partial"}>{segment.text}</span>
-              {!liveRecording && turn.segments.length > 1 ? <SpeakerAssignment compact speaker={segment.speaker ?? null} speakers={people} segmentIds={[segment.id]} disabled={saving} edit={edit} /> : null}
+              {!liveRecording && turn.segments.length > 1 ? <SpeakerAssignment compact speaker={segment.speaker ?? null} speakers={people} segmentIds={[segment.id]} disabled={saving || Boolean(meta?.speakerProcessing)} edit={edit} /> : null}
             </div>)}</div>
           </section>
         ))}

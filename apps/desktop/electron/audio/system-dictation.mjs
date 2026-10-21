@@ -12,7 +12,7 @@ const CONTROL_CHORD_GRACE_MS = 120;
 const MODIFIER_KEYS = ["Fn", "Control", "Alt", "Shift", "Command", "Super"];
 const NAMED_KEYS = new Set([
   "Space", "Backspace", "Tab", "Enter", "PageUp", "PageDown", "End", "Home",
-  "Left", "Up", "Right", "Down", "Insert", "Delete",
+  "Left", "Up", "Right", "Down", "Insert", "Delete", "Plus",
 ]);
 
 function sleep(ms) {
@@ -61,7 +61,7 @@ function acceleratorKeys(accelerator, platform) {
 function acceleratorFromKeys(keys, platform) {
   const unique = [...new Set(keys)];
   const nonModifiers = unique.filter((key) => !MODIFIER_KEYS.includes(key));
-  const validKey = (key) => /^[A-Z0-9]$/.test(key) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(key) || NAMED_KEYS.has(key);
+  const validKey = (key) => /^[A-Z0-9\p{P}\p{S}]$/u.test(key) || /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(key) || NAMED_KEYS.has(key);
   if (
     unique.length === 0
     || nonModifiers.length > 1

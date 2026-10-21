@@ -44,7 +44,7 @@ const translations = {
 function shortcutLabel(accelerator, platform) {
   return accelerator.split("+").map((key) => ({
     CommandOrControl: platform === "darwin" ? "⌘" : "Ctrl", Command: "⌘", Control: "Ctrl",
-    Alt: platform === "darwin" ? "⌥" : "Alt", Shift: "⇧", Super: "Win", Space: "Space", Fn: "fn",
+    Alt: platform === "darwin" ? "⌥" : "Alt", Shift: "⇧", Super: "Win", Space: "Space", Fn: "fn", Plus: "+",
   })[key] || key).join(" ");
 }
 

@@ -76,9 +76,10 @@ test("speaker turns group consecutive speech without changing input segments", (
 test("updated partials replace the live text without accumulating old words", () => {
   const final = [segment("a", "Final sentence")];
   const partial = { ...segment("partial", "New"), final: false };
-  expect(transcriptTurns(final, partial)[0].segments.map(item => item.text)).toEqual(["Final sentence", "New"]);
-  expect(transcriptTurns(final, { ...partial, text: "New sentence" })[0].segments.map(item => item.text)).toEqual(["Final sentence", "New sentence"]);
-  expect(transcriptTurns([...final, { ...partial, final: true }], null)[0].segments).toHaveLength(2);
+  expect(transcriptTurns(final, partial).flatMap(turn => turn.segments.map(item => item.text))).toEqual(["Final sentence", "New"]);
+  expect(transcriptTurns(final, { ...partial, text: "New sentence" }).flatMap(turn => turn.segments.map(item => item.text))).toEqual(["Final sentence", "New sentence"]);
+  expect(transcriptTurns([...final, { ...partial, final: true }], null).flatMap(turn => turn.segments)).toHaveLength(2);
+  expect(transcriptTurns(final, partial)).toHaveLength(2);
 });
 
 test("recording durations support long meetings", () => {
@@ -179,7 +180,7 @@ test("unlinked starts stay in place; choosing a project opens its transcript eve
 });
 
 test("an active transcript renders final and partial speech with recording feedback", () => {
-  setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("a", "Final speech", 0)], partial: { ...segment("b", "Live words", 1), final: false } });
+  setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("a", "Final speech", 0)], partials: [{ ...segment("b", "Live words", 1), final: false }] });
   const html = render();
   expect(html).toContain("Final speech");
   expect(html).toContain("Live words");
@@ -195,7 +196,7 @@ test("an active transcript renders final and partial speech with recording feedb
 });
 
 test("a saved transcript stays independent of a subsequent recording or dictation", () => {
-  setRenderState({ recording: { ...recording, id: "dictation", ephemeral: true }, dictationRecordingId: "dictation", segments: [segment("private", "Unrelated dictation")], partial: segment("private-partial", "Unrelated partial") });
+  setRenderState({ recording: { ...recording, id: "dictation", ephemeral: true }, dictationRecordingId: "dictation", segments: [segment("private", "Unrelated dictation")], partials: [segment("private-partial", "Unrelated partial")] });
   const html = render({ meta: { ...recording, status: "complete", durationMs: 65_000 }, segments: [segment("saved", "Saved meeting text", 0)] });
   expect(html).toContain("Saved meeting text");
   expect(html).toContain("1:05");
@@ -212,7 +213,7 @@ test("the global Recorder can display saved and live transcripts without a viewe
     const html = render({ meta: { ...recording, status: "complete" }, segments: [segment("saved", "Saved meeting", 0)] }, "inline");
     expect(html).toContain("Contract review");
     expect(html).toContain("Saved meeting");
-    setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("live", "Current meeting")], partial: { ...segment("partial", "Still speaking"), final: false } });
+    setRenderState({ recording, recordingStartedAt: Date.now(), segments: [segment("live", "Current meeting")], partials: [{ ...segment("partial", "Still speaking"), final: false }] });
     const live = render(undefined, "inline");
     expect(live).toContain("Current meeting");
     expect(live).toContain("Still speaking");
@@ -233,4 +234,18 @@ test("transcript tabs use document expand/close controls while full-page details
   expect(page).toContain("Saved meeting");
   expect(page).not.toContain('aria-label="Expand document"');
   expect(page).not.toContain('aria-label="Close tab"');
+});
+
+test("a split recording shows both simultaneous input labels in chronological order", () => {
+  setRenderState({
+    recording: { ...recording, speakerNames: { 0: "Microphone", 1: "System audio" } },
+    partials: [
+      { ...segment("system", "Remote words", 1), startMs: 1200, final: false, source: "system" },
+      { ...segment("microphone", "Local words", 0), startMs: 1000, final: false, source: "microphone" },
+    ],
+  });
+  const html = render();
+  expect(html).toContain("Microphone");
+  expect(html).toContain("System audio");
+  expect(html.indexOf("Local words")).toBeLessThan(html.indexOf("Remote words"));
 });

@@ -162,11 +162,13 @@ export type AudioTranscriptSegment = {
   /** True once the segment is finalized by VAD; partials get replaced. */
   final: boolean;
   /**
-   * Zero-based speaker id from on-device diarization, or null when speakers
+   * Zero-based speaker id from local or cloud diarization, or null when speakers
    * were not identified (diarization off, or the segment fell in a gap). The
    * UI renders these as "Speaker 1", "Speaker 2", … by first appearance.
    */
   speaker?: number | null;
+  /** Physical input, retained independently of editable speaker assignments. */
+  source?: AudioCaptureSourceKind;
 };
 
 /**
@@ -201,6 +203,10 @@ export type AudioMeetingStatus = {
 
 export type AudioRecordingMeta = {
   transcriptionSource?: "local" | "cloud";
+  speakerDetection?: "cloud";
+  /** Saved and available while speaker detection finishes in the background. */
+  speakerProcessing?: boolean;
+  speakerError?: string;
   id: string;
   title: string;
   createdAt: number;
@@ -212,6 +218,8 @@ export type AudioRecordingMeta = {
   folderPath: string;
   /** Absolute path of the audio file (webm/opus), null until first chunk. */
   audioPath: string | null;
+  /** Separate original inputs when microphone and system audio are captured together. */
+  sourceAudioPaths?: Partial<Record<AudioCaptureSourceKind, string>>;
   /** Absolute path of transcript.json once finalized. */
   transcriptPath: string | null;
   sizeBytes: number;
@@ -348,7 +356,9 @@ export type AudioRecordingStartInput = {
   modelId: string;
   sources: AudioCaptureSourceKind[];
   ephemeral?: boolean;
-  /** Run on-device speaker diarization at finalize (retained recordings only). */
+  /** Preserve and transcribe each input independently instead of the playback mix. */
+  separateSources?: boolean;
+  /** Identify speakers during retained recordings with the selected engine. */
   diarize?: boolean;
 };
 
@@ -372,10 +382,13 @@ export type AudioRecorderEvent =
   /** A stopping recording is running its on-device speaker pass (can take a while). */
   | { type: "recording-diarizing"; recordingId: string }
   | { type: "transcriber-status"; status: AudioTranscriberStatus }
-  | { type: "transcript-partial"; streamId: string; segment: AudioTranscriptSegment }
+  | { type: "transcript-partial"; streamId: string; segment: AudioTranscriptSegment; parts?: AudioTranscriptSegment[] }
   | { type: "transcript-segment"; streamId: string; segment: AudioTranscriptSegment }
+  | { type: "transcript-speakers-updated"; streamId: string; segments: AudioTranscriptSegment[]; replacedIds?: string[]; speakerNames: Record<string, string> }
+  | { type: "recording-warning"; recordingId: string; error: string }
+  | { type: "recording-updated"; meta: AudioRecordingMeta }
   /** A speech run ended with an empty decode — drop any partial up to endMs. */
-  | { type: "transcript-partial-clear"; streamId: string; endMs: number }
+  | { type: "transcript-partial-clear"; streamId: string; endMs: number; source?: AudioCaptureSourceKind }
   /** A new recording began — live-caption consumers reset their state. */
   | { type: "recording-started"; recordingId: string }
   | { type: "transcribe-file-done"; streamId: string }

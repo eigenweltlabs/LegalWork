@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Keyboard } from "lucide-react";
 
 import {
@@ -11,47 +11,10 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { AudioSystemDictationPlatform } from "@legalwork/types/audio";
 import { t } from "@/i18n";
 
-import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
+import { dictationAcceleratorFromEvent, formatDictationShortcut } from "../../recorder/dictation-shortcut";
 import { useRecorderStore } from "../../recorder/recorder-store";
-
-function acceleratorFromEvent(
-  event: KeyboardEvent<HTMLButtonElement>,
-  platform: AudioSystemDictationPlatform,
-): string | null {
-  event.preventDefault();
-  event.stopPropagation();
-  if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return null;
-
-  const modifiers: string[] = [];
-  if (event.ctrlKey) modifiers.push("Control");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
-  if (event.metaKey) modifiers.push(platform === "darwin" ? "Command" : "Super");
-
-  let key = "";
-  if (/^Key[A-Z]$/.test(event.code)) key = event.code.slice(3);
-  else if (/^Digit[0-9]$/.test(event.code)) key = event.code.slice(5);
-  else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(event.key)) key = event.key.toUpperCase();
-  else {
-    const namedKeys: Record<string, string> = {
-      " ": "Space",
-      ArrowUp: "Up",
-      ArrowDown: "Down",
-      ArrowLeft: "Left",
-      ArrowRight: "Right",
-      Backspace: "Backspace",
-      Delete: "Delete",
-      Enter: "Enter",
-      Tab: "Tab",
-    };
-    key = namedKeys[event.key] ?? "";
-  }
-  if (!key || (modifiers.length === 0 && !key.startsWith("F"))) return null;
-  return [...modifiers, key].join("+");
-}
 
 export function DictationShortcutControl(props: { compact?: boolean; disabled?: boolean; demo?: boolean; onConfigured?: () => void }) {
   const store = useRecorderStore();
@@ -102,7 +65,9 @@ export function DictationShortcutControl(props: { compact?: boolean; disabled?: 
           event.stopPropagation();
           return;
         }
-        const accelerator = acceleratorFromEvent(event, dictation?.platform ?? "darwin");
+        event.preventDefault();
+        event.stopPropagation();
+        const accelerator = dictationAcceleratorFromEvent(event, dictation?.platform ?? "darwin");
         if (!accelerator) return;
         if (props.demo) {
           setDemoAccelerator(accelerator);

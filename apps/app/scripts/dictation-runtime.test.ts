@@ -132,6 +132,28 @@ test("model selection cannot switch transcription engines during capture startup
   } finally { store.setState({ starting: false }); }
 });
 
+test("background speaker processing leaves Record enabled and old updates do not change the next capture", async () => {
+  const previous = { ...meta, id: "previous-meeting", ephemeral: false, status: "complete", speakerProcessing: true } satisfies AudioRecordingMeta;
+  stopResult = Promise.resolve(previous);
+  await store.getState().startRecording("First meeting");
+  await store.getState().stopRecording();
+  expect(store.getState().finalizing).toBe(false);
+  expect(store.getState().recording).toBeNull();
+  expect(store.getState().recordings[0].speakerProcessing).toBe(true);
+
+  await store.getState().startRecording("Next meeting");
+  expect(captureStarts).toBe(2);
+  const current = store.getState().recording;
+  handleEvent({ type: "transcript-speakers-updated", streamId: previous.id, segments: [], speakerNames: { "0": "Old speaker" } });
+  handleEvent({ type: "recording-warning", recordingId: previous.id, error: "Old provider failed" });
+  handleEvent({ type: "recording-updated", meta: { ...previous, speakerProcessing: false, speakerCount: 2 } });
+  expect(store.getState().recording).toBe(current);
+  expect(store.getState().finalizing).toBe(false);
+  expect(store.getState().error).toBeNull();
+  expect(store.getState().recordings[0].speakerProcessing).toBe(false);
+  expect(store.getState().recordings[0].speakerCount).toBe(2);
+});
+
 test("cloud dictation works without an installed local model and uses the selected regional alias", async () => {
   store.setState({ transcriptionSource: "cloud", bootstrap: { ...bootstrap, models: [], engine: { available: false, error: "Not installed" },
     cloud: { models: [{ model: "gemini-transcribe-live-eu", name: "Gemini", region: "EU", enabled: true, available: true }] } } });
@@ -522,4 +544,45 @@ test("Stop immediately marks a meeting as finishing, then clears both recording 
   expect(store.getState().finalizing).toBe(false);
   expect(store.getState().meeting?.state).toBe("idle");
   expect(meetingOpens).toBe(0);
+});
+
+test("simultaneous input partials survive the other input finishing or clearing", async () => {
+  await store.getState().startMeetingRecording();
+  expect(recordingInputs[0].separateSources).toBe(true);
+  const segment = { id: "mic-partial", text: "Local speech", startMs: 1000, endMs: 2000, final: false, source: "microphone", speaker: 0 } satisfies import("@legalwork/types/audio").AudioTranscriptSegment;
+  const remote = { ...segment, id: "system-partial", text: "Remote speech", source: "system", speaker: 1 } satisfies import("@legalwork/types/audio").AudioTranscriptSegment;
+  handleEvent({ type: "transcript-partial", streamId: meta.id, segment });
+  handleEvent({ type: "transcript-partial", streamId: meta.id, segment: remote });
+  expect(store.getState().partials).toHaveLength(2);
+  handleEvent({ type: "transcript-partial", streamId: meta.id, segment: { ...segment, text: "Local speech updated" } });
+  expect(store.getState().partials).toHaveLength(2);
+  handleEvent({ type: "transcript-segment", streamId: meta.id, segment: { ...remote, final: true } });
+  expect(store.getState().partials.map(s => s.text)).toEqual(["Local speech updated"]);
+  handleEvent({ type: "transcript-partial-clear", streamId: meta.id, source: "system", endMs: 3000 });
+  expect(store.getState().partials).toHaveLength(1);
+  handleEvent({ type: "transcript-partial-clear", streamId: meta.id, source: "microphone", endMs: 3000 });
+  expect(store.getState().partials).toHaveLength(0);
+});
+
+test("cloud meetings enable the second speaker pass without local models and apply revisions without stopping", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: { ...bootstrap, cloud: { models: [
+    { model: "gemini-transcribe-live-eu", name: "Cloud", region: "EU", enabled: true, available: true },
+  ] } } });
+  await store.getState().startMeetingRecording();
+  expect(recordingInputs[0].diarize).toBe(true);
+  const segment = { id: "remote", text: "Remote speech", startMs: 1000, endMs: 2000, final: true, source: "system", speaker: 1 } satisfies import("@legalwork/types/audio").AudioTranscriptSegment;
+  handleEvent({ type: "transcript-segment", streamId: meta.id, segment });
+  handleEvent({ type: "transcript-speakers-updated", streamId: meta.id, segments: [{ ...segment, speaker: 2 }], speakerNames: { 2: "System audio 2" } });
+  expect(store.getState().segments).toHaveLength(1);
+  expect(store.getState().segments[0].speaker).toBe(2);
+  expect(store.getState().recording?.speakerNames?.[2]).toBe("System audio 2");
+  const first = { ...segment, id: "remote:w0", text: "Remote", speaker: 2 };
+  const second = { ...segment, id: "remote:w1", text: "speech", speaker: 3 };
+  handleEvent({ type: "transcript-speakers-updated", streamId: meta.id, replacedIds: [segment.id], segments: [first, second], speakerNames: { 2: "One", 3: "Two" } });
+  expect(store.getState().segments.map(item => item.id)).toEqual([first.id, second.id]);
+  handleEvent({ type: "transcript-partial", streamId: meta.id, segment: { ...segment, final: false }, parts: [{ ...first, final: false }, { ...second, final: false }] });
+  expect(store.getState().partials.map(item => item.speaker)).toEqual([2, 3]);
+  handleEvent({ type: "recording-warning", recordingId: meta.id, error: "Speaker detection is unavailable." });
+  expect(store.getState().recording?.id).toBe(meta.id);
+  expect(captureStops).toBe(0);
 });

@@ -3,9 +3,9 @@
  *
  * Builds one WebAudio graph per recording:
  *
- *   microphone (getUserMedia) ─┐
- *                              ├→ mix → MediaStreamDestination → MediaRecorder (audio.webm on disk)
- *   system audio (loopback) ───┘        └→ AudioWorklet → 16 kHz mono Float32 PCM → local transcriber
+ * Each input has its own PCM worklet and compressed recording. A separate
+ * playback mix feeds audio.webm; transcription never consumes that mix when
+ * multiple inputs are captured. All branches share the same 16 kHz clock.
  *
  * The AudioContext itself runs at 16 kHz so Chromium does the resampling and
  * the worklet only has to batch mono frames. System audio arrives through
@@ -104,8 +104,8 @@ export type CaptureHandle = {
 };
 
 export type CaptureCallbacks = {
-  onPcm: (chunk: ArrayBuffer) => void;
-  onMediaChunk: (chunk: ArrayBuffer) => void;
+  onPcm: (chunk: ArrayBuffer, source?: AudioCaptureSourceKind) => void;
+  onMediaChunk: (chunk: ArrayBuffer, source?: AudioCaptureSourceKind) => void;
   /** Live dictation feedback, independent of transcription's 256 ms PCM batches. */
   onMeter?: (level: number) => void;
   onMicrophone?: (name: string) => void;
@@ -257,22 +257,23 @@ export async function startCapture(
   const context = new AudioContext(contextOptions);
   const streams = new Map<AudioCaptureSourceKind, MediaStream>();
   const analysers = new Map<AudioCaptureSourceKind, AnalyserNode>();
-  let recorder: MediaRecorder | null = null;
-  let workletNode: AudioWorkletNode | null = null;
+  const recorders: MediaRecorder[] = [];
+  const worklets: AudioWorkletNode[] = [];
+  const pcmFlushes = new Map<AudioWorkletNode, () => void>();
   let meterTimer: number | null = null;
   let stopped = false;
-  let onPcmFlushed: (() => void) | null = null;
   let stopPromise: Promise<void> | null = null;
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
     if (meterTimer !== null) window.clearInterval(meterTimer);
-    try {
-      workletNode?.port.close();
-      workletNode?.disconnect();
-    } catch {
-      // context teardown races are fine
+    for (const recorder of recorders) {
+      if (recorder.state !== "inactive") recorder.stop();
+    }
+    for (const node of worklets) {
+      node.port.close();
+      node.disconnect();
     }
     for (const stream of streams.values()) {
       for (const track of stream.getTracks()) track.stop();
@@ -319,6 +320,10 @@ export async function startCapture(
     }
     if (streams.size === 0) throw new Error(t("recorder.no_audio_sources"));
 
+    // Build every branch while paused, then start on one shared clock. This
+    // keeps timestamps aligned even when opening the second device took time.
+    await context.suspend();
+    const inputs = new Map<AudioCaptureSourceKind, MediaStreamAudioSourceNode>();
     const mix = context.createGain();
     for (const [kind, stream] of streams) {
       const sourceNode = context.createMediaStreamSource(stream);
@@ -326,6 +331,7 @@ export async function startCapture(
       analyser.fftSize = 512;
       sourceNode.connect(analyser);
       sourceNode.connect(mix);
+      inputs.set(kind, sourceNode);
       analysers.set(kind, analyser);
       const audioTrack = stream.getAudioTracks()[0];
       audioTrack?.addEventListener("ended", () => {
@@ -353,40 +359,49 @@ export async function startCapture(
       bus = limiter;
     }
 
-    // PCM branch → local transcriber.
-    workletNode = new AudioWorkletNode(context, "legalwork-pcm-batcher", {
-      numberOfInputs: 1,
-      numberOfOutputs: 0,
-      channelCount: 1,
-      channelCountMode: "explicit",
-      channelInterpretation: "speakers",
-    });
-    workletNode.port.onmessage = (event) => {
-      if (!stopped && event.data instanceof ArrayBuffer) callbacks.onPcm(event.data);
-      if (event.data === "flushed") onPcmFlushed?.();
-    };
-    bus.connect(workletNode);
-
-    // Compressed branch → audio.webm on disk.
-    const destination = context.createMediaStreamDestination();
-    bus.connect(destination);
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 48_000 });
-    // Track in-flight blob→ArrayBuffer conversions so stop() can await the
-    // final chunk (the one carrying the webm cues) before tearing down.
     const pendingChunkWrites = new Set<Promise<void>>();
-    recorder.ondataavailable = (event) => {
-      if (event.data.size === 0) return;
-      const write = event.data
-        .arrayBuffer()
-        .then((buffer) => callbacks.onMediaChunk(buffer))
-        .catch(() => {})
-        .finally(() => pendingChunkWrites.delete(write));
-      pendingChunkWrites.add(write);
+    let chunkWriteError: unknown;
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus" : "audio/webm";
+    const recordAudio = (input: AudioNode, source?: AudioCaptureSourceKind) => {
+      const destination = context.createMediaStreamDestination();
+      input.connect(destination);
+      const recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 48_000 });
+      recorder.ondataavailable = (event) => {
+        if (event.data.size === 0) return;
+        const write = event.data.arrayBuffer()
+          .then(buffer => callbacks.onMediaChunk(buffer, source))
+          .catch(error => { chunkWriteError = error; })
+          .finally(() => pendingChunkWrites.delete(write));
+        pendingChunkWrites.add(write);
+      };
+      recorders.push(recorder);
+      recorder.start(1000);
     };
-    recorder.start(1000);
+    const transcribeAudio = (input: AudioNode, source?: AudioCaptureSourceKind) => {
+      const node = new AudioWorkletNode(context, "legalwork-pcm-batcher", {
+        numberOfInputs: 1, numberOfOutputs: 0,
+        channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers",
+      });
+      node.port.onmessage = (event) => {
+        if (!stopped && event.data instanceof ArrayBuffer) callbacks.onPcm(event.data, source);
+        if (event.data === "flushed") pcmFlushes.get(node)?.();
+      };
+      worklets.push(node);
+      input.connect(node);
+    };
+    // Keep the existing playback file, plus the original inputs for future
+    // processing. Single-input dictation/imports retain their existing protocol.
+    recordAudio(bus);
+    if (multiSource) {
+      for (const [source, input] of inputs) {
+        recordAudio(input, source);
+        transcribeAudio(input, source);
+      }
+    } else {
+      transcribeAudio(bus);
+    }
+    await context.resume();
 
     const onMicrophone = callbacks.onMicrophone;
     if (options.dictation && onMicrophone) {
@@ -406,20 +421,20 @@ export async function startCapture(
     }
 
     const flushPcm = async () => {
-      const node = workletNode;
-      if (!node) return;
       if (context.state === "suspended") await context.resume();
-      let timeout: number | undefined;
-      try {
-        await new Promise<void>((resolve, reject) => {
-          onPcmFlushed = resolve;
-          timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 1500);
-          node.port.postMessage("flush");
-        });
-      } finally {
-        onPcmFlushed = null;
-        if (timeout !== undefined) window.clearTimeout(timeout);
-      }
+      await Promise.all(worklets.map(async node => {
+        let timeout: number | undefined;
+        try {
+          await new Promise<void>((resolve, reject) => {
+            pcmFlushes.set(node, resolve);
+            timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 1500);
+            node.port.postMessage("flush");
+          });
+        } finally {
+          pcmFlushes.delete(node);
+          if (timeout !== undefined) window.clearTimeout(timeout);
+        }
+      }));
     };
 
     const onMeter = callbacks.onMeter;
@@ -450,13 +465,13 @@ export async function startCapture(
           try {
             // Flush the encoder before the graph goes away so the final
             // webm chunk (containing the cues) reaches disk.
-            const activeRecorder = recorder;
-            if (activeRecorder && activeRecorder.state !== "inactive") {
-              await new Promise<void>((resolve) => {
-                activeRecorder.addEventListener("stop", () => resolve(), { once: true });
-                activeRecorder.stop();
+            await Promise.all(recorders.map(async recorder => {
+              if (recorder.state === "inactive") return;
+              await new Promise<void>(resolve => {
+                recorder.addEventListener("stop", () => resolve(), { once: true });
+                recorder.stop();
               });
-            }
+            }));
             // The acknowledgement trails the final partial PCM batch on
             // the same port. Finalize transcription only after it is sent.
             await flushPcm();
@@ -465,6 +480,7 @@ export async function startCapture(
             while (pendingChunkWrites.size > 0) {
               await Promise.all(Array.from(pendingChunkWrites));
             }
+            if (chunkWriteError) throw chunkWriteError;
           } finally {
             await cleanup();
           }

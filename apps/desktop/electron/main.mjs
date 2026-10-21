@@ -920,7 +920,8 @@ function keepAliveOnClose() {
   const meeting = meetingMonitor.status();
   if (meeting.detectionEnabled && meeting.detectionSupported) return true;
   // A call recording behind a closed window must finalize, not vanish.
-  return (recorderServiceInstance?.activeRecordings.size ?? 0) > 0;
+  return (recorderServiceInstance?.activeRecordings.size ?? 0) > 0
+    || (recorderServiceInstance?.backgroundRecordings.size ?? 0) > 0;
 }
 
 function syncBackgroundPresence() {
@@ -3059,9 +3060,9 @@ browserPanel.registerIpc(ipcMain);
 // High-frequency payloads use fire-and-forget send() instead of the typed
 // invoke bridge: 16 kHz mono Float32 PCM for live transcription and
 // MediaRecorder chunks for the audio file on disk.
-ipcMain.on("legalwork:audio:pcm", (_event, streamId, buffer) => {
+ipcMain.on("legalwork:audio:pcm", (_event, streamId, buffer, source) => {
   if (typeof streamId !== "string" || !(buffer instanceof ArrayBuffer)) return;
-  recorderService().feedPcm(streamId, buffer);
+  recorderService().feedPcm(streamId, buffer, source);
 });
 ipcMain.on("legalwork:audio:dictation-level", (event, level) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
@@ -3072,9 +3073,9 @@ ipcMain.on("legalwork:audio:meeting-level", (event, recordingId, level) => {
   if (meetingMonitor.status().recordingId !== recordingId) return;
   dictationHud.feedLevel(level);
 });
-ipcMain.on("legalwork:audio:media-chunk", (_event, recordingId, chunk) => {
+ipcMain.on("legalwork:audio:media-chunk", (_event, recordingId, chunk, source) => {
   if (typeof recordingId !== "string" || !(chunk instanceof ArrayBuffer)) return;
-  recorderService().appendMediaChunk(recordingId, chunk);
+  recorderService().appendMediaChunk(recordingId, chunk, source);
 });
 // Overlay ↔ main-window relays. The overlay window has no session client of
 // its own; questions go to the main window's AI and answers stream back.

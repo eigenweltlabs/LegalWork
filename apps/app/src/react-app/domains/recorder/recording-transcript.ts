@@ -8,13 +8,14 @@ export type TranscriptTurn = {
 };
 
 /** Keep consecutive speech together; a live partial replaces its previous text. */
-export function transcriptTurns(segments: AudioTranscriptSegment[], partial: AudioTranscriptSegment | null): TranscriptTurn[] {
+export function transcriptTurns(segments: AudioTranscriptSegment[], partials: AudioTranscriptSegment[] | AudioTranscriptSegment | null): TranscriptTurn[] {
   const turns: TranscriptTurn[] = [];
-  for (const segment of partial ? [...segments, partial] : segments) {
+  const live = Array.isArray(partials) ? partials : partials ? [partials] : [];
+  for (const segment of [...segments, ...live].sort((a, b) => a.startMs - b.startMs)) {
     if (!segment.text.trim()) continue;
     const speaker = segment.speaker ?? null;
     const previous = turns.at(-1);
-    if (previous && previous.speaker === speaker) previous.segments.push(segment);
+    if (previous && speaker !== null && previous.speaker === speaker && previous.segments.at(-1)?.final === segment.final && previous.segments.at(-1)?.source === segment.source) previous.segments.push(segment);
     else turns.push({ id: segment.id, startMs: segment.startMs, speaker, segments: [segment] });
   }
   return turns;

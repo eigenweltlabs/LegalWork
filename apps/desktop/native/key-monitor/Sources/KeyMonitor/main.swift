@@ -388,6 +388,26 @@ private let keyNames: [CGKeyCode: String] = [
     122: "F1", 123: "Left", 124: "Right", 125: "Down", 126: "Up",
 ]
 
+// Punctuation depends on the active layout. In particular, the German < key
+// is absent from the ANSI table above. Strip Control/Command so control
+// characters do not hide its printable name, while retaining Shift/Option.
+private func shortcutKeyName(_ event: CGEvent, code: CGKeyCode) -> String {
+    if let name = keyNames[code] { return name }
+    if (event.type == .keyDown || event.type == .keyUp),
+       let nativeEvent = NSEvent(cgEvent: event),
+       let characters = nativeEvent.characters(byApplyingModifiers: nativeEvent.modifierFlags.intersection([.shift, .option])),
+       characters.unicodeScalars.count == 1,
+       let scalar = characters.unicodeScalars.first,
+       CharacterSet.punctuationCharacters.union(.symbols).contains(scalar) {
+        return characters == "+" ? "Plus" : characters
+    }
+    return "Other\(code)"
+}
+
+// A modifier or input-source change before key-up must not leave the original
+// key stuck down in the shortcut service.
+private var pressedKeyNames: [CGKeyCode: String] = [:]
+
 private let modifierFlags: [CGKeyCode: CGEventFlags] = [
     54: .maskCommand, 55: .maskCommand,
     56: .maskShift, 60: .maskShift,
@@ -411,12 +431,16 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
     }
 
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-    let name = keyNames[code] ?? "Other\(code)"
+    let name = pressedKeyNames[code] ?? shortcutKeyName(event, code: code)
 
     switch type {
     case .keyDown:
-        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 { emit("down", name) }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            pressedKeyNames[code] = name
+            emit("down", name)
+        }
     case .keyUp:
+        pressedKeyNames.removeValue(forKey: code)
         emit("up", name)
     case .flagsChanged:
         if let flag = modifierFlags[code] {
@@ -429,6 +453,7 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
 }
 
 private func teardownTap() {
+    pressedKeyNames.removeAll()
     if let runLoopSource {
         CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
     }
@@ -511,6 +536,7 @@ let watchdog = CFRunLoopTimerCreateWithHandler(
 ) { _ in
     if let eventTap, !CGEvent.tapIsEnabled(tap: eventTap) {
         CGEvent.tapEnable(tap: eventTap, enable: true)
+        pressedKeyNames.removeAll()
         emit("reset", "*")
     }
 }

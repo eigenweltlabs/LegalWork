@@ -26,6 +26,8 @@ import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
 import { editTranscriptSpeakers } from "./transcript-edit.mjs";
 import { CloudTranscriber, isCloudTranscriptionModel } from "./cloud-transcriber.mjs";
+import { mergeSpeakerTurns } from "./cloud-speakers.mjs";
+import { mergeSpeakerWords, splitCloudTranscript } from "./cloud-transcript.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -145,6 +147,8 @@ export class RecorderService {
      * @type {Map<string, ArrayBuffer[]>}
      */
     this.pendingPcm = new Map();
+    /** @type {Map<string, { recordingId: string, source: import("@legalwork/types/audio").AudioCaptureSourceKind, speaker: number }>} */
+    this.recordingInputs = new Map();
     /** @type {{ modelId: string, language: string } | null} */
     this.loadedModel = null;
     /** @type {import("@legalwork/types/audio").AudioTranscriberStatus} */
@@ -157,14 +161,25 @@ export class RecorderService {
      *   sizeBytes: number,
      *   startedAt: number,
      *   audioStream: import('node:fs').WriteStream | null,
+     *   sourceStreams?: Map<import("@legalwork/types/audio").AudioCaptureSourceKind, import('node:fs').WriteStream>,
+     *   finalizingStreams?: Set<string>,
      *   transcriptStream?: import('node:fs').WriteStream,
      *   resolveFinalized: (() => void) | null,
      *   importAudioPath?: string,
      *   diarize?: boolean,
+     *   cloudSpeakers?: Map<string, { ids: Map<number, number>, turns: { startMs: number, endMs: number, speaker: number | null }[], words: { text?: string, startMs: number, endMs: number, speaker: number | null }[], endMs: number }>,
+     *   cloudDiarize?: boolean,
+     *   speakerPasses?: import("./deferred-cloud-speakers.mjs").DeferredCloudSpeakerPass[],
+     *   cloudSegments?: Map<string, { streamId: string, original: import("@legalwork/types/audio").AudioTranscriptSegment, parts: import("@legalwork/types/audio").AudioTranscriptSegment[] }>,
+     *   cloudPartials?: Map<string, import("@legalwork/types/audio").AudioTranscriptSegment>,
      *   speakerTurns?: { startMs: number, endMs: number, speaker: number }[] | null,
      * }>}
      */
     this.activeRecordings = new Map();
+    /** @type {typeof this.activeRecordings} */
+    this.backgroundRecordings = new Map();
+    /** @type {Map<string, Promise<void>>} */
+    this.speakerJobs = new Map();
 
     /**
      * Live-transcript mirror: while set, the growing transcript of the active
@@ -173,7 +188,7 @@ export class RecorderService {
      * call" toggle). Cleared when toggled off or the recording ends.
      * @type {{ workspacePath: string, filePath: string, fileName: string,
      * live: { meta: import("@legalwork/types/audio").AudioRecordingMeta, segments: import("@legalwork/types/audio").AudioTranscriptSegment[] },
-     * written: number, initialized: boolean, queued: boolean, ended: boolean, endWritten: boolean } | null}
+     * written: number, revision: number, writtenRevision: number, initialized: boolean, queued: boolean, ended: boolean, endWritten: boolean } | null}
      */
     this.liveTranscript = null;
     this.liveTranscriptWriteQueue = Promise.resolve();
@@ -195,7 +210,7 @@ export class RecorderService {
     if (!live) return { ok: false, filePath: null, fileName: null, error: "No recording is active." };
     if (this.liveTranscript?.filePath !== filePath || this.liveTranscript.live.meta.id !== live.meta.id) {
       this.liveTranscript = { workspacePath: root, filePath, fileName, live,
-        written: 0, initialized: false, queued: false, ended: false, endWritten: false };
+        written: 0, revision: 0, writtenRevision: 0, initialized: false, queued: false, ended: false, endWritten: false };
     }
     void this.writeLiveTranscript();
     return { ok: true, filePath, fileName, error: null };
@@ -255,21 +270,27 @@ export class RecorderService {
     // disk I/O is pending. Never queue copies of the entire meeting transcript.
     this.liveTranscriptWriteQueue = this.liveTranscriptWriteQueue.then(async () => {
       if (this.liveTranscript !== target) return;
-      if (!target.initialized) {
-        await fsp.writeFile(workspaceTranscriptOwnerPath(target.filePath), JSON.stringify({ recordingId: target.live.meta.id }));
-        await fsp.writeFile(target.filePath, workspaceTranscriptHeader(target.live.meta));
-        target.initialized = true;
-      }
-      while (this.liveTranscript === target && target.written < target.live.segments.length) {
-        const batch = target.live.segments.slice(target.written, target.written + 100);
-        const body = workspaceTranscriptBody(target.live.meta, batch);
-        await fsp.appendFile(target.filePath, body);
-        target.written += batch.length;
-      }
-      if (this.liveTranscript === target && target.ended && !target.endWritten) {
-        await fsp.appendFile(target.filePath, WORKSPACE_TRANSCRIPT_END);
-        target.endWritten = true;
-      }
+      do {
+        const revision = target.revision;
+        if (!target.initialized || target.writtenRevision !== revision) {
+          await fsp.writeFile(workspaceTranscriptOwnerPath(target.filePath), JSON.stringify({ recordingId: target.live.meta.id }));
+          await fsp.writeFile(target.filePath, workspaceTranscriptHeader(target.live.meta));
+          target.initialized = true;
+          target.written = 0;
+          target.endWritten = false;
+          target.writtenRevision = revision;
+        }
+        while (this.liveTranscript === target && target.written < target.live.segments.length) {
+          const batch = target.live.segments.slice(target.written, target.written + 100);
+          const body = workspaceTranscriptBody(target.live.meta, batch);
+          await fsp.appendFile(target.filePath, body);
+          target.written += batch.length;
+        }
+        if (this.liveTranscript === target && target.ended && !target.endWritten) {
+          await fsp.appendFile(target.filePath, WORKSPACE_TRANSCRIPT_END);
+          target.endWritten = true;
+        }
+      } while (this.liveTranscript === target && target.writtenRevision !== target.revision);
     }).catch(error => {
       this.broadcast({ type: "recording-error", recordingId: target.live.meta.id,
         error: `Could not save the live transcript: ${error.message}` });
@@ -440,7 +461,14 @@ export class RecorderService {
         return this.transcriberStatus;
       }
       this.loadedModel = { modelId, language };
-      this.worker = new CloudTranscriber({ modelId, language, resolveConnection: this.resolveCloudConnection });
+      this.worker = new CloudTranscriber({ modelId, language, resolveConnection: this.resolveCloudConnection,
+        onSpeakerPass: (streamId, pass) => {
+          const recordingId = this.recordingInputs.get(streamId)?.recordingId ?? streamId;
+          const recording = this.activeRecordings.get(recordingId);
+          if (recording) (recording.speakerPasses ??= []).push(pass);
+          else void pass.stop();
+        },
+      });
       this.worker.on("message", message => this.handleWorkerMessage(message));
       this.workerReady = true;
       this.setTranscriberStatus({ state: "ready", modelId, error: null });
@@ -514,6 +542,9 @@ export class RecorderService {
 
   handleWorkerMessage(message) {
     if (!message || typeof message !== "object") return;
+    const input = this.recordingInputs.get(message.streamId);
+    const streamId = input?.recordingId ?? message.streamId;
+    const recording = this.activeRecordings.get(streamId) ?? this.backgroundRecordings.get(streamId);
     switch (message.type) {
       case "ready": {
         this.workerReady = true;
@@ -539,55 +570,120 @@ export class RecorderService {
       case "partial":
       case "segment": {
         const segment = {
-          id: message.type === "segment" ? message.id : `partial-${message.streamId}`,
+          id: message.type === "segment" ? (input ? `${message.streamId}:${message.id}` : message.id) : `partial-${message.streamId}`,
           startMs: message.startMs,
           endMs: message.endMs,
           text: message.text,
           final: message.type === "segment",
-          speaker: Number.isInteger(message.speaker) && message.speaker >= 0 ? message.speaker : null,
+          speaker: recording?.cloudDiarize ? null : input?.speaker ?? (Number.isInteger(message.speaker) && message.speaker >= 0 ? message.speaker : null),
+          ...(input ? { source: input.source } : {}),
         };
-        const recording = this.activeRecordings.get(message.streamId);
+        const detected = recording?.cloudSpeakers?.get(message.streamId);
+        const parts = recording?.cloudDiarize
+          ? splitCloudTranscript(segment, detected?.words ?? [], detected?.turns ?? [], detected?.endMs ?? 0) : [segment];
         if (recording && segment.final) {
-          recording.segments.push(segment);
-          recording.transcriptStream?.write(`${JSON.stringify(segment)}\n`);
+          if (recording.cloudDiarize) {
+            recording.cloudSegments.set(segment.id, { streamId: message.streamId, original: segment, parts });
+            recording.cloudPartials.delete(message.streamId);
+          }
+          recording.segments.push(...parts);
+          for (const part of parts) recording.transcriptStream?.write(`${JSON.stringify(part)}\n`);
           // Mirror the growing transcript to the workspace file if armed.
           if (this.liveTranscript) void this.writeLiveTranscript();
         }
-        this.broadcast({
-          type: message.type === "segment" ? "transcript-segment" : "transcript-partial",
-          streamId: message.streamId,
-          segment,
+        if (segment.final) {
+          for (const part of parts) this.broadcast({ type: "transcript-segment", streamId, segment: part });
+          this.broadcast({ type: "transcript-partial-clear", streamId, endMs: segment.endMs, ...(input ? { source: input.source } : {}) });
+        } else {
+          if (recording?.cloudDiarize) recording.cloudPartials.set(message.streamId, segment);
+          this.broadcast({ type: "transcript-partial", streamId, segment, parts });
+        }
+        break;
+      }
+      case "speaker-turns": {
+        if (!recording || recording.meta.ephemeral) break;
+        recording.cloudSpeakers ??= new Map();
+        let detected = recording.cloudSpeakers.get(message.streamId);
+        if (!detected) {
+          detected = { ids: new Map(), turns: [], words: [], endMs: 0 };
+          recording.cloudSpeakers.set(message.streamId, detected);
+        }
+        const names = recording.meta.speakerNames ??= {};
+        const turns = message.turns.map(turn => {
+          if (turn.speaker == null) return turn;
+          if (!detected.ids.has(turn.speaker)) {
+            const speaker = Math.max(-1, ...Object.keys(names).map(Number)) + 1;
+            detected.ids.set(turn.speaker, speaker);
+            names[speaker] ??= `Speaker ${speaker + 1}`;
+          }
+          return { ...turn, speaker: detected.ids.get(turn.speaker) };
         });
+        detected.endMs = Math.max(detected.endMs, message.endMs);
+        detected.turns = mergeSpeakerTurns(detected.turns, { startMs: message.startMs, endMs: message.endMs, turns })
+          .filter(turn => turn.endMs >= detected.endMs - 120_000);
+        detected.words = mergeSpeakerWords(detected.words, { startMs: message.startMs, endMs: message.endMs,
+          words: (message.words ?? []).map(word => ({ ...word, speaker: word.speaker == null ? null : detected.ids.get(word.speaker) ?? null })) });
+        const changed = [];
+        const replacedIds = [];
+        for (const [id, entry] of recording.cloudSegments ?? []) {
+          if (entry.streamId !== message.streamId || entry.original.startMs > detected.endMs + 4000) continue;
+          if (entry.original.endMs < detected.endMs - 120_000) { recording.cloudSegments.delete(id); continue; }
+          const parts = splitCloudTranscript(entry.original, detected.words, detected.turns, detected.endMs, entry.parts);
+          if (JSON.stringify(parts) === JSON.stringify(entry.parts)) continue;
+          replacedIds.push(...entry.parts.map(part => part.id));
+          changed.push(...parts);
+          entry.parts = parts;
+        }
+        if (changed.length) {
+          const removed = new Set(replacedIds);
+          const next = [...recording.segments.filter(segment => !removed.has(segment.id)), ...changed].sort((a, b) => a.startMs - b.startMs);
+          recording.segments.splice(0, recording.segments.length, ...next);
+          recording.transcriptStream?.write(`${JSON.stringify({ replacedIds, segments: changed })}\n`);
+        }
+        recording.meta.speakerDetection = "cloud";
+        recording.transcriptStream?.write(`${JSON.stringify({ speakerNames: names })}\n`);
+        this.broadcast({ type: "transcript-speakers-updated", streamId, segments: changed, replacedIds, speakerNames: { ...names } });
+        const partial = recording.cloudPartials?.get(message.streamId);
+        if (partial) this.broadcast({ type: "transcript-partial", streamId, segment: partial,
+          parts: splitCloudTranscript(partial, detected.words, detected.turns, detected.endMs) });
+        if (this.liveTranscript?.live.meta.id === streamId && changed.length) {
+          this.liveTranscript.revision++;
+          void this.writeLiveTranscript();
+        }
         break;
       }
       case "diarize-error": {
-        this.broadcast({ type: "recording-error", recordingId: message.streamId,
-          error: `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
+        if (recording) recording.meta.speakerError = message.error;
+        this.broadcast({ type: "recording-warning", recordingId: streamId,
+          error: recording?.meta.transcriptionSource === "cloud" ? message.error : `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
         break;
       }
       case "stream-error": {
-        const recording = this.activeRecordings.get(message.streamId);
         if (recording) {
           recording.meta.status = "error";
           recording.meta.error = message.error;
+          this.dropRecordingStreams(streamId);
           recording.resolveFinalized?.();
         }
-        this.broadcast({ type: "recording-error", recordingId: message.streamId, error: message.error });
+        this.broadcast({ type: "recording-error", recordingId: streamId, error: message.error });
         break;
       }
       case "partial-clear": {
+        const partial = recording?.cloudPartials?.get(message.streamId);
+        if (partial && partial.endMs <= message.endMs) recording.cloudPartials.delete(message.streamId);
         this.broadcast({
           type: "transcript-partial-clear",
-          streamId: message.streamId,
+          streamId,
           endMs: message.endMs,
+          ...(input ? { source: input.source } : {}),
         });
         break;
       }
       case "finalized": {
-        const recording = this.activeRecordings.get(message.streamId);
         if (recording) {
-          recording.speakerTurns = Array.isArray(message.speakers) ? message.speakers : null;
-          recording.resolveFinalized?.();
+          if (!input) recording.speakerTurns = Array.isArray(message.speakers) ? message.speakers : null;
+          recording.finalizingStreams?.delete(message.streamId);
+          if (!recording.finalizingStreams?.size) recording.resolveFinalized?.();
         } else {
           this.broadcast({ type: "transcribe-file-done", streamId: message.streamId });
         }
@@ -621,8 +717,32 @@ export class RecorderService {
 
   // ── PCM / media chunk ingest (dedicated channels) ───────────────────────
 
-  feedPcm(streamId, buffer) {
+  recordingStreamIds(recordingId) {
+    const inputs = [...this.recordingInputs].filter(([, input]) => input.recordingId === recordingId).map(([id]) => id);
+    return inputs.length ? inputs : [recordingId];
+  }
+
+  dropRecordingStreams(recordingId) {
+    for (const streamId of this.recordingStreamIds(recordingId)) {
+      this.pendingPcm.delete(streamId);
+      this.worker?.postMessage({ type: "drop", streamId });
+    }
+  }
+
+  forgetRecordingStreams(recordingId) {
+    for (const streamId of this.recordingStreamIds(recordingId)) {
+      this.pendingPcm.delete(streamId);
+      this.recordingInputs.delete(streamId);
+    }
+  }
+
+  feedPcm(streamId, buffer, source) {
     if (!this.worker) return;
+    const recording = this.activeRecordings.get(streamId);
+    if (recording?.sourceStreams?.size) {
+      if (!recording.sourceStreams.has(source) || recording.meta.status === "error") return;
+      streamId = `${streamId}:${source}`;
+    } else if (source !== undefined) return;
     if (!this.workerReady) {
       // ~120 s of 16 kHz Float32 per stream, then oldest chunks drop.
       const queue = this.pendingPcm.get(streamId) ?? [];
@@ -638,10 +758,12 @@ export class RecorderService {
     this.worker.postMessage({ type: "pcm", streamId, buffer });
   }
 
-  appendMediaChunk(recordingId, chunk) {
+  appendMediaChunk(recordingId, chunk, source) {
     const recording = this.activeRecordings.get(recordingId);
-    if (!recording || !recording.audioStream) return;
-    recording.audioStream.write(Buffer.from(chunk));
+    if (!recording) return;
+    const stream = source === undefined ? recording.audioStream : recording.sourceStreams?.get(source);
+    if (!stream) return;
+    stream.write(Buffer.from(chunk));
     recording.sizeBytes += chunk.byteLength;
   }
 
@@ -680,10 +802,29 @@ export class RecorderService {
       projectIds: input?.ephemeral !== true && typeof input?.projectId === "string" && input.projectId.trim() ? [input.projectId.trim()] : [],
     };
 
+    const cloudDiarize = isCloudTranscriptionModel(input?.modelId) && input?.diarize !== false && !meta.ephemeral;
+    const separateSources = input?.separateSources === true && !meta.ephemeral && meta.sources.length > 1;
+    /** @type {Map<import("@legalwork/types/audio").AudioCaptureSourceKind, import('node:fs').WriteStream>} */
+    const sourceStreams = new Map();
+    if (separateSources) {
+      meta.sourceAudioPaths = {};
+      meta.speakerNames = {};
+      for (const source of new Set(meta.sources)) {
+        if (!["microphone", "system", "app"].includes(source)) continue;
+        const speaker = source === "microphone" ? 0 : source === "system" ? 1 : 2;
+        if (!cloudDiarize) meta.speakerNames[speaker] = source === "microphone" ? "Microphone" : source === "system" ? "System audio" : "App audio";
+        const sourcePath = path.join(folderPath, `audio-${source}.webm`);
+        meta.sourceAudioPaths[source] = sourcePath;
+        sourceStreams.set(source, fs.createWriteStream(sourcePath));
+        this.recordingInputs.set(`${id}:${source}`, { recordingId: id, source, speaker });
+      }
+    }
+
     // Diarization is opt-in, needs the models, and only makes sense for a
     // retained multi-voice recording (never a one-shot dictation).
     const diarize =
       input?.diarize === true &&
+      !separateSources &&
       !isCloudTranscriptionModel(input?.modelId) &&
       input?.ephemeral !== true &&
       this.modelManager.isDiarizationInstalled();
@@ -695,20 +836,27 @@ export class RecorderService {
       sizeBytes: 0,
       startedAt: Date.now(),
       audioStream,
+      sourceStreams,
       transcriptStream: this.createTranscriptJournal(meta),
       resolveFinalized: null,
       diarize,
+      cloudSpeakers: new Map(),
+      cloudDiarize,
+      cloudSegments: new Map(),
+      cloudPartials: new Map(),
       speakerTurns: null,
     };
     // Without a listener a disk-full/unlink error would crash the main
     // process as an uncaught 'error' event mid-call.
-    audioStream.on("error", (error) => {
+    for (const stream of [audioStream, ...sourceStreams.values()]) stream.on("error", (error) => {
       meta.status = "error";
       meta.error = error instanceof Error ? error.message : String(error);
       this.broadcast({ type: "recording-error", recordingId: id, error: meta.error });
     });
     this.activeRecordings.set(id, recording);
-    if (isCloudTranscriptionModel(input?.modelId)) this.worker?.postMessage({ type: "begin", streamId: id, ephemeral: meta.ephemeral });
+    if (isCloudTranscriptionModel(input?.modelId)) {
+      for (const streamId of this.recordingStreamIds(id)) this.worker?.postMessage({ type: "begin", streamId, ephemeral: meta.ephemeral, diarize: input?.diarize !== false && !meta.ephemeral });
+    }
     this.powerSessions.acquire(`recording:${id}`);
     try {
       await writeMeta(folderPath, meta);
@@ -716,9 +864,11 @@ export class RecorderService {
       // The renderer's rollback only fires once it has the id; a throw here
       // never returns one, so undo everything before rethrowing or the power
       // blocker and the active entry would leak until quit.
+      this.dropRecordingStreams(id);
+      this.forgetRecordingStreams(id);
       this.activeRecordings.delete(id);
       this.powerSessions.release(`recording:${id}`);
-      await finishStream(audioStream);
+      await Promise.all([audioStream, ...sourceStreams.values()].map(finishStream));
       await finishStream(recording.transcriptStream);
       await fsp.rm(folderPath, { recursive: true, force: true }).catch(() => {});
       throw error;
@@ -743,6 +893,11 @@ export class RecorderService {
     if (!recording) throw new Error(`Unknown recording: ${recordingId}`);
     try {
       return await this.finishRecording(recordingId, recording);
+    } catch (error) {
+      for (const pass of recording.speakerPasses ?? []) await pass.stop();
+      this.backgroundRecordings.delete(recordingId);
+      this.forgetRecordingStreams(recordingId);
+      throw error;
     } finally {
       this.powerSessions.release(`recording:${recordingId}`);
     }
@@ -760,21 +915,22 @@ export class RecorderService {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
-    this.pendingPcm.delete(recordingId);
+    const streamIds = this.recordingStreamIds(recordingId);
+    for (const streamId of streamIds) this.pendingPcm.delete(streamId);
 
     // Flush the VAD → wait for the trailing segments before writing files.
-    // Speaker labels arrive with segments. Finalization only drains the tail.
+    // Cloud speaker detection runs after the live transcript has finished.
     if (this.worker && this.workerReady) {
       if (recording.diarize) this.broadcast({ type: "recording-diarizing", recordingId });
       const cloud = recording.meta.transcriptionSource === "cloud";
       // A very short dictation can finish while the cloud connection is still opening.
-      const finalizeTimeout = recording.diarize ? 10 * 60_000 : cloud ? 65_000 : 15_000;
+      const finalizeTimeout = recording.diarize ? 10 * 60_000 : cloud ? 120_000 : 15_000;
       await new Promise((resolve) => {
         const timeout = setTimeout(() => {
           if (cloud) {
             recording.meta.status = "error";
             recording.meta.error = "Cloud transcription did not finish.";
-            this.worker?.postMessage({ type: "drop", streamId: recordingId });
+            this.dropRecordingStreams(recordingId);
           }
           resolve(undefined);
         }, finalizeTimeout);
@@ -782,16 +938,26 @@ export class RecorderService {
           clearTimeout(timeout);
           resolve(undefined);
         };
-        if (recording.meta.status === "error") recording.resolveFinalized();
-        else this.worker.postMessage({ type: "finalize", streamId: recordingId });
+        recording.finalizingStreams = new Set(streamIds);
+        if (recording.meta.status === "error") {
+          this.dropRecordingStreams(recordingId);
+          recording.resolveFinalized();
+        } else {
+          for (const streamId of streamIds) this.worker.postMessage({ type: "finalize", streamId });
+        }
       });
     }
+    const background = Boolean(recording.speakerPasses?.length);
+    if (background) this.backgroundRecordings.set(recordingId, recording);
+    else this.forgetRecordingStreams(recordingId);
     this.activeRecordings.delete(recordingId);
 
-    await finishStream(recording.audioStream);
+    await Promise.all([recording.audioStream, ...recording.sourceStreams?.values() ?? []].map(finishStream));
     await finishStream(recording.transcriptStream);
+    recording.transcriptStream = undefined;
 
     const meta = recording.meta;
+    meta.speakerProcessing = background;
     meta.durationMs = stoppedAt - recording.startedAt;
     meta.sizeBytes = recording.sizeBytes;
     meta.segmentCount = recording.segments.length;
@@ -817,22 +983,59 @@ export class RecorderService {
       this.broadcast({ type: "live-transcript-stopped" });
     }
     await this.syncWorkspaceTranscripts(meta, segments);
-    return meta;
+    if (background) {
+      this.powerSessions.acquire(`speakers:${recordingId}`);
+      const job = this.finishSpeakers(recordingId, recording).finally(() => {
+        this.backgroundRecordings.delete(recordingId);
+        this.speakerJobs.delete(recordingId);
+        this.forgetRecordingStreams(recordingId);
+        this.powerSessions.release(`speakers:${recordingId}`);
+      });
+      this.speakerJobs.set(recordingId, job);
+    }
+    return { ...meta };
+  }
+
+  async finishSpeakers(recordingId, recording) {
+    try {
+      await Promise.all(recording.speakerPasses.map(pass => pass.finish()));
+      if (this.backgroundRecordings.get(recordingId) !== recording) return;
+      const detail = await this.updateSavedTranscript(recordingId, saved => {
+        if (this.backgroundRecordings.get(recordingId) !== recording) throw new Error("Speaker detection cancelled.");
+        return { segments: recording.segments, meta: {
+          ...saved.meta, speakerProcessing: false, speakerError: recording.meta.speakerError,
+          speakerDetection: recording.meta.speakerDetection, speakerNames: recording.meta.speakerNames,
+          segmentCount: recording.segments.length,
+          speakerCount: new Set(recording.segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker])).size || null,
+        } };
+      });
+      this.broadcast({ type: "recording-updated", meta: detail.meta });
+    } catch (error) {
+      if (this.backgroundRecordings.get(recordingId) !== recording) return;
+      const detail = await this.updateSavedTranscript(recordingId, saved => ({ ...saved,
+        meta: { ...saved.meta, speakerProcessing: false, speakerError: `Speaker detection could not finish: ${error.message}` },
+      })).catch(() => null);
+      if (detail) this.broadcast({ type: "recording-updated", meta: detail.meta });
+    } finally {
+      await Promise.all(recording.speakerPasses.map(pass => pass.stop()));
+    }
   }
 
   async cancelRecording(recordingId) {
+    const background = this.backgroundRecordings.get(recordingId);
+    if (background) {
+      this.backgroundRecordings.delete(recordingId);
+      await Promise.all(background.speakerPasses.map(pass => pass.stop()));
+      await this.speakerJobs.get(recordingId);
+    }
     const recording = this.activeRecordings.get(recordingId);
-    this.pendingPcm.delete(recordingId);
+    this.dropRecordingStreams(recordingId);
+    this.forgetRecordingStreams(recordingId);
     if (!recording) return;
     this.activeRecordings.delete(recordingId);
     this.powerSessions.release(`recording:${recordingId}`);
-    if (this.worker && this.workerReady) {
-      this.worker.postMessage({ type: "drop", streamId: recordingId });
-    }
     // Imported files have no live webm stream (audioStream === null).
-    if (recording.audioStream) {
-      await finishStream(recording.audioStream);
-    }
+    await Promise.all([recording.audioStream, ...recording.sourceStreams?.values() ?? []].map(finishStream));
     await finishStream(recording.transcriptStream);
     await fsp.rm(recording.meta.folderPath, { recursive: true, force: true });
     if (this.liveTranscript && !this.currentLiveSegments()) {
@@ -985,7 +1188,7 @@ export class RecorderService {
         }
         continue;
       }
-      if (meta.status === "recording" && !this.activeRecordings.has(meta.id)) {
+      if ((meta.status === "recording" && !this.activeRecordings.has(meta.id)) || (meta.speakerProcessing && !this.backgroundRecordings.has(meta.id))) {
         const recovered = await this.getRecording(meta.id);
         if (recovered) metas.push(recovered.meta);
       } else metas.push(meta);
@@ -1000,6 +1203,11 @@ export class RecorderService {
     const folderPath = path.join(this.recordingsDir, recordingId);
     const meta = await readMeta(folderPath);
     if (!meta) return null;
+    if (meta.speakerProcessing && !this.backgroundRecordings.has(recordingId)) {
+      meta.speakerProcessing = false;
+      meta.speakerError = "Speaker detection was interrupted. Your transcript is saved.";
+      await writeMeta(folderPath, meta);
+    }
     let segments = [];
     try {
       const raw = await fsp.readFile(path.join(folderPath, "transcript.json"), "utf8");
@@ -1009,10 +1217,19 @@ export class RecorderService {
       // Recover completed segments after an interrupted recording, tolerating
       // a partially written final line. Audio has also been streamed to disk.
       const journal = await fsp.readFile(path.join(folderPath, "transcript.jsonl"), "utf8").catch(() => "");
+      const recovered = new Map();
       for (const line of journal.split("\n")) {
-        try { const segment = JSON.parse(line); if (segment.final && typeof segment.text === "string") segments.push(segment); }
-        catch { /* incomplete tail */ }
+        try {
+          const entry = JSON.parse(line);
+          if (entry.final && typeof entry.text === "string") recovered.set(entry.id, entry);
+          else if (Array.isArray(entry.replacedIds) && Array.isArray(entry.segments)) {
+            for (const id of entry.replacedIds) recovered.delete(id);
+            for (const segment of entry.segments) if (segment.final && typeof segment.text === "string") recovered.set(segment.id, segment);
+          }
+          else if (entry.speakerNames) meta.speakerNames = entry.speakerNames;
+        } catch { /* incomplete tail */ }
       }
+      segments = [...recovered.values()].sort((a, b) => a.startMs - b.startMs);
     }
     if (meta.status === "recording") {
       meta.status = "error";
@@ -1041,6 +1258,9 @@ export class RecorderService {
       const updated = update(detail);
       // Always resolve the destination ourselves, never trust a path in metadata.
       updated.meta.folderPath = path.join(this.recordingsDir, recordingId);
+      await fsp.appendFile(path.join(updated.meta.folderPath, "transcript.jsonl"), `${JSON.stringify({
+        replacedIds: detail.segments.map(segment => segment.id), segments: updated.segments,
+      })}\n${JSON.stringify({ speakerNames: updated.meta.speakerNames ?? {} })}\n`);
       await writeTranscriptFiles(updated.meta, updated.segments);
       await writeMeta(updated.meta.folderPath, updated.meta);
       await this.syncWorkspaceTranscripts(updated.meta, updated.segments);
@@ -1052,7 +1272,10 @@ export class RecorderService {
   }
 
   editTranscript(recordingId, edit) {
-    return this.updateSavedTranscript(recordingId, detail => editTranscriptSpeakers(detail, edit));
+    return this.updateSavedTranscript(recordingId, detail => {
+      if (detail.meta.speakerProcessing) throw new Error("Wait for speaker detection to finish before editing speakers.");
+      return editTranscriptSpeakers(detail, edit);
+    });
   }
 
   /**
@@ -1231,16 +1454,23 @@ export class RecorderService {
 
   dispose() {
     this.stopWorker();
+    for (const [id, recording] of this.backgroundRecordings) {
+      for (const pass of recording.speakerPasses) void pass.stop();
+      this.powerSessions.release(`speakers:${id}`);
+    }
+    this.backgroundRecordings.clear();
     for (const recording of this.activeRecordings.values()) {
       this.powerSessions.release(`recording:${recording.meta.id}`);
       try {
         recording.audioStream?.end();
+        for (const stream of recording.sourceStreams?.values() ?? []) stream.end();
         recording.transcriptStream?.end();
       } catch {
         // shutting down
       }
     }
     this.activeRecordings.clear();
+    this.recordingInputs.clear();
   }
 }
 
@@ -1396,9 +1626,9 @@ export async function writeTranscriptFiles(meta, segments) {
     `- Recorded: ${new Date(meta.createdAt).toISOString()}`,
     `- Duration: ${formatClockTime(meta.durationMs)}`,
     `- Language: ${meta.language}`,
-    `- Model: ${meta.modelId ?? "—"} (local, on-device)`,
+    `- Model: ${meta.modelId ?? "Unknown"} (${meta.transcriptionSource === "cloud" ? "cloud" : "local, on-device"})`,
     `- Sources: ${meta.sources.join(", ")}`,
-    ...(meta.speakerCount ? [`- Speakers: ${meta.speakerCount} (identified on-device)`] : []),
+    ...(meta.speakerCount ? [`- Speakers: ${meta.speakerCount}${meta.speakerDetection === "cloud" ? " (identified in the cloud)" : meta.sourceAudioPaths ? " (labeled by audio input)" : " (identified on-device)"}`] : []),
     "",
     "## Transcript",
     "",
