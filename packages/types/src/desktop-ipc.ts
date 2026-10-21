@@ -141,7 +141,7 @@ export type WorkspaceCopyFilesResult = {
     name: string;
     path?: string;
     status: "copied" | "already_here" | "failed";
-    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "dashboard" | "failed";
   }>;
 };
 
