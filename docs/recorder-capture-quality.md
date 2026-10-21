@@ -4,6 +4,45 @@ This covers three parts of the local Recorder pipeline: per-application audio
 capture on macOS, on-device speaker diarization, and the audio front-end that
 feeds the ASR model. All processing stays on the device.
 
+## Finding recordings from chat
+
+`legalwork_recordings_list` searches the retained recordings in the current
+desktop profile, including global recordings and every project's recordings.
+It supports optional project, title, and inclusive local-date filters, plus
+`scope: "global"` for unassigned recordings only. Discovery returns metadata,
+not transcript excerpts or speaker names.
+Use `period: "yesterday"` or `"today"` to resolve relative dates with the host's
+clock and time zone. Follow `nextCursor` to exhaust a list; later pages retain
+the initial date filters and exclude newly created recordings.
+
+`legalwork_recording_read` reads the current transcript by recording ID, with
+timestamps and saved speaker names. It includes finalized live speech and
+supports `nextOffset` pagination for long transcripts. Refresh from offset zero
+after edits. Temporary dictation captures and internal storage paths are excluded.
+
+The library routes require owner access, inherited from the authenticated chat.
+Collaborators, viewers, unknown sessions, and revoked sessions cannot inspect
+the owner's private library. Interactive chats can read global and current-project
+transcripts directly. Another project's transcript requires an existing project
+or folder grant, or explicit read-only recording approval in that chat. Approval
+does not grant access to other files and expires on restart. Permission, session
+scope, and project-root changes invalidate stale approvals.
+
+Scheduled tasks use the server-recorded project scope from their saved settings:
+`project` includes that project plus unassigned global recordings; `all` includes
+every project plus global recordings. Both discovery and content reads enforce
+this scope. A scheduled run cannot expand access through tool arguments or an
+interactive approval, and verified descendant chats inherit the same restriction.
+Headless servers report that the library is unavailable,
+not that it is empty. Other devices and external cloud libraries are not searched.
+
+Verified on 21 October 2026 with the standard development profile: the same chat
+that previously found only one project recording returned all 15 library entries
+for the previous day, then read a global recording with corrected speaker names.
+Automated coverage includes local midnight, daylight saving transitions,
+pagination, transcript edits, partial/live speech, cross-project approvals,
+existing grants, scheduled project boundaries, and permission downgrades.
+
 ## Capture sources
 
 The Recorder captures the **microphone** and **system audio** (everything the
