@@ -120,6 +120,21 @@ export function LauncherRoute() {
     togglePin: desktop ? () => { const pinned = useLauncherStore.getState().pinned; void launcherWindowControl(pinned ? "unpin" : "pin").then(state => useLauncherStore.getState().setPinned(state.pinned)); } : null,
     refresh,
   } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh]);
+  // The panel grows with its content; the window follows the rendered height.
+  useEffect(() => {
+    if (!desktop || typeof ResizeObserver === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | undefined, last = 0;
+    const observer = new ResizeObserver(entries => {
+      const height = Math.ceil(entries[0]?.contentRect.height ?? 0) + 16;
+      if (!height || Math.abs(height - last) < 4) return;
+      last = height;
+      clearTimeout(timer);
+      timer = setTimeout(() => { void launcherWindowControl("resize", { height }); }, 40);
+    });
+    const target = document.querySelector(".launcher-panel");
+    if (target) observer.observe(target);
+    return () => { clearTimeout(timer); observer.disconnect(); };
+  }, [desktop, shell]);
   if (!shell) return <div className="launcher-root" data-surface="panel"><div className="launcher-panel"><div className="launcher-empty"><Loader2 className="mx-auto mb-2 size-5 animate-spin motion-reduce:animate-none" />{error ?? t("launcher.connecting")}</div></div></div>;
   return <LauncherShellContext.Provider value={shell}><LauncherPanel /></LauncherShellContext.Provider>;
 }

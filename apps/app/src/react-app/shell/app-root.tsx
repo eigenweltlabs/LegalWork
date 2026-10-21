@@ -25,6 +25,7 @@ import { TaskNotificationsListener } from "./task-notifications-listener";
 import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 import { LauncherRoute } from "../launcher/launcher-route";
+import { DesktopNavigateListener } from "../launcher/desktop-navigate-listener";
 
 
 let appOpenedCaptured = false;
@@ -187,6 +188,7 @@ export function AppRoot() {
       <TaskNotificationsListener />
       <OrgPolicyRoot />
       <AssistantNotificationsListener />
+      <DesktopNavigateListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

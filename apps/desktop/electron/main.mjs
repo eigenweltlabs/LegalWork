@@ -38,6 +38,12 @@ import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
+import { LauncherService } from "./launcher/launcher-service.mjs";
+import { LauncherWindow } from "./launcher/launcher-window.mjs";
+import { OriginService, execHelper } from "./launcher/origin-service.mjs";
+import { ScreenCapture } from "./launcher/screen-capture.mjs";
+import { RaycastPairing } from "./launcher/raycast-pairing.mjs";
+import { resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
@@ -795,6 +801,7 @@ const dictationHud = new DictationHud({
       void dictationMicrophones.select(selection).catch(error => console.warn("[dictation-microphone]", error.message));
     })).catch(error => console.warn("[dictation-microphone]", error.message));
   },
+  onAssistant: () => { void launcherService.toggle("hud"); },
 });
 let recorderRendererReady = false;
 let pendingMeetingStart = null;
@@ -879,6 +886,36 @@ const systemDictation = new SystemDictationService({
   },
 });
 
+// ── Global Assistant launcher (quick panel, shortcuts, origin, capture) ────
+const launcherWindow = new LauncherWindow({
+  appRoot: APP_ROOT, startUrl: APP_START_URL, preloadPath: path.join(__dirname, "preload.cjs"), icon: APP_ICON_IMAGE, userDataDir: app.getPath("userData"),
+  focusedDisplay: () => dictationHud.focusedDisplayId ?? null,
+  onVisibility: () => syncBackgroundPresence(),
+  onExpand: route => {
+    void createMainWindow().then(win => {
+      if (win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show(); win.focus();
+      if (process.platform === "darwin") app.focus({ steal: true });
+      const send = () => win.webContents.send("legalwork:navigate", route);
+      if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send); else send();
+    });
+  },
+});
+const originService = new OriginService({
+  helperPath: resolveKeyMonitorPath(app), exec: execHelper, clipboard,
+  pasteText: text => systemDictation.pasteText(text),
+});
+const screenCapture = new ScreenCapture({ hiddenWhile: work => launcherWindow.hiddenWhile(work), origin: () => originService.current() });
+const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), serverInfo: () => runtimeManager.legalworkServerInfo() });
+const launcherService = new LauncherService({
+  app, globalShortcut, userDataDir: app.getPath("userData"), window: launcherWindow, origin: originService, capture: screenCapture, pairing: raycastPairing,
+  dictation: () => ({ ...systemDictation.status(), runtimeState: systemDictation.runtimeState }),
+  meeting: () => meetingMonitor.status(),
+  companion: state => { void dictationHud.setCompanion(state).catch(error => console.warn("[launcher-companion]", error)); },
+  onPresenceChanged: () => syncBackgroundPresence(),
+});
+
 // ── Background presence (tray + close-to-hide) ────────────────────────────
 //
 // Dictation users keep the app closed/hidden ~100% of the time, but the
@@ -920,6 +957,8 @@ function trayShortcutLabel(status) {
 
 function keepAliveOnClose() {
   if (systemDictation.status().enabled) return true;
+  // The launcher's own background presence keeps the shortcut and tray entry alive after the window closes.
+  if (launcherService.backgroundPresence()) return true;
   const meeting = meetingMonitor.status();
   if (meeting.detectionEnabled && meeting.detectionSupported) return true;
   // A call recording behind a closed window must finalize, not vanish.
@@ -938,12 +977,15 @@ function syncBackgroundPresence() {
     && !mainWindow.isVisible()
     && !mainWindow.isMinimized();
   void dictationHud.setStatus(status).catch((error) => console.warn("[dictation-hud]", error));
-  if (status.enabled || windowHidden) {
+  if (status.enabled || windowHidden || launcherService.backgroundPresence()) {
     // While the window is hidden the tray must exist even if dictation was
     // just disabled — on Windows it is the only way back into the app.
+    const launcherSettings = launcherService.settings.get();
+    const invoke = action => { void launcherService.invoke({ id: `tray_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action, source: "tray" }); };
     appTray.ensure({
       dictationEnabled: status.enabled,
       shortcutLabel: trayShortcutLabel(status),
+      launcher: { shortcutLabel: trayShortcutLabel({ registered: true, accelerator: launcherSettings.shortcut, platform: status.platform }), onOpen: () => invoke("open"), onFiles: () => invoke("files"), onAsk: () => invoke("ask"), onWork: () => invoke("work") },
     });
   } else {
     appTray.destroy();
@@ -1040,6 +1082,30 @@ function flushPendingDeepLinks() {
   if (!mainWindow?.webContents || pendingDeepLinks.length === 0) return;
   const urls = pendingDeepLinks.splice(0, pendingDeepLinks.length);
   mainWindow.webContents.send(NATIVE_DEEP_LINK_EVENT, urls);
+}
+
+// The complete launcher draft file: the panel and Home share it through revisioned writes.
+const LAUNCHER_DRAFTS_FILE = "launcher-drafts.json";
+let launcherDraftWrites = Promise.resolve();
+async function readLauncherDrafts() {
+  try {
+    const parsed = JSON.parse(await readFile(path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE), "utf8"));
+    return { drafts: parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {}, leases: parsed?.leases && typeof parsed.leases === "object" ? parsed.leases : {} };
+  } catch {
+    return { drafts: {}, leases: {} };
+  }
+}
+function writeLauncherDrafts(file) {
+  if (!file || typeof file !== "object") return Promise.resolve(false);
+  const snapshot = JSON.stringify({ drafts: file.drafts ?? {}, leases: file.leases ?? {} });
+  if (snapshot.length > 8 * 1024 * 1024) return Promise.resolve(false);
+  const target = path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE);
+  launcherDraftWrites = launcherDraftWrites.catch(() => {}).then(async () => {
+    const temporary = `${target}.${process.pid}.tmp`;
+    await writeFile(temporary, snapshot, "utf8");
+    await rename(temporary, target);
+  });
+  return launcherDraftWrites.then(() => true, () => false);
 }
 
 function configHomePath() {
@@ -1146,7 +1212,8 @@ const runtimeManager = createRuntimeManager({
   app,
   // Chromium networking follows the system/PAC proxy and enterprise certificates.
   modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
-  getApprovalWindow: () => mainWindow,
+  // Host approvals belong to a visible LegalWork window: the quick panel while it is open, otherwise the main window.
+  getApprovalWindow: () => launcherService.approvalWindow() ?? mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
@@ -2662,6 +2729,53 @@ const desktopCommandHandlers = {
         powerSessions.release("dictation-paste");
       }
   },
+  "launcherStatus": async (event, ...args) => {
+      return launcherService.status();
+  },
+  "launcherSettingsSet": async (event, ...args) => {
+      return launcherService.updateSettings(args[0] && typeof args[0] === "object" ? args[0] : {});
+  },
+  "launcherWindowControl": async (event, ...args) => {
+      return launcherService.windowControl(/** @type {"show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state"} */ (String(args[0] ?? "state")), args[1] && typeof args[1] === "object" ? args[1] : undefined);
+  },
+  "launcherOriginGet": async (event, ...args) => {
+      return originService.current();
+  },
+  "launcherOriginSelection": async (event, ...args) => {
+      return originService.selection(String(args[0] ?? ""));
+  },
+  "launcherOriginInsert": async (event, ...args) => {
+      // Insertion is a fresh user action: hide the panel first so focus can return to the destination.
+      launcherWindow.hide();
+      return originService.insert(String(args[0] ?? ""), String(args[1] ?? ""));
+  },
+  "launcherClipboardRead": async (event, ...args) => {
+      return { text: clipboard.readText(), capturedAt: Date.now() };
+  },
+  "launcherCaptureWindow": async (event, ...args) => {
+      return screenCapture.captureWindow();
+  },
+  "launcherCaptureRegion": async (event, ...args) => {
+      return screenCapture.captureRegion();
+  },
+  "launcherDraftsRead": async (event, ...args) => {
+      return readLauncherDrafts();
+  },
+  "launcherDraftsWrite": async (event, ...args) => {
+      return writeLauncherDrafts(args[0]);
+  },
+  "launcherInvocationsDrain": async (event, ...args) => {
+      return launcherService.drain();
+  },
+  "launcherAttentionSet": async (event, ...args) => {
+      launcherService.setAttention(args[0] && typeof args[0] === "object" ? args[0] : { count: 0, recording: false });
+  },
+  "launcherRaycastPairing": async (event, ...args) => {
+      const action = String(args[0] ?? "status");
+      if (action === "enable") return raycastPairing.enable();
+      if (action === "disable") return raycastPairing.disable();
+      return raycastPairing.refresh();
+  },
   "desktopLoginItemGet": async (event, ...args) => {
       try {
         const settings = app.getLoginItemSettings();
@@ -3147,6 +3261,7 @@ if (!app.requestSingleInstanceLock()) {
     appAudioTap.stop();
     callOverlay.destroy();
     systemDictation.dispose();
+    launcherService.dispose();
     dictationHud.destroy();
     meetingMonitor.dispose();
     appTray.destroy();
@@ -3155,19 +3270,25 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("second-instance", async (_event, argv) => {
+    // Assistant links reach the quick panel; everything else brings the main window back.
+    const links = forwardedDeepLinks(argv);
+    const remaining = await launcherService.handleDeepLinks(links);
+    if (links.length && !remaining.length) return;
     const win = await createMainWindow();
     if (win.isMinimized()) {
       win.restore();
     }
     win.show();
     win.focus();
-    queueDeepLinks(forwardedDeepLinks(argv));
+    queueDeepLinks(remaining);
   });
 
   app.on("open-url", async (event, url) => {
     event.preventDefault();
+    const remaining = await launcherService.handleDeepLinks([url]);
+    if (!remaining.length) return;
     await createMainWindow();
-    queueDeepLinks([url]);
+    queueDeepLinks(remaining);
   });
 
   app.whenReady().then(async () => {
@@ -3290,7 +3411,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
-    queueDeepLinks(forwardedDeepLinks(process.argv));
+    await launcherService.initialize().catch((error) => console.warn("[launcher] initialize failed", error));
+    queueDeepLinks(await launcherService.handleDeepLinks(forwardedDeepLinks(process.argv)));
     if (process.platform === "darwin" && !startHiddenPending) {
       try {
         startHiddenPending = app.getLoginItemSettings().wasOpenedAtLogin === true;
@@ -3319,6 +3441,7 @@ if (!app.requestSingleInstanceLock()) {
         recorderService().broadcast({ type: "power-suspend" });
       },
       onResume: async () => {
+        launcherService.refreshAfterResume();
         void meetingMonitor.poll();
         await systemDictation.refreshAfterResume();
         await recorderService().ensureTranscriberAfterWake();
