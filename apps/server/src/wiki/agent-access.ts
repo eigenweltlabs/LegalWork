@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 
-type SessionOrigin = { directory: string; scope: TokenScope; generation: string };
+type SessionOrigin = { directory: string; scope: TokenScope; generation: string; scheduledProjects?: "all" | string[] };
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
 type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
@@ -48,6 +48,7 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   sessionId: string;
   directory: string;
   scope: TokenScope;
+  scheduledProjects?: "all" | string[];
 }): Promise<void> {
   if (!input.sessionId || input.sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_invalid", "The agent session is unknown.");
   const directory = await realpath(input.directory).catch(() => null);
@@ -66,9 +67,11 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
     throw new ApiError(403, "wiki_agent_directory_mismatch", "This agent session belongs to another working directory.");
   // Replace rather than merge: a collaborator taking over an owner's session
   // must immediately lose the owner's private wiki access.
-  if (previous && previous.scope !== input.scope || access.parents.has(input.sessionId)) revokeProjectTree(config, input.sessionId);
+  const unchanged = previous?.scope === input.scope && JSON.stringify(previous.scheduledProjects) === JSON.stringify(input.scheduledProjects);
+  if (previous && !unchanged || access.parents.has(input.sessionId)) revokeProjectTree(config, input.sessionId);
   access.parents.delete(input.sessionId);
-  access.sessions.set(input.sessionId, { directory, scope: input.scope, generation: previous?.scope === input.scope ? previous.generation : randomBytes(16).toString("hex") });
+  access.sessions.set(input.sessionId, { directory, scope: input.scope, scheduledProjects: input.scheduledProjects,
+    generation: unchanged ? previous.generation : randomBytes(16).toString("hex") });
   access.revoked.delete(input.sessionId);
 }
 
@@ -172,6 +175,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   directory: string;
   sessionId: string;
   generation: string;
+  scheduledProjects?: "all" | string[];
 } | null> {
   const token = request.headers.get("x-legalwork-wiki-agent-token");
   if (token === null) return null;
@@ -216,6 +220,6 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
         throw new ApiError(403, "wiki_agent_session_mismatch", "Use this session's execution settings and approvals.");
     }
   }
-  return { directory, sessionId, generation: origin.generation, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
+  return { directory, sessionId, generation: origin.generation, scheduledProjects: origin.scheduledProjects, actor: { type: "remote", clientId: `wiki-agent:${sessionId}`, scope: origin.scope,
     tokenHash: createHash("sha256").update(access.token).digest("hex") } };
 }

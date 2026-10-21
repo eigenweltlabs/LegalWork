@@ -7,7 +7,8 @@ import { addDays, dayInZone, zoneValid } from "./calendar/dates.js";
 const recordingId = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(200);
 const timeZone = z.string().max(100).refine(zoneValid, "Use a valid IANA time zone.");
 const filters = z.object({
-  query: z.string().trim().max(300).optional().describe("Match recording titles or saved speaker names, ignoring case."),
+  query: z.string().trim().max(300).optional().describe("Match recording titles, ignoring case. Transcript contents and speaker names require a read."),
+  scope: z.enum(["all", "global"]).optional().describe("Use global for unassigned recordings only. Default all includes every project. Use projectId for a specific project."),
   projectId: z.string().min(1).max(200).optional().describe("Only recordings linked to this project. Omit to include global recordings and every project."),
   from: z.iso.date().optional().describe("Inclusive local recording date, YYYY-MM-DD."),
   to: z.iso.date().optional().describe("Inclusive local recording date, YYYY-MM-DD."),
@@ -54,7 +55,7 @@ function summary(meta: AudioRecordingMeta, source: Source) {
   };
 }
 
-export async function listRecordingLibrary(source: Source, input: unknown, now = Date.now()) {
+export async function listRecordingLibrary(source: Source, input: unknown, now = Date.now(), visible: (meta: AudioRecordingMeta) => boolean = () => true) {
   const query = parse(recordingListQuery, input);
   const limit = query.limit ?? 25;
   let cursor: z.infer<typeof cursorSchema> | undefined;
@@ -72,13 +73,15 @@ export async function listRecordingLibrary(source: Source, input: unknown, now =
   }
   if (selected.from && selected.to && selected.from > selected.to)
     throw new ApiError(400, "invalid_recording_dates", "from must be on or before to.");
+  if (selected.scope === "global" && selected.projectId) throw new ApiError(400, "invalid_recording_scope", "Choose global recordings or a project, not both.");
   if (!source.recorder?.listRecordings) unavailable();
   const snapshotAt = cursor?.snapshotAt ?? now;
   const needle = selected.query?.toLocaleLowerCase();
   const matches = (await source.recorder.listRecordings()).filter(meta => {
-    if (meta.ephemeral || meta.createdAt > snapshotAt) return false;
+    if (meta.ephemeral || meta.createdAt > snapshotAt || !visible(meta)) return false;
+    if (selected.scope === "global" && meta.projectIds?.length) return false;
     if (selected.projectId && !meta.projectIds?.includes(selected.projectId)) return false;
-    if (needle && ![meta.title, ...Object.values(meta.speakerNames ?? {})].some(value => value.toLocaleLowerCase().includes(needle))) return false;
+    if (needle && !meta.title.toLocaleLowerCase().includes(needle)) return false;
     const date = dayInZone(new Date(meta.createdAt).toISOString(), selected.timeZone);
     return (!selected.from || date >= selected.from) && (!selected.to || date <= selected.to);
   }).sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
@@ -89,9 +92,12 @@ export async function listRecordingLibrary(source: Source, input: unknown, now =
     version: 1, filters: selected, snapshotAt, createdAt: last.createdAt, id: last.id,
   })).toString("base64url") : null;
   return {
-    scope: selected.projectId ? "project" : "library", filters: selected,
+    scope: selected.projectId ? "project" : selected.scope === "global" ? "global" : "library", filters: selected,
     snapshotAt: new Date(snapshotAt).toISOString(), totalMatches: matches.length,
-    recordings: items.map(meta => ({ ...summary(meta, source), localDate: dayInZone(new Date(meta.createdAt).toISOString(), selected.timeZone) })),
+    recordings: items.map(meta => {
+      const { speakerNames: _names, ...metadata } = summary(meta, source);
+      return { ...metadata, localDate: dayInZone(new Date(meta.createdAt).toISOString(), selected.timeZone) };
+    }),
     nextCursor, note: `${note} Follow nextCursor before claiming a complete list.`,
   };
 }
@@ -103,12 +109,21 @@ function timestamp(ms: number) {
     : `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export async function readRecordingTranscript(source: Source, id: string, input: unknown) {
+export async function readRecordingTranscript(source: Source, id: string, input: unknown, authorize?: (meta: AudioRecordingMeta) => Promise<void>) {
   parse(recordingId, id);
   const query = parse(recordingReadQuery, input);
   if (!source.recorder?.readRecording) unavailable();
+  if (authorize) {
+    if (!source.recorder.listRecordings) unavailable();
+    const meta = (await source.recorder.listRecordings()).find(item => item.id === id && !item.ephemeral);
+    if (!meta) throw new ApiError(404, "recording_not_found", "Recording not found in this desktop profile.");
+    await authorize(meta);
+  }
   const detail = await source.recorder.readRecording(id);
   if (!detail || detail.meta.ephemeral) throw new ApiError(404, "recording_not_found", "Recording not found in this desktop profile.");
+  // Recheck after I/O: a project association or a chat grant can change while
+  // approval or disk reads are pending. Never return content under stale access.
+  if (authorize) await authorize(detail.meta);
   const offset = query.offset ?? 0, limit = query.limit ?? 20000;
   const segments = detail.segments.filter(segment => segment.final);
   const content = segments.map(segment => {

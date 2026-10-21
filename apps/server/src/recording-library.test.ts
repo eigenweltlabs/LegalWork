@@ -33,7 +33,10 @@ test("yesterday includes global and all project recordings using the local calen
   expect(all.recordings.every(item => item.localDate === "2026-10-20")).toBe(true);
   expect(JSON.stringify(all)).not.toContain("/private/");
   expect((await listRecordingLibrary(data, { projectId: "a" }, now)).recordings.map(item => item.id)).toEqual(["project-a"]);
-  expect((await listRecordingLibrary(data, { query: "JOHANN" }, now)).recordings.map(item => item.id)).toEqual(["project-b"]);
+  expect((await listRecordingLibrary(data, { query: "PROJECT-B" }, now)).recordings.map(item => item.id)).toEqual(["project-b"]);
+  expect(JSON.stringify(all)).not.toContain("Johann");
+  expect((await listRecordingLibrary(data, { query: "JOHANN" }, now)).recordings).toEqual([]);
+  expect((await listRecordingLibrary(data, { scope: "global", period: "yesterday", timeZone: "Europe/Berlin" }, now)).recordings.map(item => item.id)).toEqual(["global"]);
 });
 
 test("yesterday covers the entire 25-hour daylight saving transition day", async () => {
