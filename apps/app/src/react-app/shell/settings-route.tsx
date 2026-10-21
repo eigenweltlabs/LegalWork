@@ -99,6 +99,7 @@ import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/m
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
+import { LauncherSettingsView } from "@/react-app/domains/settings/pages/launcher-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
@@ -226,6 +227,7 @@ function parseSettingsPath(pathname: string): {
     case "recovery":
     case "office-addins":
     case "recorder":
+    case "launcher":
     case "debug":
     case "skills":
     case "workflows":
@@ -2552,6 +2554,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
           />
         );
+      case "launcher":
+        return <LauncherSettingsView client={legalworkClient} />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

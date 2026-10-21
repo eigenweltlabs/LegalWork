@@ -7,6 +7,7 @@ const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
+const LAUNCHER_EVENT = "legalwork:launcher:event";
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -233,6 +234,12 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     platform: normalizePlatform(process.platform),
     version: process.versions.electron,
   },
+});
+
+// Launcher invocations, visibility, origin and attention updates pushed by the main process.
+ipcRenderer.on(LAUNCHER_EVENT, (_event, payload) => {
+  if (typeof window === "undefined" || !payload || typeof payload !== "object") return;
+  window.dispatchEvent(new CustomEvent(LAUNCHER_EVENT, { detail: payload }));
 });
 
 ipcRenderer.on(NATIVE_DEEP_LINK_EVENT, (_event, urls) => {

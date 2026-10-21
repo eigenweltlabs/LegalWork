@@ -1,0 +1,42 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LauncherFileIndex } from "./launcher-file-index.js";
+import { searchLauncher, type LauncherSearchDeps } from "./launcher-search.js";
+import type { WorkspaceInfo } from "./types.js";
+
+test("one query fans out to every source, keeps per-source coverage, and never reports a failed source as empty", async () => {
+  const root = await mkdtemp(join(tmpdir(), "launcher-search-"));
+  const fileIndex = new LauncherFileIndex({ watch: false });
+  try {
+    await writeFile(join(root, "Mietvertrag Müller.docx"), "x");
+    const mueller: WorkspaceInfo = { id: "mueller", name: "Müller ./. Schmidt", path: root, preset: "starter", workspaceType: "local" };
+    const other: WorkspaceInfo = { id: "other", name: "Other", path: join(root, "missing"), preset: "starter", workspaceType: "local" };
+    await fileIndex.ensure("mueller", root, true);
+    const deps: LauncherSearchDeps = {
+      workspaces: async () => ({ workspaces: [mueller, other], unavailable: ["offline-project"] }),
+      projectName: workspace => workspace.name,
+      tasks: async query => query ? [{ kind: "tasks", id: "task-1", workspaceId: "mueller", title: "Mietvertrag prüfen", excerpt: "", updatedAt: 5, completed: false }] : [],
+      recordings: async () => [{ id: "rec-1", title: "Mandantengespräch Müller", createdAt: 7, durationMs: 1000, projectIds: ["mueller"] }],
+      fileIndex,
+      sessionSearch: async workspace => { if (workspace.id === "other") throw new Error("database locked"); return { items: [{ kind: "sessions", id: "ses-1", workspaceId: workspace.id, title: "Fristen Müller", excerpt: "…Mietvertrag…", updatedAt: 9, messageId: "msg-1" }] }; },
+      fileContentSearch: async workspace => workspace.id === "other" ? { items: [] } : ({ items: [{ kind: "files", id: "Notes.md", workspaceId: workspace.id, title: "Notes.md", excerpt: "mietvertrag", updatedAt: 3, sources: [{ path: "Notes.md", hash: "h", page: null, source: "native", quote: "Der Mietvertrag endet…" }] }], preparing: 1 }),
+    };
+    const all = await searchLauncher(deps, { query: "mietvertrag", kinds: ["files", "projects", "chats", "tasks", "recordings"], content: true, limit: 50 }, new AbortController().signal);
+    expect(all.items.map(item => `${item.kind}:${item.id}`)).toEqual(["files:Mietvertrag Müller.docx", "tasks:task-1", "chats:ses-1", "recordings:rec-1", "files:Notes.md"]);
+    expect(all.items[0]).toMatchObject({ match: "prefix", path: "Mietvertrag Müller.docx", actions: expect.arrayContaining(["attach", "compare"]) });
+    expect(all.items[4]).toMatchObject({ match: "content", excerpt: "Der Mietvertrag endet…" });
+    const coverage = Object.fromEntries(all.sources.map(source => [source.id, source.coverage]));
+    expect(coverage).toMatchObject({ "files:mueller": "indexing", "chats:mueller": "complete", "chats:other": "unavailable", tasks: "complete", recordings: "complete", projects: "partial", "unavailable:offline-project": "unavailable" });
+    expect(all.sources.find(source => source.id === "chats:other")?.error).toBe("database locked");
+    expect(all.unavailable).toEqual(["offline-project"]);
+    const projects = await searchLauncher(deps, { query: "müler", kinds: ["projects"], content: false, limit: 10 }, new AbortController().signal);
+    expect(projects.items.map(item => [item.id, item.match])).toEqual([["mueller", "fuzzy"]]);
+    const scoped = await searchLauncher(deps, { query: "", kinds: ["files", "recordings"], projectId: "other", content: false, limit: 10 }, new AbortController().signal);
+    expect(scoped.items).toEqual([]);
+    expect(scoped.sources.map(source => source.id)).toEqual(["recordings", "files:other", "unavailable:offline-project"]);
+    const noRecorder = await searchLauncher({ ...deps, recordings: null }, { query: "x", kinds: ["recordings"], content: false, limit: 10 }, new AbortController().signal);
+    expect(noRecorder.sources[0]).toMatchObject({ coverage: "unavailable", error: expect.stringContaining("desktop app") });
+  } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
+});

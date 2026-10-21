@@ -1,0 +1,399 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Clipboard, Expand, FilePlus2, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, X } from "lucide-react";
+import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
+import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { isMacPlatform } from "@/app/utils";
+import { launcherStatus, listLocalSkills, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { t } from "@/i18n";
+import { useLocal } from "@/react-app/kernel/local-provider";
+import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
+import { appendDictatedText, useComposerDictation } from "@/react-app/domains/session/surface/composer/use-composer-dictation";
+import { ComposerDictationBar } from "@/react-app/domains/session/surface/composer/composer-dictation";
+import { workspaceProjectRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
+import { appActionEntries, filterCatalog, invocationForAppAction, primaryResultAction } from "./action-catalog";
+import { captureClipboard, captureScreen, captureSelection, fileReferenceItem, stageFiles } from "./context-capture";
+import { LauncherContextBar } from "./launcher-context-bar";
+import { LauncherConversation, useSubmissionStatus } from "./launcher-conversation";
+import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, type SelectableItem } from "./launcher-keyboard";
+import { activateCategoryAlias, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
+import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
+import { LauncherActionMenu, LauncherResultList, actionLabel } from "./launcher-results";
+import { LauncherSearchSession, resultKey } from "./launcher-search-session";
+import { useLauncherShell } from "./launcher-shell";
+import { useLauncherStore } from "./launcher-store";
+import { LauncherWork } from "./launcher-work";
+import { createSubmissionIdentity } from "./submission-identity";
+import { voiceCoordinator } from "./voice-coordinator";
+import { emptyLauncherDraft } from "./draft-coordinator";
+import "./launcher.css";
+
+const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
+
+export function LauncherPanel() {
+  const shell = useLauncherShell();
+  const { client, assistant, workspaces, drafts, owner, surface, desktop, openInApp, dismiss } = shell;
+  const store = useLauncherStore();
+  const local = useLocal();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const mod = isMacPlatform() ? "⌘" : "Ctrl";
+  const [pins, setPins] = useState(() => typeof window === "undefined" ? [] : readPins());
+  const [submission, setSubmission] = useState<{ requestId: string; messageId: string; state: string; error?: string | null } | null>(null);
+  const [sending, setSending] = useState(false);
+  const status = useQuery({ queryKey: ["launcher-desktop-status"], queryFn: () => launcherStatus(), enabled: desktop, refetchInterval: 15_000 });
+  const aliases = useMemo(() => normalizeLauncherAliases(status.data?.aliases), [status.data?.aliases]);
+  const entry = parseLauncherEntry(store.input);
+  const mode: "search" | "command" | "ask" | "conversation" = store.view === "conversation" ? "conversation" : entry.mode;
+
+  // Conversation binding: read-only lookup first; a conversation is only created by an explicit action.
+  const bindCurrent = useCallback(async () => {
+    const current = await client.assistantConversationCurrent();
+    store.bindConversation(current.conversation);
+    return current.conversation;
+  }, [client, store]);
+  useEffect(() => { void bindCurrent().catch(() => undefined); }, [bindCurrent]);
+  const conversation = store.conversation;
+  useEffect(() => {
+    if (!conversation) return;
+    let cancelled = false;
+    void drafts.claim(conversation.conversationId, owner).then(({ draft }) => {
+      if (cancelled) return;
+      store.replaceContext(draft.context);
+      if (draft.target.kind === "project") store.setTarget(draft.target);
+      if (draft.submission && draft.submission.state !== "completed") setSubmission({ ...draft.submission, state: draft.submission.state });
+      if (draft.text && !useLauncherStore.getState().input) { store.setInput(draft.text); store.setView("conversation"); }
+    });
+    return () => { cancelled = true; };
+    // Binding changes only when the conversation changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.conversationId, drafts, owner]);
+  // Persist the complete draft while this surface owns it.
+  useEffect(() => {
+    if (!conversation || !drafts.owns(conversation.conversationId, owner)) return;
+    const timer = setTimeout(() => {
+      const current = drafts.get(conversation.conversationId);
+      const text = mode === "conversation" || mode === "ask" ? (mode === "ask" ? entry.text : store.input) : current.text;
+      if (current.text === text && current.context === store.context && current.target === store.target && current.searchScope === (store.scope?.id ?? null)) return;
+      void drafts.update(conversation.conversationId, owner, { text, context: store.context, target: store.target, searchScope: store.scope?.id ?? null, model: local.prefs.defaultModel, variant: local.prefs.modelVariant }).catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [conversation, drafts, owner, store.input, store.context, store.target, store.scope, mode, entry.text, local.prefs.defaultModel, local.prefs.modelVariant]);
+
+  // Search: two-phase session bound to the current category and scope.
+  const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content }, signal)), [client]);
+  useEffect(() => session.subscribe(snapshot => store.setResults(snapshot.items, snapshot.sources, snapshot.pending, snapshot.error)), [session, store]);
+  useEffect(() => {
+    if (mode !== "search" || !store.input.trim() && !store.category && !store.scope) { if (mode !== "search") session.cancel(); return; }
+    session.search({ query: entry.text, kinds: store.category ? [store.category] : [...LAUNCHER_SEARCH_KINDS], projectId: store.scope?.id ?? null });
+  }, [session, mode, entry.text, store.category, store.scope, store.input]);
+  useEffect(() => {
+    if (mode === "search" && (store.input.trim() || store.category)) store.setView("results");
+    else if (mode === "command") store.setView("commands");
+    else if (mode === "ask") store.setView("conversation");
+    else if (store.view === "results" || store.view === "commands") store.setView(conversation && store.input ? "conversation" : "idle");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, store.input, store.category]);
+
+  // Catalog: engine commands and quick actions from the server, app actions and skills from this client.
+  const catalogQuery = useQuery({ queryKey: ["launcher-catalog", client.baseUrl, store.scope?.id ?? ""], queryFn: () => client.launcherCatalog(store.scope?.id ?? null), staleTime: 30_000 });
+  const skillsQuery = useQuery({ queryKey: ["launcher-skills"], queryFn: () => listLocalSkills(""), enabled: desktop, staleTime: 60_000 });
+  const catalog = useMemo<LauncherCatalogEntry[]>(() => {
+    const favorites = new Set((catalogQuery.data?.entries ?? []).filter(entry => entry.favorite).map(entry => entry.id));
+    const skills = (skillsQuery.data?.items ?? []).map<LauncherCatalogEntry>(skill => ({ id: `skill:${skill.name}`, label: skill.name, description: skill.description ?? null, aliases: [skill.name.toLowerCase()], kind: "agent", source: "skill", requires: [], target: "assistant", outputs: ["preview"], workspaceId: null, shortcut: null, favorite: false, usedAt: null, command: null, quickAction: null }));
+    return [...appActionEntries({ desktop, favorites, recent: new Map(), shortcuts: status.data?.actionShortcuts ?? {} }), ...(catalogQuery.data?.entries ?? []), ...skills];
+  }, [catalogQuery.data, skillsQuery.data, desktop, status.data?.actionShortcuts]);
+  const commandItems = useMemo(() => mode === "command" ? filterCatalog(catalog, entry.text) : [], [catalog, mode, entry.text]);
+
+  const selectable: SelectableItem[] = useMemo(() => mode === "command" ? commandItems.map(item => ({ id: item.id, primaryAction: item.kind === "agent" ? "run" : "open" as const }))
+    : store.view === "results" ? store.results.map(item => ({ id: resultKey(item), primaryAction: primaryResultAction(item) })) : [], [mode, commandItems, store.view, store.results]);
+  useEffect(() => { store.select({ id: selectable[0]?.id ?? null, source: "auto" }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mode, store.view]);
+  const selected = enterTarget(store.selection, selectable);
+
+  const notify = store.notify;
+  const absolutePath = (result: LauncherSearchResult) => { const workspace = workspaces.find(workspace => workspace.id === result.workspaceId); return workspace && result.path ? `${workspace.path.replace(/[\\/]+$/, "")}/${result.path}` : null; };
+
+  // Conversation creation is explicit: the user's send or New conversation, never a refresh.
+  const ensureConversation = useCallback(async () => {
+    const current = useLauncherStore.getState().conversation;
+    if (current && !current.archived) return current;
+    const { conversation: created } = await client.createAssistantConversation({ origin: surface });
+    store.bindConversation(created);
+    await drafts.claim(created.id, owner);
+    return { conversationId: created.id, sessionId: created.sessionId, workspaceId: created.workspaceId, title: created.title, archived: false };
+  }, [client, drafts, owner, store, surface]);
+  const startNewConversation = useCallback(async () => {
+    const { conversation: created } = await client.createAssistantConversation({ origin: surface });
+    store.bindConversation(created);
+    store.setInput(""); store.replaceContext([]); store.setTarget({ kind: "assistant" }); setSubmission(null);
+    await drafts.claim(created.id, owner);
+    store.setView("conversation");
+    inputRef.current?.focus();
+  }, [client, drafts, owner, store, surface]);
+
+  const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }) => {
+    const trimmed = text.trim();
+    if (sending || (!trimmed && !store.context.length)) return;
+    setSending(true);
+    try {
+      const target = await ensureConversation();
+      if (!drafts.owns(target.conversationId, owner)) await drafts.claim(target.conversationId, owner);
+      const identity = reuse ?? createSubmissionIdentity();
+      const context = { items: store.context, target: store.target, searchScope: store.scope?.id ?? null, capturedAt: Date.now() };
+      await drafts.update(target.conversationId, owner, { text: trimmed, context: store.context, submission: { requestId: identity.requestId, messageId: identity.messageId, state: "sending" } });
+      setSubmission({ requestId: identity.requestId, messageId: identity.messageId, state: "sending" });
+      store.setView("conversation");
+      let result: AssistantSubmission;
+      try {
+        result = (await client.submitAssistantMessage(target.conversationId, { requestId: identity.requestId, messageId: identity.messageId, text: trimmed, context, model: local.prefs.defaultModel ?? undefined, variant: local.prefs.modelVariant ?? undefined })).submission;
+      } catch (error) {
+        // Ambiguous: keep the identity and draft; the status poll and Retry reuse it.
+        setSubmission({ ...identity, state: "unconfirmed", error: error instanceof Error ? error.message : String(error) });
+        await drafts.update(target.conversationId, owner, { submission: { ...identity, state: "unconfirmed" } }).catch(() => undefined);
+        notify({ tone: "error", text: t("launcher.submission.unconfirmed") });
+        return;
+      }
+      setSubmission({ requestId: result.requestId, messageId: result.messageId, state: result.state, error: result.error });
+      if (result.state === "failed") { notify({ tone: "error", text: result.error ?? t("launcher.submission.failed") }); await drafts.update(target.conversationId, owner, { submission: { ...identity, state: "failed" } }).catch(() => undefined); return; }
+      store.setInput(""); store.replaceContext([]);
+      await drafts.update(target.conversationId, owner, { ...emptyLauncherDraft(target.conversationId), model: local.prefs.defaultModel, variant: local.prefs.modelVariant, submission: { ...identity, state: result.state } }).catch(() => undefined);
+    } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+    finally { setSending(false); }
+  }, [sending, store, ensureConversation, drafts, owner, client, local.prefs.defaultModel, local.prefs.modelVariant, notify]);
+  const retrySubmission = useCallback(() => {
+    if (!submission || !conversation) return;
+    const draft = drafts.get(conversation.conversationId);
+    void submitAsk(draft.text || store.input, { requestId: submission.requestId, messageId: submission.messageId });
+  }, [submission, conversation, drafts, submitAsk, store.input]);
+  const onSubmissionChange = useCallback((next: AssistantSubmission) => {
+    setSubmission(current => current && current.requestId === next.requestId ? { ...current, state: next.state, error: next.error } : current);
+    if (conversation && drafts.owns(conversation.conversationId, owner)) void drafts.update(conversation.conversationId, owner, { submission: { requestId: next.requestId, messageId: next.messageId, state: next.state } }).catch(() => undefined);
+  }, [conversation, drafts, owner]);
+  useSubmissionStatus(submission && submission.state !== "completed" && submission.state !== "failed" ? submission.requestId : null, onSubmissionChange);
+
+  // Speak to Assistant: one microphone owner; external dictation and meetings keep their destination.
+  const dictation = useComposerDictation(conversation?.conversationId ?? "launcher", async (spoken, send) => {
+    const next = appendDictatedText(mode === "ask" ? entry.text : store.input, spoken);
+    store.setInput(mode === "search" ? `? ${next}` : next);
+    store.setView("conversation");
+    voiceCoordinator.release("panel");
+    if (send) await submitAsk(next);
+  }, store.visible);
+  const speak = async () => {
+    if (status.data?.voice.externalDictation || status.data?.voice.meeting) { notify({ tone: "error", text: t(status.data.voice.meeting ? "launcher.voice.meeting_active" : "launcher.voice.dictation_active") }); return; }
+    const decision = voiceCoordinator.request({ destination: "assistant", ownerId: "panel", conversationId: conversation?.conversationId });
+    if (!decision.ok) { notify({ tone: "error", text: t("launcher.voice.busy") }); return; }
+    store.setView("conversation");
+    await dictation.start();
+  };
+  useEffect(() => { if (!dictation.active) voiceCoordinator.release("panel"); }, [dictation.active]);
+
+  // Context capture: explicit actions with visible provenance; failures leave the draft intact.
+  const addItems = (items: AssistantContextItem[], previews: { id: string; dataUrl: string }[] = []) => { store.addContext(items, previews); if (store.view === "idle" || store.view === "results") store.setView("conversation"); };
+  const captureActions = {
+    selection: async () => { const outcome = await captureSelection(store.origin); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
+    clipboard: async () => { const outcome = await captureClipboard(); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
+    window: async () => { if (!assistant) return; const outcome = await captureScreen("window", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
+    region: async () => { if (!assistant) return; const outcome = await captureScreen("region", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
+    files: () => fileInputRef.current?.click(),
+  };
+
+  // One dispatcher for results, commands and app actions.
+  const runResultAction = async (result: LauncherSearchResult, action: LauncherResultAction) => {
+    const route = result.kind === "chats" ? workspaceSessionRoute(result.workspaceId ?? "", result.sessionId ?? result.id) : result.kind === "tasks" ? `/tasks?task=${encodeURIComponent(result.id)}` : result.kind === "recordings" ? `/recorder?recording=${encodeURIComponent(result.id)}` : result.workspaceId ? `${workspaceProjectRoute(result.workspaceId)}${result.kind === "files" ? `?file=${encodeURIComponent(result.path ?? result.id)}` : ""}` : "/home";
+    const multi = store.multiSelect.size ? store.results.filter(item => store.multiSelect.has(resultKey(item))) : [result];
+    switch (action) {
+      case "open": case "resume": case "play": openInApp(route); if (surface === "panel" && !store.pinned) dismiss(); return;
+      case "reveal": { const path = absolutePath(result); if (path) await revealDesktopItemInDir(path); return; }
+      case "open-external": { const path = absolutePath(result); if (path) await openDesktopPath(path); return; }
+      case "copy-path": await navigator.clipboard.writeText(result.path ?? result.title); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
+      case "copy-reference": await navigator.clipboard.writeText(`${result.subtitle ? `${result.subtitle}: ` : ""}${result.path ?? result.title}`); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
+      case "pin": setPins(togglePinnedResult(result)); return;
+      case "complete": try { await client.patchTask(result.workspaceId ?? "", result.id, { status: "done" }); notify({ tone: "info", text: t("launcher.notice.task_done", { title: result.title }) }); } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); } return;
+      case "attach": case "ask": case "compare": case "summarize": case "hand-to-assistant": {
+        const items: AssistantContextItem[] = [];
+        for (const item of multi) {
+          if (item.kind === "files") items.push(fileReferenceItem(item));
+          else if (item.kind === "recordings") { try { const transcript = await client.recordingTranscript(item.id, { limit: 20000 }); items.push({ id: `rec_${item.id}`, type: "selection", text: `${item.title}\n\n${transcript.content}`, sourceApp: "LegalWork Recorder", sourceWindow: item.title, capturedAt: Date.now() }); } catch { notify({ tone: "error", text: t("launcher.notice.transcript_unavailable") }); } }
+          else if (item.kind === "tasks") items.push({ id: `task_${item.id}`, type: "selection", text: `${item.title}\n${item.excerpt ?? ""}`.trim(), sourceApp: "LegalWork", sourceWindow: t("launcher.kind.tasks"), capturedAt: Date.now() });
+          else if (item.kind === "chats") items.push({ id: `chat_${item.id}`, type: "selection", text: `${item.subtitle ?? ""} / ${item.title}${item.excerpt ? `\n${item.excerpt}` : ""}`.trim(), sourceApp: "LegalWork", sourceWindow: t("launcher.kind.chats"), capturedAt: Date.now() });
+        }
+        if (result.kind === "projects" && result.workspaceId) { store.setScope({ id: result.workspaceId, name: result.title }); if (action === "ask") store.setTarget({ kind: "project", workspaceId: result.workspaceId }); }
+        else if ((action === "compare" || action === "summarize") && multi.every(item => item.workspaceId && item.workspaceId === multi[0]?.workspaceId) && multi[0]?.workspaceId) store.setTarget({ kind: "project", workspaceId: multi[0].workspaceId });
+        addItems(items);
+        store.clearMultiSelect();
+        const prompt = action === "compare" ? t("launcher.prompt.compare", { count: multi.length }) : action === "summarize" ? t("launcher.prompt.summarize", { count: multi.length }) : action === "hand-to-assistant" ? t("launcher.prompt.task", { title: result.title }) : "";
+        store.setInput(prompt);
+        store.setView("conversation");
+        inputRef.current?.focus();
+        return;
+      }
+    }
+  };
+  const runCatalogEntry = async (item: LauncherCatalogEntry, args = "") => {
+    if (item.source === "app") {
+      const invocation = invocationForAppAction(item.id);
+      if (item.id === "app.add-selection") return captureActions.selection();
+      if (item.id === "app.paste-clipboard") return captureActions.clipboard();
+      if (item.id === "app.attach-file") return captureActions.files();
+      if (item.id === "app.open-settings") { openInApp("/settings/launcher"); return; }
+      if (item.id === "app.new-project") { openInApp("/projects"); return; }
+      if (invocation) applyInvocation({ id: `local_${crypto.randomUUID()}`, action: invocation, source: surface === "panel" ? "shortcut" : "home" });
+      return;
+    }
+    if (item.source === "quick-action" && item.quickAction) {
+      const selection = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "selection" }> => entry.type === "selection")?.text;
+      const clipboard = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "clipboard" }> => entry.type === "clipboard")?.text;
+      const files = store.context.flatMap(entry => entry.type === "file" ? [entry.path] : []);
+      try {
+        const rendered = await client.renderQuickAction(item.quickAction.id, { selection, clipboard, files, arguments: args });
+        void client.recordQuickActionUse(item.quickAction.id).catch(() => undefined);
+        if (item.quickAction.target === "project" && item.quickAction.projectId) store.setTarget({ kind: "project", workspaceId: item.quickAction.projectId });
+        await submitAsk(rendered.prompt);
+      } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+      return;
+    }
+    if (item.source === "skill") { store.setInput(`${item.label} ${args}`.trim()); store.setView("conversation"); return; }
+    // Slash commands run through the engine as agent work; the label says so.
+    await submitAsk(`/${item.command?.name ?? item.label.replace(/^\//, "")}${args ? ` ${args}` : ""}`);
+  };
+  const applyInvocation = useCallback((invocation: LauncherInvocation) => {
+    const aliasKinds: Partial<Record<LauncherInvocation["action"], LauncherSearchKind>> = { files: "files", projects: "projects", chats: "chats", tasks: "tasks", recordings: "recordings" };
+    const kind = aliasKinds[invocation.action];
+    if (invocation.projectId) { const workspace = workspaces.find(workspace => workspace.id === invocation.projectId); if (workspace) store.setScope({ id: workspace.id, name: workspace.displayName || workspace.name }); }
+    if (invocation.contextId) void client.consumeLauncherContext(invocation.contextId).then(staged => addItems(staged.items)).catch(() => notify({ tone: "error", text: t("launcher.notice.context_expired") }));
+    if (kind) { store.setCategory(kind); store.setInput(invocation.query ?? ""); store.setView("results"); }
+    else if (invocation.action === "search") { store.setCategory(null); store.setInput(invocation.query ?? ""); }
+    else if (invocation.action === "ask") { store.setInput(invocation.query ?? ""); store.setView("conversation"); }
+    else if (invocation.action === "new-conversation") void startNewConversation();
+    else if (invocation.action === "resume") { void bindCurrent(); store.setView("conversation"); }
+    else if (invocation.action === "work") store.setView("work");
+    else if (invocation.action === "speak") void speak();
+    else if (invocation.action === "capture-region") void captureActions.region();
+    else if (invocation.action === "capture-window") void captureActions.window();
+    else if (invocation.action === "quick-action" && invocation.actionId) { const item = catalog.find(entry => entry.id === invocation.actionId); if (item) void runCatalogEntry(item, invocation.query ?? ""); else notify({ tone: "error", text: t("launcher.notice.action_unknown") }); }
+    else if (invocation.action === "dictate" || invocation.action === "record") openInApp("/recorder");
+    if (invocation.conversationId) void client.assistantConversation(invocation.conversationId).then(({ conversation }) => { store.bindConversation(conversation); store.setView("conversation"); }).catch(() => undefined);
+    requestAnimationFrame(() => inputRef.current?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces, client, catalog, startNewConversation, bindCurrent]);
+  useEffect(() => {
+    if (!store.invocation) return;
+    const invocation = store.invocation;
+    store.setInvocation(null);
+    applyInvocation(invocation);
+  }, [store.invocation, applyInvocation, store]);
+
+  // Keyboard contract. The footer says what Enter does.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingKeyEvent(event)) return;
+    const input = event.currentTarget;
+    const key = event.key;
+    const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey;
+    if (modifier && key === "Enter") { event.preventDefault(); void submitAsk(mode === "ask" ? entry.text : store.input); return; }
+    if (modifier && key.toLowerCase() === "k") { event.preventDefault(); if (selected && store.view === "results") store.setOverlay({ kind: "actions", resultKey: selected.id }); return; }
+    if (key === "ArrowDown" || key === "ArrowUp") { if (!selectable.length) return; event.preventDefault(); store.select(moveSelection(store.selection, selectable, key === "ArrowDown" ? 1 : -1)); return; }
+    if (key === "Tab" && !event.shiftKey && !store.category) {
+      const activated = activateCategoryAlias(store.input, aliases, "tab");
+      if (activated) { event.preventDefault(); store.setCategory(activated.category); store.setInput(activated.rest); }
+      return;
+    }
+    if (key === "Backspace" && input.selectionStart === 0 && input.selectionEnd === 0) {
+      if (store.category) { event.preventDefault(); store.setCategory(null); }
+      return;
+    }
+    if (key === "Escape") {
+      const layer = escapeAction({ overlayOpen: store.overlay !== null, category: store.category !== null, pinned: store.pinned || surface === "embedded" && false });
+      event.preventDefault();
+      if (layer === "overlay") store.setOverlay(null);
+      else if (layer === "filter") store.setCategory(null);
+      else if (layer === "panel") dismiss();
+      return;
+    }
+    if (key === "Enter") {
+      event.preventDefault();
+      if (mode === "ask" || mode === "conversation") { void submitAsk(mode === "ask" ? entry.text : store.input); return; }
+      if (mode === "command") { const item = commandItems.find(entry => entry.id === store.selection.id); if (item) void runCatalogEntry(item); return; }
+      const result = store.results.find(item => resultKey(item) === store.selection.id);
+      if (result) void runResultAction(result, primaryResultAction(result));
+    }
+  };
+  const onInputChange = (value: string) => {
+    if (!store.category && mode === "search") {
+      const activated = activateCategoryAlias(value, aliases);
+      if (activated) { store.setCategory(activated.category); store.setInput(activated.rest); return; }
+    }
+    store.setInput(value);
+  };
+
+  const selectedResult = store.view === "results" ? store.results.find(item => resultKey(item) === store.selection.id) ?? null : null;
+  const verb = footerVerb(selected, mode);
+  const pinnedKeys = useMemo(() => new Set(pins.map(pin => `${pin.kind}\u0000${pin.sourceId}\u0000${pin.id}`)), [pins]);
+  const conversations = useQuery({ queryKey: ["launcher-conversations", client.baseUrl], queryFn: () => client.assistantConversations({ limit: 6 }), enabled: store.view === "idle", staleTime: 10_000 });
+  const placeholder = mode === "conversation" ? t("launcher.placeholder.conversation", { name: assistant?.profile.name ?? t("assistant.title") }) : store.category ? t("launcher.placeholder.category", { kind: t(KIND_HINT[store.category]) }) : t("launcher.placeholder.search");
+
+  return <div className="launcher-root" data-surface={surface} data-view={store.view}>
+    <div className="launcher-panel" role="dialog" aria-label={t("launcher.title")}>
+      <div className="launcher-entry">
+        <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />
+        {store.category && <span className="launcher-chip" data-kind="category">{t(KIND_HINT[store.category])}<button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+        {store.scope && <span className="launcher-chip" data-kind="scope" title={t("launcher.chip.scope_hint")}>{store.scope.name}<button type="button" aria-label={t("launcher.chip.remove_scope")} onClick={() => { store.setScope(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+        {store.target.kind === "project" && <span className="launcher-chip" data-kind="target" title={t("launcher.chip.target_hint")}>{t("launcher.chip.target", { name: workspaces.find(workspace => workspace.id === (store.target.kind === "project" ? store.target.workspaceId : ""))?.displayName ?? (store.target.kind === "project" ? store.target.workspaceId : "") })}<button type="button" aria-label={t("launcher.chip.remove_target")} onClick={() => store.setTarget({ kind: "assistant" })}><X className="size-3" /></button></span>}
+        <input ref={inputRef} className="launcher-input" value={store.input} placeholder={placeholder} aria-label={t("launcher.title")} autoFocus autoComplete="off" spellCheck={false} onChange={event => onInputChange(event.target.value)} onKeyDown={onKeyDown}
+          onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length && assistant) { event.preventDefault(); void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); } }} />
+        <div className="launcher-entry-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.context.add")} title={t("launcher.context.add")} />}><Plus className="size-4" /></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {desktop && <DropdownMenuItem disabled={!store.origin?.supportsSelection} onClick={() => void captureActions.selection()}><MousePointerSquareDashed className="size-4" />{t("launcher.context.add_selection")}{store.origin?.app ? ` (${store.origin.app})` : ""}</DropdownMenuItem>}
+              <DropdownMenuItem onClick={() => void captureActions.clipboard()}><Clipboard className="size-4" />{t("launcher.context.paste_clipboard")}</DropdownMenuItem>
+              <DropdownMenuItem onClick={captureActions.files}><Paperclip className="size-4" />{t("launcher.context.attach_file")}</DropdownMenuItem>
+              {desktop && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void captureActions.window()}><FilePlus2 className="size-4" />{t("launcher.context.capture_window")}</DropdownMenuItem><DropdownMenuItem onClick={() => void captureActions.region()}><ScanLine className="size-4" />{t("launcher.context.capture_region")}</DropdownMenuItem></>}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked} onClick={() => void speak()}><Mic className="size-4" /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.work.title")} title={t("launcher.work.title")} onClick={() => store.setView(store.view === "work" ? (conversation ? "conversation" : "idle") : "work")}><ListChecks className="size-4" />{store.attentionCount > 0 && <span className="ml-0.5 rounded-full bg-blue-9 px-1 text-[10px] text-white">{store.attentionCount}</span>}</Button>
+          {surface === "panel" && shell.togglePin && <Button variant="ghost" size="icon-sm" aria-label={t(store.pinned ? "launcher.unpin" : "launcher.pin")} title={t(store.pinned ? "launcher.unpin" : "launcher.pin")} onClick={shell.togglePin}>{store.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}</Button>}
+          {surface === "panel" && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.expand")} title={t("launcher.expand")} onClick={() => { if (conversation) { void drafts.release(conversation.conversationId, owner); openInApp(workspaceSessionRoute(conversation.workspaceId, conversation.sessionId)); } else openInApp("/home"); }}><Maximize2 className="size-4" /></Button>}
+          {surface === "embedded" && <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={dismiss}><X className="size-4" /></Button>}
+        </div>
+      </div>
+      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length && assistant) void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); }} />
+      {store.notice && <div className="launcher-notice" data-tone={store.notice.tone} role={store.notice.tone === "error" ? "alert" : "status"}>{store.notice.text}<button type="button" className="float-right" aria-label={t("common.close")} onClick={() => notify(null)}><X className="size-3.5" /></button></div>}
+      {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}
+      <LauncherContextBar />
+      <div className="launcher-body" style={{ position: "relative" }}>
+        {store.view === "results" && <>
+          <LauncherResultList items={store.results} sources={store.sources} query={entry.text} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending}
+            onSelect={key => store.select({ id: key, source: "user" })} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />
+          {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} onRun={action => { store.setOverlay(null); void runResultAction(selectedResult, action); inputRef.current?.focus(); }} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} />}
+          {store.searchError && <p className="launcher-notice" data-tone="error">{store.searchError}</p>}
+        </>}
+        {store.view === "commands" && (commandItems.length ? <div role="listbox">{commandItems.map(item => <div key={item.id} role="option" aria-selected={store.selection.id === item.id} data-selected={store.selection.id === item.id} className="launcher-row" onMouseEnter={() => store.select({ id: item.id, source: "user" })} onClick={() => void runCatalogEntry(item)}>
+          <span className="launcher-row-icon"><Sparkles className="size-4" /></span>
+          <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(`launcher.action_kind.${item.kind}`), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(`launcher.input.${input}`)).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
+          <span className="launcher-row-hint">{store.selection.id === item.id ? `↵ ${actionLabel(item.kind === "agent" ? "run" : "open")}` : item.shortcut}</span>
+        </div>)}</div> : <div className="launcher-empty">{t("launcher.commands_empty")}</div>)}
+        {store.view === "conversation" && conversation && <LauncherConversation conversation={conversation} submission={submission} onRetry={retrySubmission} />}
+        {store.view === "conversation" && !conversation && <div className="launcher-empty">{t("launcher.conversation.new_hint")}</div>}
+        {store.view === "work" && <LauncherWork onOpenConversation={id => void client.assistantConversation(id).then(({ conversation: found }) => { store.bindConversation(found); store.setView("conversation"); }).catch(() => notify({ tone: "error", text: t("launcher.conversation.unavailable") }))} />}
+        {store.view === "idle" && <div className="launcher-idle">
+          {conversation && <button type="button" className="launcher-row" onClick={() => store.setView("conversation")}><span className="launcher-row-icon"><Expand className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{t("launcher.idle.resume", { title: conversation.title })}</div><div className="launcher-row-meta">{store.attentionCount ? t("launcher.idle.attention", { count: store.attentionCount }) : t("launcher.idle.resume_hint")}</div></div></button>}
+          <button type="button" className="launcher-row" onClick={() => void startNewConversation()}><span className="launcher-row-icon"><Plus className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{t("launcher.action.new-conversation")}</div><div className="launcher-row-meta">{t("launcher.idle.new_hint")}</div></div></button>
+          {catalog.filter(item => item.favorite).slice(0, 5).map(item => <button key={item.id} type="button" className="launcher-row" onClick={() => void runCatalogEntry(item)}><span className="launcher-row-icon"><Sparkles className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{item.label}</div><div className="launcher-row-meta">{item.shortcut ?? t("launcher.source.quick_action")}</div></div></button>)}
+          {pins.slice(0, 4).map(pin => <button key={`${pin.kind}:${pin.sourceId}:${pin.id}`} type="button" className="launcher-row" onClick={() => openInApp(pin.kind === "chats" ? workspaceSessionRoute(pin.workspaceId ?? "", pin.id) : pin.workspaceId ? `${workspaceProjectRoute(pin.workspaceId)}${pin.kind === "files" ? `?file=${encodeURIComponent(pin.path ?? pin.id)}` : ""}` : "/home")}><span className="launcher-row-icon"><Pin className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{pin.title}</div><div className="launcher-row-meta">{[t(KIND_HINT[pin.kind]), pin.subtitle].filter(Boolean).join(" · ")}</div></div></button>)}
+          {(conversations.data?.items ?? []).filter(item => item.id !== conversation?.conversationId).slice(0, 4).map(item => <button key={item.id} type="button" className="launcher-row" onClick={() => { store.bindConversation(item); store.setView("conversation"); }}><span className="launcher-row-icon"><AssistantAvatar icon={assistant?.profile.icon} className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{item.title}</div><div className="launcher-row-meta">{item.kind === "day" ? t("launcher.idle.day") : t("launcher.idle.conversation")}{item.pinned ? " · ★" : ""}</div></div></button>)}
+          <p className="launcher-empty">{t("launcher.idle.hint", { files: aliases.files, projects: aliases.projects, chats: aliases.chats, tasks: aliases.tasks, recordings: aliases.recordings })}</p>
+        </div>}
+      </div>
+      <div className="launcher-footer">
+        <span>{verb === "none" ? t("launcher.footer.select") : verb === "ask" ? t("launcher.footer.ask", { mod }) : t("launcher.footer.enter", { action: actionLabel(verb === "run" ? "run" : verb === "attach" ? "attach" : verb === "resume" ? "resume" : verb === "answer" ? "complete" : "open") })}{store.target.kind === "project" ? ` · ${t("launcher.footer.target_bound")}` : ""}</span>
+        <span aria-live="polite">{store.searchPending ? <><Loader2 className="inline size-3 animate-spin motion-reduce:animate-none" /> {t("content_search.searching")}</> : sending ? t("launcher.submission.sending") : null}</span>
+        <span><kbd>↑↓</kbd><kbd>↵</kbd><kbd>{mod}↵</kbd>{t("launcher.footer.ask_short")} <kbd>{mod}K</kbd>{t("launcher.footer.actions")} <kbd>Esc</kbd></span>
+      </div>
+    </div>
+    <span className="sr-only"><Send className="size-0" /></span>
+  </div>;
+}

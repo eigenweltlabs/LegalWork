@@ -8,8 +8,9 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
-import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
-import { resolveAssistantChat } from "./assistant-navigation";
+import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
+import { useHomeDraftSync } from "@/react-app/launcher/home-draft-sync";
+import { LauncherDialog } from "@/react-app/launcher/launcher-dialog";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -178,8 +179,6 @@ import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
 import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
-import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
-import type { ContentSearchResult } from "@legalwork/types/search";
 import { useSearchNavigation } from "./search-navigation";
 import {
   eigenweltBillingUrl,
@@ -188,7 +187,6 @@ import {
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { AssistantIntroDialog } from "./assistant-intro";
-import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
   forgetWorkspaceMemory,
@@ -560,20 +558,34 @@ export function SessionRoute() {
     if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
-  const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
+  // The Assistant project is set up once; the current conversation is read without creating sessions.
+  const assistant = useQuery<AssistantShellState>({
+    queryKey: assistantShellQueryKey(client?.baseUrl ?? ""), enabled: Boolean(client) && !isOfficeAddinRuntime(),
+    queryFn: async () => {
+      if (!client) throw new Error("Server unavailable");
+      const setup = await client.ensureAssistantWorkspace(defaultProjectFields(useProjectDefaultsStore.getState()));
+      const current = await client.assistantConversationCurrent();
+      return { workspace: current.workspace ?? setup.workspace, profile: current.profile, conversation: current.conversation, day: current.day };
+    },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
-  // Home already knows today's Assistant. Load its transcript in the shared
+  const assistantConversationId = useMemo(() => {
+    const requested = new URLSearchParams(location.search).get("conversation");
+    if (requested) return requested;
+    return assistant.data?.conversation && assistant.data.conversation.sessionId === selectedSessionId ? assistant.data.conversation.id : null;
+  }, [location.search, assistant.data?.conversation, selectedSessionId]);
+  useHomeDraftSync({ active: assistantActive, conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: assistant.data?.workspace.id ?? null,
+    projectNames: useMemo(() => new Map(workspaces.map(workspace => [workspace.id, workspace.displayNameResolved])), [workspaces]) });
+  // Home already knows the current conversation. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
   useEffect(() => {
     const current = assistant.data;
-    if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    if (!client || !current?.conversation || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    const { workspace, conversation } = current;
     void getReactQueryClient().prefetchQuery({
-      queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
-      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      queryKey: snapshotKey(workspace.id, conversation.sessionId),
+      queryFn: async () => (await client.getSessionSnapshot(workspace.id, conversation.sessionId, { limit: 140 })).item,
       staleTime: 30_000,
     });
   }, [client, assistant.data, location.pathname]);
@@ -594,36 +606,26 @@ export function SessionRoute() {
     const workspace = assistant.data.workspace;
     usePanelTabStore.getState().setAssistantWorkspace(workspace.id);
     setWorkspaces(current => current.some(item => item.id === workspace.id) ? current : [...current, { ...workspace, displayNameResolved: assistant.data?.profile.name ?? t("assistant.title") }]);
-    // Daily sessions are separate engine contexts, displayed as a single chat.
-    if (assistantActive && selectedSessionId && selectedSessionId !== assistant.data.day.sessionId) {
-      carryAssistantDraft(selectedSessionId, assistant.data.day.sessionId);
-      navigate(workspaceSessionRoute(workspace.id, assistant.data.day.sessionId), { replace: true });
-    }
-  }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
+    // A conversation keeps its identity across midnight and window changes; nothing retargets it here.
+  }, [assistant.data, setWorkspaces]);
   const openAssistant = useCallback(async () => {
     if (!client) return;
     try {
-      const current = await resolveAssistantChat(client, getReactQueryClient());
-      getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-      const panels = usePanelTabStore.getState();
-      panels.setAssistantWorkspace(current.workspace.id);
-      panels.adoptChat(workspacePanelKey(current.workspace.id), current.day.sessionId, current.profile.name ?? t("assistant.title"), { preserveLayout: true });
+      const current = await resolveAssistantConversation(client, getReactQueryClient(), "navigation");
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
-      navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
+      navigate(`${workspaceSessionRoute(current.workspace.id, current.sessionId)}?conversation=${encodeURIComponent(current.conversation.id)}`);
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
   }, [client, navigate, setWorkspaces]);
   const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     await client.updateAssistantProfile(profile);
-    const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
   }, [client]);
   const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     const state = await client.answerAssistantOnboarding(answer);
-    const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
   }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
@@ -1542,7 +1544,7 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
-      assistantDate: assistantActive ? assistant.data?.day.date : undefined,
+      assistantDate: assistantActive ? (assistant.data?.conversation?.sessionId === selectedSessionId ? assistant.data.conversation.date ?? localAssistantDate() : assistant.data?.day?.sessionId === selectedSessionId ? assistant.data.day.date : localAssistantDate()) : undefined,
       assistantOnboarding: assistantActive && assistantOnboarding.data ? {
         state: assistantOnboarding.data,
         onIcon: (icon: AssistantAvatarIcon) => answerAssistantOnboarding({ icon }),
@@ -1605,11 +1607,9 @@ export function SessionRoute() {
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         let targetSessionId = sessionId.trim() || selectedSessionId;
         if (selectedWorkspace?.preset === "main-assistant") {
+          // The open conversation receives the message, whatever the date; nothing resolves "today" afresh.
           if (assistantOnboarding.data?.needed && assistantOnboarding.data.step === "name") await client.viewAssistantGreeting();
-          const current = await client.mainAssistantCurrent();
-          targetSessionId = current.day.sessionId;
-          getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-          if (targetSessionId !== selectedSessionId) navigate(workspaceSessionRoute(current.workspace.id, targetSessionId), { replace: true });
+          if (!targetSessionId) targetSessionId = (await resolveAssistantConversation(client, getReactQueryClient())).sessionId;
         }
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1820,7 +1820,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantActive, assistant.data?.day.date, assistantOnboarding.data, answerAssistantOnboarding,
+    assistantActive, assistant.data?.conversation, assistant.data?.day, selectedSessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2167,46 +2167,6 @@ export function SessionRoute() {
   }), [sessionProviderAuthStore]);
   useControlAction(addProviderControlAction);
 
-  const paletteSessionOptions = useMemo<PaletteSessionOption[]>(() => {
-    const out: PaletteSessionOption[] = [];
-    for (const workspace of workspaces) {
-      const workspaceTitle =
-        workspace.displayName?.trim() ||
-        workspace.name?.trim() ||
-        workspace.path?.trim() ||
-        t("session.workspace_fallback");
-      const list = sessionsByWorkspaceId[workspace.id] ?? [];
-      for (const session of list) {
-        if (session.time?.archived) continue;
-        const sessionId = (session as { id?: string }).id?.trim() ?? "";
-        if (!sessionId) continue;
-        const title = getDisplaySessionTitle(
-          (session as { title?: string }).title ?? "",
-        );
-        const updatedAt =
-          (session as { time?: { updated?: number; created?: number } }).time
-            ?.updated ??
-          (session as { time?: { updated?: number; created?: number } }).time
-            ?.created ??
-          0;
-        out.push({
-          workspaceId: workspace.id,
-          sessionId,
-          title,
-          workspaceTitle,
-          updatedAt,
-          searchText: `${title} ${workspaceTitle}`.toLowerCase(),
-          isActive: workspace.id === selectedWorkspaceId,
-        });
-      }
-    }
-    out.sort((a, b) => {
-      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-      return b.updatedAt - a.updatedAt;
-    });
-    return out;
-  }, [sessionsByWorkspaceId, selectedWorkspaceId, workspaces]);
-
   // Refresh the non-tab fields of the nav ref during render. The `options`
   // field is maintained by the `onSessionTabsChange` callback from SessionPage.
   sessionTabNavRef.current = {
@@ -2216,39 +2176,20 @@ export function SessionRoute() {
     navigate: navigateToWorkspaceSession,
   };
 
-  const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
-    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
-    server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
-  })), [sidebarWorkspaces, endpointForWorkspace]);
-
-  const searchContents = useCallback(async (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => {
-    const workspace = workspaces.find(item => item.id === workspaceId);
-    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
-    if (!endpoint) throw new Error("Project is unavailable.");
-    const response = await endpoint.client.searchContents(endpoint.workspaceId, kind, query, signal, options);
-    return { ...response, items: response.items.map(item => ({ ...item,
-      workspaceId: item.workspaceId === endpoint.workspaceId ? workspaceId : item.workspaceId,
-      title: item.kind === "sessions" ? getDisplaySessionTitle(item.title) : item.title,
-    })) };
-  }, [workspaces, endpointForWorkspace]);
-
-  const searchProject = useCallback(async (workspaceId: string) => {
-    const workspace = workspaces.find(item => item.id === workspaceId);
-    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
-    if (!endpoint) throw new Error("Project is unavailable.");
-    return endpoint.client.getProjectDetails(endpoint.workspaceId);
-  }, [workspaces, endpointForWorkspace]);
-
-  const openSearchResult = useCallback((result: ContentSearchResult) => {
-    if (result.kind === "tasks") {
-      setOpenTask({ id: result.id, at: Date.now() });
-      navigate("/tasks");
-      return;
+  // The panel opens files and tasks through routes; the parameters are consumed once.
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const file = search.get("file"), task = search.get("task");
+    if (file && routeWorkspaceId && /\/project\/?$/.test(location.pathname)) {
+      useSearchNavigation.getState().setTarget({ kind: "files", id: file, workspaceId: routeWorkspaceId, title: file.split("/").pop() ?? file, excerpt: "", updatedAt: 0, path: file });
+      search.delete("file");
+      navigate({ pathname: location.pathname, search: search.size ? `?${search}` : "" }, { replace: true });
+    } else if (task && location.pathname === "/tasks") {
+      setOpenTask({ id: task, at: Date.now() });
+      search.delete("task");
+      navigate({ pathname: location.pathname, search: search.size ? `?${search}` : "" }, { replace: true });
     }
-    useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
-    if (result.kind === "sessions") navigateToWorkspaceSession(result.workspaceId, result.id);
-    else navigate(workspaceProjectRoute(result.workspaceId));
-  }, [navigate, navigateToWorkspaceSession]);
+  }, [location.pathname, location.search, routeWorkspaceId, navigate]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -2464,10 +2405,10 @@ export function SessionRoute() {
       let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const current = await resolveAssistantChat(client, getReactQueryClient());
+        // The first Home message is the explicit action that creates a conversation when none exists.
+        const current = await resolveAssistantConversation(client, getReactQueryClient());
         workspace = mapDesktopWorkspace(current.workspace);
-        assistantSessionId = current.day.sessionId;
-        getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+        assistantSessionId = current.sessionId;
         const assistantWorkspace = workspace;
         setWorkspaces(previous => previous.some(item => item.id === assistantWorkspace.id) ? previous : [...previous, assistantWorkspace]);
       }
@@ -3123,15 +3064,13 @@ export function SessionRoute() {
       onSave={() => void handleSaveRenameWorkspace()}
       onTitleChange={setRenameWorkspaceTitle}
     />
-    <CommandPalette
+    {client && <LauncherDialog
       open={commandPaletteOpen}
       onClose={() => setCommandPaletteOpen(false)}
-      workspaces={searchWorkspaces}
-      sessions={paletteSessionOptions}
-      search={searchContents}
-      project={searchProject}
-      onOpenResult={openSearchResult}
-    />
+      client={client}
+      assistant={assistant.data ? { workspaceId: assistant.data.workspace.id, profile: assistant.data.profile } : null}
+      workspaces={workspaces.filter(workspace => workspace.workspaceType !== "remote" && workspace.preset !== "main-assistant" && workspace.preset !== "wiki")}
+    />}
     <AssistantIntroDialog ready={announcementsReady && Boolean(assistant.data)} onOpenAssistant={() => void openAssistant()} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost

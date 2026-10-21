@@ -1,0 +1,93 @@
+import { create } from "zustand";
+import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherCatalogEntry, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
+import type { LauncherSelection } from "./launcher-keyboard";
+import { reconcileSelection } from "./launcher-keyboard";
+
+export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work";
+export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "context-menu" } | null;
+export type ProjectScope = { id: string; name: string };
+export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean };
+export type StagedPreview = { id: string; dataUrl: string };
+
+export type LauncherState = {
+  view: LauncherView;
+  input: string;
+  category: LauncherSearchKind | null;
+  scope: ProjectScope | null;
+  /** The execution target bound to the next submission: distinct from the search scope. */
+  target: AssistantExecutionTarget;
+  results: LauncherSearchResult[];
+  sources: LauncherSourceState[];
+  searchPending: boolean;
+  searchError: string | null;
+  catalog: LauncherCatalogEntry[];
+  selection: LauncherSelection;
+  multiSelect: Set<string>;
+  overlay: LauncherOverlay;
+  context: AssistantContextItem[];
+  previews: StagedPreview[];
+  conversation: LauncherConversationBinding | null;
+  origin: LauncherOrigin | null;
+  pinned: boolean;
+  attentionCount: number;
+  notice: { tone: "info" | "error"; text: string } | null;
+  /** The next invocation to apply, delivered by the desktop or a deep link. */
+  invocation: LauncherInvocation | null;
+  visible: boolean;
+  setInvocation: (invocation: LauncherInvocation | null) => void;
+  setVisible: (visible: boolean) => void;
+  setInput: (input: string) => void;
+  setCategory: (category: LauncherSearchKind | null) => void;
+  setScope: (scope: ProjectScope | null) => void;
+  setTarget: (target: AssistantExecutionTarget) => void;
+  setView: (view: LauncherView) => void;
+  setResults: (results: LauncherSearchResult[], sources: LauncherSourceState[], pending: boolean, error: string | null) => void;
+  setCatalog: (catalog: LauncherCatalogEntry[]) => void;
+  select: (selection: LauncherSelection) => void;
+  toggleMultiSelect: (key: string) => void;
+  clearMultiSelect: () => void;
+  setOverlay: (overlay: LauncherOverlay) => void;
+  addContext: (items: AssistantContextItem[], previews?: StagedPreview[]) => void;
+  removeContext: (id: string) => void;
+  replaceContext: (items: AssistantContextItem[]) => void;
+  bindConversation: (conversation: AssistantConversation | null) => void;
+  setOrigin: (origin: LauncherOrigin | null) => void;
+  setPinned: (pinned: boolean) => void;
+  setAttentionCount: (count: number) => void;
+  notify: (notice: LauncherState["notice"]) => void;
+  reset: () => void;
+};
+
+const initial = {
+  view: "idle" as LauncherView, input: "", category: null, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
+  selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, notice: null,
+  invocation: null as LauncherInvocation | null, visible: true,
+};
+
+export const useLauncherStore = create<LauncherState>((set) => ({
+  ...initial,
+  setInvocation: invocation => set({ invocation }),
+  setVisible: visible => set({ visible }),
+  setInput: input => set({ input }),
+  setCategory: category => set({ category }),
+  // A search scope never silently becomes the execution target; the target changes only through its own control.
+  setScope: scope => set({ scope }),
+  setTarget: target => set({ target }),
+  setView: view => set({ view }),
+  setResults: (results, sources, searchPending, searchError) => set(state => ({ results, sources, searchPending, searchError, selection: reconcileSelection(state.selection, results.map(item => ({ id: `${item.kind}\u0000${item.sourceId}\u0000${item.id}` }))) })),
+  setCatalog: catalog => set({ catalog }),
+  select: selection => set({ selection }),
+  toggleMultiSelect: key => set(state => { const next = new Set(state.multiSelect); if (next.has(key)) next.delete(key); else next.add(key); return { multiSelect: next }; }),
+  clearMultiSelect: () => set({ multiSelect: new Set() }),
+  setOverlay: overlay => set({ overlay }),
+  addContext: (items, previews = []) => set(state => ({ context: [...state.context, ...items.filter(item => !state.context.some(existing => existing.id === item.id))], previews: [...state.previews, ...previews] })),
+  removeContext: id => set(state => ({ context: state.context.filter(item => item.id !== id), previews: state.previews.filter(preview => preview.id !== id) })),
+  replaceContext: context => set({ context }),
+  bindConversation: conversation => set({ conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null } : null }),
+  setOrigin: origin => set({ origin }),
+  setPinned: pinned => set({ pinned }),
+  setAttentionCount: attentionCount => set({ attentionCount }),
+  notify: notice => set({ notice }),
+  // Dismissal keeps the conversation, draft and attachments; only transient search state resets.
+  reset: () => set(state => ({ ...state, view: state.conversation ? "conversation" : "idle", results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null })),
+}));

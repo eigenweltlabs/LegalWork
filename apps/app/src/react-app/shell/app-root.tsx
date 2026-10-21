@@ -24,6 +24,7 @@ import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
+import { LauncherRoute } from "../launcher/launcher-route";
 
 
 let appOpenedCaptured = false;
@@ -110,6 +111,8 @@ export function AppRoot() {
                 }
               />
               <Route path="/home" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              {/* The quick panel window: the app's connection, theme and i18n without the workspace shell. */}
+              <Route path="/launcher" element={<DevProfiler id="LauncherRoute"><LauncherRoute /></DevProfiler>} />
               <Route
                 path="/session/:sessionId"
                 element={

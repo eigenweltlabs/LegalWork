@@ -13,6 +13,7 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+import type { LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -838,6 +839,27 @@ export type DesktopCommandMap = {
     args: [badge: { count: number; overlayDataUrl?: string | null; description?: string }];
     result: boolean;
   };
+
+  /**
+   * Global Assistant launcher: its own background presence, shortcut registry,
+   * panel window, external origin/selection/insertion, screen capture and the
+   * shared draft file. Native window and process identifiers never leave the
+   * main process; the renderer only sees opaque origin IDs.
+   */
+  launcherStatus: { args: []; result: LauncherDesktopStatus };
+  launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
+  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state", payload?: { height?: number; route?: string; conversationId?: string }]; result: LauncherWindowState };
+  launcherOriginGet: { args: []; result: LauncherOrigin | null };
+  launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
+  launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
+  launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
+  launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
+  launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
+  launcherDraftsRead: { args: []; result: LauncherDraftFile };
+  launcherDraftsWrite: { args: [file: LauncherDraftFile]; result: boolean };
+  launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };
+  launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
+  launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };
