@@ -906,7 +906,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope,
         scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
-        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
+        parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
+          metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
     }, true),
   });
