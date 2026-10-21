@@ -125,9 +125,9 @@ export class McpConnectorManager {
         const enabled = input.enabled !== false;
         if ((previous.config.enabled !== false) === enabled) return previous;
         const migration = this.legacyPending.get(previous.id);
-        await this.retire(previous);
         const record = { ...previous, config: { ...previous.config, enabled }, revision: randomUUID() };
         await this.store.put(record);
+        await this.retire(previous);
         if (migration) this.legacyPending.set(record.id, { ...migration, revision: record.revision });
         return record;
       }
@@ -142,11 +142,12 @@ export class McpConnectorManager {
         return { ...previous, config };
       }
       const migration = sameIdentity ? this.legacyPending.get(previous.id) : undefined;
-      if (previous) await this.retire(previous);
       const record: ManagedMcpRecord = {
         ...(sameIdentity ? previous : {}), id: sameIdentity ? previous.id : randomUUID(), key, revision: randomUUID(), config, configurationHash,
       };
+      // Keep the saved generation usable until its replacement is durable.
       await this.store.put(record);
+      if (previous) await this.retire(previous);
       if (migration) this.legacyPending.set(record.id, { ...migration, revision: record.revision });
       return record;
     });

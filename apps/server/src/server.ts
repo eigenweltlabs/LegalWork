@@ -1623,7 +1623,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   headers.set("Access-Control-Allow-Origin", allowOrigin);
   headers.set(
     "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, X-LegalWork-Host-Token, X-LegalWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory, X-LegalWork-OAuth-State",
+    "Authorization, Content-Type, X-LegalWork-Host-Token, X-LegalWork-Client-Id, X-OpenCode-Directory, X-Opencode-Directory, x-opencode-directory, X-LegalWork-OAuth-State, X-LegalWork-OAuth-Issuer",
   );
   headers.set("Access-Control-Expose-Headers", "X-LegalWork-Updated-At");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");

@@ -16,7 +16,7 @@ import { GLOBAL_MCP_ID, readGlobalMcpMap, readRuntimeOpencodeConfig, writeRuntim
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { OAuthVault, oauthVaultPath } from "./file-storage/oauth/vault.js";
 import { connectorVault } from "./connectors/store.js";
-import { McpManagerStore } from "./mcp-manager-store.js";
+import { McpManagerStore, type RemoteMcp } from "./mcp-manager-store.js";
 import { hasOpencodeProcess, migrateLegacyMcpOAuth, retryLegacyMcpMigration, startLegacyMcpMigrationRetry } from "./mcp-migration.js";
 import { startServer } from "./server.js";
 import { McpRecovery } from "./mcp-recovery.js";
@@ -264,6 +264,40 @@ describe("server-owned MCP connections", () => {
     expect((await f.gatewayEntry()).url).toContain(f.manager.store.all()[0]!.id);
   });
 
+  test.each(["enabled", "timeout", "provider"])("a failed %s configuration write leaves the saved connection usable and retryable", async change => {
+    const f = await managedMcpFixture();
+    await f.signIn();
+    const client = await f.connect();
+    const previous = (await f.manager.find("ws_a", name))?.record;
+    if (!previous) throw new Error("Missing saved connection");
+    const descriptor = (await readGlobalMcpMap(f.config))[name];
+    const input = change === "enabled" ? { ...descriptor, enabled: false }
+      : change === "timeout" ? { ...f.settings, timeout: 25_000 }
+      : { ...f.settings, url: "https://replacement.example/mcp" };
+    const write = spyOn(f.manager.store, "put").mockRejectedValueOnce(new Error("temporary vault write failure"));
+    try {
+      await expect(f.manager.configure(GLOBAL_MCP_ID, name, input)).rejects.toThrow("temporary vault write failure");
+    } finally { write.mockRestore(); }
+
+    expect(f.manager.store.get(previous.key)).toEqual(previous);
+    expect(await f.manager.status("ws_a", name)).toMatchObject({ status: "connected" });
+    expect((await client.listTools()).tools).toHaveLength(1);
+    expect((await (await f.manager.client(previous)).listTools()).tools).toHaveLength(1);
+    expect((await f.stats()).authorizationGrants).toBe(1);
+
+    const replacement = await f.manager.configure(GLOBAL_MCP_ID, name, input);
+    expect(replacement.revision).not.toBe(previous.revision);
+    expect(f.manager.store.get(previous.key)).toEqual(replacement);
+    await expect(f.manager.client(previous)).rejects.toThrow("no longer available");
+    if (change === "provider") {
+      expect(replacement.id).not.toBe(previous.id);
+      expect(replacement.tokens).toBeUndefined();
+    } else {
+      expect(replacement.id).toBe(previous.id);
+      expect(replacement.tokens).toEqual(previous.tokens);
+    }
+  });
+
   test("disconnect during refresh cancels it and a late response cannot restore credentials", async () => {
     const f = await managedMcpFixture({ REFRESH_DELAY_MS: "600" });
     await f.signIn();
@@ -365,6 +399,34 @@ describe("server-owned MCP connections", () => {
     expect((await f.gatewayEntry("ws_b")).url).toBe(scoped);
   });
 
+  test("restart after shared reconciliation preserves an unmigrated workspace override", async () => {
+    const f = await managedMcpFixture();
+    const shared = await readGlobalMcpMap(f.config);
+    const own: RemoteMcp = { ...f.settings, type: "remote", url: "https://workspace.example/mcp", headers: { "X-Workspace-Key": "synthetic-key" }, oauth: { clientId: "workspace-client" } };
+    // Startup saved the shared descriptor, but stopped before converting this row.
+    await writeRuntimeOpencodeConfig(f.config, "ws_b", () => ({ mcp: { [name]: own }, plugin: ["keep-me"] }));
+    await stopMcpManager(f.config);
+    const sources = { runtimeConfigFile: join(f.root, "runtime.json"), globalOpencodeConfigFile: join(f.root, "old-config.json") };
+    expect((await importConnectorsIntoSharedRow(f.config, sources)).imported).toEqual([]);
+    expect(await readGlobalMcpMap(f.config)).toEqual(shared);
+    expect(await readRuntimeOpencodeConfig(f.config, "ws_b")).toEqual({ mcp: { [name]: own }, plugin: ["keep-me"] });
+
+    const manager = initializeMcpManager(f.config);
+    await manager.reconcile();
+    const global = await manager.find("ws_a", name);
+    const workspace = await manager.find("ws_b", name);
+    expect(global?.record.config.url).toBe(f.settings.url);
+    expect(workspace?.record.config).toEqual(own);
+    expect(workspace?.record.id).not.toBe(global?.record.id);
+    const managed = await readRuntimeOpencodeConfig(f.config, "ws_b");
+    expect(managed.mcp?.[name]?.managedConnectionId).toBe(workspace?.record.id);
+    expect(JSON.stringify(managed)).not.toContain("synthetic-key");
+    await importConnectorsIntoSharedRow(f.config, sources);
+    await manager.reconcile();
+    expect(await readRuntimeOpencodeConfig(f.config, "ws_b")).toEqual(managed);
+    expect((await manager.find("ws_b", name))?.record).toEqual(workspace?.record);
+  });
+
   test("opaque provider URLs are encrypted rather than copied into public metadata", async () => {
     const f = await managedMcpFixture();
     await addMcp(f.config, "ws_a", "private-url", { type: "remote", url: "https://provider.example.com/private-path-token/mcp?api_key=secret-query", oauth: false });
@@ -450,6 +512,40 @@ describe("server-owned MCP connections", () => {
     await f.signIn();
     expect((await (await f.connect()).listTools()).tools.length).toBeGreaterThan(0);
     expect(f.manager.store.all()[0]?.issuer).toBe(f.providerUrl);
+  });
+
+  test("browser preflights allow issuer-bearing OAuth callbacks through the server", async () => {
+    const f = await managedMcpFixture({ OAUTH_ISSUER_PARAMETER: "1" });
+    f.listener.stop(true); f.config.port = 0;
+    const origin = "http://localhost:5394";
+    f.config.corsOrigins = [origin];
+    const server = await startServer(f.config);
+    cleanups.push(() => server.stop());
+    const endpoint = `http://127.0.0.1:${server.port}/workspace/ws_a/opencode/mcp/${name}/auth/callback`;
+    const requested = ["authorization", "content-type", "x-legalwork-oauth-state", "x-legalwork-oauth-issuer"];
+    const preflight = await fetch(endpoint, { method: "OPTIONS", headers: {
+      origin, "access-control-request-method": "POST", "access-control-request-headers": requested.join(","),
+    } });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(origin);
+    const allowed = preflight.headers.get("access-control-allow-headers")?.toLowerCase().split(/,\s*/) ?? [];
+    for (const header of requested) expect(allowed).toContain(header);
+    const denied = await fetch(endpoint, { method: "OPTIONS", headers: { origin: "https://untrusted.example", "access-control-request-method": "POST" } });
+    expect(denied.headers.has("access-control-allow-origin")).toBe(false);
+
+    const start = await f.manager.startAuthorization("ws_a", name);
+    const approval = await fetch(start.authorizationUrl, { redirect: "manual" });
+    const callback = new URL(approval.headers.get("location")!);
+    expect(callback.searchParams.get("iss")).toBe(f.providerUrl);
+    const response = await fetch(endpoint, { method: "POST", headers: {
+      origin, authorization: `Bearer ${f.config.token}`, "content-type": "application/json",
+      "x-legalwork-oauth-state": start.oauthState, "x-legalwork-oauth-issuer": f.providerUrl,
+    }, body: JSON.stringify({ code: callback.searchParams.get("code") }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(await response.json()).toMatchObject({ status: "connected" });
+    expect(f.manager.store.all()[0]?.issuer).toBe(f.providerUrl);
+    expect((await f.stats()).authorizationGrants).toBe(1);
   });
 
   test("insufficient scope requests consent for the scope union without discarding the saved grant", async () => {

@@ -115,7 +115,9 @@ export async function importConnectorsIntoSharedRow(
     for (const [name, entry] of moving) take(name, entry);
     // Distinct existing workspace accounts are not stale copies of a shared
     // connection. Preserve those settings for the manager to own independently.
-    const overrides = new Set(moving.filter(([name, entry]) => !retiredComputerUse(name, entry) && usable(name, entry) && shared[name] && !shared[name].managedConnectionId && !isDeepStrictEqual(shared[name], entry)).map(([name]) => name));
+    // A managed shared descriptor hides its original settings. After an
+    // interrupted reconciliation, a raw workspace row cannot be proven equal.
+    const overrides = new Set(moving.filter(([name, entry]) => !retiredComputerUse(name, entry) && usable(name, entry) && shared[name] && !isDeepStrictEqual(shared[name], entry)).map(([name]) => name));
     workspaceEntries.push({ id: workspace.id, pluginOwned, overrides });
   }
 
