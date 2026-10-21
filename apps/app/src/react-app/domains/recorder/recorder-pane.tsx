@@ -51,6 +51,7 @@ import { toast } from "@/components/ui/sonner";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 
 import { ModelTierSelect } from "./model-tier-select";
+import { isTranscriptionReady } from "./recorder-store";
 import { PermissionsPanel } from "./permissions-panel";
 import {
   RecorderSetup,
@@ -423,15 +424,16 @@ export function RecorderPane(props: {
   const isRecording = Boolean(
     store.recording && !store.recording.ephemeral && store.recording.id !== store.dictationRecordingId,
   );
-  const selectedInstalled = installedModels.some((model) => model.id === store.modelId);
-  const canRecord = !isCaptureBusy && !store.starting && !store.importing && selectedInstalled && engine?.available !== false;
+  const localModelInstalled = installedModels.some((model) => model.id === store.modelId);
+  const selectedInstalled = isTranscriptionReady(store);
+  const canRecord = !isCaptureBusy && !store.starting && !store.importing && selectedInstalled;
   const isDesktop = Boolean(window.__LEGALWORK_ELECTRON__?.invokeDesktop);
   const showDictateInfo = store.systemDictation?.enabled === false && !dictateInfoDismissed;
 
   // First-run guided setup: permissions + model, in order. Once everything is
   // already satisfied, persist the dismissal so future opens never even flash
   // the loading gate.
-  const setupStatus = recorderSetupStatus(store.permissions, store.bootstrap);
+  const setupStatus = recorderSetupStatus(store.permissions, store.bootstrap, store.transcriptionSource === "cloud" && selectedInstalled);
   useEffect(() => {
     if (!setupDismissed && setupStatus === "done" && !setupDemo) {
       markRecorderSetupDismissed();
@@ -465,7 +467,7 @@ export function RecorderPane(props: {
   );
 
   const importing = store.importing;
-  const canImport = !isCaptureBusy && !store.starting && !importing && selectedInstalled && engine?.available !== false;
+  const canImport = store.transcriptionSource === "local" && !isCaptureBusy && !store.starting && !importing && localModelInstalled && engine?.available !== false;
   const pickAudioFile = (list: FileList | null): File | null => {
     if (!list) return null;
     return (
@@ -553,9 +555,9 @@ export function RecorderPane(props: {
         <SectionHeading
           size="page"
           title={t("recorder.workspace_title")}
-          description={props.project ? t("recorder.for_project", { name: props.project.name }) : t("recorder.workspace_description")}
+          description={props.project ? t("recorder.for_project", { name: props.project.name }) : t(store.transcriptionSource === "cloud" ? "recorder.workspace_description_cloud" : "recorder.workspace_description")}
           action={<div className="lw-recorder-header-actions">
-            <Button variant="outline" size="sm" disabled={!canImport} onClick={() => fileInputRef.current?.click()}><Upload data-icon="inline-start" />{t("recorder.import_file")}</Button>
+            <Button variant="outline" size="sm" disabled={!canImport} title={store.transcriptionSource === "cloud" ? t("recorder.import_local_hint") : undefined} onClick={() => fileInputRef.current?.click()}><Upload data-icon="inline-start" />{t("recorder.import_file")}</Button>
             <Tooltip>
               <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("recorder.manage_models")} onClick={() => navigate("/settings/recorder")}><Settings2 /></Button>} />
               <TooltipContent>{t("recorder.manage_models")}</TooltipContent>
@@ -595,7 +597,7 @@ export function RecorderPane(props: {
           </div>
         ) : null}
 
-        {engine && !engine.available ? (
+        {store.transcriptionSource === "local" && engine && !engine.available ? (
           <div className="mt-4 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
             {t("recorder.engine_unavailable")} {engine.error ?? ""}
           </div>

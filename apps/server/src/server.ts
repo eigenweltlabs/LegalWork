@@ -20,6 +20,7 @@ import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
 import { registerSystemOneRoutes } from "./routes/systemone.js";
+import { registerCloudTranscriptionRoutes } from "./routes/cloud-transcription.js";
 import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
@@ -1874,6 +1875,7 @@ function createRoutes(
   wikiSync: WikiSync,
 ): Route[] {
   const routes: Route[] = [];
+  registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");
     if (primary) {

@@ -25,6 +25,7 @@ import { AudioModelManager } from "./model-manager.mjs";
 import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
 import { editTranscriptSpeakers } from "./transcript-edit.mjs";
+import { CloudTranscriber, isCloudTranscriptionModel } from "./cloud-transcriber.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -50,7 +51,7 @@ function stripExtension(name) {
 }
 
 const WORKSPACE_TRANSCRIPT_END = "\n> Recording ended. Changes made in the recording tab are reflected here automatically.\n";
-const WORKSPACE_TRANSCRIPT_NOTE = "> Recorded locally, on-device. New segments are appended during recording. Edit speakers in the recording tab; this file updates automatically.";
+const WORKSPACE_TRANSCRIPT_NOTE = "> Audio saved on this device. New segments are appended during recording. Edit speakers in the recording tab; this file updates automatically.";
 
 function workspaceTranscriptOwnerPath(filePath) {
   return path.join(path.dirname(filePath), `.${path.basename(filePath)}.json`);
@@ -85,10 +86,12 @@ export class RecorderService {
    *   appAudioAvailable?: () => boolean,
    *   powerSessions?: { acquire: (key: string) => void, release: (key: string) => void },
    *   pinProcessQoS?: (pids: number[]) => void,
+   *   resolveCloudConnection?: (modelId: string) => Promise<{ url: string, apiKey: string }>,
    * }} options
    */
   constructor(options) {
     this.userDataDir = options.userDataDir;
+    this.resolveCloudConnection = options.resolveCloudConnection;
     this.modelsDir = path.join(options.userDataDir, "stt-models");
     this.recordingsDir = path.join(options.userDataDir, "recordings");
     this.appAudioAvailable = options.appAudioAvailable ?? (() => false);
@@ -291,7 +294,8 @@ export class RecorderService {
         });
         // The path is reused by later calls. Never replace another recording,
         // or a file the user has replaced with an unrelated document.
-        if (!current.startsWith("# ") || !current.includes(`\n\n${WORKSPACE_TRANSCRIPT_NOTE}\n\n`)) continue;
+        const previousNote = WORKSPACE_TRANSCRIPT_NOTE.replace("Audio saved on this device.", "Recorded locally, on-device.");
+        if (!current.startsWith("# ") || ![WORKSPACE_TRANSCRIPT_NOTE, previousNote].some(note => current.includes(`\n\n${note}\n\n`))) continue;
         const body = workspaceTranscriptHeader(meta) + workspaceTranscriptBody(meta, segments) + WORKSPACE_TRANSCRIPT_END;
         const temporary = `${filePath}.${meta.id}.tmp`;
         try {
@@ -428,6 +432,20 @@ export class RecorderService {
   }
 
   async startTranscriber({ modelId, language }) {
+    if (isCloudTranscriptionModel(modelId)) {
+      if (this.loadedModel?.modelId === modelId && this.loadedModel?.language === language && this.workerReady) return this.transcriberStatus;
+      this.stopWorker();
+      if (!this.resolveCloudConnection) {
+        this.setTranscriberStatus({ state: "error", modelId, error: "Cloud transcription is unavailable." });
+        return this.transcriberStatus;
+      }
+      this.loadedModel = { modelId, language };
+      this.worker = new CloudTranscriber({ modelId, language, resolveConnection: this.resolveCloudConnection });
+      this.worker.on("message", message => this.handleWorkerMessage(message));
+      this.workerReady = true;
+      this.setTranscriberStatus({ state: "ready", modelId, error: null });
+      return this.transcriberStatus;
+    }
     const entry = findAudioModel(modelId);
     if (!entry) {
       this.setTranscriberStatus({ state: "error", modelId, error: `Unknown model: ${modelId}` });
@@ -547,6 +565,16 @@ export class RecorderService {
           error: `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
         break;
       }
+      case "stream-error": {
+        const recording = this.activeRecordings.get(message.streamId);
+        if (recording) {
+          recording.meta.status = "error";
+          recording.meta.error = message.error;
+          recording.resolveFinalized?.();
+        }
+        this.broadcast({ type: "recording-error", recordingId: message.streamId, error: message.error });
+        break;
+      }
       case "partial-clear": {
         this.broadcast({
           type: "transcript-partial-clear",
@@ -620,6 +648,12 @@ export class RecorderService {
   // ── recording lifecycle ─────────────────────────────────────────────────
 
   async startRecording(input) {
+    // A source switch must never send a local recording to a previously loaded cloud worker.
+    if (isCloudTranscriptionModel(input?.modelId) || isCloudTranscriptionModel(this.loadedModel?.modelId)) {
+      if (!this.workerReady || this.loadedModel?.modelId !== input?.modelId) {
+        throw new Error("The selected transcription engine is not ready.");
+      }
+    }
     const id = nowId();
     const folderPath = path.join(this.recordingsDir, id);
     await fsp.mkdir(folderPath, { recursive: true });
@@ -633,6 +667,7 @@ export class RecorderService {
       durationMs: 0,
       language: input?.language ?? "auto",
       modelId: input?.modelId ?? null,
+      transcriptionSource: isCloudTranscriptionModel(input?.modelId) ? "cloud" : "local",
       sources: Array.isArray(input?.sources) ? input.sources : ["microphone"],
       folderPath,
       audioPath,
@@ -649,6 +684,7 @@ export class RecorderService {
     // retained multi-voice recording (never a one-shot dictation).
     const diarize =
       input?.diarize === true &&
+      !isCloudTranscriptionModel(input?.modelId) &&
       input?.ephemeral !== true &&
       this.modelManager.isDiarizationInstalled();
 
@@ -672,6 +708,7 @@ export class RecorderService {
       this.broadcast({ type: "recording-error", recordingId: id, error: meta.error });
     });
     this.activeRecordings.set(id, recording);
+    if (isCloudTranscriptionModel(input?.modelId)) this.worker?.postMessage({ type: "begin", streamId: id, ephemeral: meta.ephemeral });
     this.powerSessions.acquire(`recording:${id}`);
     try {
       await writeMeta(folderPath, meta);
@@ -729,14 +766,24 @@ export class RecorderService {
     // Speaker labels arrive with segments. Finalization only drains the tail.
     if (this.worker && this.workerReady) {
       if (recording.diarize) this.broadcast({ type: "recording-diarizing", recordingId });
-      const finalizeTimeout = recording.diarize ? 10 * 60_000 : 15_000;
+      const cloud = recording.meta.transcriptionSource === "cloud";
+      // A very short dictation can finish while the cloud connection is still opening.
+      const finalizeTimeout = recording.diarize ? 10 * 60_000 : cloud ? 65_000 : 15_000;
       await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, finalizeTimeout);
+        const timeout = setTimeout(() => {
+          if (cloud) {
+            recording.meta.status = "error";
+            recording.meta.error = "Cloud transcription did not finish.";
+            this.worker?.postMessage({ type: "drop", streamId: recordingId });
+          }
+          resolve(undefined);
+        }, finalizeTimeout);
         recording.resolveFinalized = () => {
           clearTimeout(timeout);
           resolve(undefined);
         };
-        this.worker.postMessage({ type: "finalize", streamId: recordingId });
+        if (recording.meta.status === "error") recording.resolveFinalized();
+        else this.worker.postMessage({ type: "finalize", streamId: recordingId });
       });
     }
     this.activeRecordings.delete(recordingId);

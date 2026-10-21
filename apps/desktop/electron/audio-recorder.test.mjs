@@ -216,6 +216,30 @@ async function installFakeModel(service, modelId) {
   await fsp.writeFile(service.modelManager.vadModelPath(), "x");
 }
 
+test("cloud readiness opens no connection, cannot capture a local choice, and preserves connection errors", async t => {
+  const userDataDir = await tempDir("lw-cloud-recorder-");
+  let connections = 0;
+  const service = new RecorderService({ userDataDir, resolveCloudConnection: async () => {
+    connections += 1;
+    throw new Error("Cloud unavailable");
+  } });
+  t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); });
+  const modelId = "gemini-transcribe-live-eu";
+  const ready = await service.startTranscriber({ modelId, language: "de" });
+  assert.equal(ready.state, "ready");
+  assert.equal(connections, 0);
+  await assert.rejects(service.startRecording({ modelId: "whisper-tiny" }), /not ready/);
+  assert.equal(connections, 0);
+  const recording = await service.startRecording({ modelId, language: "de" });
+  await new Promise(resolve => setImmediate(resolve));
+  const saved = await service.stopRecording(recording.id);
+  assert.equal(connections, 1);
+  assert.equal(saved.transcriptionSource, "cloud");
+  assert.equal(saved.status, "error");
+  assert.equal(saved.error, "Cloud unavailable");
+  assert.equal(fs.existsSync(saved.audioPath), true);
+});
+
 test("recorder service records, transcribes, finalizes files", async () => {
   const userDataDir = await tempDir("lw-recorder-");
   const fakeWorker = new FakeWorker();

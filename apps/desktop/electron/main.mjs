@@ -744,12 +744,27 @@ function recorderService() {
       appAudioAvailable: () => appAudioTap.isAvailable(),
       powerSessions,
       pinProcessQoS: pinWindowsProcessQoS,
+      resolveCloudConnection: (model) => recorderServerRequest("/transcription/connection", { model }),
     });
     if (mainWindow && !mainWindow.isDestroyed()) {
       recorderServiceInstance.subscribe(mainWindow.webContents);
     }
   }
   return recorderServiceInstance;
+}
+
+async function recorderServerRequest(route, body) {
+  const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+  const response = await fetch(`${info.baseUrl}${route}`, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: `Bearer ${info.ownerToken || info.clientToken}`,
+      ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}),
+      ...(body ? { "Content-Type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(10_000), redirect: "error",
+  });
+  if (!response.ok) throw new Error("Cloud transcription is unavailable. Sign in and check your organisation’s model settings.");
+  return response.json();
 }
 
 const callOverlay = new CallOverlay({
@@ -2361,7 +2376,8 @@ const desktopCommandHandlers = {
       return undefined;
   },
   "audioRecorderBootstrap": async (event, ...args) => {
-      return recorderService().bootstrap();
+      const cloud = await recorderServerRequest("/transcription/settings").catch(() => ({ models: [], error: null }));
+      return { ...recorderService().bootstrap(), cloud };
   },
   "audioCapturePermissions": async (event, ...args) => {
       return captureAuthStatus(app);

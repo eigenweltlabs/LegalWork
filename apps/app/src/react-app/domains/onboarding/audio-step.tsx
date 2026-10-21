@@ -22,7 +22,7 @@ import { RecorderFlow, type RecorderSetupRequirement, type RecorderFeature } fro
 import { dictationPermissionReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
 import { MODEL_TIERS } from "../recorder/model-tiers";
 import { recommendedTier } from "../recorder/recorder-setup";
-import { useRecorderStore } from "../recorder/recorder-store";
+import { useRecorderStore, isTranscriptionReady } from "../recorder/recorder-store";
 import { onboardingDemoActive } from "./onboarding-cover";
 
 /** How often the step re-probes the OS while something is still missing. */
@@ -116,15 +116,15 @@ export function AudioStep(props: {
   const recommendedModel = bootstrap?.models.find((model) => model.id === recommended.modelId);
   const modelInstalled = demo
     ? sim.model === "installed"
-    : bootstrap?.models.some((model) => model.id === store.modelId && model.state === "installed") === true;
+    : isTranscriptionReady(store);
   // Reuse a usable installed model when an earlier choice is absent or no
   // longer installed. Keep an intentional download selected until it finishes.
   useEffect(() => {
-    if (demo || !bootstrap || modelInstalled || bootstrap.models.some(model => model.id === store.modelId && model.state === "downloading")) return;
+    if (demo || !bootstrap || store.transcriptionSource === "cloud" || modelInstalled || bootstrap.models.some(model => model.id === store.modelId && model.state === "downloading")) return;
     const installed = bootstrap.models.find(model => model.id === recommended.modelId && model.state === "installed")
       ?? bootstrap.models.find(model => model.state === "installed" && (model.plan !== "premium" || premiumEntitled || store.unlockedModels.includes(model.id)));
     if (installed) store.setModelId(installed.id);
-  }, [demo, bootstrap, modelInstalled, store.modelId, store.setModelId, store.unlockedModels, recommended.modelId, premiumEntitled]);
+  }, [demo, bootstrap, modelInstalled, store.modelId, store.transcriptionSource, store.setModelId, store.unlockedModels, recommended.modelId, premiumEntitled]);
   const modelDownloading = demo
     ? sim.model === "downloading"
     : recommendedModel?.state === "downloading";

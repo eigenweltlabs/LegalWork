@@ -105,12 +105,60 @@ beforeEach(async () => {
   retainedRecordings = []; meetingOpens = 0; liveShareStarts = [];
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
-  store.setState({ liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
+  store.setState({ transcriptionSource: "local", cloudModelId: "gemini-transcribe-live-eu", liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
     recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
     permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"] });
   await store.getState().init();
 });
 afterEach(async () => { if (store.getState().recording) await store.getState().cancelRecording(); });
+
+test("choosing a local model switches away from cloud for the next recording", async () => {
+  store.setState({ bootstrap: { ...bootstrap, cloud: { models: [
+    { model: "gemini-transcribe-live-eu", name: "Gemini", region: "EU", enabled: true, available: true },
+  ] } } });
+  store.getState().setTranscriptionSource("cloud", "gemini-transcribe-live-eu");
+  expect(store.getState().transcriptionSource).toBe("cloud");
+  store.getState().setModelId("test-model");
+  expect(store.getState().transcriptionSource).toBe("local");
+  await store.getState().startRecording("Local meeting");
+  expect(recordingInputs[0].modelId).toBe("test-model");
+});
+
+test("model selection cannot switch transcription engines during capture startup", () => {
+  store.setState({ transcriptionSource: "cloud", starting: true });
+  try {
+    store.getState().setModelId("test-model");
+    expect(store.getState().transcriptionSource).toBe("cloud");
+  } finally { store.setState({ starting: false }); }
+});
+
+test("cloud dictation works without an installed local model and uses the selected regional alias", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: { ...bootstrap, models: [], engine: { available: false, error: "Not installed" },
+    cloud: { models: [{ model: "gemini-transcribe-live-eu", name: "Gemini", region: "EU", enabled: true, available: true }] } } });
+  const inserted: string[] = [];
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  expect(recordingInputs[0].modelId).toBe("gemini-transcribe-live-eu");
+  await store.getState().stopRecording();
+  expect(inserted).toEqual([transcript]);
+});
+
+test("a cloud transcription error never inserts a partial transcript", async () => {
+  stopResult = Promise.resolve({ ...meta, status: "error", error: "Cloud disconnected" });
+  const inserted: string[] = [];
+  await store.getState().startComposerDictation("chat-one", text => inserted.push(text));
+  await store.getState().stopRecording();
+  expect(inserted).toEqual([]);
+  expect(pasted).toEqual([]);
+  expect(store.getState().error).toBe("Cloud disconnected");
+});
+
+test("an unavailable cloud choice does not fall back or start capture", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: { ...bootstrap, cloud: { models: [] } } });
+  await store.getState().startRecording("Cloud meeting");
+  expect(captureStarts).toBe(0);
+  expect(recordingInputs).toEqual([]);
+  expect(store.getState().error).not.toBeNull();
+});
 
 test("composer dictation inserts into its draft without native paste, HUD or a retained recording", async () => {
   const inserted: string[] = [];

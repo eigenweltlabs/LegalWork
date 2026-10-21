@@ -84,6 +84,8 @@ const IMPORT_PCM_CHUNK = 16000;
 const MODEL_PREF_KEY = "legalwork.recorder.model";
 const LANGUAGE_PREF_KEY = "legalwork.recorder.language";
 const SOURCES_PREF_KEY = "legalwork.recorder.sources";
+const TRANSCRIPTION_SOURCE_PREF_KEY = "legalwork.recorder.transcription-source";
+const CLOUD_MODEL_PREF_KEY = "legalwork.recorder.cloud-model";
 
 function setDictationFeedback(state: AudioSystemDictationRuntimeState, message = "") {
   // Composer dictation owns its feedback and inserts directly into its draft.
@@ -127,6 +129,8 @@ export type CopilotEntry = {
 let liveTranscriptShareRevision = 0;
 
 export type RecorderState = {
+  transcriptionSource: "local" | "cloud";
+  cloudModelId: string;
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
   permissions: AudioCapturePermissions | null;
@@ -180,6 +184,7 @@ export type RecorderState = {
 };
 
 type RecorderActions = {
+  setTranscriptionSource: (source: "local" | "cloud", cloudModelId?: string) => void;
   init: () => Promise<void>;
   refreshBootstrap: () => Promise<void>;
   refreshRecordings: () => Promise<void>;
@@ -259,6 +264,20 @@ type RecorderActions = {
   suggestFollowUps: () => Promise<void>;
   clearError: () => void;
 };
+
+type TranscriptionSelection = Pick<RecorderState, "bootstrap" | "transcriptionSource" | "modelId" | "cloudModelId">;
+export function transcriptionModelId(state: TranscriptionSelection): string {
+  return state.transcriptionSource === "cloud" ? state.cloudModelId : state.modelId;
+}
+
+export function isTranscriptionReady(state: TranscriptionSelection): boolean {
+  if (state.transcriptionSource === "cloud") return state.bootstrap?.cloud?.models.some(
+    model => model.model === state.cloudModelId && model.enabled && model.available,
+  ) === true;
+  return state.bootstrap?.engine.available !== false && state.bootstrap?.models.some(
+    model => model.id === state.modelId && model.state === "installed",
+  ) === true;
+}
 
 function readPref(key: string, fallback: string): string {
   try {
@@ -556,6 +575,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       }
       case "recording-error": {
         set({ error: event.error });
+        if (state.transcriptionSource === "cloud" && state.recording?.id === event.recordingId && !state.finalizing) void get().stopRecording();
         break;
       }
       case "meeting-status": {
@@ -706,6 +726,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   };
 
   return {
+    transcriptionSource: readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
+    cloudModelId: readPref(CLOUD_MODEL_PREF_KEY, ""),
     initialized: false,
     bootstrap: null,
     permissions: null,
@@ -779,6 +801,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
      * user ever setting anything up.
      */
     ensureDiarizationReady: async () => {
+      if (get().transcriptionSource === "cloud") return;
       const diarization = get().bootstrap?.diarization;
       if (!diarization || diarization.installed || diarization.downloading) return;
       await get().downloadDiarization();
@@ -975,8 +998,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         if (recordingStartPending || dictationHoldStartPending || dictationTogglePending || get().dictationState === "starting" || get().dictationRecordingId) {
           throw new Error(t("recorder.stop_session_first"));
         }
-        const model = get().bootstrap?.models.find(item => item.id === get().modelId);
-        if (!model || model.state !== "installed") throw new Error(t("recorder.install_model_first"));
+        if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
         await audioMeetingSetState("starting");
         await get().startRecording(title || t("recorder.meeting_recording_title"), { sources: ["microphone", "system"] });
         if (suspendEpoch !== startEpoch) { await audioMeetingSetState("idle").catch(() => {}); return; }
@@ -995,8 +1017,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       if (get().recording || get().starting || get().finalizing || get().importing || recordingStartPending || meetingStartPending || get().dictationState === "starting") {
         throw new Error(t("recorder.stop_session_first"));
       }
-      const model = get().bootstrap?.models.find((entry) => entry.id === get().modelId);
-      if (!model || model.state !== "installed") throw new Error(t("recorder.install_model_first"));
+      if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
       dictationCancelled = false;
       dictationShortPress = false;
       set({ composerDictation: { ownerId, onComplete }, composerDictationLevel: 0, dictationState: "starting", error: null });
@@ -1011,7 +1032,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     startSystemDictation: async () => {
-      const { systemDictation, bootstrap, modelId, recording } = get();
+      const { systemDictation, recording } = get();
       if (!systemDictation?.enabled || !systemDictation.registered) return;
       if (get().finalizing || meetingStartPending || recordingStartPending || get().dictationState === "starting") return;
       // Guard against a runaway restart loop: a start that lands within a beat
@@ -1026,9 +1047,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         await setDictationFeedback("error", message).catch(() => {});
         return;
       }
-      const model = bootstrap?.models.find((entry) => entry.id === modelId);
-      if (!model || model.state !== "installed") {
-        const message = t("recorder.install_model_first");
+      if (!isTranscriptionReady(get())) {
+        const message = t("recorder.transcription_not_ready");
         set({ error: message, dictationState: "error" });
         await setDictationFeedback("error", message).catch(() => {});
         return;
@@ -1044,6 +1064,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     },
 
     setModelId: (modelId) => {
+      if (get().recording || get().starting || get().finalizing || get().importing) return;
       // A premium tier requires an ACTIVE subscription — not just being signed
       // in, and not merely having the model already downloaded. Without an
       // active sub (and no test-unlock) the selection is refused so the gate /
@@ -1058,7 +1079,18 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         return;
       }
       writePref(MODEL_PREF_KEY, modelId);
-      set({ modelId });
+      writePref(TRANSCRIPTION_SOURCE_PREF_KEY, "local");
+      set({ modelId, transcriptionSource: "local", error: null });
+      void get().prewarm();
+    },
+
+    setTranscriptionSource: (source, cloudModelId) => {
+      if (get().recording || get().starting || get().finalizing || get().importing) return;
+      const selected = cloudModelId ?? get().cloudModelId;
+      if (source === "cloud" && !get().bootstrap?.cloud?.models.some(model => model.model === selected && model.enabled && model.available)) return;
+      writePref(TRANSCRIPTION_SOURCE_PREF_KEY, source);
+      if (source === "cloud") writePref(CLOUD_MODEL_PREF_KEY, selected);
+      set({ transcriptionSource: source, cloudModelId: selected, error: null });
       void get().prewarm();
     },
 
@@ -1110,6 +1142,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
      * starts transcribing immediately (large models take seconds to load).
      */
     prewarm: async () => {
+      if (get().transcriptionSource === "cloud") return;
       const { modelId, language, recording, bootstrap } = get();
       if (recording) return;
       const model = bootstrap?.models.find((entry) => entry.id === modelId);
@@ -1167,7 +1200,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       recordingStartPending = true;
       set({ starting: true });
       try {
-        const { modelId, language, recording, bootstrap } = get();
+        const { language, recording, bootstrap } = get();
+        const modelId = transcriptionModelId(get());
         if (recording) return;
         // A persisted "system" pref may predate running on a platform that
         // can't capture it (e.g. macOS 12) — drop unsupported sources.
@@ -1201,6 +1235,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // Speaker identification is always on for retained recordings once the
         // models are present; never a one-shot dictation.
         const diarize =
+          get().transcriptionSource === "local" &&
           options?.diarize !== false &&
           options?.systemDictation !== true &&
           bootstrap?.diarization.installed === true;
@@ -1209,6 +1244,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         // back instead of latching a recording nobody can see.
         const startEpoch = suspendEpoch;
         try {
+          if (!isTranscriptionReady(get())) throw new Error(t("recorder.transcription_not_ready"));
           const status = await audioTranscriberStart({ modelId, language });
           if (status.state === "error") throw new Error(status.error ?? t("recorder.transcriber_start_failed"));
 
@@ -1241,6 +1277,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             },
             { dictation: options?.systemDictation === true },
           );
+          if (get().transcriptionSource === "cloud" && get().error) throw new Error(get().error ?? t("recorder.transcription_not_ready"));
           // Suspended or canceled while we were starting: abandon
           // the half-built recording rather than leave it running post-wake.
           if (suspendEpoch !== startEpoch || (options?.systemDictation && dictationCancelled)) {
@@ -1340,12 +1377,13 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           } finally { captureHandle = null; }
         }
         const meta = await audioRecordingStop(recording.id);
-        let dictationError: string | null = null;
+        const transcriptionError = meta.status === "error" ? meta.error || "Transcription failed." : null;
+        let dictationError: string | null = transcriptionError;
         let recordingsAfterDictation: AudioRecordingMeta[] | null = null;
         if (isSystemDictation) {
           const detail = await audioRecordingGet(meta.id);
           const text = (detail?.segments ?? []).map((segment) => segment.text).join(" ").trim();
-          if (text && !dictationCancelled && suspendEpoch === stopEpoch) {
+          if (text && !dictationError && !dictationCancelled && suspendEpoch === stopEpoch) {
             set({ dictationState: "inserting" });
             await setDictationFeedback("inserting").catch(() => {});
             try {
@@ -1369,7 +1407,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         }
         if (isSystemDictation) dictationSettleAt = Date.now();
         if (!isSystemDictation) {
-          const meeting = await audioMeetingSetState(captureError ? "error" : "idle", undefined, captureError ?? undefined)
+          const meetingError = transcriptionError ?? captureError;
+          const meeting = await audioMeetingSetState(meetingError ? "error" : "idle", undefined, meetingError ?? undefined)
             .catch(() => get().meeting);
           set({ meeting });
         }
@@ -1384,7 +1423,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           levels: {},
           diarizing: false,
           finalizing: false,
-          error: dictationError ?? captureError,
+          error: dictationError ?? transcriptionError ?? captureError,
           // An ephemeral recording (system dictation) must NEVER enter the
           // recordings list. Key off the recording's own flag, not the racy
           // dictationRecordingId, so a loop or state race can't sneak it in.

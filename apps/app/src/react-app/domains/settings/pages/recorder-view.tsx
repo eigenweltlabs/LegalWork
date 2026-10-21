@@ -30,7 +30,7 @@ import {
 } from "../settings-layout";
 import { ModelManagerList } from "../../recorder/model-manager";
 import { formatDictationShortcut } from "../../recorder/dictation-shortcut";
-import { useRecorderStore } from "../../recorder/recorder-store";
+import { useRecorderStore, isTranscriptionReady } from "../../recorder/recorder-store";
 import { HubTabs } from "../segmented-tabs";
 import { DictationReadinessGate } from "./dictation-readiness";
 import { DictationSetupDialog } from "./dictation-setup-dialog";
@@ -58,11 +58,8 @@ export function RecorderSettingsView(props: {
   const [dictationSetupOpen, setDictationSetupOpen] = useState(false);
   const [loginItem, setLoginItem] = useState<{ openAtLogin: boolean; requiresApproval: boolean } | null>(null);
   const [changingLoginItem, setChangingLoginItem] = useState(false);
-  const models = store.bootstrap?.models ?? [];
   const engine = store.bootstrap?.engine;
-  const selectedModelInstalled = models.some(
-    (model) => model.id === store.modelId && model.state === "installed",
-  );
+  const selectedModelInstalled = isTranscriptionReady(store);
   const dictation = store.systemDictation;
 
   useEffect(() => {
@@ -71,6 +68,7 @@ export function RecorderSettingsView(props: {
       .then(setLoginItem)
       .catch(() => setLoginItem(null));
     const onFocus = () => {
+      void store.refreshBootstrap();
       void store.refreshSystemDictation();
       void store.refreshPermissions();
       void store.refreshDictationMicrophones();

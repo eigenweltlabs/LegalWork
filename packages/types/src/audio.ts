@@ -5,9 +5,9 @@
  * Producer: apps/desktop/electron/audio/* (model manager, recorder service,
  * transcription worker). Consumer: apps/app recorder domain + call overlay.
  *
- * Everything here is local-first: models are ONNX files downloaded to the
- * user's machine and inference runs in an Electron utility process via
- * sherpa-onnx. No audio ever leaves the device for transcription.
+ * Local transcription uses downloaded ONNX models via sherpa-onnx. Optional
+ * cloud transcription sends audio through the subscription gateway to the
+ * selected region. Recordings and transcripts are saved on the device.
  */
 
 /** Engine family a model runs on (all via sherpa-onnx). */
@@ -111,6 +111,8 @@ export type AudioEngineStatus = {
 };
 
 export type AudioRecorderBootstrap = {
+  /** Available only with an active subscription and the organisation's opt-in. */
+  cloud?: AudioCloudTranscriptionStatus;
   models: AudioModelState[];
   capabilities: AudioCaptureCapabilities;
   engine: AudioEngineStatus;
@@ -118,6 +120,11 @@ export type AudioRecorderBootstrap = {
   device: AudioDeviceProfile;
   modelsDir: string;
   recordingsDir: string;
+};
+
+export type AudioCloudTranscriptionStatus = {
+  models: { model: string; name: string; region: "EU" | "US"; enabled: boolean; available: boolean }[];
+  error: string | null;
 };
 
 export type AudioCaptureSourceKind = "microphone" | "system" | "app";
@@ -193,6 +200,7 @@ export type AudioMeetingStatus = {
 };
 
 export type AudioRecordingMeta = {
+  transcriptionSource?: "local" | "cloud";
   id: string;
   title: string;
   createdAt: number;

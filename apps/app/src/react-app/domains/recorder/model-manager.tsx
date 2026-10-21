@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 /**
- * Local speech-model management list — lives in Settings → Recorder and is
+ * Transcription-model list — lives in Settings → Recorder and is
  * driven by the shared recorder store (download progress arrives over the
  * recorder event bus).
  */
@@ -23,6 +23,7 @@ import { usePremiumEntitled, tierForModelId, tierName, tierTagline } from "./mod
 import { PremiumUpgradeDialog } from "./model-tier-select";
 import { usePremiumUpsell } from "./premium-upsell-context";
 import { useRecorderStore } from "./recorder-store";
+import { CloudModelList } from "./cloud-model-list";
 
 function ModelRow(props: { model: AudioModelState; recommended: boolean; selected: boolean }) {
   const { model } = props;
@@ -177,7 +178,7 @@ export function ModelManagerList() {
   };
 
   useEffect(() => {
-    void store.init();
+    void store.init().then(() => store.refreshBootstrap());
     void rescan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -202,9 +203,10 @@ export function ModelManagerList() {
           key={model.id}
           model={model}
           recommended={model.id === recommendedId}
-          selected={model.id === store.modelId}
+          selected={store.transcriptionSource === "local" && model.id === store.modelId}
         />
       ))}
+      <CloudModelList />
 
       {diskCandidates.length > 0 ? (
         <div className="rounded-2xl border border-subtle bg-sunken/60 px-3 py-2.5">
