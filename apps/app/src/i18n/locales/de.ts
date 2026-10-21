@@ -6822,6 +6822,8 @@ const de = {
   "model_picker.disable_provider": "Diesen Anbieter deaktivieren",
   "model_picker.enable_provider": "Diesen Anbieter aktivieren",
   "workspace.remove_failed": "Dieses Projekt konnte nicht entfernt werden.",
+  "workspace.remove_title": "Projekt „{name}“ entfernen?",
+  "workspace.remove_description": "Dieses Projekt wird aus der Seitenleiste entfernt. Chats und Dateien auf der Festplatte bleiben erhalten.",
   "workspace.remove_confirm": "Diesen Workspace aus der Seitenleiste entfernen?",
   "ext.composer_computer_use": "Computer Use verwenden, um ",
   "ext.composer_google_workspace": "Google Workspace verwenden, um ",

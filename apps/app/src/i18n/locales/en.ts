@@ -6452,6 +6452,8 @@ export default {
   "model_picker.disable_provider": "Disable this provider",
   "model_picker.enable_provider": "Enable this provider",
   "workspace.remove_failed": "Could not remove this project.",
+  "workspace.remove_title": "Remove project “{name}”?",
+  "workspace.remove_description": "This project will be removed from the sidebar. Chats and files on disk will be kept.",
   "workspace.remove_confirm": "Remove this workspace from the sidebar?",
   "ext.composer_computer_use": "Use Computer Use to ",
   "ext.composer_google_workspace": "Use Google Workspace to ",

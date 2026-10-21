@@ -544,7 +544,7 @@ function WorkspaceActionsMenu({ workspace, className }: WorkspaceActionsMenuProp
           onClick={() => ctx.onForgetWorkspace(workspace.id)}
         >
           <Trash2 className="size-4" />
-          {t("workspace_list.remove_workspace")}
+          {t("sidebar.remove_project")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
