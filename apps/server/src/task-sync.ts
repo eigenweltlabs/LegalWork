@@ -1,4 +1,5 @@
 import { announceSyncChange } from "./app-sync-events.js";
+import { withProjectMutation } from "./project-deletion-gate.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   intakeCreateTask,
@@ -376,7 +377,7 @@ export function runTaskSync(
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = withProjectMutation(config, () => runRound(config, options.platform ?? REAL_PLATFORM)).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);

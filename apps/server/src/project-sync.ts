@@ -1,4 +1,5 @@
 import { syncProjectCalendar } from "./calendar/sync.js";
+import { withProjectMutation } from "./project-deletion-gate.js";
 import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
@@ -779,7 +780,7 @@ export function runProjectSync(
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   pendingRounds.delete(key);
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
+  const round = withProjectMutation(config, () => runRound(config, options.platform ?? REAL_PLATFORM)).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });
   rounds.set(key, round);

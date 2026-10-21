@@ -204,7 +204,7 @@ import {
   publishInspectorSlice,
   recordInspectorEvent,
 } from "../../app/lib/app-inspector";
-import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { saveSessionDraft, clearSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { useControlAction, type LegalworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
@@ -1849,29 +1849,34 @@ export function SessionRoute() {
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
+      usePanelTabStore.getState().forgetWorkspace(workspaceId);
     },
     [navigate, selectedWorkspaceId],
   );
 
   const handleForgetWorkspace = useCallback(
-    async (workspaceId: string) => {
+    async (workspaceId: string, reviewToken?: string) => {
       try {
         const workspace = workspaces.find(item => item.id === workspaceId);
         if (workspace?.workspaceType !== "remote") {
           if (!client) throw new Error(t("session_route.create_server_unavailable"));
-          await client.deleteWorkspace(workspaceId).catch(error => {
-            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-          });
+          if (!reviewToken) throw new Error(t("workspace.delete_checking"));
+          const deleted = await client.deleteProject(workspaceId, reviewToken);
+          for (const sessionId of deleted.sessionIds) {
+            forgetSession(workspaceId, sessionId);
+            usePanelTabStore.getState().clearSession(sessionId);
+            clearSessionDraft(workspaceId, sessionId);
+          }
+          clearSessionDraft(workspaceId, null);
+          sessionManagementStore.getState().forgetWorkspace(workspaceId, deleted.sessionIds);
         }
         await forgetWorkspaceHere(workspaceId);
         await refreshRouteState();
-        return true;
       } catch (error) {
-        toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
-        return false;
+        throw new Error(describeRouteError(error));
       }
     },
-    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
+    [client, workspaces, forgetWorkspaceHere, refreshRouteState, forgetSession],
   );
 
 
@@ -2995,7 +3000,10 @@ export function SessionRoute() {
     {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}
     {removeProject && <RemoveProjectDialog
       name={workspaceLabel(removeProject)}
-      onConfirm={() => handleForgetWorkspace(removeProject.id)}
+      workspaceId={removeProject.id}
+      remote={removeProject.workspaceType === "remote"}
+      client={client}
+      onConfirm={token => handleForgetWorkspace(removeProject.id, token)}
       onClose={() => setRemoveProject(null)}
     />}
     {newChatOpen && <NewChatDialog

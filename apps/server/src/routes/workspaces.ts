@@ -1,4 +1,8 @@
 import type { registerProjectFolderRoutes } from "./project-folders.js";
+import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { deleteProjectData, reviewProjectDeletion } from "../project-deletion.js";
+import { withProjectDeletion } from "../project-deletion-gate.js";
+import type { ProjectFileLink } from "../project-file-schema.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { withFileWriteLock } from "../file-write-lock.js";
@@ -22,6 +26,10 @@ type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 type ParseOptionalBoolean = (value: string | null, name: string) => boolean | undefined;
 
 interface RegisterWorkspaceRoutesOptions {
+  createProjectEngine: (workspace: WorkspaceInfo) => ReturnType<typeof createOpencodeClient>;
+  cleanupProjectSession: (workspaceId: string, sessionId: string) => Promise<void>;
+  cleanupProjectTasks: (workspaceId: string) => Promise<void>;
+  readConnectedLink: (ctx: RequestContext, link: ProjectFileLink) => Promise<Uint8Array>;
   projectFolders?: ReturnType<typeof registerProjectFolderRoutes>;
   routes: Route[];
   config: ServerConfig;
@@ -300,15 +308,22 @@ export async function renameRegisteredWorkspace(config: ServerConfig, id: string
 
 /** Take a workspace out of the registry (its folder stays) and persist it. */
 export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {
-  const before = config.workspaces.length;
-  revokeWikiProjectEverywhere(config, workspace.id);
+  const before = config.workspaces, roots = config.authorizedRoots;
   config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
-  const deleted = before !== config.workspaces.length;
+  const deleted = before.length !== config.workspaces.length;
   if (deleted && workspace.workspaceType === "local") {
     // Only remove exact matches; authorizedRoots can contain broader entries.
     config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
   }
-  return { deleted, persisted: await persistServerWorkspaceState(config) };
+  try {
+    const persisted = await persistServerWorkspaceState(config);
+    revokeWikiProjectEverywhere(config, workspace.id);
+    return { deleted, persisted };
+  } catch (error) {
+    config.workspaces = before;
+    config.authorizedRoots = roots;
+    throw error;
+  }
 }
 
 export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions): void {
@@ -651,6 +666,37 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       activeId: active?.id ?? null,
       items: config.workspaces.map(serializeWorkspace),
       workspaces: config.workspaces.map(serializeWorkspace),
+    });
+  });
+
+  addRoute(routes, "GET", "/workspaces/:id/deletion", "host", async ctx => {
+    const workspace = registeredWorkspace(ctx.params.id);
+    return jsonResponse(await reviewProjectDeletion(config, workspace, options.createProjectEngine(workspace)));
+  });
+  // An explicit endpoint keeps older clients' "Remove workspace" action and
+  // sync's unregister operation non-destructive.
+  addRoute(routes, "POST", "/workspaces/:id/delete-project", "host", async ctx => {
+    ensureWritable(config);
+    const body = await readJsonBodyLimited(ctx.request, 4096);
+    if (typeof body.token !== "string" || !body.token) throw new ApiError(400, "project_deletion_review_required", "Review the project before deleting it.");
+    const token = body.token;
+    return withProjectDeletion(config, async () => {
+      const workspace = registeredWorkspace(ctx.params.id);
+      const result = await deleteProjectData({ config, workspace, engine: options.createProjectEngine(workspace), token,
+        readConnected: link => options.readConnectedLink(ctx, link),
+        cleanupSession: id => options.cleanupProjectSession(workspace.id, id),
+        beforeFiles: async () => {
+          await options.cleanupProjectTasks(workspace.id);
+          await onProjectRemoved(workspace.id);
+        },
+      });
+      let removed;
+      try { removed = await unregisterWorkspace(config, workspace); }
+      catch {
+        throw new ApiError(409, "project_registration_delete_failed", "The project data was deleted, but the project list could not be saved. Check the server configuration file and retry to finish removing the project.");
+      }
+      onWorkspacesChanged();
+      return jsonResponse({ ok: true, ...removed, ...result });
     });
   });
 }
