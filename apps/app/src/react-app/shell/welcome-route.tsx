@@ -114,7 +114,7 @@ export function WelcomeRoute() {
       busy={createPhase !== null}
       busyPhase={createPhase}
       error={error}
-      totalSteps={isDesktopRuntime() ? 5 : 3}
+      totalSteps={isDesktopRuntime() ? 6 : 3}
       analyticsEnabled={analyticsEnabled}
       onAnalyticsChange={setAnalyticsEnabled}
     />

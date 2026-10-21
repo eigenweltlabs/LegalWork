@@ -158,8 +158,10 @@ declare global {
         onPanelClosed?: (callback: () => void) => () => void;
       };
       audio?: {
-        sendPcm?: (streamId: string, buffer: ArrayBuffer) => void;
-        sendMediaChunk?: (recordingId: string, chunk: ArrayBuffer) => void;
+        sendPcm?: (streamId: string, buffer: ArrayBuffer, source?: import("@legalwork/types/audio").AudioCaptureSourceKind) => void;
+        sendDictationLevel?: (level: number) => void;
+        sendMeetingLevel?: (recordingId: string, level: number) => void;
+        sendMediaChunk?: (recordingId: string, chunk: ArrayBuffer, source?: import("@legalwork/types/audio").AudioCaptureSourceKind) => void;
         sendAskAnswer?: (askId: string, text: string, done: boolean, error?: string | null) => void;
         onEvent?: (callback: (event: import("@legalwork/types/audio").AudioRecorderEvent) => void) => () => void;
         onAppPcm?: (callback: (payload: { sampleRate: number; buffer: ArrayBuffer }) => void) => () => void;
@@ -534,6 +536,7 @@ const {
   audioRecordingCancel,
   audioRecordingsList,
   audioRecordingGet,
+  audioRecordingEditTranscript,
   audioRecordingDelete,
   audioRecordingRename,
   audioRecordingSetProject,
@@ -549,14 +552,22 @@ const {
   audioOverlaySetVisible,
   audioOverlayGetVisible,
   audioSystemDictationGet,
+  audioMeetingGet,
+  audioMeetingDetectionSet,
+  audioMeetingSetState,
+  audioMeetingOpen,
+  audioSystemDictationSetAppearance,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetShortcut,
-  audioSystemDictationSetMode,
   audioSystemDictationSetShortcutCapture,
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
   audioSystemDictationReadiness,
+  audioSystemDictationMicrophonesGet,
+  audioSystemDictationMicrophonesUpdate,
+  audioSystemDictationMicrophoneSelect,
+  audioSystemDictationMicrophoneActive,
   audioSystemDictationRequestPermission,
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
@@ -647,6 +658,7 @@ export {
   audioRecordingCancel,
   audioRecordingsList,
   audioRecordingGet,
+  audioRecordingEditTranscript,
   audioRecordingDelete,
   audioRecordingRename,
   audioRecordingSetProject,
@@ -662,14 +674,22 @@ export {
   audioOverlaySetVisible,
   audioOverlayGetVisible,
   audioSystemDictationGet,
+  audioMeetingGet,
+  audioMeetingDetectionSet,
+  audioMeetingSetState,
+  audioMeetingOpen,
+  audioSystemDictationSetAppearance,
   audioSystemDictationSetEnabled,
   audioSystemDictationSetShortcut,
-  audioSystemDictationSetMode,
   audioSystemDictationSetShortcutCapture,
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
   audioSystemDictationReadiness,
+  audioSystemDictationMicrophonesGet,
+  audioSystemDictationMicrophonesUpdate,
+  audioSystemDictationMicrophoneSelect,
+  audioSystemDictationMicrophoneActive,
   audioSystemDictationRequestPermission,
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,

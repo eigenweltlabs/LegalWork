@@ -4,6 +4,7 @@ import { z } from "zod";
 import { projectFieldsSchema } from "../project-schema.js";
 import { listWorkspaces, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { RECORDING_TOOLS, RECORDING_GUIDANCE } from "./recording-tools.js";
 
 const kinds = z.enum(["tasks", "notes", "files", "recordings", "sessions"]);
 const listArgs = z.object({
@@ -98,6 +99,7 @@ const noteArgs = z.object({
   source: z.string().trim().min(1).max(2048).describe("Source note's relative path or linked connection and relative path, so the user can trace this note."),
 });
 const PROJECT_TOOLS = {
+  ...RECORDING_TOOLS,
   legalwork_project_get_instructions: {
     description: "Read this project's current writing style and instructions and their revision before proposing a change. These instructions apply to every chat in this project; global defaults are separate.",
     args: {}, execute: (_args: unknown, context: OpenCodeContext) => request(context, "personalization", {}),
@@ -196,6 +198,7 @@ export const LegalWorkProjectTools = async (context: OpenCodeContext & SavedConv
   event: project.event,
   "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
     output.system.push([
+      RECORDING_GUIDANCE,
       "When asked to create a project, use legalwork_project_create. To use a template, discover the current catalog with legalwork_project_templates and pass its exact templateId and the user's templateLanguage. Alternatively provide projectFields with your own definitions and evidence-backed values, omitting templateId. Use templateId=null for an empty schema. Never invent a template ID or assume all projects are legal matters.",
       "For questions about what is in this project, use legalwork_project_list first. It scopes tasks, notes, files, recordings and sessions to the current project, and shows interactive cards to the user.",
       "Finding source files for a deadline calculation or another document task is not a project overview request. Use exact attached paths directly, or legalwork_review_files for silent discovery. Show the project contents card only when the user requests an inventory or overview, not as an intermediate research step.",

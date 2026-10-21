@@ -54,6 +54,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
+  windows-meetings:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test Windows meeting detection and native metadata helper
+        run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
+
   windows-drafts:
     runs-on: windows-latest
     steps:
@@ -114,6 +125,11 @@ jobs:
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
+
+      - name: Verify recorder capture and dictation
+        run: |
+          pnpm --filter @legalwork/app test:recorder-capture
+          pnpm --filter @legalwork/app test:dictation
 
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
