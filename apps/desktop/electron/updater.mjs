@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createUpdaterPreferences } from "./updater-preferences.mjs";
+import { compareVersions, resolveReleaseFeed } from "./release-feeds.mjs";
 
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 
@@ -14,6 +15,7 @@ const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 const __updater_dirname = path.dirname(fileURLToPath(import.meta.url));
 let _cachedAppVersion = null;
 function resolveAppVersion(app) {
+  if (app.isPackaged) return app.getVersion();
   if (_cachedAppVersion) return _cachedAppVersion;
   const electronVersion = app.getVersion();
   // If packaged, app.getVersion() is correct (set by electron-builder).
@@ -31,6 +33,12 @@ function resolveAppVersion(app) {
   }
   return _cachedAppVersion;
 }
+export function alphaFeedUrl(platform = process.platform, arch = process.arch) {
+  if (platform === "win32") return "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest";
+  if (platform === "darwin" && arch === "arm64") return "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest";
+  return "https://eigenweltlabs.com/legalwork/update";
+}
+
 // Exported (with the fallback map below) so main.mjs's arch-mismatch download
 // flow resolves against the exact same feeds — one definition per URL.
 export const ELECTRON_UPDATER_FEEDS = Object.freeze({
@@ -39,13 +47,11 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // GitHub release assets this URL used to point at:
   //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
   stable: "https://eigenweltlabs.com/legalwork/update",
+  prerelease: "https://eigenweltlabs.com/legalwork/update",
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
-  alpha:
-    process.platform === "win32"
-      ? "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest"
-      : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
+  alpha: alphaFeedUrl(),
 });
 
 // Safety net: if the tracked feed host is unreachable (outage, or the domain
@@ -54,11 +60,13 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
 // GitHub, so only stable needs a fallback.
 export const ELECTRON_UPDATER_FALLBACK_FEEDS = Object.freeze({
   stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
+  prerelease: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
 });
 
 const ALPHA_CHANNEL_PLATFORMS = new Set(["darwin", "win32"]);
 
 function normalizeElectronUpdaterChannel(value) {
+  if (value === "prerelease") return "prerelease";
   if (value === "alpha" && ALPHA_CHANNEL_PLATFORMS.has(process.platform)) return "alpha";
   return "stable";
 }
@@ -99,76 +107,9 @@ function electronUpdaterFeedUrl(channel) {
   return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel)];
 }
 
-function parseComparableVersion(value) {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().replace(/^v/i, "");
-  if (!normalized) return null;
-
-  const [versionCore] = normalized.split("+", 1);
-  if (!versionCore) return null;
-
-  const [releasePart, prereleasePart = ""] = versionCore.split("-", 2);
-  const release = releasePart.split(".").map((segment) => Number(segment));
-  if (!release.length || release.some((segment) => !Number.isInteger(segment) || segment < 0)) {
-    return null;
-  }
-
-  const prerelease = prereleasePart
-    .split(".")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  return { release, prerelease };
-}
-
-function comparePrereleaseIdentifiers(left, right) {
-  if (!left.length && !right.length) return 0;
-  if (!left.length) return 1;
-  if (!right.length) return -1;
-
-  const count = Math.max(left.length, right.length);
-  for (let index = 0; index < count; index += 1) {
-    const leftPart = left[index];
-    const rightPart = right[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-
-    const leftNumeric = /^\d+$/.test(leftPart) ? Number(leftPart) : null;
-    const rightNumeric = /^\d+$/.test(rightPart) ? Number(rightPart) : null;
-
-    if (leftNumeric !== null && rightNumeric !== null) {
-      if (leftNumeric !== rightNumeric) return leftNumeric < rightNumeric ? -1 : 1;
-      continue;
-    }
-
-    if (leftNumeric !== null) return -1;
-    if (rightNumeric !== null) return 1;
-
-    const comparison = leftPart.localeCompare(rightPart);
-    if (comparison !== 0) return comparison < 0 ? -1 : 1;
-  }
-
-  return 0;
-}
-
-function compareVersions(left, right) {
-  const parsedLeft = parseComparableVersion(left);
-  const parsedRight = parseComparableVersion(right);
-  if (!parsedLeft || !parsedRight) return null;
-
-  const count = Math.max(parsedLeft.release.length, parsedRight.release.length);
-  for (let index = 0; index < count; index += 1) {
-    const leftPart = parsedLeft.release[index] ?? 0;
-    const rightPart = parsedRight.release[index] ?? 0;
-    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
-  }
-
-  return comparePrereleaseIdentifiers(parsedLeft.prerelease, parsedRight.prerelease);
-}
-
-function isVersionNewer(candidate, current) {
+export function isVersionNewer(candidate, current) {
   const comparison = compareVersions(candidate, current);
-  return comparison === null ? candidate !== current : comparison > 0;
+  return comparison !== null && comparison > 0;
 }
 
 function updaterChannelState(app, channel) {
@@ -183,14 +124,43 @@ function updaterChannelState(app, channel) {
 async function applyElectronUpdaterFeed(app, updater) {
   const channel = await readElectronUpdaterChannel(app);
   const state = updaterChannelState(app, channel);
-  updater.allowPrerelease = state.channel === "alpha";
-  // Moving from alpha back to stable can be a semver downgrade; still show
-  // the latest stable so users can return to the stable channel deliberately.
-  updater.allowDowngrade = state.channel === "stable";
+  updater.allowPrerelease = state.channel !== "stable";
+  // A channel change never grants permission to install an older version.
+  updater.allowDowngrade = false;
   if (updater?.setFeedURL) {
     updater.setFeedURL(electronUpdaterFeedConfig(state.feedUrl));
   }
   return state;
+}
+
+// Resolve labels and versions first, then pin both the manifest and installer
+// to that release. The website's Latest redirect remains an outage fallback.
+export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFeed = resolveReleaseFeed } = {}) {
+  const channelState = await applyElectronUpdaterFeed(app, updater);
+  let selected;
+  try {
+    selected = await resolveFeed(channelState.channel);
+  } catch (error) {
+    console.warn("[updater] release metadata unavailable, trying existing feeds", error?.message ?? error);
+    return checkLegacyFeeds(app, updater, channelState);
+  }
+  if (!selected) return { channelState, result: null };
+  // GitHub metadata already determined channel eligibility, including a
+  // manually promoted release whose version still has a prerelease suffix.
+  updater.allowPrerelease = true;
+  updater.setFeedURL(electronUpdaterFeedConfig(selected.feedUrl));
+  try {
+    const result = await updater.checkForUpdates();
+    if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
+      throw new Error("The release manifest does not match the selected version.");
+    }
+    return { channelState: { ...channelState, feedUrl: selected.feedUrl, feedFallback: false }, result };
+  } catch (error) {
+    // An authoritative selection must not be replaced by a different version
+    // merely because its manifest is broken or unavailable.
+    if (error && typeof error === "object") error.githubFallbackAttempted = true;
+    throw error;
+  }
 }
 
 /* Check against the channel's primary feed first; if that errors, retry the
@@ -202,16 +172,15 @@ async function applyElectronUpdaterFeed(app, updater) {
    downloadUpdate() resolves installer files against the feed the update info
    actually came from.
    Exported for tests — a broken update path is the app's worst failure mode. */
-export async function checkForUpdatesWithFeedFallback(app, updater) {
-  const channelState = await applyElectronUpdaterFeed(app, updater);
-  const fallbackUrl = ELECTRON_UPDATER_FALLBACK_FEEDS[channelState.channel];
+async function checkLegacyFeeds(app, updater, channelState) {
+  const fallbackUrl = ELECTRON_UPDATER_FALLBACK_FEEDS[channelState.channel] ?? ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
   try {
     const result = await updater.checkForUpdates();
     const version = result?.updateInfo?.version;
     if (
       fallbackUrl &&
       updater?.setFeedURL &&
-      !(version && isVersionNewer(version, resolveAppVersion(app)))
+      (channelState.channel === "alpha" || !(version && isVersionNewer(version, resolveAppVersion(app))))
     ) {
       // "No update" from the tracked feed: confirm against GitHub and prefer
       // whichever feed advertises the newer version. Costs one extra request
@@ -220,7 +189,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater) {
         updater.setFeedURL(electronUpdaterFeedConfig(fallbackUrl));
         const crossResult = await updater.checkForUpdates();
         const crossVersion = crossResult?.updateInfo?.version;
-        if (crossVersion && isVersionNewer(crossVersion, resolveAppVersion(app))) {
+        if (crossVersion && isVersionNewer(crossVersion, version ?? resolveAppVersion(app))) {
           console.warn("[updater] tracked feed is stale, using GitHub", { version, crossVersion });
           return {
             channelState: { ...channelState, feedUrl: fallbackUrl, feedFallback: true },
@@ -231,6 +200,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater) {
         // Best-effort freshness check; the tracked feed already answered.
       }
       updater.setFeedURL(electronUpdaterFeedConfig(channelState.feedUrl));
+      return { channelState: { ...channelState, feedFallback: false }, result: await updater.checkForUpdates() };
     }
     return { channelState: { ...channelState, feedFallback: false }, result };
   } catch (error) {
@@ -328,6 +298,17 @@ export async function downloadUpdateReady(updater, nativeUpdater, timeoutMs = 30
   }
 }
 
+// Channel changes, checks, downloads and installation share one queue so a
+// late check/download cannot restore a feed or installer from the old channel.
+export function serializeUpdaterTasks() {
+  let pending = Promise.resolve();
+  return (task) => {
+    const result = pending.then(task);
+    pending = result.then(() => undefined, () => undefined);
+    return result;
+  };
+}
+
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
 export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
@@ -339,6 +320,18 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   let checkedUpdateVersion = null;
   let nativeMacUpdater = null;
   let updateReady = false;
+  const runTask = serializeUpdaterTasks();
+  const handleUpdater = (name, handler) => ipcMain.handle(name, (...args) => runTask(() => handler(...args)));
+  async function changeChannel(rawChannel) {
+    const previous = await readElectronUpdaterChannel(app);
+    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+    if (channel !== previous) {
+      checkedUpdateVersion = null;
+      updateReady = false;
+      if (autoUpdaterInstance) autoUpdaterInstance.autoInstallOnAppQuit = false;
+    }
+    return channel;
+  }
 
   function sendToRenderer(channel, data) {
     try {
@@ -361,7 +354,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       if (autoUpdaterInstance) {
         if (process.platform === "darwin") nativeMacUpdater = (await import("electron")).autoUpdater;
         autoUpdaterInstance.autoDownload = false;
-        autoUpdaterInstance.autoInstallOnAppQuit = true;
+        autoUpdaterInstance.autoInstallOnAppQuit = false;
         // Differential (blockmap) downloads reconstruct the update zip from the
         // installed app + a diff. On macOS that reconstructed bundle is what
         // feeds Squirrel's fragile move-based install, and is a common trigger
@@ -400,20 +393,21 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
-    const channel = await writeElectronUpdaterChannel(app, rawChannel);
+  handleUpdater("legalwork:updater:setChannel", async (_event, rawChannel) => {
+    const channel = await changeChannel(rawChannel);
     checkedUpdateVersion = null;
     updateReady = false;
     const updater = await ensureAutoUpdater();
     if (updater) {
+      updater.autoInstallOnAppQuit = false;
       return applyElectronUpdaterFeed(app, updater);
     }
     return updaterChannelState(app, channel);
   });
 
-  ipcMain.handle("legalwork:updater:check", async (_event, rawChannel) => {
+  handleUpdater("legalwork:updater:check", async (_event, rawChannel) => {
     if (rawChannel !== undefined) {
-      await writeElectronUpdaterChannel(app, rawChannel);
+      await changeChannel(rawChannel);
     }
     const updater = await ensureAutoUpdater();
     if (!updater) {
@@ -466,7 +460,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     }
   });
 
-  ipcMain.handle("legalwork:updater:download", async () => {
+  handleUpdater("legalwork:updater:download", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     updateReady = false;
@@ -490,6 +484,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       await cleanStaleUpdaterState(app);
       await downloadUpdateReady(updater, nativeMacUpdater);
       updateReady = true;
+      updater.autoInstallOnAppQuit = true;
       return { ok: true };
     } catch (error) {
       /* Last-ditch mirror of the check path: one raw GitHub check + download
@@ -514,6 +509,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         await cleanStaleUpdaterState(app);
         await downloadUpdateReady(updater, nativeMacUpdater);
         updateReady = true;
+        updater.autoInstallOnAppQuit = true;
         return { ok: true };
       } catch {
         return { ok: false, reason: String(error?.message ?? error) };
@@ -521,7 +517,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     }
   });
 
-  ipcMain.handle("legalwork:updater:installAndRestart", async () => {
+  handleUpdater("legalwork:updater:installAndRestart", async () => {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     if (!updateReady) return { ok: false, reason: "No update is ready to install. Please download the update again." };

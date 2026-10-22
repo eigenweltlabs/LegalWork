@@ -1,26 +1,14 @@
 name: Alpha Channel (macOS arm64)
 
-# Dispatch this workflow manually (Actions tab) to publish a fresh macOS arm64
-# build to the LegalWork alpha release channel.
-#
-# The alpha channel is macOS-only today. It lives as a rolling GitHub
-# release. Each run also updates a small manifest on the fixed
-# `alpha-macos-latest` release so the Electron updater feed stays stable while
-# historical alpha artifacts remain available.
-#
-# See:
-#   - ARCHITECTURE.md#release-channels
-#   - .github/workflows/release-macos-aarch64.yml (stable channel)
-
+# Every merged dev commit builds an alpha immediately. Required PR checks
+# already ran before merge; packaging does not rerun the sandbox suite.
 on:
-  # Manual-only: dispatch from the GitHub Actions tab to publish a macOS arm64
-  # alpha build to the rolling alpha-macos-latest release. Builds are unsigned
-  # until Apple signing secrets are added + MACOS_NOTARIZE=true (see the
-  # signed/unsigned package steps below).
+  push:
+    branches: [dev]
   workflow_dispatch:
     inputs:
       sandbox_tests:
-        description: Run sandbox validation tests (adds build time)
+        description: Run sandbox validation tests (manual opt-in only)
         type: boolean
         default: false
 
@@ -28,15 +16,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: alpha-macos-aarch64-${{ github.ref }}
-  cancel-in-progress: true
+  group: alpha-macos-aarch64-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: darwin-arm64
-      run_tests: ${{ inputs.sandbox_tests }}
+      run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
     needs: sandbox-runtime
     name: Build + Publish alpha (aarch64-apple-darwin)
@@ -236,7 +224,8 @@ jobs:
             --title "LegalWork Alpha ${ALPHA_VERSION}" \
             --notes "$body" \
             --target "$GITHUB_SHA" \
-            --prerelease
+            --prerelease \
+            --draft
 
       - name: Upload Electron alpha updater assets
         env:
@@ -244,6 +233,15 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
+          release="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish)"
+          if [ "$(jq -r .targetCommitish <<<"$release")" != "$GITHUB_SHA" ]; then
+            echo "Existing alpha points at a different source commit" >&2
+            exit 1
+          fi
+          if [ "$(jq -r .isDraft <<<"$release")" != true ]; then
+            echo "Alpha is already published; preserve its immutable artifacts."
+            exit 0
+          fi
           shopt -s nullglob
           assets=(
             apps/desktop/dist-electron/*.dmg
@@ -259,35 +257,13 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
-      - name: Update alpha updater pointer
+      - name: Publish complete alpha
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
-          set -euo pipefail
-          POINTER_MANIFEST="$RUNNER_TEMP/latest-mac.yml"
-          export POINTER_MANIFEST
-          node <<'NODE'
-          const fs = require("node:fs");
-          const manifestPath = "apps/desktop/dist-electron/latest-mac.yml";
-          const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
-          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
-          const rewritten = fs.readFileSync(manifestPath, "utf8")
-            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
-            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
-          fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
-          NODE
-
-          if ! gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$ALPHA_RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$ALPHA_RELEASE_NAME" \
-              --notes "Stable Electron updater pointer for the newest macOS arm64 alpha prerelease." \
-              --target "$GITHUB_SHA" \
-              --prerelease
+          if [ "$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --tag "$ALPHA_RUN_RELEASE_TAG" --target "$GITHUB_SHA" --draft=false --prerelease --latest=false
           fi
-
-          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#latest-mac.yml" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
