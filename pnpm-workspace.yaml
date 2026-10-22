@@ -2,7 +2,7 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   # Explicitly allow the reviewed Electron security update.
-  - "electron@43.7.5"
+  - "electron@43.8.3"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
   - "@openuidev/react-lang@0.4.1"
   - "@openuidev/lang-core@0.4.1"
