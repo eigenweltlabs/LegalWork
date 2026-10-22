@@ -72,6 +72,7 @@ const browserSetProxyArgsSchema = z.object({
 // Share the model-facing schema with execution. Models sometimes fill unused
 // optional fields with "" or null; both mean no connection/copy, not a retry.
 const inAppDocumentsOpenArgsSchema = z.object({
+  userRequested: explicitUiRequest,
   path: z.string().min(1).max(4096).describe("Required non-empty relative file path in the workspace or connection root (at most 4096 characters)."),
   connection_id: z.string().max(200).nullish().describe("For connected files, the ID from storage_list_connections (at most 200 characters). For workspace files, omit this field or use null or an empty string."),
   copy_to: z.string().max(4096).nullish().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension, at most 4096 characters), then open the copy without changing the original. Omit, null or an empty string opens the source without copying."),
@@ -402,10 +403,10 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     },
     inapp_documents_open: {
       description: "Prepare a file for this task without changing the user's visible workspace or tab, unless show is set. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. In the main Assistant, require userRequested=true for explicit user requests to show a file. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
-      args: inAppDocumentsOpenArgsSchema.extend({ userRequested: explicitUiRequest }).shape,
+      args: inAppDocumentsOpenArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
-        const args = inAppDocumentsOpenArgsSchema.extend({ userRequested: explicitUiRequest }).parse(rawArgs);
+        const args = inAppDocumentsOpenArgsSchema.parse(rawArgs);
         if (args.show) await requireRequestedAssistantUi(context, args.userRequested);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
           actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}), ...(args.show ? { show: true } : {}) },

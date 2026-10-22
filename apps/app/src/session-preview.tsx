@@ -777,6 +777,7 @@ function SessionPreview() {
         {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
         <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
       </>}
+
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">

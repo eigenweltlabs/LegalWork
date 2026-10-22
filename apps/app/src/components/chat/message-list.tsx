@@ -643,7 +643,7 @@ const UserMessage = React.memo(
                 {message.parts.filter(isFileUIPart).map((part, index) => (
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
-                {assistantScheduledRun ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
+                {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
                     layoutId={assistantChat ? undefined : message.id}
                     data-user-message-bubble=""
