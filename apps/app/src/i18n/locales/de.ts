@@ -6023,7 +6023,7 @@ const de = {
   "mcp.builtins_blocked":
     "Integrierte LegalWork-Erweiterungen sind von Ihrer Organisation deaktiviert. Nutzen Sie „Ausgeblendete anzeigen“, um blockierte Integrationen zu prüfen.",
   "updates.channel_note":
-    "„Stabil“ erhält vollständig getestete Releases. „Alpha“ enthält die neuesten Änderungen, kann aber weniger ausgereift sein (nur macOS).",
+    "Release erhält reguläre Veröffentlichungen. Pre-release erhält zusätzlich Vorabversionen. Alpha ergänzt automatische Entwicklungsbuilds. Jeder Kanal erhält die neueste passende Version.",
   "workspace.live_logs": "Live-Protokoll",
   "workspace.docker_debug_details": "Docker-Debugdetails",
   "providers.anthropic_api_key_hint": "Geben Sie Ihren Anthropic-API-Schlüssel ein.",

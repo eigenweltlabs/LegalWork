@@ -5684,7 +5684,7 @@ export default {
   "mcp.builtins_blocked":
     "Built-in LegalWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.",
   "updates.channel_note":
-    "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only).",
+    "Release receives regular releases. Pre-release also receives early releases. Alpha adds automatic development builds. Each channel receives the newest eligible version.",
   "workspace.live_logs": "Live logs",
   "workspace.docker_debug_details": "Docker debug details",
   "providers.anthropic_api_key_hint": "Enter your Anthropic API key.",

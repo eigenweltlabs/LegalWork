@@ -3,16 +3,68 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
-  checkForUpdatesWithFeedFallback,
+  checkForUpdatesWithFeedFallback as checkUpdates,
+  isVersionNewer,
+  alphaFeedUrl,
+  serializeUpdaterTasks,
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
   downloadUpdateReady,
 } from "./updater.mjs";
 
+const checkForUpdatesWithFeedFallback = (app, updater) => checkUpdates(app, updater, { resolveFeed: async () => { throw new Error("Simulated API outage"); } });
+
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+it("resolves each persisted channel to an exact release without permitting a downgrade", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-channel-test-"));
+  try {
+    for (const channel of ["stable", "prerelease", "alpha"]) {
+      await writeFile(path.join(root, "electron-updater-channel.v1.json"), JSON.stringify({ channel }));
+      const app = { isPackaged: true, getVersion: () => "5.0.0", getPath: () => root };
+      const updater = { feed: "", setFeedURL({ url }) { this.feed = url; }, async checkForUpdates() { return { updateInfo: { version: "4.0.0" } }; } };
+      const selected = { tag: "v4.0.0", releaseId: 1, kind: "stable", manifest: "latest.yml", assetNames: [], version: "4.0.0", feedUrl: "https://github.com/eigenweltlabs/legalwork/releases/download/v4.0.0" };
+      const { channelState } = await checkUpdates(app, updater, { resolveFeed: async (chosen) => {
+        assert.equal(chosen, channel === "alpha" && process.platform === "linux" ? "stable" : channel);
+        return selected;
+      } });
+      assert.equal(channelState.feedUrl, selected.feedUrl);
+      assert.equal(updater.feed, selected.feedUrl);
+      assert.equal(updater.allowDowngrade, false);
+      assert.equal(isVersionNewer("4.0.0", "5.0.0"), false);
+      assert.equal(isVersionNewer("4.0.0", "4.0.0"), false);
+      assert.equal(isVersionNewer("broken", "4.0.0"), false);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it("rejects mismatched manifests instead of silently switching release or channel", async () => {
+  const app = { isPackaged: true, getVersion: () => "3.0.0", getPath: () => "/nonexistent/legalwork-test" };
+  const updater = { setFeedURL() {}, async checkForUpdates() { return { updateInfo: { version: "8.0.0" } }; } };
+  await assert.rejects(checkUpdates(app, updater, { resolveFeed: async () => ({ tag: "v4.0.0", releaseId: 1, kind: "stable", manifest: "latest.yml", assetNames: [], version: "4.0.0", feedUrl: "https://github.com/example/v4" }) }), /manifest does not match/);
+  const empty = await checkUpdates(app, updater, { resolveFeed: async () => null });
+  assert.equal(empty.result, null);
+});
+
+it("serializes a channel switch behind a download and recovers after failed checks", async () => {
+  const run = serializeUpdaterTasks();
+  const events = [];
+  /** @type {() => void} */
+  let finish = () => assert.fail("download not started");
+  const download = run(async () => { events.push("download"); await new Promise((resolve) => { finish = () => resolve(undefined); }); events.push("downloaded"); });
+  const change = run(() => { events.push("channel changed"); });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ["download"]);
+  finish();
+  await Promise.all([download, change]);
+  await assert.rejects(run(() => { throw new Error("offline"); }));
+  await run(() => events.push("new check"));
+  assert.deepEqual(events, ["download", "downloaded", "channel changed", "new check"]);
+});
 
 describe("downloadUpdateReady", () => {
   it("waits for macOS to finish unpacking after the ZIP transfer", async () => {
@@ -207,4 +259,11 @@ describe("staleUpdaterStatePaths", () => {
   it("is a no-op off macOS", { skip: process.platform === "darwin" }, () => {
     assert.deepEqual(staleUpdaterStatePaths(fakeApp), []);
   });
+});
+
+it("alpha fallback never offers an ARM-only macOS installer to an Intel Mac", () => {
+  assert.equal(alphaFeedUrl("darwin", "x64"), "https://eigenweltlabs.com/legalwork/update");
+  assert.match(alphaFeedUrl("darwin", "arm64"), /alpha-macos-latest$/);
+  assert.match(alphaFeedUrl("win32", "x64"), /alpha-windows-latest$/);
+  assert.match(alphaFeedUrl("win32", "arm64"), /alpha-windows-latest$/);
 });
