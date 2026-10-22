@@ -591,6 +591,7 @@ export function SessionRoute() {
   useEffect(() => {
     if (!assistant.data) return;
     const workspace = assistant.data.workspace;
+    usePanelTabStore.getState().setAssistantWorkspace(workspace.id);
     setWorkspaces(current => current.some(item => item.id === workspace.id) ? current : [...current, { ...workspace, displayNameResolved: assistant.data?.profile.name ?? t("assistant.title") }]);
     // Daily sessions are separate engine contexts, displayed as a single chat.
     if (assistantActive && selectedSessionId && selectedSessionId !== assistant.data.day.sessionId) {
@@ -603,6 +604,9 @@ export function SessionRoute() {
     try {
       const current = await resolveAssistantChat(client, getReactQueryClient());
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+      const panels = usePanelTabStore.getState();
+      panels.setAssistantWorkspace(current.workspace.id);
+      panels.adoptChat(workspacePanelKey(current.workspace.id), current.day.sessionId, current.profile.name ?? t("assistant.title"), { preserveLayout: true });
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
       navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
@@ -1958,8 +1962,8 @@ export function SessionRoute() {
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
-    if (workspace?.preset === "main-assistant") {
-      setNewChatOpen(true);
+    if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
+      await openAssistant();
       return;
     }
     if (
@@ -2045,7 +2049,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, assistant.data?.workspace.id, openAssistant]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we

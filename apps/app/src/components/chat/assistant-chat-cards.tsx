@@ -1,5 +1,4 @@
 import type { DynamicToolUIPart, ToolUIPart, UIMessage } from "ai";
-import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useOpenTargets } from "@/lib/target-provider";
@@ -10,13 +9,7 @@ import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-req
 import { assistantProjectFileTab, linkedAssistantFiles, sharedAssistantFile } from "./assistant-chat-presentation";
 
 export function AssistantTypingBubble() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(true), 250 + Math.random() * 350);
-    return () => window.clearTimeout(timer);
-  }, []);
-  if (!visible) return null;
-  return <div role="status" aria-label={t("assistant.typing")} data-assistant-typing="" className="my-2 flex w-fit items-center gap-1 rounded-3xl bg-foreground/[0.06] px-5 py-4">
+  return <div role="status" aria-label={t("assistant.typing")} data-assistant-typing="" className="flex w-fit items-center gap-1 rounded-3xl bg-foreground/[0.06] px-5 py-4">
     {[0, 1, 2].map(index => <span key={index} aria-hidden="true" className="assistant-typing-dot size-1.5 rounded-full bg-muted-foreground/65" style={{ animationDelay: `${index * 140}ms` }} />)}
   </div>;
 }

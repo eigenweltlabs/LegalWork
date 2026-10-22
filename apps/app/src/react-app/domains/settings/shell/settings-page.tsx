@@ -59,7 +59,7 @@ import {
 } from "./panel";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { OrgPolicyBanner } from "../../connections/org-policy-ui";
-import { AssistantCircleIcon } from "../../session/sidebar/assistant-appearance";
+import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
 
 export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
@@ -70,7 +70,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "account":
       return UserCircle;
     case "assistant":
-      return AssistantCircleIcon;
+      return AssistantFlowerIcon;
     case "personalisation":
       return Sparkles;
     case "notifications":

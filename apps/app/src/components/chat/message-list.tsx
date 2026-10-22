@@ -9,6 +9,7 @@ import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-
 import { AssistantFileCard, AssistantLinkedFileCards, AssistantSharedFileCard, AssistantTypingBubble } from "./assistant-chat-cards";
 import { assistantHandoffPresentation } from "./assistant-handoff-presentation";
 import { assistantChatMessages, assistantReactions } from "./assistant-chat-presentation";
+import { assistantTextIsStreaming } from "@/react-app/domains/session/surface/assistant-bubbles";
 import { DelegationCard } from "./delegation-card";
 import { AssistantNameCard } from "./assistant-name-card";
 import { ScheduledRunCard, scheduledRunOf } from "./scheduled-run-card";
@@ -934,12 +935,14 @@ interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
   isStreaming: boolean
+  showTyping?: boolean
 }
 
 function MessageGroup({
   items,
   messages,
   isStreaming,
+  showTyping = false,
 }: AssistantMessageGroupProps) {
   const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
@@ -1010,7 +1013,8 @@ function MessageGroup({
           streaming={isStreaming}
         />
       </div> : null}
-      {hasText && (assistantChat || !isLiveGroup) && (
+      {showTyping && <AssistantTypingBubble />}
+      {hasText && !showTyping && (assistantChat || !isLiveGroup) && (
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
@@ -1057,9 +1061,11 @@ interface MessageListProps {
   messages: UIMessage[]
   status: ThreadStatus
   retryStatus?: RetryStatus | null
+  /** Streaming state from the raw transcript, before complete-bubble buffering. */
+  assistantTextStreaming?: boolean
 }
 
-export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, retryStatus, renderUsageLimit, assistantTextStreaming }: MessageListProps) {
   const { assistantChat } = useMessageList();
   const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
   const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
@@ -1070,6 +1076,9 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
+  const showAssistantTyping = assistantChat && status === "streaming" && !error && (assistantTextStreaming ?? assistantTextIsStreaming(rawMessages))
+  const lastItem = items.at(-1)
+  const typingInGroup = lastItem !== undefined && isMessageGroup(lastItem)
 
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
@@ -1086,6 +1095,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
               items={item.messages}
               messages={messages}
               isStreaming={isStreaming}
+              showTyping={showAssistantTyping && item === lastItem}
             />
           )
         }
@@ -1107,7 +1117,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
         )
       })}
 
-      {assistantChat ? (["submitted", "streaming", "retrying"].includes(status) && !error && <AssistantTypingBubble />) : status === "streaming" && !hasLiveTool && <LoadingMessage />}
+      {assistantChat ? (showAssistantTyping && !typingInGroup && <AssistantTypingBubble />) : status === "streaming" && !hasLiveTool && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

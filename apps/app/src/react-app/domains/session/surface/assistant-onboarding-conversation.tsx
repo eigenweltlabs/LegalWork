@@ -50,7 +50,7 @@ export function AssistantAvatarQuestion({ state, onIcon, workspaceId, onQuestion
   return <div className="space-y-5" data-message-id="assistant-onboarding-avatar">
     <AssistantSetupMessage><OnboardingReply text={t("assistant.intro_icon_question")} onComplete={() => { setQuestionReady(true); onQuestionComplete?.(); }} /></AssistantSetupMessage>
     {state.step === "avatar" ? questionReady && <div className="w-full max-w-md rounded-2xl border border-border bg-background/70 p-4">
-      <AssistantAvatarPicker large selected="dot" disabled={saving || !onIcon} onSelect={icon => void choose(icon)} />
+      <AssistantAvatarPicker large selected={state.icon} disabled={saving || !onIcon} onSelect={icon => void choose(icon)} />
       {saving && <p role="status" className="mt-2 text-sm text-muted-foreground">{t("common.saving")}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
     </div> : <Message className="justify-end"><MessageContent data-user-message-bubble="" className="rounded-3xl bg-blue-3 px-5 py-2.5"><AssistantAvatar icon={state.icon} className="size-16" /></MessageContent></Message>}

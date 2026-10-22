@@ -22,7 +22,7 @@ import { copyAssistantFiles } from "../assistant-delegation-files.js";
 import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import type { AssistantDelegations } from "../assistant-delegations.js";
-import { ConversationLanguageSchema } from "../assistant-handoff.js";
+import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ConversationLanguageSchema } from "../assistant-handoff.js";
 import { assistantHandoffParts } from "../assistant-handoff-message.js";
 import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
 
@@ -152,7 +152,7 @@ export function registerMainAssistantRoutes(options: {
     write(ctx);
     const workspace = config.workspaces.find(isMainAssistant);
     if (workspace) await accessible(workspace.id);
-    const input = z.union([z.object({ name: z.string().trim().min(1).max(60) }).strict(), z.object({ icon: AssistantAvatarIconSchema }).strict()]).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
+    const input = z.union([z.object({ name: z.string().trim().min(1).max(60) }).strict(), z.object({ icon: AssistantAvatarIconSchema.or(z.literal("dot")) }).strict()]).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!input.success) throw new ApiError(400, "assistant_onboarding", "Enter a name of up to 60 characters or choose an avatar.");
     return jsonResponse(await assistant.answerOnboarding(input.data));
   });
@@ -285,7 +285,8 @@ export function registerMainAssistantRoutes(options: {
         parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
-      return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files });
+      return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,
+        resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
     } catch {
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
       return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed" }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });

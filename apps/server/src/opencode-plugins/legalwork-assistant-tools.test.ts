@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
+import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ASSISTANT_MESSAGE_POLICY } from "../assistant-handoff.js";
 
 test("overview and unfinished task tools carry exact scope, and live assistant identity never changes the system prompt", async () => {
   const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -18,7 +19,9 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
   } });
   process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
   try {
-    const plugin = await LegalWorkAssistantTools({ directory: "/Assistant" });
+    const savedParts = [{ type: "text", text: '<system-reminder topic="main-assistant">\nThis is the main assistant project. Previous conversation policy.\n</system-reminder>' }];
+    const savedHistory = JSON.stringify(savedParts);
+    const plugin = await LegalWorkAssistantTools({ directory: "/Assistant", client: { session: { messages: async () => ({ data: [{ parts: savedParts }] }) } } });
     await plugin.tool.legalwork_assistant_project_overview.execute({ projectId: "matter/id", sessionLimit: 3 });
     await plugin.tool.legalwork_assistant_tasks.execute({ projectId: "matter/id", status: "unfinished", sort: "due" });
     expect(calls).toEqual(["/assistant/projects/matter%2Fid/overview?sessionLimit=3", "/assistant/tasks?projectId=matter%2Fid&status=unfinished&sort=due"]);
@@ -28,6 +31,11 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     await plugin["chat.message"]({ sessionID: "today" }, turn);
     expect(JSON.stringify(turn.parts)).toContain("Maya");
     expect(JSON.stringify(turn.parts)).toContain(preferences);
+    expect(JSON.stringify(turn.parts)).toContain(ASSISTANT_MESSAGE_POLICY);
+    expect(JSON.stringify(savedParts)).toBe(savedHistory);
+    const toolOutput = { output: "Project found." };
+    await plugin["tool.execute.after"]({ sessionID: "today" }, toolOutput);
+    expect(toolOutput.output).toBe("Project found.");
     const originalParts = JSON.stringify(turn.parts);
     name = "Momo"; preferences = "Prefer concise English replies; use the new workflow reference.";
     await plugin["experimental.chat.system.transform"]({}, after);
@@ -38,6 +46,9 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     expect(JSON.stringify(next.parts)).toContain(preferences);
     expect(JSON.stringify(turn.parts)).toBe(originalParts);
     expect(after.system.join(" ")).not.toContain(preferences);
+    expect(before.system.join(" ")).toContain(ASSISTANT_MESSAGE_POLICY);
+    expect(before.system.join(" ")).toContain(ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS);
+    expect(before.system.join(" ")).not.toContain("Immediately confirm the handoff");
     const project = await LegalWorkAssistantTools({ directory: "/Aster" });
     const other: typeof turn = { message: { id: "msg_3" }, parts: [] };
     await project["chat.message"]({ sessionID: "other" }, other);

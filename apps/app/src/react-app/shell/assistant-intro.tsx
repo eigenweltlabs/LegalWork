@@ -37,7 +37,7 @@ export function AssistantIntroModal({ open, onDismiss, onOpenAssistant }: {
 }) {
   return <Dialog open={open} onOpenChange={value => { if (!value) onDismiss(); }}>
     <DialogContent className="gap-5 p-7 text-center sm:max-w-md">
-      <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-blue-3"><AssistantAvatar icon="dot" className="size-12" /></div>
+      <div className="mx-auto flex size-20 items-center justify-center rounded-3xl bg-muted"><AssistantAvatar className="size-12" /></div>
       <div className="space-y-3">
         <DialogTitle className="text-2xl">{t("assistant.announcement_title")}</DialogTitle>
         <DialogDescription className="text-sm leading-relaxed">{t("assistant.announcement_description")}</DialogDescription>

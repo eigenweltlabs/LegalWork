@@ -28,7 +28,7 @@ export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave,
   const close = () => { setEditing(false); modelSettings?.onModelPickerOpenChange(false); };
   const name = profile.name ?? t("assistant.title");
   return <>
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-4 pt-3">
+    <div data-assistant-identity="" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-4 pt-3">
       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-32 bg-background/70 backdrop-blur-md [mask-image:linear-gradient(to_bottom,black_15%,transparent_100%)]" />
       <button type="button" className="pointer-events-auto group relative flex max-w-full flex-col items-center rounded-2xl px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
         aria-label={`${t("assistant.customize")}: ${name}`} title={t("assistant.customize")} aria-haspopup="dialog" disabled={!onSave} onClick={() => setEditing(true)}>

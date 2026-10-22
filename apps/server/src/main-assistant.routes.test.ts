@@ -76,7 +76,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(assistant.workspace.preset, "main-assistant");
       assert.equal(assistant.workspace.path, join(root, "projects", "Assistant"));
       assert.equal(sessions.size, 1);
-      assert.deepEqual(assistant.profile, { name: null, icon: "dot" });
+      assert.deepEqual(assistant.profile, { name: null, icon: "flower" });
       assert.equal((await (await call("/assistant/onboarding")).json()).needed, true);
       assert.equal((await (await call("/assistant/onboarding")).json()).greetingUnread, true);
       const viewed = await (await call("/assistant/onboarding/view", "POST")).json();
@@ -89,10 +89,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(naming.showAvatarPicker, true); assert.equal(naming.onboarding.agentNamed, true);
       const named = naming.onboarding;
       assert.equal(named.step, "avatar"); assert.equal(named.sessionId, assistant.day.sessionId);
-      assert.deepEqual((await (await call("/assistant")).json()).profile, { name: "Josi", icon: "dot" });
+      assert.deepEqual((await (await call("/assistant")).json()).profile, { name: "Josi", icon: "flower" });
       const chosen = await (await call("/assistant/onboarding", "POST", { icon: "professional_bear" })).json();
       assert.equal(chosen.needed, false); assert.equal(chosen.step, "complete");
-      for (const icon of ["bird", "professional_bear", "professional_fox", "professional_owl"]) {
+      for (const icon of ["flower", "dot", "bird", "professional_bear", "professional_fox", "professional_owl"]) {
         assert.equal((await call("/assistant/profile", "PATCH", { name: null, icon })).status, 200);
         assert.deepEqual((await (await call("/assistant/current", "POST", {})).json()).profile, { name: null, icon });
       }
@@ -219,6 +219,11 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(deliveries[0].parts[1].text.includes("Fill missing source-supported client and matter metadata"));
       assert.equal(result.ok, true); assert.equal(result.delegation.workspaceId, project.project.id);
       assert.equal(result.delegation.scope, input.scope); assert.equal(result.delegation.status, "started");
+      assert.equal(result.resultDelivery, "automatic");
+      assert.ok(result.nextAction.includes("Finish this turn without another message"));
+      assert.ok(result.nextAction.includes("any text acknowledgement, even if it did not promise follow-up"), "An earlier 'I will check the records' acknowledgement must not trigger a second acknowledgement after dispatch");
+      assert.ok(result.nextAction.includes("Only if you have sent no text acknowledgement"));
+      assert.ok(result.nextAction.includes("promising to bring the result back"));
       assert.equal(deliveries.length, 1); assert.equal(deliveries[0].directory, project.project.path);
       assert.equal(deliveries[0].agent, "legalwork"); assert.deepEqual(deliveries[0].model, { providerID: "fixture-provider", modelID: "chosen-model" });
       assert.equal(deliveries[0].parts[0].text, input.title + "\\n\\n" + input.scope);
@@ -305,6 +310,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       failSend = true;
       const unconfirmed = await (await call("/assistant/delegate", "POST", input)).json();
       assert.equal(unconfirmed.ok, false); assert.equal(unconfirmed.delegation.status, "delivery-unconfirmed"); assert.ok(unconfirmed.delegation.sessionId);
+      assert.equal(unconfirmed.resultDelivery, undefined);
+      assert.equal(unconfirmed.nextAction, undefined);
       failSend = false;
       running.delete(result.delegation.sessionId); finished.add(result.delegation.sessionId);
       const deadline = Date.now() + 18000;

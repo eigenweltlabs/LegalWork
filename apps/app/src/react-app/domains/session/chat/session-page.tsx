@@ -393,6 +393,10 @@ export function SessionPage(props: SessionPageProps) {
   // A project window owns one layout, independently of the currently focused chat.
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
+  const assistantWorkspace = props.sidebar.assistantWorkspaceId === props.selectedWorkspaceId || Boolean(props.sidebar.assistantActive);
+  useEffect(() => {
+    if (assistantWorkspace) usePanelTabStore.getState().setAssistantWorkspace(props.selectedWorkspaceId);
+  }, [assistantWorkspace, props.selectedWorkspaceId]);
   useEffect(() => setWikiPickerPane(null), [workspaceScope]);
   const workspacePanel = useSessionPanelState(workspaceScope);
   const controlSessionIds = useMemo(() => workspacePanel.tabs.flatMap(tab => tab.type === "chat" ? [tab.sessionId] : []), [workspacePanel.tabs]);
@@ -830,9 +834,15 @@ export function SessionPage(props: SessionPageProps) {
   // A reload may restore a wiki page focused beside the chat named in the URL.
   const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
   const selectedSessionTitle = useMemo(
-    () => props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, props.sidebar.assistantActive, props.sidebar.assistantProfile?.name],
+    () => assistantWorkspace ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, assistantWorkspace, props.sidebar.assistantProfile?.name],
   );
+  useEffect(() => {
+    if (!assistantWorkspace) return;
+    for (const tab of workspacePanel.tabs) {
+      if (tab.type === "chat") usePanelTabStore.getState().updateTabLabel(workspaceScope, tab.id, selectedSessionTitle);
+    }
+  }, [assistantWorkspace, workspaceScope, workspacePanel.tabs, selectedSessionTitle]);
   useEffect(() => {
     if (!props.selectedSessionId || hasMainView) return;
     const store = usePanelTabStore.getState();
@@ -920,7 +930,10 @@ export function SessionPage(props: SessionPageProps) {
     const tab = state?.tabs.find(tab => tab.type === "chat" && tab.sessionId === sessionId);
     if (tab) store.selectTab(scope, tab.id);
     else {
-      store.adoptChat(scope, sessionId, sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId) || t("session.default_title"), { preserveLayout: true });
+      const title = workspaceId === props.sidebar.assistantWorkspaceId
+        ? props.sidebar.assistantProfile?.name ?? t("assistant.title")
+        : sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId) || t("session.default_title");
+      store.adoptChat(scope, sessionId, title, { preserveLayout: true });
     }
     if (props.selectedSessionId !== sessionId || props.selectedWorkspaceId !== workspaceId || hasMainView || props.projectPage) props.sidebar.onOpenSession(workspaceId, sessionId);
   }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, props.projectPage]);
@@ -1420,7 +1433,6 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
 
               {canRenderWorkspace && <div className="flex h-full min-h-0 flex-col">
-                {props.sidebar.assistantActive && props.surface && <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={props.selectedSessionId!} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={props.surface} />}
                 {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
                   permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
                 <div ref={setWorkspaceHost} className="min-h-0 flex-1" />
@@ -1583,14 +1595,15 @@ export function SessionPage(props: SessionPageProps) {
               let destination = pane;
               for (const [index, id] of ids.entries()) {
                 const store = usePanelTabStore.getState();
-                store.openTab(workspaceScope, chatPanelTab(id, sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title")), destination, index === 0 ? edge : undefined);
+                const title = assistantWorkspace ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title");
+                store.openTab(workspaceScope, chatPanelTab(id, title), destination, index === 0 ? edge : undefined);
                 const opened = usePanelTabStore.getState().sessions[workspaceScope]?.panes.find(pane => pane.activeTabId === `chat:${id}`);
                 if (!opened) break;
                 destination = opened.id;
                 openSessionTab(props.selectedWorkspaceId, id);
               }
             }}
-            onNewChat={pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
+            onNewChat={assistantWorkspace ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
             onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
             onCloseChat={(id, nextId) => {
               if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
@@ -1598,6 +1611,7 @@ export function SessionPage(props: SessionPageProps) {
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
               assistantName={props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
+              assistantHeader={props.sidebar.assistantActive ? <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? props.surface : undefined} /> : undefined}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}

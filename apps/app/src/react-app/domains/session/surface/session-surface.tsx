@@ -7,8 +7,7 @@ import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { AssistantHistory } from "./assistant-history";
-import { AssistantTypingBubble } from "@/components/chat/assistant-chat-cards";
-import { assistantBubbleMessages } from "./assistant-bubbles";
+import { assistantBubbleMessages, assistantTextIsStreaming } from "./assistant-bubbles";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
@@ -163,6 +162,7 @@ export type SessionSurfaceProps = {
   active?: boolean;
   assistantDate?: string;
   assistantName?: string;
+  assistantHeader?: ReactNode;
   assistantOnboarding?: AssistantOnboardingControls;
   client: LegalworkServerClient;
   environmentClient?: LegalworkServerClient | null;
@@ -1939,7 +1939,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden" data-session-chat-content="">
+        {props.assistantHeader}
         <div
           ref={scrollRef}
           aria-hidden={props.realtimeVoiceActive || undefined}
@@ -1990,9 +1991,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 )}
               </div>
             ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
-              <div className="px-6 py-12">
-                {props.assistantDate ? <AssistantTypingBubble /> : <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />}
-              </div>
+              props.assistantDate ? null : <div className="px-6 py-12"><AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} /></div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
                 error={error}
@@ -2050,6 +2049,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                           />;
                         }}
                         messages={displayedMessages}
+                        assistantTextStreaming={props.assistantDate ? assistantTextIsStreaming(renderedMessages, snapshot) : undefined}
                         status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
                         retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />

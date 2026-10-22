@@ -111,11 +111,11 @@ export class MainAssistant {
   }
 
   async onboarding(): Promise<AssistantOnboardingState> {
-    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, name: null, icon: "dot" };
+    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...DEFAULT_ASSISTANT_PROFILE };
     if (this.config.readOnly) return complete;
     const workspace = this.config.workspaces.find(isMainAssistant);
     const row = workspace && this.db.get("SELECT session_id, name, icon, agent_named FROM assistant_onboarding WHERE workspace_id = ?", [workspace.id]);
-    if (row) return { greetingUnread: false, needed: row.icon === null, step: row.icon === null ? "avatar" : "complete", sessionId: String(row.session_id), name: String(row.name), icon: row.icon === null ? "dot" : AssistantProfileSchema.shape.icon.parse(row.icon), ...(row.agent_named ? { agentNamed: true } : {}) };
+    if (row) return { greetingUnread: false, needed: row.icon === null, step: row.icon === null ? "avatar" : "complete", sessionId: String(row.session_id), name: String(row.name), icon: row.icon === null ? DEFAULT_ASSISTANT_PROFILE.icon : AssistantProfileSchema.shape.icon.parse(row.icon), ...(row.agent_named ? { agentNamed: true } : {}) };
     // Once setup begins, the real naming conversation must not count as completed setup.
     const viewed = workspace && this.db.get("SELECT 1 FROM assistant_greeting_views WHERE workspace_id = ?", [workspace.id]);
     if (workspace && (this.db.get("SELECT 1 FROM assistant_profiles WHERE workspace_id = ?", [workspace.id]) || (!viewed && await hasAssistantInteraction(this.config, workspace)))) return complete;
@@ -135,12 +135,12 @@ export class MainAssistant {
     return this.onboarding();
   }
 
-  answerOnboarding(answer: { name: string; agentNamed?: boolean } | { icon: AssistantAvatarIcon }) {
+  answerOnboarding(answer: { name: string; agentNamed?: boolean } | { icon: AssistantAvatarIcon | "dot" }) {
     const run = this.onboardingWrite.then(async () => {
       const { workspace, day } = await this.current();
       const state = await this.onboarding();
       if ("name" in answer) {
-        const profile = AssistantProfileSchema.parse({ name: answer.name, icon: "dot" });
+        const profile = AssistantProfileSchema.parse({ ...DEFAULT_ASSISTANT_PROFILE, name: answer.name });
         if (state.step !== "name") {
           if (state.name === profile.name) return state;
           throw new ApiError(409, "assistant_onboarding_step", "The name has already been chosen. Continue with the avatar.");

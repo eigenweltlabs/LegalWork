@@ -4,11 +4,10 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 import { DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
-import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
@@ -204,12 +203,27 @@ if (assistantPreview) {
     ] satisfies [string, unknown][]) message.parts.push({ id: tool, sessionID: welcomeId, messageID: message.info.id, type: "tool", callID: tool, tool, state: { status: "completed", input: {}, output: JSON.stringify(output), title: tool, time: { start: now, end: now } } });
     saveSnapshot(item);
     if (previewParams.has("typing")) {
-      const next = snapshot(welcomeId, "Johann", "And check the upcoming deadlines.", "An unfinished reply that must stay buffered");
+      // ?typing=text|thinking|tools|waiting|complete exercises the same text
+      // start/end metadata as live transport, including a completed acknowledgement.
+      const phase = previewParams.get("typing") || "text";
+      const next = snapshot(welcomeId, "Johann", "And check the upcoming deadlines.", "I'll take care of this and let you know when it's done.");
       for (const message of next.messages) {
         message.info.time.created = now + (message.info.role === "assistant" ? 1 : 0);
-        if (message.info.role === "assistant") { message.info.time.completed = undefined; message.info.finish = undefined; }
+        if (message.info.role === "assistant") message.info.time.completed = now + 2;
       }
-      saveSnapshot({ ...item, status: { type: "busy" }, messages: [...item.messages, ...next.messages] });
+      const acknowledgement = next.messages[1];
+      if (acknowledgement.info.role === "assistant") {
+        const messageId = `${acknowledgement.info.id}-result`;
+        const base = { id: `${messageId}-part`, sessionID: welcomeId, messageID: messageId };
+        const part: Part = phase === "thinking" ? { ...base, type: "reasoning", text: "Checking the matter context", time: { start: now + 3 } }
+          : phase === "tools" || phase === "waiting" ? { ...base, type: "tool", callID: "check-deadlines", tool: "read", state: phase === "tools"
+            ? { status: "running", input: { filePath: "deadlines.md" }, time: { start: now + 3 } }
+            : { status: "completed", input: { filePath: "deadlines.md" }, output: "Waiting for delegated check", title: "Check deadlines", time: { start: now + 3, end: now + 4 } } }
+          : { ...base, type: "text", text: phase === "complete" ? "Your next deadline is Friday. The report is ready." : "An unfinished reply that must stay buffered", time: { start: now + 3, ...(phase === "complete" ? { end: now + 4 } : {}) } };
+        saveSnapshot({ ...item, status: { type: phase === "complete" ? "idle" : "busy" }, messages: [...item.messages, ...next.messages, {
+          info: { ...acknowledgement.info, id: messageId, time: { created: now + 3, ...(phase === "complete" ? { completed: now + 4 } : {}) }, finish: phase === "complete" ? "stop" : undefined }, parts: [part],
+        }] });
+      }
     }
   }
   if (previewParams.has("returned")) {
@@ -615,6 +629,7 @@ const fixtureClient: LegalworkServerClient = {
     return { item };
   },
   getConfig: async () => ({ opencode: {}, legalwork: {} }),
+  sessionSandbox: async () => ({ enabled: false, supported: false, networkMode: "allow", source: "application", policy: null, application: { enabled: false, networkMode: "allow" } }),
   getVoiceRealtimeCapability: async () => ({ supported: false, providerId: null, model: null, reason: "Voice is unavailable in the visual fixture." }),
   getUserEnvStatus: async () => ({ runtimeKey: "visual-fixture", pendingChanges: false }),
   listUserEnv: async () => ({ items: [] }),
@@ -701,7 +716,7 @@ function SessionPreview() {
   const [modelVariant, setModelVariant] = useState<string | null>("balanced");
   const [assistantProfile, setAssistantProfile] = useState<AssistantProfile>(previewParams.has("messenger") ? { name: "Johann", icon: "cat" } : DEFAULT_ASSISTANT_PROFILE);
   const [onboarding, setOnboarding] = useState<AssistantOnboardingState | undefined>(assistantPreview && previewParams.has("onboarding") ? {
-    needed: true, greetingUnread: true, step: "name", sessionId: null, name: null, icon: "dot",
+    needed: true, greetingUnread: true, step: "name", sessionId: null, name: null, icon: "flower",
   } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
@@ -762,6 +777,7 @@ function SessionPreview() {
       publish({ ...next, status: { type: "busy" }, messages: [...history, next.messages[0]] });
       window.setTimeout(() => publish({ ...next, status: { type: "busy" }, messages: [...history, ...next.messages.map(message => message.info.role === "assistant" ? {
         ...message, info: { ...message.info, time: { created: Date.now() }, finish: undefined },
+        parts: message.parts.map(part => part.type === "text" ? { ...part, time: { start: Date.now() } } : part),
       } : message)] }), 1500);
       window.setTimeout(() => publish({ ...next, messages: [...history, ...next.messages] }), 3400);
       return;
@@ -862,7 +878,7 @@ function SessionPreview() {
           surface={{
             assistantOnboarding: onboarding ? {
               state: onboarding,
-              onName: async name => { setAssistantProfile({ name, icon: "dot" }); setOnboarding({ ...onboarding, greetingUnread: false, name, step: "avatar", sessionId: welcomeId }); },
+              onName: async name => { setAssistantProfile({ name, icon: "flower" }); setOnboarding({ ...onboarding, greetingUnread: false, name, step: "avatar", sessionId: welcomeId }); },
               onIcon: async icon => { setAssistantProfile({ name: onboarding.name, icon }); setOnboarding({ ...onboarding, icon, needed: false, step: "complete" }); },
             } : undefined,
             assistantDate: assistantPreview && selectedSessionId === welcomeId ? assistantToday : undefined,

@@ -1,32 +1,18 @@
-import { useId, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { useId } from "react";
 import { AssistantProjectAccessSchema, type AssistantSettings, type AssistantSettingsCatalog, type AssistantResource } from "@legalwork/types/main-assistant";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 import { AssistantResourcePicker } from "./assistant-resource-picker";
-
-export function AssistantBehaviorSettings({ client }: { client: LegalworkServerClient }) {
-  const cache = useQueryClient();
-  const settings = useQuery({ queryKey: ["assistant-settings", client.baseUrl], queryFn: () => client.assistantSettings() });
-  const catalog = useQuery({ queryKey: ["assistant-settings-catalog", client.baseUrl], queryFn: () => client.assistantSettingsCatalog() });
-  if (settings.isPending || catalog.isPending) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("assistant.settings_loading")}</p>;
-  if (settings.isError || catalog.isError) return <div role="alert" className="space-y-2"><p className="text-sm text-destructive">{t("assistant.settings_load_failed")}</p><Button variant="outline" onClick={() => { void settings.refetch(); void catalog.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
-  return <AssistantBehaviorForm settings={settings.data.settings} catalog={catalog.data} onSave={async draft => {
-    const saved = await client.updateAssistantSettings(draft);
-    cache.setQueryData(["assistant-settings", client.baseUrl], saved);
-    return saved.settings;
-  }} />;
-}
+import { AssistantProjectPicker } from "./assistant-project-picker";
+import { LayoutSection, LayoutSectionHeader, LayoutSectionTitle, LayoutSectionDescription } from "../settings-layout";
+import { SettingsNotice } from "../settings-section";
 
 const accessModes: Array<{ value: AssistantSettings["projectAccess"]["mode"]; label: "assistant.access_all" | "assistant.access_none" | "assistant.access_exclude" | "assistant.access_include" }> = [
-  { value: "all", label: "assistant.access_all" }, { value: "none", label: "assistant.access_none" },
-  { value: "exclude", label: "assistant.access_exclude" }, { value: "include", label: "assistant.access_include" },
+  { value: "all", label: "assistant.access_all" }, { value: "include", label: "assistant.access_include" },
+  { value: "exclude", label: "assistant.access_exclude" }, { value: "none", label: "assistant.access_none" },
 ];
 const resourceKinds: Array<{ kind: AssistantResource["kind"]; label: "extensions.filter_plugins" | "sidebar.workflows" | "dashboard.skills" }> = [
   { kind: "plugin", label: "extensions.filter_plugins" }, { kind: "workflow", label: "sidebar.workflows" }, { kind: "skill", label: "dashboard.skills" },
@@ -35,63 +21,43 @@ function toggle(items: string[], id: string, checked: boolean) {
   return checked ? [...new Set([...items, id])] : items.filter(item => item !== id);
 }
 
-export function AssistantBehaviorForm({ settings, catalog, onSave }: {
-  settings: AssistantSettings; catalog: AssistantSettingsCatalog; onSave: (settings: AssistantSettings) => Promise<AssistantSettings>;
+export function AssistantBehaviorFields({ settings: draft, catalog, disabled, onChange: setDraft, onInstructionsBlur }: {
+  settings: AssistantSettings; catalog: AssistantSettingsCatalog; disabled?: boolean; onChange: (settings: AssistantSettings) => void; onInstructionsBlur?: () => void;
 }) {
   const id = useId();
-  const [draft, setDraft] = useState(settings);
-  const [saved, setSaved] = useState(settings);
-  const [projectSearch, setProjectSearch] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<"saved" | "error" | null>(null);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const missing = draft.resourceIds.filter(ref => !catalog.resources.some(item => item.id === ref));
-  const projects = catalog.projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()));
-  const missingProjects = draft.projectAccess.projectIds.filter(ref => !catalog.projects.some(project => project.id === ref));
-  return <form className="space-y-6 border-t border-border pt-5" onSubmit={event => {
-    event.preventDefault();
-    if (!dirty || saving) return;
-    setSaving(true); setStatus(null);
-    void onSave(draft).then(value => { setSaved(value); setDraft(value); setStatus("saved"); }).catch(() => setStatus("error")).finally(() => setSaving(false));
-  }}>
-    <fieldset disabled={saving} className="space-y-6">
-      <div className="space-y-2">
-        <label htmlFor={`${id}-prompt`} className="text-sm font-medium">{t("assistant.instructions")}</label>
-        <p id={`${id}-prompt-help`} className="text-xs text-muted-foreground">{t("assistant.instructions_hint")}</p>
-        <Textarea id={`${id}-prompt`} aria-describedby={`${id}-prompt-help`} value={draft.systemPromptAddition} rows={5} placeholder={t("assistant.instructions_placeholder")} onChange={event => { setDraft({ ...draft, systemPromptAddition: event.target.value }); setStatus(null); }} />
-      </div>
-      <div className="space-y-3 border-t border-border pt-5">
-        <div className="space-y-1"><h3 className="text-sm font-medium">{t("assistant.resources")}</h3><p className="text-xs text-muted-foreground">{t("assistant.resources_hint")}</p></div>
-        {catalog.unavailable.length > 0 && <p role="status" className="text-xs text-muted-foreground">{t("assistant.resources_partial")}</p>}
-        <div>
-          {resourceKinds.map(({ kind, label }) => <AssistantResourcePicker key={kind} kind={kind} label={t(label)} resources={catalog.resources.filter(item => item.kind === kind)}
-            selectedIds={draft.resourceIds} disabled={saving}
-            projectAllowed={projectId => !catalog.projects.some(project => project.id === projectId) || projectAllowed(draft, projectId)}
-            onToggle={(resourceId, checked) => { setDraft({ ...draft, resourceIds: toggle(draft.resourceIds, resourceId, checked) }); setStatus(null); }} />)}
-        </div>
-        {missing.map(ref => <label key={ref} className="flex items-center gap-3 text-xs text-muted-foreground"><Checkbox checked onCheckedChange={() => setDraft({ ...draft, resourceIds: draft.resourceIds.filter(item => item !== ref) })} />{t("assistant.resource_unavailable")}</label>)}
-      </div>
-      <div className="space-y-3 border-t border-border pt-5">
-        <div className="space-y-1"><label id={`${id}-access-label`} className="text-sm font-medium">{t("assistant.project_access")}</label><p className="text-xs text-muted-foreground">{t("assistant.project_access_hint")}</p></div>
-        <Select value={draft.projectAccess.mode} onValueChange={value => {
-          const parsed = AssistantProjectAccessSchema.shape.mode.safeParse(value);
-          if (parsed.success) { setDraft({ ...draft, projectAccess: { ...draft.projectAccess, mode: parsed.data } }); setStatus(null); }
-        }}><SelectTrigger aria-labelledby={`${id}-access-label`} className="min-w-56"><SelectValue>{value => t(accessModes.find(mode => mode.value === value)?.label ?? "assistant.access_all")}</SelectValue></SelectTrigger><SelectContent>{accessModes.map(mode => <SelectItem key={mode.value} value={mode.value}>{t(mode.label)}</SelectItem>)}</SelectContent></Select>
-        {(draft.projectAccess.mode === "include" || draft.projectAccess.mode === "exclude") && <div className="space-y-3">
-          <Input aria-label={t("assistant.projects_search")} placeholder={t("assistant.projects_search")} value={projectSearch} onChange={event => setProjectSearch(event.target.value)} />
-          <div className="max-h-64 space-y-3 overflow-y-auto">
-            {projects.map(project => <label key={project.id} className="flex cursor-pointer items-center gap-3 text-sm"><Checkbox checked={draft.projectAccess.projectIds.includes(project.id)} onCheckedChange={checked => { setDraft({ ...draft, projectAccess: { ...draft.projectAccess, projectIds: toggle(draft.projectAccess.projectIds, project.id, checked) } }); setStatus(null); }} />{project.name}</label>)}
-            {missingProjects.map(ref => <label key={ref} className="flex items-center gap-3 text-xs text-muted-foreground"><Checkbox checked onCheckedChange={() => setDraft({ ...draft, projectAccess: { ...draft.projectAccess, projectIds: draft.projectAccess.projectIds.filter(item => item !== ref) } })} />{t("assistant.project_unavailable")}</label>)}
-            {!projects.length && <p className="text-xs text-muted-foreground">{t("assistant.projects_empty")}</p>}
-          </div>
-        </div>}
-        <p className="text-xs text-muted-foreground">{t("assistant.project_access_scope")}</p>
-      </div>
-    </fieldset>
-    <div className="flex items-center gap-3"><Button type="submit" disabled={!dirty || saving}>{saving && <Loader2 className="size-4 animate-spin" />}{t(saving ? "common.saving" : "common.save")}</Button>
-      {status && <p role={status === "error" ? "alert" : "status"} className={status === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{t(status === "error" ? "assistant.save_failed" : "assistant.settings_saved")}</p>}
-    </div>
-  </form>;
+  return <fieldset disabled={disabled} className="min-w-0 space-y-8">
+    <LayoutSection>
+      <LayoutSectionHeader>
+        <LayoutSectionTitle><label htmlFor={`${id}-prompt`}>{t("assistant.instructions")}</label></LayoutSectionTitle>
+        <LayoutSectionDescription><span id={`${id}-prompt-help`}>{t("assistant.instructions_hint")}</span></LayoutSectionDescription>
+      </LayoutSectionHeader>
+      <Textarea id={`${id}-prompt`} aria-describedby={`${id}-prompt-help`} value={draft.systemPromptAddition} rows={5} className="min-h-36 resize-y rounded-2xl bg-background px-4 py-3 text-sm leading-relaxed" placeholder={t("assistant.instructions_placeholder")} onChange={event => setDraft({ ...draft, systemPromptAddition: event.target.value })} onBlur={onInstructionsBlur} />
+    </LayoutSection>
+    <LayoutSection>
+      <LayoutSectionHeader><LayoutSectionTitle>{t("assistant.resources")}</LayoutSectionTitle><LayoutSectionDescription>{t("assistant.resources_hint")}</LayoutSectionDescription></LayoutSectionHeader>
+      {catalog.unavailable.length > 0 && <SettingsNotice><span role="status">{t("assistant.resources_partial")}</span></SettingsNotice>}
+      <Surface className="divide-y divide-border/70">
+        {resourceKinds.map(({ kind, label }) => <AssistantResourcePicker key={kind} kind={kind} label={t(label)} resources={catalog.resources.filter(item => item.kind === kind)}
+          selectedIds={draft.resourceIds} disabled={disabled}
+          projectAllowed={projectId => !catalog.projects.some(project => project.id === projectId) || projectAllowed(draft, projectId)}
+          onToggle={(resourceId, checked) => setDraft({ ...draft, resourceIds: toggle(draft.resourceIds, resourceId, checked) })} />)}
+        {missing.map(ref => <label key={ref} className="flex cursor-pointer items-center gap-3 px-5 py-4 text-sm text-muted-foreground"><Checkbox checked onCheckedChange={() => setDraft({ ...draft, resourceIds: draft.resourceIds.filter(item => item !== ref) })} />{t("assistant.resource_unavailable")}</label>)}
+      </Surface>
+    </LayoutSection>
+    <LayoutSection>
+      <LayoutSectionHeader><LayoutSectionTitle><span id={`${id}-access-label`}>{t("assistant.project_access")}</span></LayoutSectionTitle><LayoutSectionDescription><span id={`${id}-access-help`}>{t("assistant.project_access_hint")}</span></LayoutSectionDescription></LayoutSectionHeader>
+      <RadioGroup aria-labelledby={`${id}-access-label`} aria-describedby={`${id}-access-help`} disabled={disabled} value={draft.projectAccess.mode} className="grid-cols-1 gap-2 @min-[560px]/settings:grid-cols-2" onValueChange={value => {
+        const parsed = AssistantProjectAccessSchema.shape.mode.safeParse(value);
+        if (parsed.success) setDraft({ ...draft, projectAccess: { ...draft.projectAccess, mode: parsed.data } });
+      }}>{accessModes.map(mode => <label key={mode.value} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border bg-background px-4 py-3 text-sm transition-colors hover:bg-muted/40 has-[[aria-checked=true]]:border-foreground/35 has-[[aria-checked=true]]:bg-muted/60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/40"><RadioGroupItem value={mode.value} />{t(mode.label)}</label>)}</RadioGroup>
+      {(draft.projectAccess.mode === "include" || draft.projectAccess.mode === "exclude") && <AssistantProjectPicker
+        projects={catalog.projects} selectedIds={draft.projectAccess.projectIds} mode={draft.projectAccess.mode} disabled={disabled}
+        onToggle={(projectId, checked) => setDraft({ ...draft, projectAccess: { ...draft.projectAccess, projectIds: toggle(draft.projectAccess.projectIds, projectId, checked) } })}
+      />}
+      <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.project_access_scope")}</p>
+    </LayoutSection>
+  </fieldset>;
 }
 function projectAllowed(settings: AssistantSettings, id: string) {
   const access = settings.projectAccess;

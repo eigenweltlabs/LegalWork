@@ -1,52 +1,105 @@
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Loader2 } from "lucide-react";
-import type { AssistantProfile } from "@legalwork/types/main-assistant";
+import type { AssistantSettingsCatalog } from "@legalwork/types/main-assistant";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
-import { AssistantDesktopNotifications } from "../../session/sidebar/assistant-identity";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
-import { AssistantBehaviorSettings } from "./assistant-behavior-settings";
-import { SettingsStack } from "../settings-section";
+import { AssistantBehaviorFields } from "./assistant-behavior-settings";
+import { createAssistantSettingsAutosave, getAssistantSettingsAutosave, type AssistantSettingsDraft } from "./assistant-settings-autosave";
+import { SettingsNotice } from "../settings-section";
+import {
+  LayoutStack, LayoutSection, LayoutSectionHeader, LayoutSectionTitle, LayoutSectionDescription,
+  LayoutSectionItem, LayoutSectionItemHeader, LayoutSectionItemTitle, LayoutSectionItemDescription,
+  LayoutSectionItemHeaderActions,
+} from "../settings-layout";
 
 export function AssistantSettingsView({ client, onModels }: {
   client: LegalworkServerClient | null; onModels: () => void;
 }) {
   const cache = useQueryClient();
-  const query = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
+  const profile = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
     queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.mainAssistantProfile(); } });
+  const settings = useQuery({ queryKey: ["assistant-settings", client?.baseUrl], enabled: Boolean(client),
+    queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.assistantSettings(); } });
+  const catalog = useQuery({ queryKey: ["assistant-settings-catalog", client?.baseUrl], enabled: Boolean(client),
+    queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.assistantSettingsCatalog(); } });
   const notifications = useAssistantNotificationPreferences(state => state.desktopNotifications);
   const setNotifications = useAssistantNotificationPreferences(state => state.setDesktopNotifications);
-  if (!client || query.isPending) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("assistant.settings_loading")}</p>;
-  if (query.isError) return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">{t("assistant.unavailable")}</p><Button variant="outline" onClick={() => { void query.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
-  return <SettingsStack>
-    <AssistantProfileForm key={`${client.baseUrl}:${query.data.workspace?.id ?? "new"}`} profile={query.data.profile} onSave={async profile => {
-      const saved = await client.updateAssistantProfile(profile);
-      cache.setQueryData(["main-assistant-profile", client.baseUrl], { ...query.data, profile: saved.profile });
-      await Promise.all(["main-assistant", "assistant-onboarding"].map(name => cache.invalidateQueries({ queryKey: [name, client.baseUrl] })));
-    }} />
-    <AssistantBehaviorSettings client={client} />
-    <div className="border-t border-border pt-5"><AssistantDesktopNotifications enabled={notifications} onChange={setNotifications} /></div>
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5"><div className="space-y-1"><h3 className="text-sm font-medium">{t("assistant.model")}</h3><p className="text-xs text-muted-foreground">{t("assistant.settings_models_hint")}</p></div><Button variant="outline" onClick={onModels}>{t("settings.tab_ai")}<ArrowRight className="size-4" /></Button></div>
-  </SettingsStack>;
+  if (!client || profile.isPending || settings.isPending || catalog.isPending) return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("assistant.settings_loading")}</p>;
+  if (profile.isError || settings.isError || catalog.isError) return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">{t("assistant.settings_load_failed")}</p><Button variant="outline" onClick={() => { void profile.refetch(); void settings.refetch(); void catalog.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
+  return <AssistantSettingsEditor key={`${client.baseUrl}:${profile.data.workspace?.id ?? "new"}`}
+    autosaveKey={client.baseUrl}
+    profile={profile.data.profile} settings={settings.data.settings} catalog={catalog.data} notifications={notifications} onModels={onModels}
+    onSave={async draft => {
+      const currentProfile = cache.getQueryData<typeof profile.data>(["main-assistant-profile", client.baseUrl]) ?? profile.data;
+      if (JSON.stringify(draft.profile) !== JSON.stringify(currentProfile.profile)) {
+        const saved = await client.updateAssistantProfile(draft.profile);
+        cache.setQueryData(["main-assistant-profile", client.baseUrl], { ...currentProfile, profile: saved.profile });
+        await Promise.all(["main-assistant", "assistant-onboarding"].map(name => cache.invalidateQueries({ queryKey: [name, client.baseUrl] })));
+      }
+      const currentSettings = cache.getQueryData<typeof settings.data>(["assistant-settings", client.baseUrl]) ?? settings.data;
+      if (JSON.stringify(draft.settings) !== JSON.stringify(currentSettings.settings)) {
+        const saved = await client.updateAssistantSettings(draft.settings);
+        cache.setQueryData(["assistant-settings", client.baseUrl], saved);
+      }
+      setNotifications(draft.notifications);
+    }} />;
 }
 
-function AssistantProfileForm({ profile, onSave }: { profile: AssistantProfile; onSave: (profile: AssistantProfile) => Promise<void> }) {
-  const [draft, setDraft] = useState(profile);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const dirty = draft.name !== profile.name || draft.icon !== profile.icon;
-  return <form className="space-y-5" onSubmit={event => {
-    event.preventDefault();
-    if (saving || !dirty) return;
-    setSaving(true); setError(null);
-    const normalized = { ...draft, name: draft.name?.trim() || null };
-    void onSave(normalized).then(() => setDraft(normalized)).catch(() => setError(t("assistant.save_failed"))).finally(() => setSaving(false));
-  }}>
-    <div className="flex items-center gap-4"><AssistantAvatar icon={draft.icon} motion="idle" className="size-16" /><div className="space-y-1"><h3 className="text-sm font-medium">{t("assistant.customize")}</h3><p className="text-xs text-muted-foreground">{t("assistant.customize_hint")}</p></div></div>
-    <fieldset disabled={saving} className="max-w-md space-y-5"><AssistantAppearanceFields compact profile={draft} onChange={setDraft} /></fieldset>
-    <div className="flex items-center gap-3"><Button type="submit" disabled={saving || !dirty}>{t(saving ? "common.saving" : "common.save")}</Button>{error && <p role="alert" className="text-xs text-destructive">{error}</p>}</div>
-  </form>;
+export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey }: AssistantSettingsDraft & {
+  catalog: AssistantSettingsCatalog; onSave: (draft: AssistantSettingsDraft) => Promise<void>; onModels: () => void; autosaveKey?: string;
+}) {
+  const [autosave] = useState(() => {
+    const options = { initialValue: { profile, settings, notifications }, onSave, onStatus: () => {} };
+    return autosaveKey ? getAssistantSettingsAutosave(autosaveKey, options) : createAssistantSettingsAutosave(options);
+  });
+  const { draft, status } = useSyncExternalStore(autosave.subscribe, autosave.getSnapshot, autosave.getSnapshot);
+  useEffect(() => { autosave.setOnSave(onSave); }, [autosave, onSave]);
+  useEffect(() => () => { void autosave.flushDraft(); }, [autosave]);
+  const change = (next: AssistantSettingsDraft, persist = true) => {
+    if (persist) void autosave.save(next);
+    else autosave.stage(next);
+  };
+  return <LayoutStack className="gap-y-8">
+      {status === "saving" && <span role="status" className="sr-only">{t("common.saving")}</span>}
+      {status === "error" && <SettingsNotice tone="error"><div role="alert" className="flex flex-wrap items-center justify-between gap-3"><span>{t("assistant.save_failed")}</span><Button type="button" variant="outline" size="sm" onClick={() => { void autosave.retry(); }}>{t("assistant.attention_retry")}</Button></div></SettingsNotice>}
+      <div className="min-w-0 space-y-8">
+        <LayoutSection>
+          <LayoutSectionHeader><LayoutSectionTitle>{t("assistant.customize")}</LayoutSectionTitle><LayoutSectionDescription>{t("assistant.customize_hint")}</LayoutSectionDescription></LayoutSectionHeader>
+          <Surface className="space-y-5 p-5">
+            <div className="flex items-center gap-4 border-b border-border/70 pb-4"><AssistantAvatar icon={draft.profile.icon} motion="idle" className="size-12" /><span className="min-w-0 truncate text-base font-medium">{draft.profile.name?.trim() || t("assistant.title")}</span></div>
+            <AssistantAppearanceFields compact profile={draft.profile} onChange={value => change({ ...draft, profile: value }, value.icon !== draft.profile.icon)} onNameBlur={() => change(draft)} />
+          </Surface>
+        </LayoutSection>
+        <AssistantBehaviorFields settings={draft.settings} catalog={catalog} onChange={value => change({ ...draft, settings: value }, value.systemPromptAddition === draft.settings.systemPromptAddition)} onInstructionsBlur={() => change(draft)} />
+        <AssistantPreferences notifications={draft.notifications} onNotificationsChange={value => change({ ...draft, notifications: value })} onModels={onModels} />
+      </div>
+  </LayoutStack>;
+}
+
+export function AssistantPreferences({ notifications, onNotificationsChange, onModels }: {
+  notifications: boolean; onNotificationsChange: (enabled: boolean) => void; onModels: () => void;
+}) {
+  return <LayoutSection>
+    <LayoutSectionHeader><LayoutSectionTitle>{t("assistant.preferences")}</LayoutSectionTitle></LayoutSectionHeader>
+    <LayoutSectionItem>
+      <LayoutSectionItemHeader>
+        <LayoutSectionItemTitle>{t("assistant.desktop_notifications")}</LayoutSectionItemTitle>
+        <LayoutSectionItemDescription>{t("assistant.desktop_notifications_hint")}</LayoutSectionItemDescription>
+        <LayoutSectionItemHeaderActions><Switch aria-label={t("assistant.desktop_notifications")} checked={notifications} onCheckedChange={onNotificationsChange} /></LayoutSectionItemHeaderActions>
+      </LayoutSectionItemHeader>
+    </LayoutSectionItem>
+    <LayoutSectionItem>
+      <LayoutSectionItemHeader>
+        <LayoutSectionItemTitle>{t("assistant.model")}</LayoutSectionItemTitle>
+        <LayoutSectionItemDescription>{t("assistant.settings_models_hint")}</LayoutSectionItemDescription>
+        <LayoutSectionItemHeaderActions><Button type="button" variant="outline" size="sm" onClick={onModels}>{t("settings.tab_ai")}<ArrowRight className="size-3.5" /></Button></LayoutSectionItemHeaderActions>
+      </LayoutSectionItemHeader>
+    </LayoutSectionItem>
+  </LayoutSection>;
 }

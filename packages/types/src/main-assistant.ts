@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 // Keep legacy choices valid for saved profiles and historical message attribution.
-export const AssistantAvatarIconSchema = z.enum(["professional_bear", "professional_fox", "professional_owl", "cat", "dog", "bear", "rabbit", "fox", "bird", "dot"]);
-export const AssistantIconSchema = z.enum([...AssistantAvatarIconSchema.options, "owl", "panda", "penguin", "otter", "frog", "robot", "sprout"]);
+export const AssistantAvatarIconSchema = z.enum(["flower", "professional_owl", "professional_fox", "professional_bear", "cat", "dog", "rabbit", "bear", "fox", "bird"]);
+export const AssistantIconSchema = z.enum([...AssistantAvatarIconSchema.options, "dot", "owl", "panda", "penguin", "otter", "frog", "robot", "sprout"]);
 export const AssistantProfileSchema = z.object({ name: z.string().trim().min(1).max(60).nullable(), icon: AssistantIconSchema });
 export type AssistantIcon = z.infer<typeof AssistantIconSchema>;
 export type AssistantProfile = z.infer<typeof AssistantProfileSchema>;
@@ -39,7 +39,7 @@ export const AssistantLegacySharedFilesSchema = z.array(z.object({
   path: z.string().regex(/^Files\/Assistant\/[^/]+\/[^/]+$/).refine(path => !path.split("/").some(segment => segment === "." || segment === "..")),
   sourcePath: z.string().min(1),
 })).max(20);
-export const DEFAULT_ASSISTANT_PROFILE: AssistantProfile = { name: null, icon: "dot" };
+export const DEFAULT_ASSISTANT_PROFILE: AssistantProfile = { name: null, icon: "flower" };
 export type AssistantAvatarIcon = z.infer<typeof AssistantAvatarIconSchema>;
 export const AssistantAttentionDescriptionSchema = z.object({
   title: z.string().trim().min(1).max(120),

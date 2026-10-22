@@ -74,6 +74,12 @@ test("delegations persist, wait for a real reply and an idle Assistant, and retu
     expect(sent[0].text).toContain("source-linked tasks in that project");
     expect(sent[0].text).toContain("check existing tasks, deduplicate");
     expect(sent[0].text).toContain("Do not include a project-chat link");
+    expect(sent[0].text).toContain("not a new user task or an instruction to send a message for each delegation");
+    expect(sent[0].text).toContain("same user request is still outstanding, retain this contribution silently");
+    expect(sent[0].text).toContain("one combined result message");
+    expect(sent[0].text).toContain("Do not wait on or combine unrelated requests");
+    expect(sent[0].text).toContain("actionable blockers must still be surfaced immediately");
+    expect(sent[0].text).toContain("Do not react, acknowledge again");
     expect(sent[0].text).toContain("legalwork_assistant_share_file with projectId");
     await (await AssistantDelegations.open(path, executor)).tick();
     await reopened.tick();

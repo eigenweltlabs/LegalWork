@@ -3,6 +3,7 @@ import type { DynamicToolUIPart, UIMessage } from "ai";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import DOMPurify from "dompurify";
 import { assistantChatMessages, assistantProjectFileTab, assistantReactions, linkedAssistantFiles } from "../src/components/chat/assistant-chat-presentation";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { MessageList } from "../src/components/chat/message-list";
@@ -37,18 +38,18 @@ test("only deliberate file cards survive, tool/file noise is hidden and source m
   expect(assistantChatMessages([user, { ...response, parts: [{ ...shared, state: "input-available", output: undefined }] }])).toEqual([user]);
 });
 
-function render(messages: UIMessage[], status: "ready" | "submitted" | "streaming", assistantChat = true) {
+function render(messages: UIMessage[], status: "ready" | "submitted" | "streaming" | "retrying", assistantChat = true, assistantTextStreaming?: boolean) {
   const query = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } });
   const noop = () => {};
   try {
     return renderToStaticMarkup(<QueryClientProvider client={query}><MemoryRouter><OpenTargetProvider onOpenTarget={noop}><MessageListProvider assistantChat={assistantChat} workspaceId="fixture" sessionId="chat"
       showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
-      <MessageList showWelcome={false} messages={messages} status={status} />
+      <MessageList showWelcome={false} messages={messages} status={status} assistantTextStreaming={assistantTextStreaming} />
     </MessageListProvider></OpenTargetProvider></MemoryRouter></QueryClientProvider>);
   } finally { query.clear(); }
 }
 
-test("the messenger keeps reactions and file cards, delays initial typing and omits branch/revert actions", () => {
+test("the messenger keeps reactions and file cards, hides typing during tools and omits branch/revert actions", () => {
   const pending = render([user, activity], "streaming");
   expect(pending).not.toContain('data-assistant-typing=""');
   expect(pending).toContain('data-assistant-reaction=""');
@@ -67,6 +68,31 @@ test("the messenger keeps reactions and file cards, delays initial typing and om
   expect(done.match(/data-assistant-file-card/g)).toHaveLength(1);
   expect(done).not.toContain('data-assistant-typing=""');
   expect(render([user, activity], "streaming", false)).not.toContain('data-assistant-typing=""');
+});
+
+test("typing follows buffered text streaming and sits directly after the acknowledgement", () => {
+  // Trusted fixture prose only; the Bun renderer has no browser DOM.
+  const sanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
+  Object.defineProperty(DOMPurify, "sanitize", { value: (html: string) => html, configurable: true });
+  try {
+    const acknowledgement: UIMessage = { id: "ack", role: "assistant", parts: [{ type: "text", text: "I will take care of it and let you know when done." }] };
+    const messages = [user, acknowledgement];
+    const html = render(messages, "streaming", true, true);
+    expect(html.match(/data-assistant-typing/g)).toHaveLength(1);
+    const afterAcknowledgement = html.slice(html.indexOf("I will take care of it"));
+    expect(afterAcknowledgement).toContain('data-assistant-typing=""');
+    expect(afterAcknowledgement).not.toContain('aria-label="Copy message"');
+    expect(afterAcknowledgement).not.toContain("my-2");
+    for (const status of ["submitted", "ready", "retrying"] satisfies Array<"submitted" | "ready" | "retrying">) {
+      expect(render(messages, status, true, true)).not.toContain('data-assistant-typing=""');
+    }
+    expect(render(messages, "streaming", true, false)).not.toContain('data-assistant-typing=""');
+    const streaming: UIMessage = { ...acknowledgement, parts: [{ type: "text", text: "The result", state: "streaming" }] };
+    expect(render([user, streaming], "streaming")).toContain('data-assistant-typing=""');
+  } finally {
+    if (sanitize) Object.defineProperty(DOMPurify, "sanitize", sanitize);
+    else Reflect.deleteProperty(DOMPurify, "sanitize");
+  }
 });
 
 test("delegated attachments render as named cards without displaying their storage paths or opening the UI", () => {

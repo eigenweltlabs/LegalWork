@@ -21,7 +21,7 @@ import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
-import { AssistantCircleIcon } from "../../session/sidebar/assistant-appearance";
+import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
@@ -44,7 +44,7 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
-  { tab: "assistant", icon: AssistantCircleIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "assistant", icon: AssistantFlowerIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: TableProperties, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },

@@ -66,7 +66,7 @@ test("recovery only adopts a live root session inside the assistant folder", asy
 test("assistant appearance persists across restart and never changes its project folder or day", async () => {
   const f = await fixture();
   const before = await f.assistant.current();
-  expect(f.assistant.profile()).toEqual({ name: null, icon: "dot" });
+  expect(f.assistant.profile()).toEqual({ name: null, icon: "flower" });
   expect(await f.assistant.needsOnboarding()).toBe(true);
   await f.assistant.updateProfile({ name: "Momo", icon: "otter" });
   const reopened = await f.factory();
@@ -84,14 +84,14 @@ test("keeping the default completes onboarding across restarts, even with no use
   const f = await fixture();
   await f.assistant.current();
   expect(await f.assistant.needsOnboarding()).toBe(true);
-  await f.assistant.updateProfile({ name: null, icon: "dot" });
+  await f.assistant.updateProfile({ name: null, icon: "flower" });
   expect(await (await f.factory()).needsOnboarding()).toBe(false);
 });
 
 test("the greeting is read on first open, while name and avatar choices survive restarts", async () => {
   const f = await fixture();
   const initial = await f.assistant.onboarding();
-  expect(initial).toMatchObject({ needed: true, step: "name", greetingUnread: true, icon: "dot" });
+  expect(initial).toMatchObject({ needed: true, step: "name", greetingUnread: true, icon: "flower" });
   const day = await f.assistant.current();
   expect((await f.assistant.onboarding()).greetingUnread).toBe(true);
   await expect(f.assistant.answerOnboarding({ icon: "bird" })).rejects.toThrow("name first");
@@ -100,8 +100,8 @@ test("the greeting is read on first open, while name and avatar choices survive 
   expect(await reopened.onboarding()).toMatchObject({ needed: true, step: "name", greetingUnread: false });
   await reopened.viewGreeting();
   const named = await reopened.answerOnboarding({ name: "Josi" });
-  expect(named).toMatchObject({ needed: true, step: "avatar", name: "Josi", icon: "dot", sessionId: day.day.sessionId });
-  expect(reopened.profile()).toEqual({ name: "Josi", icon: "dot" });
+  expect(named).toMatchObject({ needed: true, step: "avatar", name: "Josi", icon: "flower", sessionId: day.day.sessionId });
+  expect(reopened.profile()).toEqual({ name: "Josi", icon: "flower" });
   expect(await reopened.answerOnboarding({ name: "Josi" })).toEqual(named);
   await expect(reopened.answerOnboarding({ name: "Different" })).rejects.toThrow("already been chosen");
   const resumed = await f.factory();
@@ -129,11 +129,22 @@ test("agent naming persists before UI appearance selection, and later renames pr
   expect(resumed.profile()).toEqual({ name: "Johann", icon: "bird" });
 });
 
-test("users can keep the dot as their completed appearance", async () => {
+test("users can choose the flower as their completed appearance", async () => {
   const f = await fixture();
-  await f.assistant.answerOnboarding({ name: "Dot" });
-  expect(await f.assistant.answerOnboarding({ icon: "dot" })).toMatchObject({ needed: false, step: "complete", icon: "dot" });
-  expect((await f.factory()).profile()).toEqual({ name: "Dot", icon: "dot" });
+  await f.assistant.answerOnboarding({ name: "My assistant" });
+  expect(await f.assistant.answerOnboarding({ icon: "flower" })).toMatchObject({ needed: false, step: "complete", icon: "flower" });
+  expect((await f.factory()).profile()).toEqual({ name: "My assistant", icon: "flower" });
+});
+
+test("legacy dot profiles remain valid without changing custom names or restarting onboarding", async () => {
+  const f = await fixture();
+  await f.assistant.answerOnboarding({ name: "Johannes" });
+  await f.assistant.answerOnboarding({ icon: "dot" });
+  const resumed = await f.factory();
+  expect(resumed.profile()).toEqual({ name: "Johannes", icon: "dot" });
+  expect(await resumed.needsOnboarding()).toBe(false);
+  await resumed.updateProfile({ name: "Johannes", icon: "flower" });
+  expect((await f.factory()).profile()).toEqual({ name: "Johannes", icon: "flower" });
 });
 
 test("the device calendar date handles midnight and daylight-saving days in different zones", async () => {
@@ -174,7 +185,7 @@ test("Assistant preferences persist independently of appearance and keep daily h
   expect(reopened.settings()).toEqual(saved);
   expect(reopened.resourceMetadata()).toEqual([resource]);
   expect((await reopened.current()).day).toEqual(current.day);
-  expect(reopened.profile()).toEqual({ name: null, icon: "dot" });
+  expect(reopened.profile()).toEqual({ name: null, icon: "flower" });
   expect(reopened.settings().systemPromptAddition).toBe(prompt);
   f.config.readOnly = true;
   expect(() => reopened.updateSettings(saved)).toThrow("writable");
