@@ -43,7 +43,6 @@ const de = {
   "assistant.projects_search": "Projekte suchen…",
   "assistant.projects_empty": "Keine passenden Projekte.",
   "assistant.project_unavailable": "Ausgewähltes Projekt nicht verfügbar",
-  "assistant.project_access_scope": "Gilt für Assistant-Projekttools und Recherche-Subagents. Dies erstellt keine separate Desktop-Sandbox und entzieht laufenden Projekt-Sessions keinen bereits genutzten Zugriff.",
   "assistant.settings_saved": "Gespeichert. Gilt ab dem nächsten Schritt Ihres Assistants.",
   "common.loading": "Wird geladen…",
   "storage.account_settings": "Kontoeinstellungen",

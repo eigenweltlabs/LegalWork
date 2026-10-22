@@ -33,7 +33,6 @@ export default {
   "assistant.projects_search": "Search projects…",
   "assistant.projects_empty": "No matching projects.",
   "assistant.project_unavailable": "Selected project unavailable",
-  "assistant.project_access_scope": "Applies to Assistant project tools and research subagents. This does not create a separate desktop sandbox or revoke access already used by running project sessions.",
   "assistant.settings_saved": "Saved. Applies on the Assistant’s next turn.",
   "common.loading": "Loading…",
   "storage.account_settings": "Account settings",

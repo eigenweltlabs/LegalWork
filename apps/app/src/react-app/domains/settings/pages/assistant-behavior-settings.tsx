@@ -55,7 +55,6 @@ export function AssistantBehaviorFields({ settings: draft, catalog, disabled, on
         projects={catalog.projects} selectedIds={draft.projectAccess.projectIds} mode={draft.projectAccess.mode} disabled={disabled}
         onToggle={(projectId, checked) => setDraft({ ...draft, projectAccess: { ...draft.projectAccess, projectIds: toggle(draft.projectAccess.projectIds, projectId, checked) } })}
       />}
-      <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.project_access_scope")}</p>
     </LayoutSection>
   </fieldset>;
 }
