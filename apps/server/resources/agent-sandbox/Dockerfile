@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY bootstrap-pip.py /opt/legalwork/bootstrap-pip.py
+RUN python3 -I -S /opt/legalwork/bootstrap-pip.py --seed \
+    && rm /opt/legalwork/bootstrap-pip.py
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
