@@ -27,7 +27,8 @@ export async function prepareAssistantScheduledWork(task: ScheduledTask, workspa
   const last = history.data?.at(-1)?.info;
   const model = task.model ?? (last?.role === "assistant" ? { providerID: last.providerID, modelID: last.modelID } : last?.model) ?? null;
   delegations.track({ workspaceId: workspace.id, sessionId: session.id, sourceWorkspaceId: workspace.id, sourceSessionId: parent.id,
-    scheduledTaskId: task.id, title: task.title, scope: `Carry out the scheduled task ${JSON.stringify(task.title)}.`, model });
+    scheduledTaskId: task.id, title: task.title, scope: `Carry out the scheduled task ${JSON.stringify(task.title)}.`, model,
+    authority: { scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] } });
   return {
     model,
     prompt: `[Scheduled task: ${task.title}]\n\nYou are the isolated background worker for this scheduled task, not the user's daily conversation. Do the research and tool work in this session. Keep raw records, transcripts and intermediate tool outputs here. Do not react, send a conversational acknowledgement, or repeat the task in the daily chat. Stay within the task's existing permissions and authorized scope. Save detailed deliverables in the project. Finish with a concise, complete result: the verified outcome or blocker, the essential next actions, and exact paths to saved deliverables. Choose the length needed to communicate the result accurately. Your final result will be delivered back to the Assistant automatically; do not start another session to report it.\n\nTask:\n${task.prompt}`,

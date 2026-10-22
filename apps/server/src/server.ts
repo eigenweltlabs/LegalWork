@@ -13,6 +13,7 @@ import { readDelegationResult } from "./assistant-delegation-result.js";
 import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
 import { createAssistantSessionQueue } from "./assistant-session-executor.js";
 import type { AssistantSessionQueue } from "./assistant-session-queue.js";
+import { AssistantSessionAccess, assertAssistantDispatchAuthority } from "./assistant-session-access.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -814,6 +815,7 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
+  const assistantSessionAccess = await AssistantSessionAccess.open(runtimeDbPath(config), config);
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
   const reloadEvents = new ReloadEventStore();
@@ -937,7 +939,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.directory, scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
+      await assistantSessionAccess.authorize(sessionId, session.directory, { scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
       const work = isMainAssistant(workspace) ? await prepareAssistantScheduledWork(task, workspace, session, client, delegations)
         : { model: task.model, prompt: `[Scheduled task: ${task.title}]\n\n${task.prompt}` };
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(work.model ? { model: work.model } : {}),
@@ -967,7 +969,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     const client = createWorkspaceOpencodeClient(config, workspace);
     const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
     if (resolve(session.directory) !== resolve(workspace.path)) throw new Error("The delegated chat is outside this project.");
-    return { client, session };
+    return { workspace, client, session };
   };
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
     allowed: delegation => !config.workspaces.some(workspace => workspace.id === delegation.sourceWorkspaceId && isMainAssistant(workspace)) || mainAssistant.canAccessProject(delegation.workspaceId),
@@ -976,7 +978,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       if (session.time.archived) return null;
       const children = await client.session.children({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) });
       for (const child of children.data ?? []) if (child.parentID === session.id && resolve(child.directory) === resolve(session.directory) && !child.time.archived)
-        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true });
+        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true, authoritySessionId: delegation.authoritySessionId ?? delegation.sessionId });
       const result = await readDelegationResult(client, session.id);
       return delegation.inputOnly && result?.outcome !== "input-required" ? null : result;
     },
@@ -1001,17 +1003,23 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       if (result.response.status === 404) return false;
       return unwrapOpencodeResult(result, "/session/message").info.id === messageId;
     },
-    send: async (delegation, notice) => {
-      const { client } = await delegationSession(notice.workspaceId, notice.sessionId);
+    send: (delegation, notice) => withSessionExecution(config, notice.sessionId, async () => {
+      const worker = await delegationSession(delegation.workspaceId, delegation.authoritySessionId ?? delegation.sessionId);
+      const authority = await assistantSessionAccess.prepare(worker.session.id, worker.session.directory, delegation.authority);
+      assertAssistantDispatchAuthority(authority, worker.workspace.id);
+      const { workspace, client, session } = await delegationSession(notice.workspaceId, notice.sessionId);
+      await assistantSessionAccess.prepareReturn(session.id, session.directory, authority);
+      await prepareWorkspacePrompt(config, workspace, session.directory);
       const result = await client.session.promptAsync({ sessionID: notice.sessionId, messageID: notice.messageId, agent: "legalwork", ...(delegation.model ? { model: delegation.model } : {}),
         parts: [{ type: "text", text: notice.text, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response.ok) throw new Error("Could not confirm delivery of the delegated result.");
       announceSyncChange(config, "sessions");
-    },
+    }, true),
   });
   const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
-    client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions") });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue);
+    client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
+    config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue, assistantSessionAccess);
 
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
@@ -1436,6 +1444,14 @@ async function recoverWorkspaceMcp(config: ServerConfig, workspace: WorkspaceInf
   }
 }
 
+/** All user and internally dispatched turns get the same bounded tool recovery. */
+async function prepareWorkspacePrompt(config: ServerConfig, workspace: WorkspaceInfo, directory: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([recoverWorkspaceMcp(config, workspace, directory), new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
   if (result.data != null) {
     return result.data;
@@ -1545,15 +1561,7 @@ async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequ
   if (workspace && sessionDirectory && input.actor?.scope && input.actor.scope !== "viewer" && method === "POST" && /^\/session\/[^/]+\/(?:message|prompt_async|command)$/.test(normalizedPath)) {
     // Let a healthy network restore tools before the next turn. An unreachable
     // connector continues in the background instead of holding the chat open.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        recoverWorkspaceMcp(input.config, workspace, sessionDirectory),
-        new Promise<void>(resolve => { timer = setTimeout(resolve, 2000); }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    await prepareWorkspacePrompt(input.config, workspace, sessionDirectory);
   }
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     if (protectedExecution) {
@@ -1978,9 +1986,10 @@ function createRoutes(
   mainAssistant: MainAssistant,
   delegations: AssistantDelegations,
   sessionQueue: AssistantSessionQueue,
+  sessionAccess: AssistantSessionAccess,
 ): Route[] {
   const routes: Route[] = [];
-  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
+  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");

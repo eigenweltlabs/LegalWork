@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ApiError } from "./errors.js";
+import { SessionAuthoritySchema, type SessionAuthority } from "./wiki/agent-access.js";
+import { QueuePreparationError } from "./session-message-queue.js";
 
 const targetSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
 export type AssistantSessionTarget = z.infer<typeof targetSchema>;
@@ -10,6 +12,7 @@ const entrySchema = targetSchema.extend({
   state: z.enum(["queued", "sending", "sent", "paused", "cancelled"]),
   allowInterrupted: z.boolean(), createdAt: z.number(), error: z.string().nullable(),
   requestId: z.string().optional(),
+  authority: SessionAuthoritySchema.optional(), // Legacy entries require an authenticated resume.
 });
 export type AssistantQueuedMessage = z.infer<typeof entrySchema>;
 export type AssistantQueueExecutor = {
@@ -50,27 +53,32 @@ export class AssistantSessionQueue {
     const row = this.db.get("SELECT data FROM assistant_session_queue WHERE workspace_id = ? AND session_id = ? AND json_extract(data, '$.requestId') = ? AND json_extract(data, '$.prompt') = ?", [target.workspaceId, target.sessionId, requestId, prompt.trim()]);
     return row ? entrySchema.parse(JSON.parse(String(row.data))) : null;
   }
-  async submit(target: AssistantSessionTarget, prompt: string, requestId?: string) {
+  async submit(target: AssistantSessionTarget, prompt: string, authority: SessionAuthority, requestId?: string) {
     return this.locked(target, async () => {
       // Same pending instruction is idempotent, including after a lost HTTP response.
       const duplicate = this.receipt(target, prompt, requestId) ?? this.list(target).find(entry => entry.prompt === prompt.trim());
-      if (duplicate) return duplicate;
+      if (duplicate) {
+        if (duplicate.state === "sent" || duplicate.state === "cancelled") return duplicate;
+        const refreshed = { ...duplicate, authority };
+        this.save(refreshed);
+        return refreshed;
+      }
       const status = await this.executor.inspect(target);
       const now = Date.now();
       const id = `msg_${BigInt.asUintN(48, BigInt(now) * 4096n).toString(16).padStart(12, "0")}${randomBytes(7).toString("hex")}`;
-      const entry = entrySchema.parse({ ...target, id, prompt, requestId, state: "queued", allowInterrupted: !status.busy && status.interrupted, createdAt: now, error: null });
+      const entry = entrySchema.parse({ ...target, id, prompt, authority, requestId, state: "queued", allowInterrupted: !status.busy && status.interrupted, createdAt: now, error: null });
       this.save(entry);
       await this.deliver(target);
       const row = this.db.get("SELECT data FROM assistant_session_queue WHERE id = ?", [id]);
       return entrySchema.parse(JSON.parse(String(row?.data)));
     });
   }
-  async update(target: AssistantSessionTarget, id: string, action: "cancel" | "edit" | "resume", prompt?: string) {
+  async update(target: AssistantSessionTarget, id: string, action: "cancel" | "edit" | "resume", authority: SessionAuthority, prompt?: string) {
     return this.locked(target, async () => {
       const entry = this.list(target).find(item => item.id === id);
       if (!entry) throw new ApiError(404, "queued_message_missing", "This queued message is no longer pending.");
       if (entry.state === "sending") throw new ApiError(409, "queued_message_sending", "Delivery is being confirmed. Stop the session to cancel it safely.");
-      const updated = entrySchema.parse({ ...entry, ...(action === "edit" ? { prompt } : {}),
+      const updated = entrySchema.parse({ ...entry, authority, ...(action === "edit" ? { prompt } : {}),
         state: action === "cancel" ? "cancelled" : action === "resume" ? "queued" : entry.state,
         ...(action === "resume" ? { allowInterrupted: true, error: null } : {}) });
       this.save(updated);
@@ -106,6 +114,10 @@ export class AssistantSessionQueue {
       }
       const status = await this.executor.inspect(target);
       if (status.busy || status.pending) return;
+      if (!entry.authority) {
+        this.save({ ...entry, state: "paused", error: "Resume this queued message from an authenticated chat to restore its permissions." });
+        return;
+      }
       if (status.interrupted && !entry.allowInterrupted) {
         this.save({ ...entry, state: "paused", error: "The session stopped or failed. Resume explicitly or cancel this queued message." });
         return;
@@ -117,7 +129,7 @@ export class AssistantSessionQueue {
     } catch (error) {
       const row = this.db.get("SELECT data FROM assistant_session_queue WHERE id = ?", [entry.id]);
       const current = entrySchema.parse(JSON.parse(String(row?.data)));
-      this.save({ ...current, error: error instanceof Error ? error.message : "Delivery could not be confirmed." });
+      this.save({ ...current, ...(error instanceof QueuePreparationError && entry.state !== "sending" ? { state: "paused" } : {}), error: error instanceof Error ? error.message : "Delivery could not be confirmed." });
     }
   }
   tick() {

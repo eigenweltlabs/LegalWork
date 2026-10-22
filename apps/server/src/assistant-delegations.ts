@@ -6,6 +6,7 @@ import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ASSISTANT_DELIVERABLE_INSTRUCTIONS, ASSISTANT_FOLLOW_UP_INSTRUCTIONS, ASSISTANT_RETURN_INSTRUCTIONS, ConversationLanguageSchema, returnedLanguageInstructions } from "./assistant-handoff.js";
 import { AssistantAttentionItemSchema, AssistantAttentionPresentSchema } from "./assistant-schema.js";
 import type { AssistantAttentionItem } from "@legalwork/types/main-assistant";
+import { SessionAuthoritySchema } from "./wiki/agent-access.js";
 
 const attentionCardSchema = AssistantAttentionPresentSchema.extend({ visible: z.boolean(), presentedAt: z.number() });
 
@@ -15,6 +16,8 @@ const delegationSchema = z.object({
   conversationLanguage: ConversationLanguageSchema.optional(), // Existing tracked chats predate language handoff.
   inputOnly: z.boolean().optional(), // Internal child agents report decisions, not duplicate completion summaries.
   scheduledTaskId: z.string().uuid().optional(),
+  authority: SessionAuthoritySchema.optional(),
+  authoritySessionId: z.string().optional(), // Internal children retain their delegated root's permission boundary.
 });
 export type TrackedDelegation = z.infer<typeof delegationSchema>;
 const destinationSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
@@ -73,6 +76,10 @@ export class AssistantDelegations {
     const data = delegationSchema.parse(delegation);
     this.pendingWork.set(data.sessionId, true);
     this.db.run("INSERT OR IGNORE INTO assistant_delegations (session_id, data) VALUES (?, ?)", [data.sessionId, JSON.stringify(data)]);
+    // An authenticated follow-up reauthorizes existing/legacy work without losing
+    // delivery receipts or changing the result's established routing context.
+    if (data.authority) this.db.run("UPDATE assistant_delegations SET data = json_set(data, '$.authority', json(?)) WHERE session_id = ?", [JSON.stringify(data.authority), data.sessionId]);
+    if (data.authoritySessionId) this.db.run("UPDATE assistant_delegations SET data = json_set(data, '$.authoritySessionId', ?) WHERE session_id = ?", [data.authoritySessionId, data.sessionId]);
   }
   list(sourceWorkspaceId: string) {
     return this.db.all("SELECT data FROM assistant_delegations ORDER BY rowid DESC")

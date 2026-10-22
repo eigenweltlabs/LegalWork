@@ -25,6 +25,8 @@ import type { AssistantDelegations } from "../assistant-delegations.js";
 import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ConversationLanguageSchema } from "../assistant-handoff.js";
 import { assistantHandoffParts } from "../assistant-handoff-message.js";
 import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
+import { assistantRequestAuthority, assertAssistantDispatchAuthority, type AssistantSessionAccess } from "../assistant-session-access.js";
+import { withSessionExecution } from "../session-execution-gate.js";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -40,6 +42,8 @@ export function registerMainAssistantRoutes(options: {
   routes: Route[]; config: ServerConfig; assistant: MainAssistant;
   delegations: AssistantDelegations;
   sessionQueue: AssistantSessionQueue;
+  sessionAccess: AssistantSessionAccess;
+  preparePrompt: (workspace: WorkspaceInfo, directory: string) => Promise<void>;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
@@ -251,15 +255,19 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "POST", "/assistant/delegate", "client", async ctx => {
     write(ctx);
+    let authority = await assistantRequestAuthority(config, ctx.request, ctx.actor);
     const parsed = delegationSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 50000));
     if (!parsed.success) throw new ApiError(400, "delegation_input", "Choose a project and provide a title, task, scope and conversationLanguage (e.g. en or de).");
     const input = parsed.data;
     const source = await accessible(input.sourceWorkspaceId);
     const workspace = await accessible(input.workspaceId);
+    assertAssistantDispatchAuthority(authority, workspace.id);
+    await options.sessionAccess.checkDirectory(workspace.path, authority);
     if (workspace.workspaceType === "remote" || source.workspaceType === "remote") throw new ApiError(400, "delegation_local", "Choose an available local project.");
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
     const sourceResult = await options.client(source).session.get({ sessionID: input.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
     if (!sourceResult.data || resolve(sourceResult.data.directory) !== resolve(source.path)) throw new ApiError(400, "delegation_source", "The source chat is not in this project.");
+    authority = await options.sessionAccess.captureSource(input.sourceSessionId, sourceResult.data.directory, authority);
     const previous = await options.client(source).session.messages({ sessionID: input.sourceSessionId, limit: 1 }, { signal: AbortSignal.timeout(10000) });
     const last = previous.data?.at(-1)?.info;
     const model = input.model ?? (last?.role === "assistant" ? { providerID: last.providerID, modelID: last.modelID } : last?.model);
@@ -279,10 +287,15 @@ export function registerMainAssistantRoutes(options: {
     const session = created.data;
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
-    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null });
+    await options.sessionAccess.authorize(session.id, session.directory, authority);
+    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority });
     try {
-      const sent = await client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
+      const sent = await withSessionExecution(config, session.id, async () => {
+        assertAssistantDispatchAuthority(await options.sessionAccess.prepare(session.id, session.directory, authority), workspace.id);
+        await options.preparePrompt(workspace, session.directory);
+        return client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
         parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
+      });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
       return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,

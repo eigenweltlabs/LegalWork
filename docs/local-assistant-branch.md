@@ -158,3 +158,30 @@ chip removal, Escape/focus return and save feedback. Six focused app tests, app
 typecheck and EN/DE completeness pass. The production Electron screen receives
 this change through the running dev server's hot reload; its real preferences
 were not modified for the preview.
+
+## Delegated session initialization
+
+Delegated project chats use the normal authenticated session registration, bounded
+MCP recovery and dispatch/deletion gate before their first prompt, queued follow-ups
+and automatic returns. The managed engine forwards its verified source-session
+context instead of treating its shared bearer token as the originating user's scope.
+Durable work retains that permission ceiling across restart and respects subsequent
+source/target downgrades, revocation and project restrictions. Existing chats without
+saved authorization recover through an authenticated follow-up; unsourced legacy
+queue entries pause until explicitly resumed.
+
+Validation:
+
+- `pnpm exec bun test apps/server/src/assistant-session-access.test.ts apps/server/src/assistant-session-queue.test.ts apps/server/src/assistant-delegations.test.ts`: 20 passed, including the real SDK queue executor after restart, legacy migration, permission changes and delivery deduplication.
+- `pnpm --dir apps/server exec bun test src/main-assistant.routes.test.ts src/assistant-scheduled-work.routes.test.ts src/opencode-plugins/legalwork-assistant-tools.test.ts src/wiki/agent-access.test.ts`: 18 passed.
+- `pnpm --dir apps/server typecheck`, the server build during Electron startup, and `git diff --check`: passed.
+
+Live verification on 22 October 2026 restarted this checkout at
+`http://localhost:5173` with the standard saved development profile. The Assistant
+resumed the existing previously blocked project chat through `session_control`.
+Both document skills loaded, the register and payout schedule were readable, and
+native document tools created and inspected the requested Word table. The saved
+DOCX passed ZIP integrity checks, contained 14 data rows plus its header, had no
+unfilled placeholders, and retained 26 source links. The automatic return delivered
+the file card and final result to the existing Assistant tab. Private project data
+and the local verification screenshot are excluded from the repository.

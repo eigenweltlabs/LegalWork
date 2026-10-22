@@ -7,6 +7,28 @@ import { openSqlite } from "./runtime-db.js";
 
 const delegation: TrackedDelegation = { workspaceId: "matter", sessionId: "review", sourceWorkspaceId: "assistant", sourceSessionId: "yesterday", title: "Review terms", scope: "Read and report, no edits", model: { providerID: "provider", modelID: "model" } };
 
+test("reauthorizing legacy roots and children preserves receipts while refreshing their permission source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-legacy-delegations-")), path = join(root, "runtime.sqlite");
+  const delivered: TrackedDelegation[] = [];
+  const persisted = new Set<string>();
+  const executor: DelegationExecutor = { result: async item => ({ messageId: item.sessionId, outcome: "input-required", text: "Which register should I use?" }),
+    destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true, hasMessage: async (_, id) => persisted.has(id),
+    send: async (item, notice) => { delivered.push(item); persisted.add(notice.messageId); } };
+  try {
+    const tracker = await AssistantDelegations.open(path, executor);
+    tracker.track(delegation);
+    tracker.track({ ...delegation, sessionId: "child", inputOnly: true });
+    const authority = { scope: "collaborator", sourceSessionId: "today" } satisfies NonNullable<TrackedDelegation["authority"]>;
+    tracker.track({ ...delegation, authority });
+    tracker.track({ ...delegation, sessionId: "child", inputOnly: true, authority, authoritySessionId: "review" });
+    const restarted = await AssistantDelegations.open(path, executor);
+    expect(restarted.list("assistant").find(item => item.sessionId === "child")).toMatchObject({ authoritySessionId: "review", authority, sourceSessionId: "yesterday" });
+    await restarted.tick(); expect(delivered).toHaveLength(2);
+    tracker.track({ ...delegation, authority });
+    await restarted.tick(); expect(delivered).toHaveLength(2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("scheduled workers return the complete result once, after the main conversation becomes idle", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-scheduled-return-"));
   const path = join(root, "runtime.sqlite");
