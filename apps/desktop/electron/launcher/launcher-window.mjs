@@ -35,6 +35,10 @@ export class LauncherWindow {
     this.displayId = null;
     /** @type {{ x: number, y: number, displayId: number | null } | null} */
     this.remembered = null;
+    /** @type {Record<string, { x: number, y: number, displayId: number | null }>} */
+    this.positions = {};
+    this.positionLoaded = false;
+    this.positionWrite = Promise.resolve();
   }
   isVisible() { return Boolean(this.window && !this.window.isDestroyed() && this.window.isVisible()); }
   isFocused() { return Boolean(this.window && !this.window.isDestroyed() && this.window.isFocused()); }
@@ -42,13 +46,25 @@ export class LauncherWindow {
   webContents() { return this.window && !this.window.isDestroyed() ? this.window.webContents : null; }
   send(event) { this.webContents()?.send(EVENT, event); }
   async loadPosition() {
-    try { const saved = JSON.parse(await readFile(this.positionPath, "utf8")); if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) this.remembered = { x: saved.x, y: saved.y, displayId: saved.displayId ?? null }; } catch { /* no saved position */ }
+    this.positionLoaded = true;
+    try {
+      const saved = JSON.parse(await readFile(this.positionPath, "utf8"));
+      for (const position of saved?.positions ? Object.values(saved.positions) : saved ? [saved] : []) {
+        if (position && typeof position === "object" && "x" in position && "y" in position && "displayId" in position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+          this.positions[String(position.displayId)] = position;
+        }
+      }
+    } catch { /* no saved position */ }
+
   }
   savePosition() {
     if (!this.rememberPosition || !this.window || this.window.isDestroyed()) return;
     const [x, y] = this.window.getPosition();
+    this.displayId = screen.getDisplayMatching(this.window.getBounds()).id;
     this.remembered = { x, y, displayId: this.displayId };
-    void writeFile(this.positionPath, JSON.stringify(this.remembered)).catch(() => {});
+    this.positions[String(this.displayId)] = this.remembered;
+    const saved = JSON.stringify({ positions: this.positions });
+    this.positionWrite = this.positionWrite.then(() => writeFile(this.positionPath, saved)).catch(() => {});
   }
   display() {
     const focused = this.options.focusedDisplay();
@@ -57,7 +73,7 @@ export class LauncherWindow {
   /** Keep the renderer warm only when asked (background presence); otherwise it is created on first use. */
   async ensure() {
     if (this.window && !this.window.isDestroyed()) { if (this.loading) await this.loading; return this.window; }
-    if (!this.remembered) await this.loadPosition();
+    if (!this.positionLoaded) await this.loadPosition();
     const window = new BrowserWindow({
       ...placePanel(this.display().workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered),
       ...(process.platform === "darwin" ? { type: "panel" } : {}),
@@ -91,6 +107,7 @@ export class LauncherWindow {
     const window = await this.ensure();
     const display = this.display();
     this.displayId = display.id;
+    this.remembered = this.positions[String(display.id)] ?? null;
     const bounds = placePanel(display.workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered?.displayId === display.id || !this.remembered?.displayId ? this.remembered : null);
     window.setBounds(bounds);
     window.show();
@@ -98,6 +115,14 @@ export class LauncherWindow {
     this.options.onVisibility({ visible: true, pinned: this.pinned });
     this.send({ type: "visibility", visible: true, pinned: this.pinned });
     return this.state();
+  }
+  async resetPosition() {
+    this.remembered = null;
+    delete this.positions[String(this.display().id)];
+    const saved = JSON.stringify({ positions: this.positions });
+    this.positionWrite = this.positionWrite.then(() => writeFile(this.positionPath, saved)).catch(() => {});
+    await this.positionWrite;
+    return this.show();
   }
   hide() {
     if (this.blurTimer) clearTimeout(this.blurTimer);
@@ -120,7 +145,8 @@ export class LauncherWindow {
     if (this.window && !this.window.isDestroyed()) {
       const bounds = this.window.getBounds();
       const area = screen.getDisplayMatching(bounds).workArea;
-      this.window.setBounds({ ...bounds, height: Math.min(next, area.y + area.height - bounds.y) });
+      const height = Math.min(next, area.height);
+      this.window.setBounds({ ...bounds, height, y: Math.max(area.y, Math.min(bounds.y, area.y + area.height - height)) });
     }
     return this.state();
   }

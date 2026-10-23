@@ -13,7 +13,7 @@ export function launcherDraftToComposerText(draft: Pick<LauncherDraft, "text" | 
   const parts = [draft.text.trim()];
   for (const item of draft.context) {
     if (item.type === "file" && item.path) parts.push(item.workspaceId && item.workspaceId !== assistantWorkspaceId ? createProjectAttachmentMention({ projectId: item.workspaceId, workspaceId: item.workspaceId, path: item.path, name: item.name }, projectNames.get(item.workspaceId) ?? item.sourceLabel ?? item.workspaceId) : createWorkspaceAttachmentMention(item.name, item.path));
-    else if (item.type === "image" && item.path) parts.push(createWorkspaceAttachmentMention(item.name, item.path));
+    else if (item.type === "image" && item.path) parts.push(item.workspaceId && item.workspaceId !== assistantWorkspaceId ? createProjectAttachmentMention({ projectId: item.workspaceId, workspaceId: item.workspaceId, path: item.path, name: item.name }, projectNames.get(item.workspaceId) ?? item.workspaceId) : createWorkspaceAttachmentMention(item.name, item.path));
     else if (item.type === "selection") parts.push(`${item.sourceApp ? `${item.sourceApp}${item.sourceWindow ? ` (${item.sourceWindow})` : ""}:\n` : ""}"""\n${item.text}\n"""`);
     else if (item.type === "clipboard") parts.push(`"""\n${item.text}\n"""`);
   }
@@ -28,7 +28,7 @@ export async function flushHomeDraft(conversationId: string) {
 
 /** Home persists text, mention/paste identities and uploaded attachment references
  * into the same draft as the panel. Uploads finish before ownership can move. */
-export function useHomeDraftSync(input: { active: boolean; conversationId: string | null; sessionId: string | null; assistantWorkspaceId: string | null; projectNames: Map<string, string>; client: LegalworkServerClient | null }) {
+export function useHomeDraftSync(input: { projectTarget?: string | null; active: boolean; conversationId: string | null; sessionId: string | null; assistantWorkspaceId: string | null; projectNames: Map<string, string>; client: LegalworkServerClient | null }) {
   const owner = useRef(windowOwnerId("home"));
   const drafts = sharedDraftCoordinator();
   const local = useLocal();
@@ -58,6 +58,17 @@ export function useHomeDraftSync(input: { active: boolean; conversationId: strin
       await drafts.ready();
       await writes;
       if (take || !drafts.lease(conversationId) || drafts.isLeaseStale(conversationId)) await drafts.claim(conversationId, owner.current);
+      // An existing project composer can predate its launcher registration.
+      // Seed it once, before showing the shared draft, including pending files.
+      const existing = useComposerStateStore.getState().sessions[sessionId];
+      if (drafts.owns(conversationId, owner.current) && drafts.get(conversationId).revision === 0 && existing && (existing.draft || existing.attachments.length)) {
+        await drafts.protect(conversationId, owner.current, async () => {
+          const context: LauncherDraft["context"] = [];
+          for (const attachment of existing.attachments) context.push(...await stageFiles(client, assistantWorkspaceId, [attachment.file]));
+          const current = useComposerStateStore.getState().sessions[sessionId] ?? existing;
+          await drafts.update(conversationId, owner.current, { text: current.draft, context, composer: { mentions: current.mentions, pasteParts: current.pasteParts }, target: input.projectTarget ? { kind: "project", workspaceId: input.projectTarget } : { kind: "assistant" } });
+        });
+      }
       show();
     };
     const onFocus = (event: FocusEvent) => {

@@ -13,7 +13,7 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
-import type { LauncherOutputIntent, LauncherOutputTask, LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
+import type { LauncherWorkspaceContext, LauncherOutputIntent, LauncherOutputTask, LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -848,7 +848,7 @@ export type DesktopCommandMap = {
    */
   launcherStatus: { args: []; result: LauncherDesktopStatus };
   launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
-  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end", payload?: { height?: number; route?: string; conversationId?: string }]; result: LauncherWindowState };
+  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end" | "context" | "invoke" | "reset-position", payload?: { height?: number; route?: string; conversationId?: string; context?: LauncherWorkspaceContext | null; invocation?: LauncherInvocation }]; result: LauncherWindowState };
   launcherOriginGet: { args: []; result: LauncherOrigin | null };
   launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
   launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };

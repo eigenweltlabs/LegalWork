@@ -1,15 +1,17 @@
+import { Fragment } from "react";
 import { Trash2, type LucideIcon } from "lucide-react";
 import { t } from "@/i18n";
 import { optionId } from "./launcher-keyboard";
 
 export type NavigationRow = { id: string; title: string; subtitle?: string; Icon: LucideIcon; run: () => void | Promise<unknown>; remove?: () => void; shortcut?: string };
 
-export function LauncherNavigationRows({ rows, selected, onSelect, onError }: { rows: NavigationRow[]; selected: string | null; onSelect: (id: string) => void; onError: (error: unknown) => void }) {
-  return <>{rows.map(({ id, title, subtitle, Icon, run, remove, shortcut }) => <div key={id} id={optionId(id)} data-launcher-item role="option" aria-selected={selected === id} data-selected={selected === id} className="launcher-row"
+export function LauncherNavigationRows({ rows, selected, onSelect, onError, grouped = false }: { grouped?: boolean; rows: NavigationRow[]; selected: string | null; onSelect: (id: string) => void; onError: (error: unknown) => void }) {
+  const group = (id: string) => id.startsWith("category:") ? "find_group" : (id.startsWith("home:parked-draft:") || ["home:assistant", "home:project-chat"].includes(id)) ? "context_group" : "organize_group";
+  return <>{rows.map(({ id, title, subtitle, Icon, run, remove, shortcut }, index) => <Fragment key={id}>{grouped && (index === 0 || group(rows[index - 1].id) !== group(id)) && <p className="launcher-section-title">{t(`launcher.flow.${group(id)}`)}</p>}<div id={optionId(id)} data-launcher-item role="option" aria-selected={selected === id} data-selected={selected === id} className="launcher-row"
     onMouseMove={() => onSelect(id)} onClick={() => void Promise.resolve().then(run).catch(onError)}>
     <span className="launcher-row-icon"><Icon className="size-4" /></span>
     <div className="launcher-row-main"><div className="launcher-row-title">{title}</div>{subtitle && <div className="launcher-row-meta">{subtitle}</div>}</div>
     {shortcut && <kbd className="launcher-row-shortcut">{shortcut}</kbd>}
     {remove && <button type="button" className="launcher-row-remove" aria-label={t("launcher.saved.delete")} onClick={event => { event.stopPropagation(); remove(); }}><Trash2 className="size-3.5" /></button>}
-  </div>)}</>;
+  </div></Fragment>)}</>;
 }

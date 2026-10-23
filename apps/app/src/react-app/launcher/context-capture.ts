@@ -35,7 +35,7 @@ export async function stageCapture(client: Pick<LegalworkServerClient, "writeWor
   const file = dataUrlToFile(capture.dataUrl, name);
   const result = await client.writeWorkspaceBinaryFile(workspaceId, { path: `.legalwork/attachments/${crypto.randomUUID()}/${name}`, data: await file.arrayBuffer() });
   if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
-  return { id: id("img"), type: "image", name, capture: capture.capture, sourceApp: capture.sourceApp, sourceWindow: capture.sourceWindow, capturedAt: capture.capturedAt, path: result.path };
+  return { id: id("img"), type: "image", workspaceId, name, capture: capture.capture, sourceApp: capture.sourceApp, sourceWindow: capture.sourceWindow, capturedAt: capture.capturedAt, path: result.path };
 }
 export async function captureScreen(kind: "window" | "region", client: Pick<LegalworkServerClient, "writeWorkspaceBinaryFile">, workspaceId: string): Promise<CaptureOutcome & { preview?: string }> {
   if (!isDesktopRuntime()) return { ok: false, message: t("launcher.capture.desktop_only") };

@@ -1,6 +1,6 @@
 # Global Assistant: one window, one search bar, all of LegalWork
 
-Status: full product and architecture proposal for discussion. This PR changes documentation only.
+Status: product and architecture proposal with an implemented prototype in PR #323. The [interaction-flow revision of 23 October](assistant-interaction-flow.md) and subsequent [context and actions extension](assistant-context-actions.md) supersede conflicting interaction details below; implementation and validation of that extension are recorded in [the delivery notes](assistant-context-implementation.md).
 
 LegalWork should be available wherever the user is working: a shortcut away from finding a file, running a skill, asking a quick question, capturing context, or delegating substantial work. Search, commands, compact conversations, voice, project orchestration and Home belong to one coherent experience. The user should not have to open a project chat to begin.
 
@@ -15,6 +15,8 @@ The inspected Assistant revision is `aee752e8a34c147286fb1c2d4acee4488ff5eb4d`; 
 From Word, a browser, the desktop or LegalWork itself, the same invocation opens a compact, fast surface. It can remain a launcher for a two-second action, grow into a short conversation, or expand into Home for longer work. A floating companion makes recording and work that needs attention visible without covering the user's document. Raycast users can enter through Raycast and reach the same work.
 
 The Assistant remains a coordinator: quick answers stay compact; substantial tasks run in the appropriate projects. The user can keep working elsewhere, then answer a precise follow-up or collect a finished document from the panel. Dismissing the panel never cancels delegated work.
+
+The entry also acts on the user's current workspace, document, selection and folder. Invoking it over a project document offers a direct new chat in that project with visible source context; the general Assistant remains selectable. Search, viewing destination, message destination and save folder are distinct. The same surface supports finding or creating a document, opening a foreign document here or in its source project, and importing a website selection into a chat or project file. See the context extension for exact routing and Enter behavior.
 
 The complete experience includes:
 
@@ -34,14 +36,14 @@ Initial provider/account setup remains separate. Home here means the normal entr
 | Surface | Role | Behavior |
 | --- | --- | --- |
 | Floating companion | Always-available handle and quiet status | Optional, dockable, follows the chosen display policy; opens the panel and shows recording or actionable work. It does not take typing focus merely to display status. |
-| Quick panel | Search, action, short conversation | Global shortcut, companion click or adapter invocation opens it over the current app. It grows with content, supports previews and can be pinned for reference. |
+| Quick panel | Search, action, short conversation | Global shortcut, companion click or adapter invocation opens it over the current app. It grows with content and supports previews. |
 | Home | Room for sustained work | Uses the same entry, conversation and activity components with more history and workspace context. Expanding the panel resumes the exact conversation and draft. |
 
 These are views over one Assistant and one set of actions. The native HUD and the focusable panel are separate windows with coordinated placement and theme. Visual continuity can make them feel like one control; recording correctness must not depend on an animation or on converting the non-focusable HUD into a text editor.
 
-Default placement is centered on the active display, with an optional position near the companion. Remember user positioning within reachable bounds. A pinned panel stays visible without continually stealing focus. Opening a preview, action menu, file chooser or permission dialog must not trigger accidental dismissal. Reduced-motion settings remove decorative transitions.
+Default placement is centered on the active display, with an optional position near the companion. Provide a usable drag grip and remember user positioning per display within reachable bounds, including a reset-position action. Desktop in-app invocation uses the same movable floating surface as global invocation. The panel has no pin control. Opening a preview, action menu, file chooser or permission dialog must not trigger accidental dismissal. Reduced-motion settings remove decorative transitions.
 
-The idle view should be useful: recent items, pinned actions, a resume-conversation entry and a small count of work needing attention. While typing, results dominate. In conversation, short answers and concrete result cards dominate. Tool logs stay available on demand. Pending questions and approvals remain visible regardless of how concise the model's answer is.
+The idle view has one Assistant resume entry, actionable requests, category rows and a bounded group of recent/favorite items. A labeled status row exposes relevant Assistant work. Saved searches and conversation history have their own destinations instead of filling the start screen. While typing, results dominate and a visible Ask action accepts the existing text in every search category. In conversation, short answers and concrete result cards dominate. Tool logs stay available on demand. Pending questions and approvals remain accessible regardless of how concise the model's answer is. See the interaction revision for exact ordering and transitions.
 
 ```mermaid
 flowchart TD
@@ -86,7 +88,7 @@ Use the following keyboard contract in the panel, with `Cmd` on macOS and `Ctrl`
 | Cmd/Ctrl+K in the panel | Open the selected item's action menu. Outside the panel, keep existing app shortcuts until bindings are reconciled. |
 | Tab | Activate a matching alias at the start; otherwise move through controls. Never silently change search into AI. The existing palette's category cycling must be migrated deliberately. |
 | Enter / Shift+Enter in conversation | Send / newline, respecting the user's composer preference. IME composition never submits. |
-| Escape | Close the innermost preview/menu first, then clear an active search filter, then dismiss the unpinned panel. Preserve conversation drafts and attachments. Never stop work or recording implicitly. |
+| Escape | Close the innermost preview/menu, return from detail to the previous surface, then clear a search query, clear its filters and finally dismiss Start. Preserve conversation drafts and attachments. Never stop work or recording implicitly. |
 
 The footer says what Enter does, including whether it opens, runs, attaches or asks. After keyboard navigation, newly arriving results cannot switch the selected identity or turn a deterministic action into an agent request. If that item disappears, require a new selection. A question-shaped search remains a search until the user chooses Ask.
 
@@ -132,7 +134,7 @@ Favorites, recent actions and keyboard hints make these features discoverable. T
 
 ### Independent conversations, stable identity
 
-Opening the panel shows the entry surface with the most recent conversation available to resume. If a conversation draft or response was active when dismissed, restore that view. A visible New conversation action starts an independent context; asking about a search result can either attach to the current draft or start a new conversation explicitly. History is searchable, and conversations can be pinned or archived without deleting outstanding project work.
+Opening the panel restores in-progress work or shows the entry surface with one Assistant entry. That entry resumes the user's current conversation; it never creates a fresh topic merely because Assistant was selected. A secondary New topic action in Assistant history explicitly starts another conversation with the same Assistant, in the same window. Asking about a search result stages it in the current composer by default. Existing independent conversations remain accessible in history and may be pinned or archived without deleting outstanding project work.
 
 Home and panel bind to a concrete Assistant conversation ID and engine session ID. They never resolve “today” afresh merely because the user expands the window. Daily grouping remains useful for history and migration from #232; it must not define conversation identity, cause a midnight reset, or force unrelated matters into one model context.
 

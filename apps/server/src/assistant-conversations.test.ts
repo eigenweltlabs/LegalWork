@@ -5,6 +5,29 @@ import { join } from "node:path";
 import { AssistantConversations } from "./assistant-conversations.js";
 
 const workspace = { id: "assistant", path: "/projects/Assistant" };
+test("project requests create one real project chat, survive retry and reject a changed destination", async () => {
+  const root = await mkdtemp(join(tmpdir(), "project-conversations-"));
+  const project = { id: "matter", path: "/projects/Matter" };
+  const sessions: Array<{ id: string; title: string; directory: string; time: { archived?: number } }> = [];
+  const engine = { create: async (title: string) => { const session = { id: `project_${sessions.length}`, title, directory: project.path, time: {} }; sessions.push(session); return session; }, list: async () => sessions, get: async (id: string) => sessions.find(item => item.id === id) ?? null };
+  try {
+    const path = join(root, "runtime.sqlite"), store = await AssistantConversations.open(path, () => []);
+    const input = { operationId: "project_request", title: "Review contract" };
+    const [first, second] = await Promise.all([store.project(project, engine, input), store.project(project, engine, input)]);
+    expect(first.id).toBe(second.id); expect(first.workspaceId).toBe(project.id); expect(sessions).toHaveLength(1);
+    expect(store.current(workspace.id)).toBeNull();
+    const reopened = await AssistantConversations.open(path, () => []);
+    expect((await reopened.project(project, engine, input)).sessionId).toBe(first.sessionId);
+    expect((await reopened.project(project, engine, { operationId: "bind_existing", sessionId: first.sessionId })).id).toBe(first.id);
+    expect(sessions).toHaveLength(1);
+    await expect(reopened.project({ id: "other", path: "/projects/Other" }, engine, input)).rejects.toThrow("another chat");
+    await expect(reopened.project(project, engine, { ...input, sessionId: first.sessionId })).rejects.toThrow("another chat");
+    const recovering = { operationId: "crashed_create", title: "Changed title" };
+    sessions.push({ id: "crashed", title: "Earlier title [crashed_create]", directory: project.path, time: {} });
+    expect((await reopened.project(project, engine, recovering)).sessionId).toBe("crashed");
+    expect(sessions).toHaveLength(2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 test("conversations are explicit, independent of the day, and keep daily history readable", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-conversations-"));
   let created = 0;

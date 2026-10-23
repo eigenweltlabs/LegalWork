@@ -93,7 +93,7 @@ export function LauncherRoute() {
     if (!client) return;
     const [current, list] = await Promise.all([client.assistantConversationCurrent(), client.listWorkspaces()]);
     setAssistant(current.workspace ? { workspaceId: current.workspace.id, profile: current.profile } : null);
-    setWorkspaces((list.items ?? list.workspaces ?? []).filter(workspace => workspace.preset !== "main-assistant" && workspace.preset !== "wiki"));
+    setWorkspaces((list.items ?? list.workspaces ?? []).filter(workspace => workspace.workspaceType !== "remote" && workspace.preset !== "main-assistant" && workspace.preset !== "wiki"));
   }, [client]);
   useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
   useEffect(() => { void drafts.ready(); }, [drafts]);
@@ -107,7 +107,7 @@ export function LauncherRoute() {
         seen.current.add(event.invocation.id);
         if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) store.setInvocation(event.invocation); }).catch(() => store.setInvocation(event.invocation));
         else store.setInvocation(event.invocation);
-      } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) store.reset(); }
+      } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned);  }
       else if (event.type === "origin") store.setOrigin(event.origin);
       else if (event.type === "attention") store.setAttentionCount(event.count);
       else if (event.type === "approval") store.setApproval(event.request);

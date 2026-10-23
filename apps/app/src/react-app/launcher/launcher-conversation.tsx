@@ -64,7 +64,7 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
 }
 
 export type PendingOutput = { messageId: string; output: "copy" | "insert"; originId: string | null };
-export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void }) {
+export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
   const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
   const notify = useLauncherStore(state => state.notify);
@@ -116,7 +116,7 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     setBusy(item.id);
     const input: AssistantAttentionReply = { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, ...answer };
     try {
-      if (item.workspaceId === assistant?.workspaceId && item.sessionId === conversation.sessionId) await client.replyAssistantConversationAttention(conversation.conversationId, input);
+      if (item.workspaceId === conversation.workspaceId && item.sessionId === conversation.sessionId) await client.replyAssistantConversationAttention(conversation.conversationId, input);
       else await client.replyAssistantAttention(input);
       notify({ tone: "info", text: t("assistant.attention_sent", { project: item.projectName }) });
     } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : t("assistant.attention_failed") }); }
@@ -138,6 +138,7 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     </OpenTargetProvider>
     {lastReply && status === "ready" && <div className="launcher-reply-actions">
       <Button size="sm" variant="ghost" onClick={() => void copyReply(lastReply.text)}><Copy className="size-3.5" />{t("launcher.reply.copy")}</Button>
+      <Button size="sm" variant="ghost" onClick={() => onSave(lastReply.text)}>{t("launcher.flow.save_reply")}</Button>
       {desktop && origin?.supportsInsert && <Button size="sm" variant="ghost" onClick={() => void insertReply(lastReply.text)}><ClipboardPaste className="size-3.5" />{t("launcher.reply.insert", { app: origin.app ?? "" })}</Button>}
     </div>}
     <SubmissionStatusRow submission={submission} onRetry={onRetry} />

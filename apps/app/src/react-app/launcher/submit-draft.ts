@@ -10,6 +10,7 @@ export async function submitAssistantDraft(options: {
   input: Omit<AssistantSubmitInput, "requestId" | "messageId">; retry?: boolean;
   beforeSend?: (input: AssistantSubmitInput) => Promise<void>;
   identity?: { requestId: string; messageId: string };
+  preserveDraft?: boolean;
 }) {
   const { client, drafts, conversationId, owner } = options;
   await drafts.flush();
@@ -22,7 +23,7 @@ export async function submitAssistantDraft(options: {
     const reuse = retrying && pending?.state !== "failed";
     const candidate = retrying && pending?.input ? pending.input : options.input;
     const input = reuse && pending?.input ? pending.input : { ...candidate, ...(options.identity ?? createSubmissionIdentity()) };
-    const draftSnapshot = retrying ? pending?.draftSnapshot : { text: draft.text, context: draft.context };
+    const draftSnapshot = retrying ? pending?.draftSnapshot : options.preserveDraft ? undefined : { text: draft.text, context: draft.context };
     const operation = { requestId: input.requestId, messageId: input.messageId, input, draftSnapshot };
     await drafts.update(conversationId, owner, { submission: { ...operation, state: "sending" } });
     // Record automatic output before dispatch, using the exact frozen identity.

@@ -6,7 +6,7 @@ export type ParsedLauncherEntry = { mode: LauncherEntryMode; text: string };
 
 const ALIAS_PATTERN = /^[a-z0-9]{1,3}$/;
 export const CATEGORY_WORDS: Record<LauncherSearchKind, string[]> = {
-  files: ["files", "file", "dateien", "datei"], projects: ["projects", "project", "projekte", "projekt"],
+  files: ["files", "file", "dateien", "datei", "doc", "docs", "document", "documents", "dokument", "dokumente"], projects: ["projects", "project", "projekte", "projekt"],
   chats: ["chats", "chat", "conversations", "gespräche"], tasks: ["tasks", "task", "aufgaben", "aufgabe", "todos"],
   recordings: ["recordings", "recording", "aufnahmen", "aufnahme"],
 };

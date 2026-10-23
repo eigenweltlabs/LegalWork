@@ -17,7 +17,7 @@ const INVOCATION_MEMORY = 200;
 export class LauncherService {
   /**
    * @param {{ app: import("electron").App, globalShortcut: import("electron").GlobalShortcut, userDataDir: string, platform?: string,
-   *   window: import("./launcher-window.mjs").LauncherWindow, origin: import("./origin-service.mjs").OriginService, capture: import("./screen-capture.mjs").ScreenCapture,
+   *   workspaceContext?: () => import("@legalwork/types/launcher").LauncherWorkspaceContext | null, window: import("./launcher-window.mjs").LauncherWindow, origin: import("./origin-service.mjs").OriginService, capture: import("./screen-capture.mjs").ScreenCapture,
    *   pairing: import("./raycast-pairing.mjs").RaycastPairing, dictation: () => { enabled: boolean, accelerator: string, runtimeState: string }, meeting: () => { state: string },
    *   companion: (state: { enabled: boolean, badge: boolean, attention: number, recording: boolean }) => void, onPresenceChanged: () => void, dictate: () => void, record: () => void, composerRecording: () => boolean, settings?: LauncherSettingsStore, registry?: LauncherShortcutRegistry }} options
    */
@@ -149,9 +149,10 @@ export class LauncherService {
     // The two other voice destinations never open the panel: dictation goes to the front app, recording to the recorder.
     if (invocation.action === "dictate" || invocation.action === "record") { this.voiceAction(invocation.action); return this.options.window.state(); }
     const { selection, ...payload } = invocation;
+    payload.workspaceContext ??= this.options.workspaceContext?.() ?? undefined;
     // Capture the external origin before the panel takes focus; an ordinary invocation records identity only.
-    if (!this.options.window.isVisible()) await this.options.origin.capture();
-    if (selection) await this.options.origin.prefetchSelection();
+    if (!this.options.window.isFocused()) await this.options.origin.capture();
+    if (selection || !payload.workspaceContext && invocation.action === "open") await this.options.origin.prefetchSelection();
     await this.options.window.show();
     this.options.window.send({ type: "origin", origin: this.options.origin.current() });
     this.deliver(payload);
@@ -191,6 +192,8 @@ export class LauncherService {
     const window = this.options.window;
     switch (command) {
       case "show": return window.show();
+      case "invoke": return this.invoke(payload?.invocation ?? { id: `home_${Date.now()}`, action: "open", source: "home", workspaceContext: payload?.context ?? undefined });
+      case "reset-position": return window.resetPosition();
       case "hide": return window.hide();
       case "pin": // Older renderers may still send this; the launcher always dismisses on blur.
       case "unpin": await this.settings.update({ pinned: false }); return window.setPinned(false);

@@ -18,11 +18,13 @@ const dayTime = (date: string) => new Date(`${date}T12:00:00`).getTime();
  * past midnight keeps the same engine session. Daily sessions remain readable.
  */
 export class AssistantConversations {
+  private opening = new Map<string, Promise<AssistantConversation>>();
   private constructor(private db: SqliteHandle, private days: (workspaceId: string) => AssistantDay[]) {}
   static async open(path: string, days: (workspaceId: string) => AssistantDay[]) {
     const db = await openSqlite(path);
     db.exec("CREATE TABLE IF NOT EXISTS assistant_conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, archived_at INTEGER, origin TEXT)");
     db.exec("CREATE INDEX IF NOT EXISTS assistant_conversations_workspace ON assistant_conversations (workspace_id, updated_at)");
+    db.exec("CREATE TABLE IF NOT EXISTS launcher_chat_operations (operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, session_id TEXT, conversation_id TEXT)");
     return new AssistantConversations(db, days);
   }
   private item(row: Row): AssistantConversation {
@@ -62,6 +64,50 @@ export class AssistantConversations {
     if (row) return this.item(row);
     const day = this.days(workspaceId).find(day => day.sessionId === sessionId);
     return day ? this.dayItem(workspaceId, day) : null;
+  }
+  findAny(id: string): AssistantConversation | null {
+    const row = this.db.get("SELECT * FROM assistant_conversations WHERE id = ?", [id]);
+    return row ? this.item(row) : null;
+  }
+  sessionAny(sessionId: string): AssistantConversation | null {
+    const row = this.db.get("SELECT * FROM assistant_conversations WHERE session_id = ?", [sessionId]);
+    return row ? this.item(row) : null;
+  }
+  /** Bind a real project chat. The operation marker also recovers a create completed before a crash. */
+  project(workspace: { id: string; path: string }, engine: ConversationEngine & { list: () => Promise<Session[]>; get: (id: string) => Promise<Session | null> }, input: { operationId: string; sessionId?: string; title?: string }): Promise<AssistantConversation> {
+    const operation = this.db.get("SELECT * FROM launcher_chat_operations WHERE operation_id = ?", [input.operationId]);
+    if (operation && (operation.workspace_id !== workspace.id || (operation.session_id ?? null) !== (input.sessionId ?? null))) return Promise.reject(new ApiError(409, "project_operation", "This request belongs to another chat."));
+    if (operation?.conversation_id) {
+      const conversation = this.find(workspace.id, String(operation.conversation_id));
+      if (conversation && conversation.archivedAt === null) return Promise.resolve(conversation);
+      return Promise.reject(new ApiError(409, "project_operation", "This chat was archived. Start a new chat."));
+    }
+    if (!operation) this.db.run("INSERT INTO launcher_chat_operations (operation_id, workspace_id, session_id) VALUES (?, ?, ?)", [input.operationId, workspace.id, input.sessionId ?? null]);
+    const key = `${workspace.id}:${input.operationId}`;
+    const pending = this.opening.get(key);
+    if (pending) return pending;
+    const run = async () => {
+      const origin = `project:${input.operationId}`;
+      const row = this.db.get("SELECT * FROM assistant_conversations WHERE workspace_id = ? AND origin = ?", [workspace.id, origin]);
+      if (row) return this.item(row);
+      const title = input.title?.trim().slice(0, 120) || "New chat";
+      const marker = `${title} [${input.operationId}]`;
+      const session = input.sessionId ? await engine.get(input.sessionId) : (await engine.list()).find(item => item.title.endsWith(`[${input.operationId}]`) && !item.time.archived && resolve(item.directory) === resolve(workspace.path)) ?? await engine.create(marker);
+      if (!session || session.time.archived || resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(404, "project_session", "This chat is no longer available in the selected project.");
+      const existing = this.bySession(workspace.id, session.id);
+      if (existing) {
+        if (existing.archivedAt !== null) throw new ApiError(409, "conversation_archived", "This chat was archived. Start a new chat.");
+        this.db.run("UPDATE launcher_chat_operations SET conversation_id = ? WHERE operation_id = ?", [existing.id, input.operationId]);
+        return existing;
+      }
+      const now = Date.now(), id = `conv_${randomBytes(8).toString("hex")}`;
+      this.db.run("INSERT INTO assistant_conversations (id, workspace_id, session_id, title, created_at, updated_at, pinned, archived_at, origin) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)", [id, workspace.id, session.id, input.sessionId ? session.title : title, now, now, origin]);
+      this.db.run("UPDATE launcher_chat_operations SET conversation_id = ? WHERE operation_id = ?", [id, input.operationId]);
+      return this.find(workspace.id, id)!;
+    };
+    const promise = run().finally(() => this.opening.delete(key));
+    this.opening.set(key, promise);
+    return promise;
   }
   /** The conversation to resume: the most recent one that is not archived, or null without creating one. */
   current(workspaceId: string): AssistantConversation | null {

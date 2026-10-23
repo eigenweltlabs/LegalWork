@@ -1,3 +1,6 @@
+import { acceptLauncherFile, launcherSearchSchema } from "@/react-app/launcher/launcher-handoff";
+import { useLauncherStore } from "@/react-app/launcher/launcher-store";
+import { usePublishLauncherContext } from "@/react-app/launcher/workspace-context";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
@@ -571,15 +574,42 @@ export function SessionRoute() {
     },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
+  usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null);
+  const launcherHandoff = useRef<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), search = params.get("launcherSearch"), draftId = params.get("launcherDraft");
+    if ((!file && !search && !draftId) || launcherHandoff.current === location.search) return;
+    if (file && selectedWorkspaceId !== routeWorkspaceId) return;
+    launcherHandoff.current = location.search;
+    void (async () => {
+      try {
+        if (file && selectedWorkspaceId) acceptLauncherFile(JSON.parse(file), selectedWorkspaceId);
+        if (draftId) {
+          const drafts = sharedDraftCoordinator(); await drafts.ready(); await drafts.reconcile();
+          const draft = drafts.get(draftId);
+          useLauncherStore.setState({ input: draft.text, context: draft.context, target: draft.target, workspaceContext: null, conversation: null, view: search ? "results" : "conversation", visible: true });
+        }
+        if (search) { const state = launcherSearchSchema.parse(JSON.parse(search)); useLauncherStore.setState({ ...state, view: "results", visible: true }); }
+      } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+      params.delete("launcherOpen"); params.delete("launcherSearch"); params.delete("launcherDraft");
+      navigate(`${location.pathname}${params.size ? `?${params}` : ""}`, { replace: true });
+    })();
+  }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
-  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: assistantActive && Boolean(client),
-    queryFn: async () => client && selectedSessionId ? client.assistantConversationForSession(selectedSessionId) : null });
+  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: Boolean(selectedSessionId && client),
+    queryFn: async () => {
+      if (!client || !selectedSessionId) return null;
+      const found = await client.assistantConversationForSession(selectedSessionId);
+      if (found.conversation || !selectedWorkspaceId || selectedWorkspace?.preset === "main-assistant" || selectedWorkspace?.workspaceType === "remote") return found;
+      // Register an existing chat for shared drafts; this never creates an engine session.
+      return client.launcherProjectChat({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId, operationId: `bind_${selectedSessionId}` });
+    } });
   const assistantConversationId = useMemo(() => {
     const requested = new URLSearchParams(location.search).get("conversation");
-    if (requested) return requested;
+    if (requested && assistantSessionConversation.data?.conversation?.id === requested) return requested;
     return assistant.data?.conversation && assistant.data.conversation.sessionId === selectedSessionId ? assistant.data.conversation.id : assistantSessionConversation.data?.conversation?.id ?? null;
   }, [location.search, assistant.data?.conversation, selectedSessionId, assistantSessionConversation.data]);
-  useHomeDraftSync({ client, active: assistantActive, conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: assistant.data?.workspace.id ?? null,
+  useHomeDraftSync({ client, projectTarget: assistantActive ? null : selectedWorkspaceId, active: Boolean(assistantConversationId), conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: selectedWorkspaceId,
     projectNames: useMemo(() => new Map(workspaces.map(workspace => [workspace.id, workspace.displayNameResolved])), [workspaces]) });
   // Home already knows the current conversation. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
@@ -1627,7 +1657,7 @@ export function SessionRoute() {
         if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
         if (selectedWorkspace?.preset === "main-assistant" && !assistantConversationId) throw new Error(t("session.loading_detail"));
-        if (selectedWorkspace?.preset === "main-assistant" && assistantConversationId && draft.mode !== "shell") {
+        if (assistantConversationId && draft.mode !== "shell") {
           const drafts = sharedDraftCoordinator();
           await flushHomeDraft(assistantConversationId);
           await drafts.flush();
@@ -2820,6 +2850,8 @@ export function SessionRoute() {
             remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
         ) : homePage ? (
           <AppHome
+            entry={client ? <LauncherDialog inline open workspace={homeProjectId ? { id: homeProjectId, name: workspaces.find(item => item.id === homeProjectId)?.name ?? homeProjectId } : null} onClose={() => { const state = useLauncherStore.getState(); if (state.view !== "conversation") { state.setInput(""); state.setCategory(null); state.setScope(null); } }} client={client} conversationId={null} assistant={assistant.data ? { workspaceId: assistant.data.workspace.id, profile: assistant.data.profile } : null} workspaces={workspaces.filter(item => item.workspaceType !== "remote" && item.preset !== "main-assistant")} /> : undefined}
+            onStarterPrompt={text => { const state = useLauncherStore.getState(); state.setInput([state.view === "conversation" ? state.input : "", text].filter(Boolean).join("\n\n")); state.setView("conversation"); }}
             workspaces={sidebarWorkspaces}
             assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}
@@ -3108,6 +3140,7 @@ export function SessionRoute() {
     />
     {client && <LauncherDialog
       open={commandPaletteOpen}
+      workspace={selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null}
       conversationId={assistantConversationId}
       onClose={() => setCommandPaletteOpen(false)}
       client={client}

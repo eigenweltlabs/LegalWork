@@ -91,3 +91,24 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 .launcher-outputs li > div { flex: 1; min-width: 0; }
 .launcher-outputs time { display: block; color: var(--lw-text-secondary); }
 .launcher-output-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 70px; overflow-y: auto; margin-top: 4px; }
+
+.launcher-grip { height: 22px; display: flex; align-items: center; justify-content: center; position: relative; -webkit-app-region: drag; cursor: grab; }
+.launcher-grip > span { width: 32px; height: 3px; background: var(--lw-border); border-radius: 2px; }
+.launcher-grip > button { position: absolute; right: 12px; -webkit-app-region: no-drag; color: var(--lw-text-secondary); font-size: 12px; }
+.launcher-context-destination { padding: 0 12px 4px; }
+.launcher-context-destination select { max-width: 80%; border: 0; background: transparent; font-size: 12px; color: var(--lw-text-secondary); }
+.launcher-footer-actions button:disabled { opacity: .5; }
+
+.launcher-home-content { width: min(900px, 100%); }
+.launcher-root[data-surface="home"] { height: min(650px, 65vh); min-height: 360px; }
+.launcher-root[data-surface="home"] .launcher-context-destination { padding-top: 12px; }
+.launcher-context-actions { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px 10px; border-bottom: 1px solid var(--lw-border-subtle); }
+.launcher-create-form, .launcher-open-choice { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.launcher-create-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--lw-text-secondary); }
+.launcher-create-form select, .launcher-create-form textarea { border: 1px solid var(--lw-border); border-radius: 6px; padding: 8px; background: var(--lw-surface); color: var(--lw-text); font-size: 13px; }
+.launcher-create-form textarea { resize: vertical; min-height: 80px; }
+.launcher-form-row { display: flex; gap: 12px; }
+.launcher-form-row > :first-child { flex: 1; }
+.launcher-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.launcher-open-choice button { justify-content: flex-start; }
+.launcher-grip { flex-shrink: 0; touch-action: none; user-select: none; }

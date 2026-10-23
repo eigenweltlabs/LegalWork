@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
+import type { LauncherWorkspaceContext, AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
 import type { LauncherSelection } from "./launcher-keyboard";
 import { orderLauncherResults } from "./launcher-keyboard";
 
@@ -10,6 +10,7 @@ export type LauncherConversationBinding = { conversationId: string; sessionId: s
 export type StagedPreview = { id: string; dataUrl: string };
 
 export type LauncherState = {
+  workspaceContext: LauncherWorkspaceContext | null;
   view: LauncherView;
   input: string;
   category: LauncherSearchKind | null;
@@ -68,6 +69,7 @@ export type LauncherState = {
 };
 
 const initial = {
+  workspaceContext: null as LauncherWorkspaceContext | null,
   view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
   invocation: null as LauncherInvocation | null, visible: true,

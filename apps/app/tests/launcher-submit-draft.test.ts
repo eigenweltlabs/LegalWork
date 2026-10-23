@@ -6,6 +6,24 @@ import { useLauncherStore } from "../src/react-app/launcher/launcher-store";
 
 const conversation: AssistantConversation = { id: "one", sessionId: "session", workspaceId: "assistant", title: "One", kind: "conversation", date: null, createdAt: 1, updatedAt: 1, pinned: false, archivedAt: null, origin: "home" };
 
+test("Ask from file search preserves the existing conversation draft across acknowledgement and retry", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const drafts = new DraftCoordinator({ read: async () => structuredClone(file), write: async (next, version) => { if (file.version !== version) return false; file = structuredClone(next); return true; } });
+  await drafts.claim("one", "panel");
+  const context = [{ id: "keep", type: "clipboard" as const, text: "Attached to the draft", capturedAt: 1 }];
+  await drafts.update("one", "panel", { text: "Unsent draft", context });
+  const sent: AssistantSubmitInput[] = [];
+  const client = { submitAssistantMessage: async (_id: string, input: AssistantSubmitInput) => {
+    sent.push(input);
+    const submission: AssistantSubmission = { ...input, conversationId: "one", workspaceId: "assistant", sessionId: "session", state: sent.length === 1 ? "unconfirmed" : "accepted", target: { kind: "assistant" }, preview: input.text, createdAt: 1, updatedAt: 1, error: null };
+    return { conversation, submission };
+  } };
+  await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", preserveDraft: true, input: { text: "Question typed in Files" } });
+  await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", retry: true, input: { text: "Unsent draft" } });
+  expect(sent[1]).toEqual(sent[0]);
+  expect(drafts.get("one")).toMatchObject({ text: "Unsent draft", context });
+});
+
 test("automatic output is durable before dispatch and a journal failure prevents sending", async () => {
   let file = structuredClone(EMPTY_DRAFT_FILE);
   const drafts = new DraftCoordinator({ read: async () => structuredClone(file), write: async (next, version) => { if (file.version !== version) return false; file = structuredClone(next); return true; } });

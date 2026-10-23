@@ -52,6 +52,7 @@ const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
 
 // Remember the folder when navigating away from a workspace and back.
 const lastPathByWorkspace = new Map<string, string>();
+export const launcherFolderForWorkspace = (id: string) => lastPathByWorkspace.get(id);
 
 function workspaceDisplayName(workspaceRoot: string): string {
   const cleaned = workspaceRoot.trim().replace(/[/\\]+$/, "");
@@ -104,6 +105,8 @@ function WorkspaceFilesPanelContent({
   React.useEffect(() => {
     if (workspaceId) {
       lastPathByWorkspace.set(scope, path);
+      lastPathByWorkspace.set(workspaceId, path);
+      window.dispatchEvent(new Event("legalwork:folder-changed"));
     }
   }, [path, workspaceId, scope]);
   const breadcrumbsRef = React.useRef<HTMLElement>(null);

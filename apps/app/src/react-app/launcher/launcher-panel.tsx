@@ -1,7 +1,10 @@
+import { LauncherTransferForm, type LauncherTransfer } from "./launcher-transfer-form";
+import { LauncherCreateForm, excerptText, type LauncherCreate } from "./launcher-create-form";
+import { launcherFileRoute } from "./launcher-handoff";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, Calculator, Clipboard, Folder, MessageSquare, FilePlus2, Filter, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Plus, ScanLine, Sparkles, X } from "lucide-react";
-import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
+import type { LauncherWorkspaceContext, AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -69,6 +72,15 @@ export function LauncherPanel() {
   const [pins, setPins] = useState(() => typeof window === "undefined" ? [] : readPins());
   const [submission, setSubmission] = useState<{ requestId: string; messageId: string; state: string; error?: string | null } | null>(null);
   const [pendingOutput, setPendingOutput] = useState<PendingOutput | null>(null);
+  const sendingRef = useRef(false);
+  const projectOperation = useRef(crypto.randomUUID());
+  const attachmentOperation = useRef({ key: "", id: crypto.randomUUID() });
+  const [pendingContext, setPendingContext] = useState<{ context: LauncherWorkspaceContext | null } | null>(null);
+  const [transfer, setTransfer] = useState<LauncherTransfer | null>(null);
+  const [creation, setCreation] = useState<LauncherCreate | null>(null);
+  const [openChoice, setOpenChoice] = useState<LauncherSearchResult | null>(null);
+  const [parkedDrafts, setParkedDrafts] = useState<Array<Pick<typeof store, "input" | "context" | "target" | "workspaceContext" | "conversation">>>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const uploadingRef = useRef(false);
@@ -100,10 +112,13 @@ export function LauncherPanel() {
     const bound = id ? (await client.assistantConversation(id)).conversation : (await client.assistantConversationCurrent()).conversation;
     const after = useLauncherStore.getState().conversation?.conversationId;
     if (after && after !== before) return (await client.assistantConversation(after)).conversation;
-    useLauncherStore.getState().bindConversation(bound);
+    const live = useLauncherStore.getState();
+    if (live.target.kind === "project") return null;
+    live.bindConversation(bound);
+    live.setInput(live.input); live.replaceContext(live.context); live.setTarget(live.target);
     return bound;
   }, [client, shell.conversationId]);
-  useEffect(() => { void bindCurrent().catch(() => undefined); }, [bindCurrent]);
+  useEffect(() => { if (useLauncherStore.getState().target.kind === "assistant") void bindCurrent().catch(() => undefined); }, [bindCurrent]);
   const conversation = store.conversation;
   // Adopt the authoritative draft: on binding, and again on reopening or focus when another surface edited meanwhile. Context staged by an invocation stays.
   const adoptDraft = useCallback(async (conversationId: string, overwrite: boolean) => {
@@ -111,7 +126,7 @@ export function LauncherPanel() {
     const state = useLauncherStore.getState();
     if (state.conversation?.conversationId !== conversationId) return;
     state.replaceContext(draft.context);
-    state.setTarget(draft.target);
+    state.setTarget(state.conversation?.workspaceId && state.conversation.workspaceId !== assistant?.workspaceId ? { kind: "project", workspaceId: state.conversation.workspaceId } : draft.target);
     const scope = workspaces.find(workspace => workspace.id === draft.searchScope);
     state.setScope(scope ? { id: scope.id, name: scope.displayName || scope.name } : null);
     setSubmission(draft.submission);
@@ -120,7 +135,7 @@ export function LauncherPanel() {
     if (overwrite || !state.input) state.setInput(text);
     if (draft.model) local.setPrefs(previous => ({ ...previous, defaultModel: draft.model, modelVariant: draft.variant }));
   }, [drafts, owner, workspaces]);
-  useEffect(() => { if (conversation && store.view === "conversation" && !invocationRunning.current) void adoptDraft(conversation.conversationId, false).catch(error => store.notify({ tone: "error", text: String(error) })); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conversation?.conversationId]);
+  useEffect(() => { if (conversation && store.view === "conversation" && !invocationRunning.current && !sendingRef.current && !uploadingRef.current) void adoptDraft(conversation.conversationId, false).catch(error => store.notify({ tone: "error", text: String(error) })); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conversation?.conversationId]);
   useEffect(() => {
     if (store.view !== "conversation" || !store.visible || !conversation || drafts.owns(conversation.conversationId, owner)) return;
     void adoptDraft(conversation.conversationId, true);
@@ -136,9 +151,9 @@ export function LauncherPanel() {
   }), [drafts, owner]);
   // Persist the complete draft while this surface owns it.
   useEffect(() => {
-    if (store.view !== "conversation" || !conversation || (uploading && (!uploadConversation.current || uploadConversation.current === conversation.conversationId)) || !drafts.owns(conversation.conversationId, owner)) return;
+    if (sendingRef.current || store.view !== "conversation" || !conversation || (uploading && (!uploadConversation.current || uploadConversation.current === conversation.conversationId)) || !drafts.owns(conversation.conversationId, owner)) return;
     const timer = setTimeout(() => {
-      if (uploadingRef.current && (!uploadConversation.current || uploadConversation.current === conversation.conversationId)) return;
+      if (sendingRef.current || uploadingRef.current && (!uploadConversation.current || uploadConversation.current === conversation.conversationId)) return;
       const current = drafts.get(conversation.conversationId);
       const text = mode === "conversation" || mode === "ask" ? (mode === "ask" ? entry.text : store.input) : current.text;
       if (current.text === text && current.context === store.context && current.target === store.target && current.searchScope === (store.scope?.id ?? null)) return;
@@ -168,7 +183,7 @@ export function LauncherPanel() {
     if (store.view === "work") return;
     if (mode === "search" && (store.input.trim() || store.category || store.scope || hasFileFilter)) store.setView("results");
     else if (mode === "command") store.setView("commands");
-    else if (mode === "ask") { store.setInput(entry.text); store.setView("conversation"); }
+    else if (mode === "ask") { /* Explicit Ask stays separate from the saved conversation draft until send. */ }
     // An emptied field leaves a conversation that was never bound; a bound conversation keeps its view.
     else if (store.view === "results" || store.view === "commands") store.setView(conversation && store.input ? "conversation" : "idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,15 +228,31 @@ export function LauncherPanel() {
 
   // Conversation creation is explicit: the user's send or New conversation, never a refresh.
   const ensureConversation = useCallback(async () => {
-    const current = useLauncherStore.getState().conversation;
-    if (current && !current.archived) return current;
-    const { conversation: created } = await client.createAssistantConversation({ origin: surface });
-    useLauncherStore.getState().bindConversation(created);
+    const state = useLauncherStore.getState(), target = state.target;
+    const current = state.conversation;
+    if (current && !current.archived && (target.kind === "project" ? current.workspaceId === target.workspaceId : current.workspaceId === assistant?.workspaceId)) {
+      await drafts.claim(current.conversationId, owner);
+      return current;
+    }
+    const created = target.kind === "project"
+      ? (await client.launcherProjectChat({ workspaceId: target.workspaceId, operationId: projectOperation.current, sessionId: state.workspaceContext?.workspaceId === target.workspaceId ? state.workspaceContext.sessionId : undefined, title: state.input.slice(0, 120) || undefined })).conversation
+      : (await client.assistantConversationCurrent()).conversation ?? (await client.createAssistantConversation({ origin: surface })).conversation;
     await drafts.claim(created.id, owner);
+    useLauncherStore.getState().bindConversation(created);
+    useLauncherStore.getState().setTarget(target);
     return { conversationId: created.id, sessionId: created.sessionId, workspaceId: created.workspaceId, title: created.title, archived: false, pinned: false };
-  }, [client, drafts, owner, surface]);
-  const startNewConversation = useCallback(async () => {
+  }, [client, drafts, owner, surface, assistant?.workspaceId]);
+  const switchTarget = async (workspaceId: string) => {
     const state = useLauncherStore.getState();
+    if (sendingRef.current || uploadingRef.current) return;
+    if (state.view === "conversation" && state.conversation && drafts.owns(state.conversation.conversationId, owner)) await drafts.update(state.conversation.conversationId, owner, { text: state.input, context: state.context, target: state.target });
+    projectOperation.current = crypto.randomUUID();
+    useLauncherStore.setState({ conversation: null, target: workspaceId ? { kind: "project", workspaceId } : { kind: "assistant" } });
+  };
+  const startNewConversation = useCallback(async () => {
+    if (sendingRef.current || uploadingRef.current) return;
+    const state = useLauncherStore.getState();
+    if (state.conversation && drafts.owns(state.conversation.conversationId, owner)) await drafts.update(state.conversation.conversationId, owner, { text: state.input, context: state.context, target: state.target });
     const { conversation: created } = await client.createAssistantConversation({ origin: surface });
     state.bindConversation(created);
     state.setInput(""); state.replaceContext([]); state.setTarget({ kind: "assistant" }); setSubmission(null);
@@ -234,33 +265,40 @@ export function LauncherPanel() {
     const trimmed = text.trim();
     // The live store, not this render's snapshot: a target chosen a moment ago must be the one that ships.
     const live = useLauncherStore.getState();
-    if (sending || uploadingRef.current || (!reuse && !trimmed && !live.context.length && !command)) return;
+    if (sendingRef.current || uploadingRef.current || (!reuse && !trimmed && !live.context.length && !command)) return false;
     notify(null);
-    setSending(true);
+    sendingRef.current = true; setSending(true);
+    const fromSearch = live.view !== "conversation" && !reuse;
     try {
       const target = await ensureConversation();
-      const context = { items: live.context, target: live.target, searchScope: live.scope?.id ?? null, capturedAt: Date.now() };
-      if (!reuse) await drafts.update(target.conversationId, owner, { text: trimmed, context: live.context, target: live.target, searchScope: live.scope?.id ?? null });
+      const existingDraft = drafts.get(target.conversationId);
+      if (target.conversationId !== useLauncherStore.getState().conversation?.conversationId) return false;
+      const context = { items: live.context, workspaceContext: live.workspaceContext ?? undefined, target: live.target, searchScope: live.scope?.id ?? null, capturedAt: Date.now() };
+      if (!reuse && !fromSearch) await drafts.update(target.conversationId, owner, { text: trimmed, context: live.context, target: live.target, searchScope: live.scope?.id ?? null });
+      if (fromSearch) { store.setInput(existingDraft.text); store.replaceContext(existingDraft.context); }
+      else { store.setInput(live.input); store.replaceContext(live.context); }
+      store.setCategory(null); store.setFileFilter({ types: null, modifiedAfter: null });
       store.setView("conversation");
       let result: AssistantSubmission;
       try {
-        result = await submitAssistantDraft({ client, drafts, owner, conversationId: target.conversationId, retry: Boolean(reuse), beforeSend: desktop && output ? input => launcherOutputRemember(client.baseUrl, { requestId: input.requestId, messageId: input.messageId, conversationId: target.conversationId, output, originId: live.origin?.id ?? null }) : undefined, input: { text: trimmed, context, command, model: local.prefs.defaultModel ?? undefined, variant: local.prefs.modelVariant ?? undefined } });
+        result = await submitAssistantDraft({ client, drafts, owner, conversationId: target.conversationId, retry: Boolean(reuse), preserveDraft: fromSearch, beforeSend: desktop && output ? input => launcherOutputRemember(client.baseUrl, { requestId: input.requestId, messageId: input.messageId, conversationId: target.conversationId, output, originId: live.origin?.id ?? null }) : undefined, input: { text: trimmed, context, command, model: local.prefs.defaultModel ?? undefined, variant: local.prefs.modelVariant ?? undefined } });
       } catch (error) {
         // Ambiguous: keep the identity and draft; the status poll and Retry reuse it.
         const pending = drafts.get(target.conversationId).submission;
         if (pending) setSubmission({ ...pending, error: error instanceof Error ? error.message : String(error) });
         if (pending?.state === "unconfirmed" && output && !desktop) setPendingOutput({ messageId: pending.messageId, output, originId: live.origin?.id ?? null });
         if (!pending) notify({ tone: "error", text: error instanceof Error ? error.message : String(error) });
-        return;
+        return false;
       }
       setSubmission({ requestId: result.requestId, messageId: result.messageId, state: result.state, error: result.error });
       if (output && !desktop && result.state !== "failed") setPendingOutput({ messageId: result.messageId, output, originId: live.origin?.id ?? null });
-      if (result.state === "failed" || result.state === "unconfirmed") return;
+      if (result.state === "failed" || result.state === "unconfirmed") return false;
       const current = useLauncherStore.getState();
       const saved = drafts.get(target.conversationId);
       if (!saved.text && !saved.context.length && current.conversation?.conversationId === target.conversationId && current.input === live.input && JSON.stringify(current.context) === JSON.stringify(live.context)) { store.setInput(""); store.replaceContext([]); }
-    } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
-    finally { setSending(false); }
+      return true;
+    } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); return false; }
+    finally { sendingRef.current = false; setSending(false); }
   }, [sending, store, ensureConversation, drafts, owner, client, local.prefs.defaultModel, local.prefs.modelVariant, notify, desktop]);
   // The panel stays open across its own dialogs: the file chooser and an active dictation are not a blur to hide on.
   // Menus restore focus to their trigger; the keyboard belongs to the entry once a choice is made.
@@ -276,9 +314,12 @@ export function LauncherPanel() {
       const target = await ensureConversation();
       conversationId = target.conversationId;
       uploadConversation.current = conversationId;
-      await drafts.update(conversationId, owner, { text: live.input, context: live.context, target: live.target, searchScope: live.scope?.id ?? null });
+      const previous = drafts.get(conversationId);
+      const stagedText = live.view === "conversation" ? live.input : previous.text;
+      const stagedContext = [...previous.context, ...live.context.filter(item => !previous.context.some(other => other.id === item.id))];
+      await drafts.update(conversationId, owner, { text: stagedText, context: stagedContext, target: live.target, searchScope: live.scope?.id ?? null });
       const bound = useLauncherStore.getState();
-      if (bound.conversation?.conversationId === conversationId) { bound.setInput(live.input); bound.replaceContext(live.context); bound.setTarget(live.target); bound.setScope(live.scope); bound.setView("conversation"); }
+      if (bound.conversation?.conversationId === conversationId) { bound.setInput(stagedText); bound.replaceContext(stagedContext); bound.setTarget(live.target); bound.setScope(live.scope); bound.setView("conversation"); }
       const outcome = await attachFilesToDraft({ files, conversationId, owner, drafts,
         context: () => { const current = useLauncherStore.getState(); return current.conversation?.conversationId === target.conversationId ? current.context : drafts.get(target.conversationId).context; },
         onAttached: context => { const current = useLauncherStore.getState(); if (current.conversation?.conversationId === target.conversationId) current.replaceContext(context); },
@@ -367,25 +408,16 @@ export function LauncherPanel() {
   const captureActions = {
     selection: async () => { const outcome = await captureSelection(store.origin); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
     clipboard: async () => { const outcome = await captureClipboard(); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
-    window: async () => { if (!assistant) return; const outcome = await captureScreen("window", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
-    region: async () => { if (!assistant) return; const outcome = await captureScreen("region", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
+    window: async () => { if (!assistant) return; const outcome = await captureScreen("window", client, store.target.kind === "project" ? store.target.workspaceId : assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
+    region: async () => { if (!assistant) return; const outcome = await captureScreen("region", client, store.target.kind === "project" ? store.target.workspaceId : assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
     files: () => { holdPanel(true); fileInputRef.current?.click(); },
   };
 
   // Copy or move the selected files into another project: an explicit, approved action with its own audit trail.
-  const transferFiles = async (result: LauncherSearchResult, action: LauncherTransferAction, targetWorkspaceId: string) => {
+  const transferFiles = (result: LauncherSearchResult, action: LauncherTransferAction, targetWorkspaceId: string) => {
     const state = useLauncherStore.getState();
     const items = (state.multiSelect.size ? state.results.filter(item => state.multiSelect.has(resultKey(item))) : [result]).filter(item => item.kind === "files" && item.workspaceId && item.path);
-    const project = workspaces.find(workspace => workspace.id === targetWorkspaceId);
-    const mode = action === "move-to-project" ? "move" : "copy";
-    let done = 0;
-    for (const item of items) {
-      try { await client.transferLauncherFile({ sourceWorkspaceId: item.workspaceId ?? "", targetWorkspaceId, path: item.path ?? "", mode }); done++; }
-      catch (error) { notify({ tone: "error", text: error instanceof Error && /already exists/.test(error.message) ? t("launcher.transfer.exists", { project: project?.displayName || project?.name || targetWorkspaceId }) : error instanceof Error ? error.message : String(error) }); break; }
-    }
-    if (done) notify({ tone: "info", text: t(mode === "move" ? "launcher.transfer.moved" : "launcher.transfer.copied", { count: done, project: project?.displayName || project?.name || targetWorkspaceId }) });
-    state.clearMultiSelect();
-    setTimeout(runSearch, 400);
+    setTransfer({ items, workspaceId: targetWorkspaceId, folder: targetWorkspaceId === state.workspaceContext?.workspaceId ? state.workspaceContext.folder ?? "" : "", mode: action === "move-to-project" ? "move" : "copy" });
   };
   // One dispatcher for results, commands and app actions.
   const runResultAction = async (result: LauncherSearchResult, action: LauncherResultAction) => {
@@ -405,6 +437,11 @@ export function LauncherPanel() {
       catch { notify({ tone: "error", text: t("launcher.conversation.unavailable") }); }
       return;
     }
+    if (action === "open" && result.kind === "files" && result.workspaceId && result.path) {
+      const current = useLauncherStore.getState().workspaceContext;
+      if (current && current.workspaceId !== result.workspaceId) { setOpenChoice(result); return; }
+      openFile(result, result.workspaceId, current?.paneId); return;
+    }
     switch (action) {
       case "open": case "resume": case "play": openInApp(route); if (surface === "panel") dismiss(); return;
       case "reveal": { const path = absolutePath(result); if (path) await revealDesktopItemInDir(path); return; }
@@ -415,13 +452,15 @@ export function LauncherPanel() {
       case "copy-to-project": case "move-to-project": store.setOverlay({ kind: "actions", resultKey: resultKey(result) }); return;
       case "complete": try { await client.patchTask(result.workspaceId ?? "", result.id, { status: "done" }); notify({ tone: "info", text: t("launcher.notice.task_done", { title: result.title }) }); } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); } return;
       case "attach": case "ask": case "compare": case "summarize": case "hand-to-assistant": {
+        if (result.kind === "projects" && result.workspaceId) { await switchTarget(result.workspaceId); store.setInput(""); store.setView("conversation"); return; }
         if (uploadingRef.current) return;
         uploadingRef.current = true; setUploading(true); holdPanel(true);
         const initial = useLauncherStore.getState();
         try {
           const target = await ensureConversation();
           uploadConversation.current = target.conversationId;
-          await drafts.update(target.conversationId, owner, { context: initial.context, text: initial.input, target: initial.target, searchScope: initial.scope?.id ?? null });
+          const prior = drafts.get(target.conversationId);
+          await drafts.update(target.conversationId, owner, { context: [...prior.context, ...initial.context.filter(item => !prior.context.some(other => other.id === item.id))], text: initial.view === "conversation" ? initial.input : prior.text, target: initial.target, searchScope: initial.scope?.id ?? null });
           await drafts.protect(target.conversationId, owner, async () => {
             const items: AssistantContextItem[] = [];
             for (const item of multi) {
@@ -438,12 +477,11 @@ export function LauncherPanel() {
             if (!items.length && result.kind !== "projects") return;
             const context = [...drafts.get(target.conversationId).context, ...items];
             if (context.length > 50) throw new Error(t("launcher.drop.limit"));
-            const executionTarget = result.kind === "projects" && result.workspaceId && action === "ask" ? { kind: "project" as const, workspaceId: result.workspaceId }
-              : (action === "compare" || action === "summarize") && multi.every(item => item.workspaceId && item.workspaceId === multi[0]?.workspaceId) && multi[0]?.workspaceId ? { kind: "project" as const, workspaceId: multi[0].workspaceId } : initial.target;
+            const executionTarget = initial.target;
             const scope = result.kind === "projects" && result.workspaceId ? { id: result.workspaceId, name: result.title } : initial.scope;
             const prompt = action === "compare" ? t("launcher.prompt.compare", { count: items.length }) : action === "summarize" ? t("launcher.prompt.summarize", { count: items.length }) : action === "hand-to-assistant" ? t("launcher.prompt.task", { title: result.title }) : "";
             const current = useLauncherStore.getState();
-            const text = current.conversation?.conversationId === target.conversationId && current.input !== initial.input && current.input ? current.input : prompt;
+            const text = [drafts.get(target.conversationId).text, prompt].filter(Boolean).join("\n\n");
             await drafts.update(target.conversationId, owner, { context, text, target: executionTarget, searchScope: scope?.id ?? null });
             if (current.conversation?.conversationId !== target.conversationId) return;
             current.replaceContext(context); current.setInput(text); current.setTarget(executionTarget); current.setScope(scope);
@@ -490,9 +528,32 @@ export function LauncherPanel() {
     const name = item.command?.name ?? item.label.replace(/^\//, "");
     await submitAsk(`/${name}${args ? ` ${args}` : ""}`, undefined, undefined, { name, arguments: args });
   };
+  const useContext = async (context: LauncherWorkspaceContext | null) => {
+    const state = useLauncherStore.getState();
+    if (sendingRef.current || uploadingRef.current) return;
+    if (state.input.trim() || state.context.length) setParkedDrafts(previous => [...previous, { input: state.input, context: state.context, target: state.target, workspaceContext: state.workspaceContext, conversation: state.conversation }]);
+    if (state.view === "conversation" && state.conversation && drafts.owns(state.conversation.conversationId, owner)) await drafts.update(state.conversation.conversationId, owner, { text: state.input, context: state.context, target: state.target });
+    projectOperation.current = crypto.randomUUID();
+    useLauncherStore.setState({ workspaceContext: context, conversation: null, target: context ? { kind: "project", workspaceId: context.workspaceId } : { kind: "assistant" } });
+    const items: AssistantContextItem[] = [];
+    if (context?.document) items.push({ id: `view_${crypto.randomUUID()}`, type: "file", ...context.document, revision: context.document.revision ?? null, sourceLabel: (context.document.workspaceId === context.workspaceId ? context.workspaceName : context.document.workspaceId).slice(0, 200) });
+    if (context?.selection) items.push({ id: `selection_${crypto.randomUUID()}`, type: "selection", text: context.selection, sourceApp: "LegalWork", sourceWindow: context.document?.name ?? context.workspaceName, capturedAt: context.capturedAt });
+    state.setInput(""); state.replaceContext(items); state.setView("idle"); setPendingContext(null);
+  };
   const applyInvocation = useCallback(async (invocation: LauncherInvocation) => {
+    const live = useLauncherStore.getState();
+    const incoming = invocation.workspaceContext ?? null;
+    const changed = incoming?.workspaceId !== live.workspaceContext?.workspaceId || incoming?.sessionId !== live.workspaceContext?.sessionId || JSON.stringify(incoming?.document) !== JSON.stringify(live.workspaceContext?.document) || incoming?.selection !== live.workspaceContext?.selection;
+    if (changed) {
+      if (live.input.trim() || live.view === "conversation" || creation || transfer || openChoice || sendingRef.current || uploadingRef.current) { setPendingContext({ context: incoming }); if (invocation.action === "open") return; }
+      else await useContext(incoming);
+    }
+    if (!incoming && !live.input.trim() && live.view !== "conversation" && live.origin?.supportsSelection && invocation.action === "open") {
+      const selected = await captureSelection(live.origin);
+      if (selected.ok) useLauncherStore.getState().addContext([selected.item]);
+    }
     const bound = invocation.action === "new-conversation" ? (await client.createAssistantConversation({ origin: surface })).conversation
-      : invocation.conversationId ? (await client.assistantConversation(invocation.conversationId)).conversation : await bindCurrent();
+      : invocation.conversationId ? (await client.assistantConversation(invocation.conversationId)).conversation : useLauncherStore.getState().target.kind === "project" ? null : await bindCurrent();
     if (bound) {
       useLauncherStore.getState().bindConversation(bound);
       if (invocation.conversationId || ["ask", "resume", "new-conversation"].includes(invocation.action) || useLauncherStore.getState().view === "conversation") await adoptDraft(bound.id, true);
@@ -503,7 +564,7 @@ export function LauncherPanel() {
     if (invocation.contextId) { const staged = await client.consumeLauncherContext(invocation.contextId); addItems(staged.items); }
     if (kind) { store.setCategory(kind); store.setInput(invocation.query ?? ""); store.setView("results"); }
     else if (invocation.action === "search") { store.setCategory(null); store.setInput(invocation.query ?? ""); store.setView("results"); }
-    else if (invocation.action === "ask") { store.setInput(invocation.query ?? ""); store.setView("conversation"); }
+    else if (invocation.action === "ask") { if (invocation.query !== undefined) store.setInput(invocation.query); store.setView("conversation"); }
     else if (invocation.action === "new-conversation") store.setView("conversation");
     else if (invocation.action === "resume") store.setView("conversation");
     else if (invocation.action === "work") store.setView("work");
@@ -525,7 +586,7 @@ export function LauncherPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaces, client, catalog, startNewConversation, bindCurrent, adoptDraft]);
   useEffect(() => {
-    if (!store.invocation || invocationRunning.current) return;
+    if (!store.invocation || invocationRunning.current || sendingRef.current || uploadingRef.current) return;
     const invocation = store.invocation;
     invocationRunning.current = invocation.id;
     void applyInvocation(invocation).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })).finally(() => {
@@ -533,13 +594,53 @@ export function LauncherPanel() {
       if (useLauncherStore.getState().invocation?.id === invocation.id) useLauncherStore.getState().setInvocation(null);
       else { const pending = useLauncherStore.getState().invocation; if (pending) useLauncherStore.getState().setInvocation({ ...pending }); }
     });
-  }, [store.invocation, applyInvocation]);
+  }, [store.invocation, applyInvocation, sending, uploading]);
 
   const conversations = useQuery({ queryKey: ["launcher-conversations", client.baseUrl], queryFn: () => client.assistantConversations({ limit: 6 }), enabled: store.view === "idle", staleTime: 10_000 });
   const resumeConversation = async () => {
-    if (conversation) await adoptDraft(conversation.conversationId, true);
+    if (sendingRef.current || uploadingRef.current) return;
+    const incoming = useLauncherStore.getState().context;
+    await switchTarget("");
+    const current = (await client.assistantConversationCurrent()).conversation;
+    store.bindConversation(current);
+    if (current) await adoptDraft(current.id, true);
+    store.addContext(incoming);
+    store.setTarget({ kind: "assistant" });
     store.setView("conversation");
     inputRef.current?.focus();
+  };
+  const openFile = (result: LauncherSearchResult, destination: string, paneId?: string) => {
+    if (!result.workspaceId || !result.path) return;
+    openInApp(launcherFileRoute({ projectId: result.workspaceId, workspaceId: result.workspaceId, path: result.path, name: result.title }, destination, paneId));
+    setOpenChoice(null);
+  };
+  const openCreate = (kind: LauncherCreate["kind"]) => {
+    const state = useLauncherStore.getState();
+    const workspaceId = state.target.kind === "project" ? state.target.workspaceId : state.workspaceContext?.workspaceId ?? "";
+    const text = kind === "document" ? "" : excerptText(state.context);
+    if (kind === "attach") attachmentOperation.current = { key: "", id: crypto.randomUUID() };
+    setCreation({ kind, workspaceId, folder: workspaceId === state.workspaceContext?.workspaceId ? state.workspaceContext.folder ?? "" : "",
+      name: kind === "document" ? searchText.trim() : state.context.find(item => item.type === "selection")?.type === "selection" ? text.split("\n\n").at(-1)?.slice(0, 70).replace(/[/\\\n]/g, " ") ?? "" : "", text, context: [...state.context] });
+  };
+  const stageInChat = async (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[]) => {
+    if (sendingRef.current || uploadingRef.current) return;
+    uploadingRef.current = true; setUploading(true);
+    try {
+      const key = `${workspaceId}:${sessionId ?? "new"}`;
+      if (attachmentOperation.current.key !== key) attachmentOperation.current = { key, id: crypto.randomUUID() };
+      const { conversation: found } = await client.launcherProjectChat({ workspaceId, sessionId, operationId: attachmentOperation.current.id });
+      const { draft } = await drafts.claim(found.id, owner);
+      const context = [...draft.context, ...items.filter(item => !draft.context.some(other => other.id === item.id))];
+      await drafts.update(found.id, owner, { context, target: { kind: "project", workspaceId } });
+      store.bindConversation(found); store.setInput(draft.text); store.replaceContext(context); store.setTarget({ kind: "project", workspaceId }); store.setView("conversation");
+      projectOperation.current = crypto.randomUUID();
+    } finally { uploadingRef.current = false; setUploading(false); }
+  };
+  const draftDocument = async (workspaceId: string, folder: string, name: string, format: string, instructions: string) => {
+    await switchTarget(workspaceId);
+    store.setView("results");
+    const sent = await submitAsk(t("launcher.flow.draft_prompt", { project: workspaceId, path: `${folder ? `${folder}/` : ""}${name.endsWith(`.${format}`) ? name : `${name}.${format}`}`, instructions }));
+    if (!sent) throw new Error(t("launcher.submission.unconfirmed"));
   };
   const browseCategory = (category: LauncherSearchKind) => {
     store.setCategory(category); store.setInput(""); store.setOverlay(null); store.clearMultiSelect(); store.setView("results"); inputRef.current?.focus();
@@ -547,32 +648,34 @@ export function LauncherPanel() {
   const categoryRows: NavigationRow[] = categorySuggestions(store.view === "idle" ? "" : store.input, aliases).map(kind => ({
     id: `category:${kind}`, title: t(KIND_HINT[kind]), Icon: CATEGORY_ICONS[kind], shortcut: aliases[kind], run: () => browseCategory(kind),
   }));
-  const assistantRow: NavigationRow = { id: "home:new", title: t("assistant.title"), subtitle: t("launcher.idle.new_hint"), Icon: MessageSquare, run: startNewConversation };
+  const assistantRow: NavigationRow = { id: "home:assistant", title: t("assistant.title"), subtitle: t("launcher.idle.resume_hint"), Icon: MessageSquare, run: resumeConversation };
   const assistantSuggestion = store.input.trim() && ["assistant", "ask", "fragen"].some(word => word.startsWith(store.input.trim().toLocaleLowerCase()));
-  const suggestionRows = mode === "search" && !searchCategory && !calculation ? [...categoryRows, ...(assistantSuggestion ? [assistantRow] : [])] : [];
+  const createRow: NavigationRow = { id: "create:document", title: searchText.trim() ? t("launcher.flow.create_named", { name: searchText.trim() }) : t("launcher.flow.create_document"), Icon: FilePlus2, run: () => openCreate("document") };
+  const suggestionRows = mode === "search" && !calculation ? [...(!searchCategory ? categoryRows : []), ...(assistantSuggestion ? [assistantRow] : []), ...(searchCategory === "files" || /^(d|do|doc|doku)$/i.test(store.input.trim()) ? [createRow] : [])] : [];
   const chooseCommandContext = async (workspaceId?: string) => {
-    const input = useLauncherStore.getState().input;
-    const { conversation: created } = await client.createAssistantConversation({ origin: surface });
-    await drafts.claim(created.id, owner);
-    const target = workspaceId ? { kind: "project" as const, workspaceId } : { kind: "assistant" as const };
-    await drafts.update(created.id, owner, { text: input, target, searchScope: null });
-    store.bindConversation(created); setSubmission(null);
-    store.setTarget(target); store.setInput(input); store.setCategory(null); store.setScope(null); store.setFileFilter({ types: null, modifiedAfter: null }); store.setView("conversation"); inputRef.current?.focus();
+    const state = useLauncherStore.getState();
+    state.setTarget(workspaceId ? { kind: "project", workspaceId } : { kind: "assistant" });
+    state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null }); state.setView("conversation"); inputRef.current?.focus();
   };
   const commandContextRows: NavigationRow[] = [
     { id: "command-context:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, run: () => chooseCommandContext() },
     ...workspaces.map(workspace => ({ id: `command-context:${workspace.id}`, title: workspace.displayName || workspace.name, Icon: Folder, run: () => chooseCommandContext(workspace.id) })),
   ];
   const homeRows: NavigationRow[] = [
-    ...(conversation ? [{ id: "home:resume", title: conversation.title, subtitle: t("launcher.idle.resume_hint"), Icon: MessageSquare, run: resumeConversation }] : []),
+    ...parkedDrafts.map((draft, index) => ({ id: `home:parked-draft:${index}`, title: t("launcher.flow.continue_draft"), subtitle: draft.workspaceContext?.workspaceName ?? t("assistant.title"), Icon: MessageSquare, run: async () => { useLauncherStore.setState({ ...draft, view: "conversation" }); if (draft.conversation) await adoptDraft(draft.conversation.conversationId, true); setParkedDrafts(previous => previous.filter(item => item !== draft)); } })),
+    ...(store.target.kind === "project" ? [{ id: "home:project-chat", title: t("launcher.flow.project_chat", { project: store.workspaceContext?.workspaceName ?? workspaces.find(item => item.id === (store.target.kind === "project" ? store.target.workspaceId : ""))?.name ?? "" }), Icon: MessageSquare, run: () => { store.setView("conversation"); inputRef.current?.focus(); } }] : []),
     assistantRow,
     ...categoryRows,
-    ...(savedSearches.data?.searches ?? []).slice(0, 5).map(search => ({ id: `home:search:${search.id}`, title: search.name, subtitle: [search.kind ? t(KIND_HINT[search.kind]) : t("launcher.saved.all_kinds"), search.query].filter(Boolean).join(" · "), Icon: Bookmark, run: () => applySavedSearch(search), remove: () => { void deleteSavedSearch(search.id); } })),
-    ...pins.slice(0, 4).map(pin => ({ id: `home:pin:${pin.kind}:${pin.sourceId}:${pin.id}`, title: pin.title, subtitle: pin.subtitle ?? t(KIND_HINT[pin.kind]), Icon: CATEGORY_ICONS[pin.kind], run: () => openInApp(pin.kind === "chats" ? workspaceSessionRoute(pin.workspaceId ?? "", pin.id) : pin.workspaceId ? `${workspaceProjectRoute(pin.workspaceId)}${pin.kind === "files" ? `?file=${encodeURIComponent(pin.path ?? pin.id)}` : ""}` : "/home") })),
-    ...(conversations.data?.items ?? []).filter(item => item.id !== conversation?.conversationId).slice(0, 4).map(item => ({ id: `home:chat:${item.id}`, title: item.title, subtitle: t(item.kind === "day" ? "launcher.idle.day" : "launcher.idle.conversation"), Icon: MessageSquare, run: async () => { store.bindConversation(item); await adoptDraft(item.id, true); store.setView("conversation"); inputRef.current?.focus(); } })),
+    createRow,
+    { id: "home:history", title: t("launcher.flow.history"), Icon: MessageSquare, run: () => setShowHistory(value => !value) },
+    ...(showHistory ? [{ id: "home:new-topic", title: t("launcher.flow.new_topic"), Icon: Plus, run: startNewConversation }] : []),
+    { id: "home:work", title: t("launcher.flow.work"), subtitle: store.attentionCount ? t("launcher.work.pending", { count: store.attentionCount }) : undefined, Icon: ListChecks, run: () => openWork() },
+    ...(showHistory ? savedSearches.data?.searches ?? [] : []).slice(0, 5).map(search => ({ id: `home:search:${search.id}`, title: search.name, subtitle: [search.kind ? t(KIND_HINT[search.kind]) : t("launcher.saved.all_kinds"), search.query].filter(Boolean).join(" · "), Icon: Bookmark, run: () => applySavedSearch(search), remove: () => { void deleteSavedSearch(search.id); } })),
+    ...pins.slice(0, 3).map(pin => ({ id: `home:pin:${pin.kind}:${pin.sourceId}:${pin.id}`, title: pin.title, subtitle: pin.subtitle ?? t(KIND_HINT[pin.kind]), Icon: CATEGORY_ICONS[pin.kind], run: () => openInApp(pin.kind === "chats" ? workspaceSessionRoute(pin.workspaceId ?? "", pin.id) : pin.workspaceId ? `${workspaceProjectRoute(pin.workspaceId)}${pin.kind === "files" ? `?file=${encodeURIComponent(pin.path ?? pin.id)}` : ""}` : "/home") })),
+    ...(showHistory ? conversations.data?.items ?? [] : []).filter(item => item.id !== conversation?.conversationId).slice(0, 4).map(item => ({ id: `home:chat:${item.id}`, title: item.title, subtitle: t(item.kind === "day" ? "launcher.idle.day" : "launcher.idle.conversation"), Icon: MessageSquare, run: async () => { store.bindConversation(item); await adoptDraft(item.id, true); store.setView("conversation"); inputRef.current?.focus(); } })),
   ];
   const navigationRows = showCommands && store.view !== "conversation" ? commandContextRows : store.view === "idle" ? homeRows : store.view === "results" ? suggestionRows : [];
-  const selectable: SelectableItem[] = [
+  const selectable: SelectableItem[] = mode === "ask" ? [] : [
     ...navigationRows.map(item => ({ id: item.id, primaryAction: "open" as const })),
     ...(showCommands ? commandItems.map(item => ({ id: item.id, primaryAction: item.kind === "agent" ? "run" as const : "open" as const }))
       : store.view === "results" ? calculation ? calculation.value !== null ? [{ id: "calculator", primaryAction: "copy-reference" as const }] : [] : store.results.map(item => ({ id: resultKey(item), primaryAction: primaryResultAction(item) })) : []),
@@ -590,8 +693,8 @@ export function LauncherPanel() {
   }, [store.selection.id, store.view, selectionSignature]);
   const selected = enterTarget(store.selection, selectable);
   const selectedNavigation = navigationRows.find(item => item.id === selected?.id);
-  const runNavigation = (row: NavigationRow) => void Promise.resolve().then(row.run).catch(error => notify({ tone: "error", text: String(error) }));
-  const renderNavigationRows = (rows: NavigationRow[]) => <LauncherNavigationRows rows={rows} selected={selected?.id ?? null} onSelect={id => store.select({ id, source: "user" })} onError={error => notify({ tone: "error", text: String(error) })} />;
+  const runNavigation = (row: NavigationRow) => { if (sendingRef.current || uploadingRef.current) return; return void Promise.resolve().then(row.run).catch(error => notify({ tone: "error", text: String(error) })); };
+  const renderNavigationRows = (rows: NavigationRow[]) => <LauncherNavigationRows grouped={rows === homeRows} rows={rows.map(row => ({ ...row, run: () => { if (!sendingRef.current && !uploadingRef.current) return row.run(); } }))} selected={selected?.id ?? null} onSelect={id => store.select({ id, source: "user" })} onError={error => notify({ tone: "error", text: String(error) })} />;
   const copyCalculation = async () => {
     if (calculation?.value === null || !calculation) return;
     try { await navigator.clipboard.writeText(calculation.value); notify({ tone: "info", text: t("launcher.notice.copied") }); }
@@ -600,6 +703,9 @@ export function LauncherPanel() {
   const goBack = async () => {
     if (savingNavigation.current) return;
     const state = useLauncherStore.getState();
+    if (creation) { setCreation(null); return; }
+    if (transfer) { setTransfer(null); return; }
+    if (openChoice) { setOpenChoice(null); return; }
     if (state.view === "conversation" && parseLauncherEntry(state.input).mode === "command" && !state.overlay) { state.setInput(""); inputRef.current?.focus(); return; }
     const layer = escapeAction({ overlayOpen: state.overlay !== null, detail: state.view === "conversation" || state.view === "work", query: Boolean(state.input), category: Boolean(state.category || state.scope || hasFileFilter) });
     if (layer === "overlay") state.setOverlay(null);
@@ -633,7 +739,7 @@ export function LauncherPanel() {
   const openActions = () => { if (selected && !selectedNavigation && store.view === "results" && !calculation) store.setOverlay({ kind: "actions", resultKey: selected.id }); };
   // Shared by the entry and home rows; native menus get first refusal.
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || isComposingKeyEvent(event)) return;
+    if (event.defaultPrevented || isComposingKeyEvent(event) || creation || transfer) return;
     const key = event.key;
     if (key === "Escape") { event.preventDefault(); event.stopPropagation(); void goBack(); return; }
     const input = inputRef.current;
@@ -646,8 +752,9 @@ export function LauncherPanel() {
     }
     if (modifier && key.toLowerCase() === "y") { event.preventDefault(); event.stopPropagation(); if (selected && !selectedNavigation && store.view === "results" && !calculation) store.setOverlay(store.overlay?.kind === "preview" ? null : { kind: "preview", resultKey: selected.id }); return; }
     if (modifier && key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void saveCurrentSearch(); return; }
+    if (openChoice) return;
     if (key === "ArrowDown" || key === "ArrowUp") { if (!selectable.length || event.shiftKey || modifier || event.altKey) return; event.preventDefault(); store.select(moveSelection(store.selection, selectable, key === "ArrowDown" ? 1 : -1)); return; }
-    if (key === "Tab" && !event.shiftKey && !modifier && selectedNavigation) { event.preventDefault(); runNavigation(selectedNavigation); return; }
+    if (key === "Tab" && !event.shiftKey && !modifier && selectedNavigation?.id.startsWith("category:") && store.input.trim()) { event.preventDefault(); runNavigation(selectedNavigation); return; }
     if (key === "Tab" && !event.shiftKey && showCommands) {
       const item = commandItems.find(item => item.id === selected?.id);
       if (item) { event.preventDefault(); const args = catalogArguments(item, entry.text); store.setInput(`/${item.command?.name ?? item.label.replace(/^\//, "")}${args ? ` ${args}` : " "}`); }
@@ -666,7 +773,7 @@ export function LauncherPanel() {
     if (event.shiftKey && (mode === "ask" || mode === "conversation")) return;
     event.preventDefault();
     if (event.shiftKey) return;
-    if (selectedNavigation) { runNavigation(selectedNavigation); return; }
+    if (selectedNavigation && mode !== "ask") { runNavigation(selectedNavigation); return; }
     if (showCommands) { const item = commandItems.find(item => item.id === selected?.id); if (item) void runCatalogEntry(item, catalogArguments(item, entry.text)); return; }
     if (mode === "ask" || mode === "conversation") { void submitAsk(mode === "ask" ? entry.text : store.input); return; }
     if (calculation) { void copyCalculation(); return; }
@@ -683,12 +790,20 @@ export function LauncherPanel() {
     store.setInput(value);
   };
   const expand = async () => {
-    if (!conversation) { openInApp("/home"); return; }
+    if (store.view !== "conversation" || !conversation) {
+      const id = `handoff_${crypto.randomUUID()}`;
+      await drafts.claim(id, owner);
+      await drafts.update(id, owner, { text: store.input, context: store.context, target: store.target, searchScope: store.scope?.id ?? null });
+      await drafts.release(id, owner);
+      const search = store.view === "conversation" ? "" : `&launcherSearch=${encodeURIComponent(JSON.stringify({ input: store.input, category: store.category, scope: store.scope, fileFilter: store.fileFilter }))}`;
+      openInApp(`/home?launcherDraft=${id}${search}`); return;
+    }
+    const bound = conversation;
     const live = useLauncherStore.getState();
-    await drafts.update(conversation.conversationId, owner, { text: mode === "ask" ? entry.text : live.input, context: live.context,
+    await drafts.update(bound.conversationId, owner, { text: mode === "ask" ? entry.text : live.input, context: live.context,
       target: live.target, searchScope: live.scope?.id ?? null, model: local.prefs.defaultModel, variant: local.prefs.modelVariant });
-    await drafts.release(conversation.conversationId, owner);
-    openInApp(`${workspaceSessionRoute(conversation.workspaceId, conversation.sessionId)}?conversation=${encodeURIComponent(conversation.conversationId)}`);
+    await drafts.release(bound.conversationId, owner);
+    openInApp(`${workspaceSessionRoute(bound.workspaceId, bound.sessionId)}?conversation=${encodeURIComponent(bound.conversationId)}`);
   };
 
   const selectedResult = store.view === "results" && !calculation ? store.results.find(item => resultKey(item) === (store.overlay?.kind === "actions" ? store.overlay.resultKey : store.selection.id)) ?? null : null;
@@ -703,11 +818,14 @@ export function LauncherPanel() {
     onDrop={event => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); if (dragDepth.current) holdPanel(false); dragDepth.current = 0; setDragging(false); const dropped = droppedFiles(event.dataTransfer); if (dropped.folders) notify({ tone: "error", text: t("launcher.drop.folders") }); void uploadFiles(dropped.files); }}>
     <div className="launcher-panel" role="dialog" aria-label={t("launcher.title")}>
       {(dragging || uploading) && <div className="launcher-drop-status" role="status">{uploading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}{t(uploading ? "launcher.drop.busy" : "launcher.drop.hint")}</div>}
+      {surface !== "home" && <div className="launcher-grip" aria-label={t("launcher.flow.move")}><span /><button type="button" onClick={() => desktop ? void launcherWindowControl("reset-position") : window.dispatchEvent(new Event("legalwork:launcher-reset-position"))} title={t("launcher.flow.reset_position")}>↺</button></div>}
+      {pendingContext && <div className="launcher-notice">{t("launcher.flow.new_context", { project: pendingContext.context?.workspaceName ?? t("assistant.title") })}<Button size="sm" variant="ghost" onClick={() => void useContext(pendingContext.context)}>{t("launcher.flow.use_context")}</Button><Button size="sm" variant="ghost" onClick={() => setPendingContext(null)}>{t("common.close")}</Button></div>}
+      <div className="launcher-context-destination"><select aria-label={t("launcher.picker.target")} value={store.target.kind === "project" ? store.target.workspaceId : ""} disabled={sending || uploading} onChange={event => void switchTarget(event.target.value)}><option value="">{t("launcher.picker.target_assistant")}</option>{workspaces.map(item => <option key={item.id} value={item.id}>{item.displayName || item.name}</option>)}</select>{store.target.kind === "project" && <><span className="text-xs text-muted-foreground">{conversation?.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: conversation.title }) : store.workspaceContext?.sessionId && store.workspaceContext.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: t("launcher.kind.chats") }) : t("launcher.flow.new_project_chat")}</span><Button variant="ghost" size="sm" disabled={sending || uploading} onClick={async () => { if (store.target.kind !== "project") return; await switchTarget(store.target.workspaceId); useLauncherStore.setState({ workspaceContext: store.workspaceContext ? { ...store.workspaceContext, sessionId: undefined } : null }); }}>{t("launcher.flow.new_chat")}</Button></>}</div>
       <div className="launcher-entry">
         {(store.view === "conversation" || store.view === "work") ? <Button variant="ghost" size="icon-sm" aria-label={t("launcher.back")} title={t("launcher.back")} onClick={() => void goBack()}><ArrowLeft className="size-4" /></Button> : <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />}
         {store.category && <span className="launcher-chip" data-kind="category">{t(KIND_HINT[store.category])}<button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         {store.scope && <span className="launcher-chip" data-kind="scope" title={t("launcher.chip.scope_hint")}>{store.scope.name}<button type="button" aria-label={t("launcher.chip.remove_scope")} onClick={() => { store.setScope(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
-        {store.target.kind === "project" && <span className="launcher-chip" data-kind="target" title={t("launcher.chip.target_hint")}>{t("launcher.chip.target", { name: (workspace => workspace ? workspace.displayName || workspace.name : store.target.kind === "project" ? store.target.workspaceId : "")(workspaces.find(workspace => workspace.id === (store.target.kind === "project" ? store.target.workspaceId : ""))) })}<button type="button" aria-label={t("launcher.chip.remove_target")} onClick={() => store.setTarget({ kind: "assistant" })}><X className="size-3" /></button></span>}
+
         {(() => { const labels = fileFilterLabels(store.fileFilter); return <>
           {labels.type && <span className="launcher-chip" data-kind="filter">{labels.type}<button type="button" aria-label={t("launcher.filter.types_any")} onClick={() => { store.setFileFilter({ types: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
           {labels.modified && <span className="launcher-chip" data-kind="filter">{labels.modified}<button type="button" aria-label={t("launcher.filter.modified_any")} onClick={() => { store.setFileFilter({ modifiedAfter: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
@@ -745,16 +863,11 @@ export function LauncherPanel() {
                 <DropdownMenuItem onClick={() => { store.setFileFilter({ modifiedAfter: null }); refocusEntry(); }}>{t("launcher.filter.modified_any")}{store.fileFilter.modifiedAfter === null ? " ✓" : ""}</DropdownMenuItem>
                 {MODIFIED_PRESETS.map(preset => <DropdownMenuItem key={preset} onClick={() => { store.setFileFilter({ modifiedAfter: modifiedSince(preset) }); store.setCategory("files"); store.setView("results"); refocusEntry(); }}>{t(`launcher.filter.modified.${preset}`)}</DropdownMenuItem>)}
               </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>{t("launcher.picker.target")}</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => { store.setTarget({ kind: "assistant" }); refocusEntry(); }}>{t("launcher.picker.target_assistant")}{store.target.kind === "assistant" ? " ✓" : ""}</DropdownMenuItem>
-                {workspaces.map(workspace => <DropdownMenuItem key={`target:${workspace.id}`} onClick={() => { store.setTarget({ kind: "project", workspaceId: workspace.id }); refocusEntry(); }}>{workspace.displayName || workspace.name}{store.target.kind === "project" && store.target.workspaceId === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
-              </DropdownMenuGroup>
+
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked || voiceBusy} onClick={() => void speak()}><Mic className="size-4" /></Button>
-          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.work.title")} title={t("launcher.work.title")} onClick={() => void openWork()}><ListChecks className="size-4" />{store.attentionCount > 0 && <span className="ml-0.5 rounded-full bg-blue-9 px-1 text-[10px] text-white">{store.attentionCount}</span>}</Button>
+
 
           {surface === "panel" && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.expand")} title={t("launcher.expand")} onClick={() => void expand().catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }))}><Maximize2 className="size-4" /></Button>}
           {surface === "embedded" && <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={dismiss}><X className="size-4" /></Button>}
@@ -765,9 +878,24 @@ export function LauncherPanel() {
       {store.notice && <div className="launcher-notice" data-tone={store.notice.tone} role={store.notice.tone === "error" ? "alert" : "status"}>{store.notice.text}<button type="button" className="float-right" aria-label={t("common.close")} onClick={() => notify(null)}><X className="size-3.5" /></button></div>}
       {store.approval && surface === "panel" && <LauncherApprovalCard request={store.approval} onReply={async (id, decision) => { try { await launcherApprovalReply(id, decision); } finally { useLauncherStore.getState().setApproval(null); } }} />}
       {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}
-      {store.view === "conversation" && <LauncherContextBar />}
+      {store.context.length > 0 && <LauncherContextBar />}
+      {store.context.some(item => item.id.startsWith("view_")) && <p className="px-3 text-xs text-muted-foreground">{t("launcher.flow.saved_reference")}</p>}
+      {store.context.some(item => item.type === "selection" || item.type === "clipboard") && !creation && <div className="launcher-context-actions">
+        <Button variant="ghost" size="sm" onClick={() => { store.setInput([store.input, t("launcher.flow.explain_prompt")].filter(Boolean).join("\n\n")); store.setView("conversation"); }}>{t("launcher.flow.explain")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => { store.setInput([store.input, t("launcher.flow.translate_prompt")].filter(Boolean).join("\n\n")); store.setView("conversation"); }}>{t("launcher.flow.translate")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => { store.setInput([store.input, t("launcher.flow.rewrite_prompt")].filter(Boolean).join("\n\n")); store.setView("conversation"); }}>{t("launcher.flow.rewrite")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => openCreate("attach")}>{t("launcher.flow.create_attach")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => openCreate("excerpt")}>{t("launcher.flow.create_excerpt")}</Button>
+        <Button variant="ghost" size="sm" onClick={() => openCreate("task")}>{t("launcher.flow.create_task")}</Button>
+      </div>}
       {store.view !== "conversation" && attentionItems.length > 0 && <AttentionCards items={attentionItems} busy={attentionBusy} onReply={replyAttention} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />}
       <div ref={bodyRef} className="launcher-body">
+        {transfer ? <LauncherTransferForm transfer={transfer} onClose={() => { setTransfer(null); store.clearMultiSelect(); runSearch(); }} /> : creation ? <LauncherCreateForm initial={creation} onClose={() => setCreation(null)} onAttach={stageInChat} onDraft={draftDocument} /> : openChoice ? <div className="launcher-open-choice" onKeyDown={event => { const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")]; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); event.stopPropagation(); const index = buttons.findIndex(button => button === document.activeElement); buttons[(index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus(); } }}>
+          <strong>{t("launcher.flow.where_open")}</strong><p>{openChoice.title}</p>
+          <Button autoFocus variant="outline" onClick={() => openFile(openChoice, openChoice.workspaceId ?? "")}>{t("launcher.flow.open_original", { project: workspaces.find(item => item.id === openChoice.workspaceId)?.name ?? openChoice.subtitle ?? "" })}</Button>
+          <Button variant="outline" onClick={() => { if (store.workspaceContext) openFile(openChoice, store.workspaceContext.workspaceId, store.workspaceContext.paneId); }}>{t("launcher.flow.open_here", { project: store.workspaceContext?.workspaceName ?? "" })}</Button>
+          <p className="text-xs text-muted-foreground">{t("launcher.flow.linked_hint")}</p>
+        </div> : <>
         {showCommands && store.view === "conversation" && <SubmissionStatusRow submission={submission} onRetry={retrySubmission} />}
         {store.view === "results" && !calculation && <div id="launcher-options" role="listbox" aria-label={t("launcher.results.title")} aria-multiselectable>
           {renderNavigationRows(suggestionRows)}
@@ -787,13 +915,14 @@ export function LauncherPanel() {
           <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(`launcher.action_kind.${item.kind}`), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(`launcher.input.${input}`)).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
           <span className="launcher-row-hint">{item.shortcut}</span>
         </div>)}</div> : <div className="launcher-empty">{t(catalogQuery.isPending || skillsQuery.isLoading ? "launcher.coverage.searching" : "launcher.commands_empty")}</div>)}
-        {store.view === "conversation" && !showCommands && conversation && <LauncherConversation conversation={conversation} submission={submission} pendingOutput={pendingOutput} onRetry={retrySubmission} onOutputApplied={() => setPendingOutput(null)}
+        {store.view === "conversation" && !showCommands && conversation && <LauncherConversation onSave={text => setCreation({ kind: "document", workspaceId: store.target.kind === "project" ? store.target.workspaceId : "", folder: store.target.kind === "project" && store.target.workspaceId === store.workspaceContext?.workspaceId ? store.workspaceContext.folder ?? "" : "", name: conversation.title.replace(/[/\\]/g, " ").slice(0, 120), text, context: [] })} conversation={conversation} submission={submission} pendingOutput={pendingOutput} onRetry={retrySubmission} onOutputApplied={() => setPendingOutput(null)}
           onArchived={() => { const state = useLauncherStore.getState(); state.bindConversation(null); state.setInput(""); state.replaceContext([]); setSubmission(null); state.setView("idle"); void bindCurrent().catch(() => undefined); }} />}
         {store.view === "conversation" && !showCommands && !conversation && <div className="launcher-empty">{t("launcher.conversation.new_hint")}</div>}
         {store.view === "work" && <LauncherWork onOpenConversation={id => void client.assistantConversation(id).then(({ conversation: found }) => { store.bindConversation(found); store.setView("conversation"); }).catch(() => notify({ tone: "error", text: t("launcher.conversation.unavailable") }))} />}
-        {store.view === "idle" && <div className="launcher-idle" id="launcher-options" role="listbox" aria-label={t("launcher.title")}>
+        {store.view === "idle" && mode !== "ask" && <div className="launcher-idle" id="launcher-options" role="listbox" aria-label={t("launcher.title")}>
           {renderNavigationRows(homeRows)}
         </div>}
+        </>}
       </div>
           {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} extra={["preview", ...(entry.text.trim() || store.category ? ["save-search" as const] : [])]} projects={workspaces.filter(workspace => workspace.id !== selectedResult.workspaceId).map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name }))}
             onTransfer={(action, projectId) => { store.setOverlay(null); void transferFiles(selectedResult, action, projectId); inputRef.current?.focus(); }}
@@ -802,7 +931,8 @@ export function LauncherPanel() {
       <div className="launcher-footer">
         <span className="launcher-footer-status" aria-live="polite">{sending ? t("launcher.submission.sending") : store.searchPending && !calculation ? <><Loader2 className="size-3 animate-spin motion-reduce:animate-none" />{t("content_search.searching")}</> : store.view === "idle" ? t("launcher.idle.compact_hint", { files: aliases.files }) : store.target.kind === "project" && store.view === "conversation" ? t("launcher.footer.target_bound") : ""}</span>
         <div className="launcher-footer-actions">
-          {calculation?.value != null ? <button type="button" onClick={() => void copyCalculation()}>{t("launcher.calculator.copy")}<kbd>↵</kbd></button> : verb !== "none" && <span>{verb === "ask" ? t("launcher.footer.ask_short") : actionLabel(verb === "run" ? "run" : verb === "attach" ? "attach" : verb === "resume" ? "resume" : verb === "answer" ? "complete" : "open")}<kbd>↵</kbd></span>}
+          {!transfer && !creation && !openChoice && !showCommands && (store.input.trim() || store.context.length > 0) && <button type="button" disabled={sending || uploading} onClick={() => void submitAsk(mode === "ask" ? entry.text : store.input)}>{store.target.kind === "project" ? t("launcher.flow.ask_project", { project: workspaces.find(item => item.id === (store.target.kind === "project" ? store.target.workspaceId : ""))?.name ?? "" }) : t("launcher.flow.ask")}<kbd>{mod}↵</kbd></button>}
+          {!transfer && !creation && !openChoice && (calculation?.value != null ? <button type="button" onClick={() => void copyCalculation()}>{t("launcher.calculator.copy")}<kbd>↵</kbd></button> : verb !== "none" && verb !== "ask" && <span>{selectedResult?.kind === "files" && store.workspaceContext && selectedResult.workspaceId !== store.workspaceContext.workspaceId ? t("launcher.flow.where_open") : actionLabel(verb === "run" ? "run" : verb === "attach" ? "attach" : verb === "resume" ? "resume" : verb === "answer" ? "complete" : "open")}<kbd>↵</kbd></span>)}
           {selectedResult && <button type="button" onClick={openActions} title={`${mod}K`}>{t("launcher.footer.actions")}<kbd>→</kbd></button>}
           <button type="button" onClick={() => void goBack()}>{t(store.view === "idle" && !store.overlay ? "common.close" : "launcher.back")}<kbd>Esc</kbd></button>
         </div>

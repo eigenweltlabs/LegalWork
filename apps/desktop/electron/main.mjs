@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, screen, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { notificationIcon, showNativeNotification } from "./desktop-notifications.mjs";
 import { CommunicationNotifications } from "./communication-notifications.mjs";
@@ -891,14 +891,21 @@ const systemDictation = new SystemDictationService({
 });
 
 // ── Global Assistant launcher (quick panel, shortcuts, origin, capture) ────
+/** @type {BrowserWindow | null} */
+let launcherSourceWindow = null;
 const launcherWindow = new LauncherWindow({
   appRoot: APP_ROOT, startUrl: APP_START_URL, preloadPath: path.join(__dirname, "preload.cjs"), icon: APP_ICON_IMAGE, userDataDir: app.getPath("userData"),
-  focusedDisplay: () => dictationHud.focusedDisplayId ?? null,
+  focusedDisplay: () => {
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && focused !== launcherWindow.window) return screen.getDisplayMatching(focused.getBounds()).id;
+    return launcherWindow.isVisible() ? launcherWindow.displayId : dictationHud.focusedDisplayId ?? null;
+  },
   onVisibility: state => { launcherService.onVisibility(state.visible); syncBackgroundPresence(); },
   // While the panel has the keyboard, Escape works its layers; dictation's global Escape waits.
   onFocusChange: focused => { if (focused) systemDictation.suspendEscape(); else systemDictation.resumeEscape(); },
   onExpand: route => {
-    void createMainWindow().then(win => {
+    const destination = launcherSourceWindow && !launcherSourceWindow.isDestroyed() ? Promise.resolve(launcherSourceWindow) : createMainWindow();
+    void destination.then(win => {
       if (win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();
       win.show(); win.focus();
@@ -929,7 +936,10 @@ const launcherOutputs = new LauncherOutputQueue({
   },
 });
 const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), serverInfo: () => runtimeManager.legalworkServerInfo() });
+/** @type {Map<number, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
+const launcherWorkspaceContexts = new Map();
 const launcherService = new LauncherService({
+  workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); launcherSourceWindow = window && window !== launcherWindow.window ? window : null; return window ? launcherWorkspaceContexts.get(window.webContents.id) ?? null : null; },
   app, globalShortcut, userDataDir: app.getPath("userData"), window: launcherWindow, origin: originService, capture: screenCapture, pairing: raycastPairing,
   dictation: () => ({ ...systemDictation.status(), runtimeState: systemDictation.runtimeState }),
   meeting: () => meetingMonitor.status(),
@@ -2777,6 +2787,15 @@ const desktopCommandHandlers = {
       return launcherService.updateSettings(args[0] && typeof args[0] === "object" ? args[0] : {});
   },
   "launcherWindowControl": async (event, ...args) => {
+      if (args[0] === "invoke") launcherSourceWindow = BrowserWindow.fromWebContents(event.sender);
+      if (args[0] === "context") {
+        if (args[1]?.context) {
+          if (!launcherWorkspaceContexts.has(event.sender.id)) event.sender.once("destroyed", () => launcherWorkspaceContexts.delete(event.sender.id));
+          launcherWorkspaceContexts.set(event.sender.id, args[1].context);
+        }
+        else launcherWorkspaceContexts.delete(event.sender.id);
+        return launcherWindow.state();
+      }
       return launcherService.windowControl(/** @type {"show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state"} */ (String(args[0] ?? "state")), args[1] && typeof args[1] === "object" ? args[1] : undefined);
   },
   "launcherOriginGet": async (event, ...args) => {

@@ -1,3 +1,4 @@
+import { createLauncherDocument } from "../launcher-document.js";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -38,6 +39,15 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
+  addRoute(routes, "POST", "/launcher/documents", "client", async ctx => {
+    write(ctx);
+    const input = parse(z.object({ workspaceId: z.string().min(1), operationId: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/), folder: z.string().max(4096), name: z.string().trim().min(1).max(200), format: z.enum(["md", "txt", "docx"]), templatePath: z.string().max(4096).optional(), text: z.string().max(500_000) }), await options.readJsonBodyLimited(ctx.request, 2_100_000), "document_input", "Choose a project, folder and document name.");
+    const target = await options.resolveWorkspace(config, input.workspaceId);
+    const result = await createLauncherDocument(target.path, input, async path => { await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `Create ${input.name}`, paths: [path] }); });
+    await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: result.path, summary: `Created ${input.name}`, timestamp: Date.now() });
+    void fileIndex.ensure(target.id, target.path, false).catch(() => undefined);
+    return jsonResponse(result, 201);
+  });
   addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
   addRoute(routes, "POST", "/launcher/folders", "client", async ctx => {
     options.ensureWritable(config); options.requireClientScope(ctx, "owner");

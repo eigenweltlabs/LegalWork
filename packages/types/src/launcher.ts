@@ -1,3 +1,4 @@
+import { projectFileSourceSchema } from "@legalwork/types/project-files";
 import { z } from "zod";
 import { queueInputSchema } from "@legalwork/types/session-queue";
 
@@ -47,13 +48,20 @@ export const AssistantContextItemSchema = z.discriminatedUnion("type", [
   z.object({ ...contextBase, type: z.literal("selection"), text: z.string().max(200_000), sourceApp: z.string().max(200).nullable(), sourceWindow: z.string().max(400).nullable(), capturedAt: z.number() }),
   z.object({ ...contextBase, type: z.literal("clipboard"), text: z.string().max(200_000), capturedAt: z.number() }),
   z.object({ ...contextBase, type: z.literal("file"), workspaceId: z.string().nullable(), path: z.string().max(4096), name: z.string().max(400), revision: z.string().nullable(), sourceLabel: z.string().max(200).nullable() }),
-  z.object({ ...contextBase, type: z.literal("image"), name: z.string().max(400), capture: z.enum(["window", "region", "file"]), sourceApp: z.string().max(200).nullable(), sourceWindow: z.string().max(400).nullable(), capturedAt: z.number(), path: z.string().max(4096).nullable() }),
+  z.object({ ...contextBase, type: z.literal("image"), workspaceId: z.string().optional(), name: z.string().max(400), capture: z.enum(["window", "region", "file"]), sourceApp: z.string().max(200).nullable(), sourceWindow: z.string().max(400).nullable(), capturedAt: z.number(), path: z.string().max(4096).nullable() }),
 ]);
 export type AssistantContextItem = z.infer<typeof AssistantContextItemSchema>;
 export const AssistantExecutionTargetSchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("assistant") }), z.object({ kind: z.literal("project"), workspaceId: z.string().min(1) })]);
 export type AssistantExecutionTarget = z.infer<typeof AssistantExecutionTargetSchema>;
+export const LauncherWorkspaceContextSchema = z.object({
+  workspaceId: z.string().max(200), workspaceName: z.string().max(400), paneId: z.string().max(200).optional(),
+  folder: z.string().max(4096).optional(), sessionId: z.string().max(200).optional(),
+  document: z.object({ workspaceId: z.string().max(200), path: z.string().max(4096), name: z.string().max(400), revision: z.string().nullable().optional() }).optional(),
+  selection: z.string().max(200_000).optional(), capturedAt: z.number(),
+});
+export type LauncherWorkspaceContext = z.infer<typeof LauncherWorkspaceContextSchema>;
 /** Frozen when a request is submitted. Later scope changes never rewrite a running job. */
-export const AssistantContextEnvelopeSchema = z.object({ items: z.array(AssistantContextItemSchema).max(50), target: AssistantExecutionTargetSchema, searchScope: z.string().nullable(), capturedAt: z.number() });
+export const AssistantContextEnvelopeSchema = z.object({ items: z.array(AssistantContextItemSchema).max(50), workspaceContext: LauncherWorkspaceContextSchema.optional(), target: AssistantExecutionTargetSchema, searchScope: z.string().nullable(), capturedAt: z.number() });
 export type AssistantContextEnvelope = z.infer<typeof AssistantContextEnvelopeSchema>;
 
 export const AssistantSubmissionStateSchema = z.enum(["sending", "accepted", "running", "completed", "failed", "unconfirmed"]);
@@ -135,9 +143,11 @@ export type LauncherCatalogEntry = z.infer<typeof LauncherCatalogEntrySchema>;
 export const LauncherInvocationActionSchema = z.enum(["open", "search", "files", "projects", "chats", "tasks", "recordings", "ask", "speak", "dictate", "record", "capture-region", "capture-window", "quick-action", "work", "new-conversation", "resume"]);
 export type LauncherInvocationAction = z.infer<typeof LauncherInvocationActionSchema>;
 export const LauncherInvocationSourceSchema = z.enum(["shortcut", "hud", "home", "raycast", "deep-link", "tray", "test"]);
+/** Snapshot of the focused workpane, captured before the launcher takes focus. */
 export const LauncherInvocationSchema = z.object({
   id: z.string().min(1).max(100), action: LauncherInvocationActionSchema, query: z.string().max(2000).optional(), conversationId: z.string().max(100).optional(),
   projectId: z.string().max(200).optional(), actionId: z.string().max(200).optional(), contextId: z.string().max(100).optional(), source: LauncherInvocationSourceSchema,
+  workspaceContext: LauncherWorkspaceContextSchema.optional(),
 });
 export type LauncherInvocation = z.infer<typeof LauncherInvocationSchema>;
 export const LauncherStagedContextSchema = z.object({ id: z.string(), items: z.array(AssistantContextItemSchema).max(20), source: LauncherInvocationSourceSchema, createdAt: z.number(), expiresAt: z.number() });
@@ -234,3 +244,12 @@ export const LauncherDesktopEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("voice"), voice: LauncherVoiceStateSchema }),
 ]);
 export type LauncherDesktopEvent = z.infer<typeof LauncherDesktopEventSchema>;
+
+export const launcherOpenSchema = z.object({
+  source: projectFileSourceSchema, destination: z.string().min(1), paneId: z.string().optional(),
+});
+export const launcherSearchSchema = z.object({
+  input: z.string().max(200_000), category: LauncherSearchKindSchema.nullable(),
+  scope: z.object({ id: z.string(), name: z.string() }).nullable(),
+  fileFilter: z.object({ types: z.array(z.string()).nullable(), modifiedAfter: z.number().nullable() }),
+});

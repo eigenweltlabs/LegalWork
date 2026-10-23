@@ -105,6 +105,25 @@ test("assistant links carry identifiers only and reject unknown actions", () => 
   assert.equal(parseAssistantLink("legalwork-dev://assistant")?.action, "open");
 });
 
+test("in-app invocation uses the same window and freezes the source workspace before focus changes", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-context-"));
+  try {
+    const { service, window, origin } = await makeService(dir);
+    const context = { workspaceId: "project-a", workspaceName: "Project A", paneId: "right", capturedAt: 1, document: { workspaceId: "project-b", path: "contract.docx", name: "Contract" } };
+    service.options.workspaceContext = () => context;
+    await service.windowControl("invoke", { context });
+    const invocation = service.drain()[0];
+    assert.deepEqual(invocation.workspaceContext, context);
+    assert.equal(window.visibleNow, true);
+    assert.equal(origin.prefetches, 0);
+    window.hide();
+    service.options.workspaceContext = () => null;
+    await service.invoke({ id: "external", action: "open", source: "shortcut" });
+    assert.equal(origin.prefetches, 1);
+    assert.equal(service.drain()[0]?.workspaceContext, undefined);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test("approvals reach a visible panel as a card, come back unanswered when it hides, and voice changes are pushed", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "launcher-service-approvals-"));
   try {
