@@ -73,6 +73,7 @@ if (previewParams.has("theme")) document.documentElement.dataset.theme = preview
 // `?subscription=ended&role=member` previews expiry without connected services.
 const subscriptionPreview = previewParams.get("subscription") === "ended";
 const trialPreview = previewParams.has("trial");
+const fundedTrialPreview = previewParams.get("trial") === "member-limit";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
 const assistantPreview = previewParams.has("assistant");
 const modelSettingsPreview = previewParams.has("model-settings");
@@ -83,7 +84,7 @@ const requestTooLarge = previewParams.has("requestTooLarge");
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : null);
-const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
+const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
@@ -123,6 +124,14 @@ if (trialPreview && limitFixture.entitlements.entitlements) {
   limitFixture.usage.me.resetsAt = endsAt;
   limitFixture.usage.extraEnabled = false;
   limitFixture.usage.me.blockedReason = "extra_disabled";
+  if (fundedTrialPreview) {
+    limitFixture.usage.walletCents = 2500;
+    limitFixture.usage.extraEnabled = true;
+    limitFixture.usage.me.baseExtraLimitCents = 1500;
+    limitFixture.usage.me.extraLimitCents = 1500;
+    limitFixture.usage.me.extraUsedCents = 1500;
+    limitFixture.usage.me.blockedReason = "member_limit";
+  }
   limitFixture.entitlements.entitlements.subscriptionStatus = "trialing";
   limitFixture.entitlements.entitlements.trialEndsAt = endsAt;
   queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
