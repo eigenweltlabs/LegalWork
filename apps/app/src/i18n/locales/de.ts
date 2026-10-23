@@ -7804,7 +7804,7 @@ const de = {
   "launcher.result_action.open-conversation": "Gespräch öffnen",
   "launcher.back": "Zurück",
   "launcher.commands.title": "Befehle",
-  "launcher.commands.choose_context": "Wähle, wo du Befehle verwenden möchtest",
+  "launcher.commands.choose_context": "Kontext für Befehle auswählen",
   "launcher.results.title": "Suchergebnisse",
   "launcher.idle.compact_hint": "Tippen zum Suchen · Tab zum Auswählen",
   "launcher.calculator.title": "Rechner",
