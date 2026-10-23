@@ -45,7 +45,7 @@ export class LauncherService {
     this.applyShortcuts();
     this.syncCompanion();
     this.options.window.rememberPosition = this.settings.get().rememberPosition;
-    if (this.settings.get().pinned) this.options.window.setPinned(true);
+    this.options.window.setPinned(false);
     // Background presence keeps the renderer warm, so the first shortcut after boot does not cold-load it.
     if (this.settings.get().backgroundPresence) void this.options.window.ensure().catch(() => {});
   }
@@ -192,7 +192,7 @@ export class LauncherService {
     switch (command) {
       case "show": return window.show();
       case "hide": return window.hide();
-      case "pin": await this.settings.update({ pinned: true }); return window.setPinned(true);
+      case "pin": // Older renderers may still send this; the launcher always dismisses on blur.
       case "unpin": await this.settings.update({ pinned: false }); return window.setPinned(false);
       case "resize": return window.resize(payload?.height);
       case "dialog-begin": window.beginDialog(); return window.state();

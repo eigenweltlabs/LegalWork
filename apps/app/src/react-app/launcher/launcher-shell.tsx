@@ -16,7 +16,6 @@ export type LauncherShellValue = {
   desktop: boolean;
   openInApp: (route: string) => void;
   dismiss: () => void;
-  togglePin: (() => void) | null;
   refresh: () => Promise<void>;
 };
 export const LauncherShellContext = createContext<LauncherShellValue | null>(null);

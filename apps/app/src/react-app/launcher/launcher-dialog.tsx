@@ -19,7 +19,7 @@ export function LauncherDialog(props: { open: boolean; onClose: () => void; clie
   useEffect(() => { useLauncherStore.getState().setVisible(props.open); if (!props.open) useLauncherStore.getState().reset(); }, [props.open]);
   const shell = useMemo<LauncherShellValue>(() => ({
     client: props.client, assistant: props.assistant, workspaces: props.workspaces, drafts, owner, surface: "embedded", conversationId: props.conversationId, desktop: isDesktopRuntime(),
-    openInApp: route => { props.onClose(); navigate(route); }, dismiss: props.onClose, togglePin: null, refresh: async () => undefined,
+    openInApp: route => { props.onClose(); navigate(route); }, dismiss: props.onClose, refresh: async () => undefined,
   }), [props, drafts, owner, navigate]);
   return <CommandDialog open={props.open} onOpenChange={open => { if (!open) props.onClose(); }}>
     <CommandDialogPopup className="search-dialog" backdropClassName="search-backdrop" viewportClassName="search-viewport">

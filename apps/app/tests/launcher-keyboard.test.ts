@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
+import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 const items = [{ id: "a", primaryAction: "open" as const }, { id: "b", primaryAction: "attach" as const }, { id: "c", primaryAction: "run" as const }];
 test("streaming results cannot move a user selection or change the action under Enter", () => {
@@ -15,11 +16,12 @@ test("streaming results cannot move a user selection or change the action under 
   expect(moveSelection({ id: "a", source: "user" }, [], 1)).toEqual({ id: null, source: "user" });
 });
 
-test("escape peels one layer at a time and a pinned panel never dismisses", () => {
-  expect(escapeAction({ overlayOpen: true, category: true, pinned: false })).toBe("overlay");
-  expect(escapeAction({ overlayOpen: false, category: true, pinned: false })).toBe("filter");
-  expect(escapeAction({ overlayOpen: false, category: false, pinned: false })).toBe("panel");
-  expect(escapeAction({ overlayOpen: false, category: false, pinned: true })).toBeNull();
+test("Escape goes back through menu, conversation, query and filter before closing", () => {
+  expect(escapeAction({ overlayOpen: true, detail: true, query: true, category: true })).toBe("overlay");
+  expect(escapeAction({ overlayOpen: false, detail: true, query: true, category: true })).toBe("view");
+  expect(escapeAction({ overlayOpen: false, detail: false, query: true, category: true })).toBe("query");
+  expect(escapeAction({ overlayOpen: false, detail: false, query: false, category: true })).toBe("filter");
+  expect(escapeAction({ overlayOpen: false, detail: false, query: false, category: false })).toBe("panel");
   expect(isComposingKeyEvent({ isComposing: true })).toBe(true);
   expect(isComposingKeyEvent({ keyCode: 229 })).toBe(true);
   expect(isComposingKeyEvent({ nativeEvent: { isComposing: false }, keyCode: 13 })).toBe(false);
@@ -27,4 +29,20 @@ test("escape peels one layer at a time and a pinned panel never dismisses", () =
   expect(footerVerb(items[2], "command")).toBe("run");
   expect(footerVerb(null, "search")).toBe("none");
   expect(footerVerb(null, "ask")).toBe("ask");
+});
+
+test("keyboard selection follows displayed groups even when responses arrive out of order", () => {
+  const result = (id: string, kind: LauncherSearchResult["kind"]): LauncherSearchResult => ({ id, kind, sourceId: "local", workspaceId: "w", title: id, match: "prefix", score: 1, actions: ["open"] });
+  const ordered = orderLauncherResults([result("chat", "chats"), result("file-a", "files"), result("project", "projects"), result("file-b", "files")]);
+  expect(ordered.map(item => item.id)).toEqual(["project", "file-a", "file-b", "chat"]);
+  expect(moveSelection({ id: "file-a", source: "user" }, ordered, 1).id).toBe("file-b");
+  expect(optionId("files\u0000local\u0000Müller.pdf")).not.toContain("\u0000");
+});
+
+test("home and command rows arriving later become selectable without displacing a manual choice", () => {
+  const rows = [{ id: "new" }, { id: "saved" }, { id: "recent" }];
+  expect(reconcileSelection({ id: null, source: "auto" }, rows).id).toBe("new");
+  const selected = moveSelection({ id: "new", source: "auto" }, rows, 1);
+  expect(enterTarget(selected, rows)?.id).toBe("saved");
+  expect(reconcileSelection(selected, [{ id: "resume" }, ...rows])).toEqual(selected);
 });

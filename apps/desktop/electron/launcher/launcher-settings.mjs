@@ -18,11 +18,11 @@ const ACCELERATOR = /^[A-Za-z0-9+]{1,60}$/;
  */
 export function normalizeLauncherSettings(input, current = DEFAULT_LAUNCHER_SETTINGS) {
   /** @type {import("@legalwork/types/launcher").LauncherSettings} */
-  const next = { ...DEFAULT_LAUNCHER_SETTINGS, ...current, aliases: { ...current.aliases }, actionShortcuts: { ...current.actionShortcuts } };
+  const next = { ...DEFAULT_LAUNCHER_SETTINGS, ...current, pinned: false, aliases: { ...current.aliases }, actionShortcuts: { ...current.actionShortcuts } };
   if (!input || typeof input !== "object") return next;
   const patch = /** @type {Record<string, unknown>} */ (input);
   if (typeof patch.shortcut === "string" && ACCELERATOR.test(patch.shortcut.trim())) next.shortcut = patch.shortcut.trim();
-  for (const key of /** @type {const} */ (["backgroundPresence", "autostart", "companion", "companionBadge", "pinned", "rememberPosition"])) if (typeof patch[key] === "boolean") next[key] = patch[key];
+  for (const key of /** @type {const} */ (["backgroundPresence", "autostart", "companion", "companionBadge", "rememberPosition"])) if (typeof patch[key] === "boolean") next[key] = patch[key];
   if (patch.aliases && typeof patch.aliases === "object") {
     const aliases = /** @type {Record<string, unknown>} */ (patch.aliases);
     for (const kind of /** @type {const} */ (["files", "projects", "chats", "tasks", "recordings"])) {

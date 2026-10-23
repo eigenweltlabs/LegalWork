@@ -128,7 +128,6 @@ export function LauncherRoute() {
     client, assistant, workspaces, drafts, owner, surface: "panel", conversationId: null, desktop,
     openInApp: route => { if (desktop) void launcherWindowControl("expand", { route }); else navigate(route); },
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
-    togglePin: desktop ? () => { const pinned = useLauncherStore.getState().pinned; void launcherWindowControl(pinned ? "unpin" : "pin").then(state => useLauncherStore.getState().setPinned(state.pinned)); } : null,
     refresh,
   } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh]);
   // The panel grows with its content; the window follows the rendered height.
@@ -136,7 +135,7 @@ export function LauncherRoute() {
     if (!desktop || typeof ResizeObserver === "undefined") return;
     let timer: ReturnType<typeof setTimeout> | undefined, last = 0;
     const observer = new ResizeObserver(entries => {
-      const height = Math.ceil(entries[0]?.contentRect.height ?? 0) + 16;
+      const height = Math.ceil(entries[0]?.contentRect.height ?? 0);
       if (!height || Math.abs(height - last) < 4) return;
       last = height;
       clearTimeout(timer);

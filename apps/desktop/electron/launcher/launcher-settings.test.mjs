@@ -30,3 +30,8 @@ test("the store persists atomically and reloads", async () => {
     assert.equal(reloaded.get().shortcut, DEFAULT_LAUNCHER_SETTINGS.shortcut);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("legacy window pin preferences cannot leave the launcher stuck open", () => {
+  assert.equal(normalizeLauncherSettings({ pinned: true }).pinned, false);
+  assert.equal(normalizeLauncherSettings({}, { ...DEFAULT_LAUNCHER_SETTINGS, pinned: true }).pinned, false);
+});

@@ -60,9 +60,9 @@ export class LauncherWindow {
     if (!this.remembered) await this.loadPosition();
     const window = new BrowserWindow({
       ...placePanel(this.display().workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered),
-      ...(process.platform === "darwin" ? { type: "panel", vibrancy: "under-window", visualEffectState: "active" } : {}),
+      ...(process.platform === "darwin" ? { type: "panel" } : {}),
       frame: false, transparent: process.platform !== "linux", resizable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, show: false,
-      hasShadow: false, alwaysOnTop: true, title: "LegalWork Assistant",
+      hasShadow: false, backgroundColor: "#00000000", alwaysOnTop: true, title: "LegalWork Assistant",
       ...(this.options.icon && !this.options.icon.isEmpty() ? { icon: this.options.icon } : {}),
       webPreferences: { preload: this.options.preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
     });

@@ -29,7 +29,7 @@ const translations = {
     slow: "Taking longer than usual…",
     "meeting-starting": "Starting recording…", "meeting-recording": "Recording meeting", "meeting-saving": "Saving meeting…", "meeting-error": "Recording needs attention",
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
-    assistant: "Open Assistant",
+    assistant: "Start Assistant",
   },
   de: {
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
@@ -39,7 +39,7 @@ const translations = {
     slow: "Dauert länger als üblich…",
     "meeting-starting": "Aufnahme wird gestartet…", "meeting-recording": "Besprechung wird aufgenommen", "meeting-saving": "Besprechung wird gespeichert…", "meeting-error": "Aufnahme braucht Aufmerksamkeit",
     meetingStart: "Besprechung aufnehmen", meetingStop: "Aufnahme beenden und speichern", meetingOpen: "Aufnahme in LegalWork öffnen", meetingDetected: "Besprechung erkannt", meetingDescription: "Mikrofon und Besprechungston aufnehmen", meetingDismiss: "Nicht jetzt", meetingRecord: "Aufnehmen",
-    assistant: "Assistenten öffnen",
+    assistant: "Assistenten starten",
   },
 };
 
@@ -100,7 +100,8 @@ bridge.onState((value) => {
   const badge = document.getElementById("assistant-badge");
   const assistantLabel = (labels.assistant || "Open Assistant") + (companion.attention ? ` · ${companion.attention}` : "");
   assistantButton.setAttribute("aria-label", assistantLabel);
-  assistantButton.title = assistantLabel;
+  assistantButton.title = "";
+  document.getElementById("assistant-label").textContent = labels.assistant;
   badge.hidden = !(companion.badge && companion.attention > 0);
   badge.textContent = companion.attention > 9 ? "9+" : String(companion.attention);
   document.getElementById("start").disabled = !value.enabled || !value.registered;
@@ -178,7 +179,7 @@ let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
   bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
-  for (const id of ["start", "meeting-start"]) {
+  for (const id of ["start", "meeting-start", "assistant"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }
   if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;

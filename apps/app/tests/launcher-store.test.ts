@@ -13,3 +13,23 @@ test("hiding the panel clears a typed search but keeps a conversation draft", ()
   expect(useLauncherStore.getState()).toMatchObject({ view: "conversation", input: "Was ist offen?" });
   expect(useLauncherStore.getState().conversation?.pinned).toBe(false);
 });
+
+test("late search updates cannot steal a home, command or calculator selection", () => {
+  const store = useLauncherStore.getState();
+  for (const view of ["idle", "commands", "results"] as const) {
+    store.setView(view);
+    store.select({ id: view === "results" ? "calculator" : "home:new", source: "user" });
+    const selection = useLauncherStore.getState().selection;
+    store.setResults([], [], false, null);
+    expect(useLauncherStore.getState().selection).toEqual(selection);
+  }
+});
+
+test("typing a new search resets selection, while restoring a view keeps its chosen row", () => {
+  const store = useLauncherStore.getState();
+  store.setView("results"); store.select({ id: "old", source: "user" });
+  store.setInput("different query");
+  expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
+  store.setView("conversation"); store.setView("results"); store.select({ id: "restored", source: "user" });
+  expect(useLauncherStore.getState().selection.id).toBe("restored");
+});

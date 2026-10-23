@@ -1,4 +1,4 @@
-import type { LauncherResultAction } from "@legalwork/types/launcher";
+import type { LauncherResultAction, LauncherSearchResult } from "@legalwork/types/launcher";
 
 export type LauncherSelection = { id: string | null; source: "auto" | "user" };
 export type SelectableItem = { id: string; primaryAction?: LauncherResultAction | "run" | "open-conversation" | "resume" | null };
@@ -22,12 +22,21 @@ export function enterTarget(selection: LauncherSelection, items: SelectableItem[
   return selection.id ? items.find(item => item.id === selection.id) ?? null : null;
 }
 
-export type EscapeLayer = "overlay" | "filter" | "panel";
-/** Escape closes the innermost preview or menu first, then clears the active filter, then dismisses an unpinned panel. */
-export function escapeAction(state: { overlayOpen: boolean; category: boolean; pinned: boolean }): EscapeLayer | null {
+export const RESULT_KIND_ORDER = ["projects", "files", "chats", "tasks", "recordings"] as const;
+export function orderLauncherResults(items: LauncherSearchResult[]) {
+  return RESULT_KIND_ORDER.flatMap(kind => items.filter(item => item.kind === kind));
+}
+// Result keys contain NUL separators, which cannot be addressed by CSS selectors.
+export function optionId(key: string) { return `launcher-option-${encodeURIComponent(key)}`; }
+
+export type EscapeLayer = "overlay" | "view" | "query" | "filter" | "panel";
+/** Back out of the innermost surface before dismissing the launcher. */
+export function escapeAction(state: { overlayOpen: boolean; category: boolean; query: boolean; detail: boolean }): EscapeLayer {
   if (state.overlayOpen) return "overlay";
+  if (state.detail) return "view";
+  if (state.query) return "query";
   if (state.category) return "filter";
-  return state.pinned ? null : "panel";
+  return "panel";
 }
 
 /** IME composition never submits (isComposing, keyCode 229 on some engines). */

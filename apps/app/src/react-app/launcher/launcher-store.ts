@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
 import type { LauncherSelection } from "./launcher-keyboard";
-import { reconcileSelection } from "./launcher-keyboard";
+import { orderLauncherResults } from "./launcher-keyboard";
 
 export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work";
 export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "context-menu" } | null;
@@ -77,14 +77,14 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   ...initial,
   setInvocation: invocation => set({ invocation }),
   setVisible: visible => set({ visible }),
-  setInput: input => set({ input }),
+  setInput: input => set(state => ({ input, ...(state.input !== input && state.view !== "conversation" ? { selection: { id: null, source: "auto" }, multiSelect: new Set<string>(), overlay: null } : {}) })),
   setCategory: category => set({ category }),
   setFileFilter: filter => set(state => ({ fileFilter: { ...state.fileFilter, ...filter } })),
   // A search scope never silently becomes the execution target; the target changes only through its own control.
   setScope: scope => set({ scope }),
   setTarget: target => set({ target }),
-  setView: view => set({ view }),
-  setResults: (results, sources, searchPending, searchError) => set(state => ({ results, sources, searchPending, searchError, selection: reconcileSelection(state.selection, results.map(item => ({ id: `${item.kind}\u0000${item.sourceId}\u0000${item.id}` }))) })),
+  setView: view => set(state => ({ view, ...(state.view !== view ? { selection: { id: null, source: "auto" } } : {}) })),
+  setResults: (results, sources, searchPending, searchError) => set({ results: orderLauncherResults(results), sources, searchPending, searchError }),
   setCatalog: catalog => set({ catalog }),
   select: selection => set({ selection }),
   toggleMultiSelect: key => set(state => { const next = new Set(state.multiSelect); if (next.has(key)) next.delete(key); else next.add(key); return { multiSelect: next }; }),
