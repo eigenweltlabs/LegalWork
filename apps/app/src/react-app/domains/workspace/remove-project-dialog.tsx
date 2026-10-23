@@ -167,7 +167,7 @@ export function RemoveProjectDialog({ name, workspaceId, remote, client, onConfi
         {busy && wantsBackup && !removal.deleted && <p role="status" className="text-sm text-muted-foreground">{t("workspace.backup_working")}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel ref={cancelRef} disabled={busy || picking}>{t(removal.deleted ? "common.close" : "common.cancel")}</AlertDialogCancel>
-          <Button variant={removal.deleted || wantsBackup ? "default" : "destructive"} disabled={actionDisabled} aria-busy={busy} onClick={() => void remove()}>
+          <Button variant={removal.deleted ? "default" : "destructive"} disabled={actionDisabled} aria-busy={busy} onClick={() => void remove()}>
             {busy && <Loader2 className="size-4 animate-spin" />}
             {t(removal.deleted ? "common.retry" : remote ? "sidebar.remove_project" : "sidebar.delete_project")}
           </Button>
