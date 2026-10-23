@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, readFile, realpath, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ProjectDeletionReview } from "@legalwork/types/workspace";
@@ -28,6 +28,25 @@ const result = <T>(response: { data?: T; response?: Response }): NonNullable<T> 
   return response.data;
 };
 const requestOptions = () => ({ signal: AbortSignal.timeout(30_000) });
+
+/** A small, direct-folder preview helps people recognize their files without exposing a filesystem path. */
+async function previewFolder(path: string, info: Awaited<ReturnType<typeof lstat>> | null) {
+  if (!info?.isDirectory() || info.isSymbolicLink()) return null;
+  try {
+    const entries = await readdir(path, { withFileTypes: true });
+    const sorted = entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+    return {
+      total: sorted.length,
+      items: sorted.slice(0, 6).map(entry => ({
+        name: entry.name,
+        kind: entry.isSymbolicLink() ? "link" as const : entry.isDirectory() ? "folder" as const : "file" as const,
+      })),
+    };
+  } catch {
+    // A preview must never turn an otherwise valid deletion review into a failure.
+    return null;
+  }
+}
 
 async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine) {
   if (workspace.workspaceType !== "local") throw new ApiError(400, "local_project_required", "Delete the project on its host. This computer can only remove the remote connection.");
@@ -65,13 +84,14 @@ async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engi
   const statuses = result(await engine.session.status({}, requestOptions()));
   if (sessions.some(session => statuses[session.id] && statuses[session.id].type !== "idle"))
     throw new ApiError(409, "project_chats_busy", "Stop the project's running chats before deleting it.");
+  const folderItems = await previewFolder(folder, info);
   const review: ProjectDeletionReview = {
     token: createHash("sha256").update(JSON.stringify({ id: workspace.id, canonical, inode: info?.ino, device: info?.dev, folderOrigin, deleteFolder,
       sessions: sessions.map(session => [session.id, session.time.updated]).sort(),
       incoming: incoming.map(item => [item.workspace.id, item.workspace.path, item.link]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     })).digest("hex"),
     name: workspace.displayName || workspace.name,
-    folder, folderExists: Boolean(info), deleteFolder, chatCount: sessions.length,
+    folder, folderExists: Boolean(info), deleteFolder, folderItems, chatCount: sessions.length,
     copies: incoming.map(item => ({ projectId: item.workspace.id, projectName: item.workspace.displayName || item.workspace.name, name: item.link.name, folder: item.link.folder })),
   };
   return { review, incoming, sessions, canonical, inode: info?.ino, device: info?.dev };

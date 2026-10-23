@@ -34,7 +34,7 @@ afterEach(async () => {
   if (previousProjects === undefined) delete process.env.LEGALWORK_PROJECTS_DIR; else process.env.LEGALWORK_PROJECTS_DIR = previousProjects;
 });
 type Chat = { id: string; directory: string; parentID?: string; time: { created: number; updated: number; archived?: number } };
-const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), chatCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
+const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), folderItems: z.object({ total: z.number(), items: z.array(z.object({ name: z.string(), kind: z.enum(["file", "folder", "link"]) })) }).nullable(), chatCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
 async function fixture(external = false, origin: "created_by_app" | "selected_existing" | "unknown" = external ? "selected_existing" : "created_by_app") {
   const root = await mkdtemp(join(tmpdir(), "legalwork-project-deletion-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -126,6 +126,7 @@ test("deletes managed files and all chats; retains external targets and independ
 test("an external project folder remains intact while its chats and registration are deleted", async () => {
   const f = await fixture(true), review = await f.review();
   expect(review.deleteFolder).toBe(false);
+  expect(review.folderItems).toEqual({ total: 1, items: [{ name: "contract.docx", kind: "file" }] });
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   expect(response.status).toBe(200); await response.arrayBuffer();
   expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");

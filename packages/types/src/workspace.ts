@@ -248,6 +248,8 @@ export type ProjectDeletionReview = {
   folder: string;
   folderExists: boolean;
   deleteFolder: boolean;
+  /** A short, non-path-based preview of the project folder shown before deletion. */
+  folderItems: { total: number; items: Array<{ name: string; kind: "file" | "folder" | "link" }> } | null;
   chatCount: number;
   copies: Array<{ projectId: string; projectName: string; name: string; folder: string }>;
 };
