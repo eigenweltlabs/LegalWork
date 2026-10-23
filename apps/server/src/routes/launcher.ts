@@ -10,6 +10,7 @@ import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
 import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
+import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
 import { readAssistantAttention } from "../assistant-attention.js";
 import { readDelegationResult } from "../assistant-delegation-result.js";
@@ -311,6 +312,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (!source) throw new ApiError(404, "assistant_missing", "The Assistant is unavailable.");
     const delegation = delegations.list(source.id).find(item => item.workspaceId === ctx.params.workspaceId && item.sessionId === ctx.params.sessionId);
     if (!delegation) throw new ApiError(404, "attention_scope", "This chat was not delegated by your Assistant.");
+    const workspace = await options.resolveWorkspace(config, delegation.workspaceId);
+    const authority = await assistantRequestAuthority(config, ctx.request, ctx.actor);
+    assertAssistantDispatchAuthority(authority, workspace.id);
+    await options.sessionAccess.checkDirectory(workspace.path, authority);
     const action = parse(z.enum(["stop", "redirect", "reply"]), ctx.params.action, "work_action", "Stop, redirect or reply to one job.");
     const body = ctx.request.body ? await options.readJsonBodyLimited(ctx.request, 20_000) : {};
     const prompt = parse(z.string().trim().min(1).max(12000).optional(), body.prompt, "work_prompt", "Provide the instruction.");
@@ -321,7 +326,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const receipt = sessionQueue.receipt(destination, prompt, requestId);
     if (receipt) return jsonResponse({ ok: true, status: receipt.state, message: receipt });
     if (action === "redirect") await sessionQueue.stop(destination);
-    const message = await sessionQueue.submit(destination, prompt, requestId);
+    const message = await sessionQueue.submit(destination, prompt, authority, requestId);
     options.changed();
     return jsonResponse({ ok: true, status: message.state, message });
   });

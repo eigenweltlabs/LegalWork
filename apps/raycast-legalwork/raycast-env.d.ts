@@ -40,4 +40,3 @@ declare namespace Arguments {
   /** Arguments passed to the `work` command */
   export type Work = {}
 }
-
