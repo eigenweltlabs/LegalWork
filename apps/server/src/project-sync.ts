@@ -450,7 +450,8 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
       await setProjectSyncId(folderPath, remote.id);
       origin = "remote";
     }
-    workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: "starter", position: "last" })).workspace;
+    workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: "starter", position: "last",
+      folderOrigin: existing ? "selected_existing" : "created_by_app" })).workspace;
   }
   store.clearRemoved(remote.id);
   const link: ProjectLink = {

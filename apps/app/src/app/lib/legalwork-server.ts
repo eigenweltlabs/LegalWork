@@ -1998,8 +1998,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteWorkspace },
       ),
     reviewProjectDeletion: (workspaceId: string) => requestJson<ProjectDeletionReview>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/deletion`, { token, hostToken, timeoutMs: 120_000 }),
-    deleteProject: (workspaceId: string, reviewToken: string) => requestJson<{ ok: boolean; sessionIds: string[]; copiedFiles: number }>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/delete-project`, {
-      token, hostToken, method: "POST", body: { token: reviewToken }, timeoutMs: 300_000,
+    deleteProject: (workspaceId: string, reviewToken: string, backupDirectory?: string) => requestJson<{ ok: boolean; sessionIds: string[]; copiedFiles: number; backupPath: string | null }>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/delete-project`, {
+      token, hostToken, method: "POST", body: { token: reviewToken, ...(backupDirectory ? { backupDirectory } : {}) }, timeoutMs: backupDirectory ? 0 : 300_000,
     }),
     sessionViewReview: (workspaceId: string, sessionId: string) => requestJson<SessionViewReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/views`, { token, hostToken }),
     deleteSession: (workspaceId: string, sessionId: string, discardReview?: string) =>

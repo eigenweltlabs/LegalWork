@@ -2,6 +2,7 @@ import type { registerProjectFolderRoutes } from "./project-folders.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { deleteProjectData, reviewProjectDeletion } from "../project-deletion.js";
 import { withProjectDeletion } from "../project-deletion-gate.js";
+import { recordProjectFolderOrigin, type ProjectFolderOrigin } from "../project-folder-origin.js";
 import type { ProjectFileLink } from "../project-file-schema.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -270,6 +271,7 @@ export async function registerLocalProject(
     preset: string;
     projectFields?: ReturnType<typeof parseProjectFields> | null;
     position?: "first" | "last";
+    folderOrigin?: ProjectFolderOrigin;
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   const workspacePath = resolve(input.folderPath);
@@ -287,6 +289,7 @@ export async function registerLocalProject(
     ...inheritWorkspaceOpencodeConnection(config),
   };
   const previous = config.workspaces.find(entry => entry.id === workspace.id);
+  await recordProjectFolderOrigin(config, workspace, input.folderOrigin ?? "selected_existing");
   if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);
   const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
   config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
@@ -455,7 +458,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
-    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
+    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields,
+      folderOrigin: body.folderMode === "default" ? "created_by_app" : "selected_existing" });
     if (preparedFolders?.length || initializeFromFolders)
       await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
@@ -679,10 +683,13 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     ensureWritable(config);
     const body = await readJsonBodyLimited(ctx.request, 4096);
     if (typeof body.token !== "string" || !body.token) throw new ApiError(400, "project_deletion_review_required", "Review the project before deleting it.");
+    if (body.backupDirectory !== undefined && (typeof body.backupDirectory !== "string" || !body.backupDirectory.trim() || body.backupDirectory.length > 4096))
+      throw new ApiError(400, "invalid_backup_folder", "Choose a folder for the backup.");
+    const backupDirectory = typeof body.backupDirectory === "string" ? body.backupDirectory.trim() : undefined;
     const token = body.token;
     return withProjectDeletion(config, async () => {
       const workspace = registeredWorkspace(ctx.params.id);
-      const result = await deleteProjectData({ config, workspace, engine: options.createProjectEngine(workspace), token,
+      const result = await deleteProjectData({ config, workspace, engine: options.createProjectEngine(workspace), token, backupDirectory,
         readConnected: link => options.readConnectedLink(ctx, link),
         cleanupSession: id => options.cleanupProjectSession(workspace.id, id),
         beforeFiles: async () => {

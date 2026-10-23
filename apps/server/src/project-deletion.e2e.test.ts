@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import { ReviewService } from "./reviews/service.js";
 import { ReviewDefaults } from "./reviews/storage.js";
 import { CorpusService } from "./corpus/service.js";
 import { projectSyncStore } from "./project-sync-store.js";
+import { recordProjectFolderOrigin, projectFolderOrigin } from "./project-folder-origin.js";
 import { runtimeDbPath } from "./runtime-db.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -32,7 +33,7 @@ afterEach(async () => {
 });
 type Chat = { id: string; directory: string; parentID?: string; time: { created: number; updated: number; archived?: number } };
 const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), chatCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
-async function fixture(external = false) {
+async function fixture(external = false, origin: "created_by_app" | "selected_existing" | "unknown" = external ? "selected_existing" : "created_by_app") {
   const root = await mkdtemp(join(tmpdir(), "legalwork-project-deletion-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   process.env.LEGALWORK_DATA_DIR = join(root, "data");
@@ -44,7 +45,7 @@ async function fixture(external = false) {
   const chats = new Map<string, Chat>();
   const addChat = (id: string, directory = folder, parentID?: string) => chats.set(id, { id, directory, parentID, time: { created: 1, updated: 1 } });
   addChat("chat"); addChat("child", folder, "chat"); addChat("unrelated", other);
-  const state: { busy: boolean; failDelete: boolean; deleted: string[]; beforeMessages?: () => Promise<void> } = { busy: false, failDelete: false, deleted: [] };
+  const state: { busy: boolean; failDelete: boolean; deleted: string[]; beforeMessages?: () => Promise<void>; beforeDelete?: () => Promise<void> } = { busy: false, failDelete: false, deleted: [] };
   const remove = (id: string) => { for (const child of [...chats.values()].filter(chat => chat.parentID === id)) remove(child.id); chats.delete(id); };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), path = url.pathname;
@@ -57,6 +58,7 @@ async function fixture(external = false) {
       if (match[2] === "/message") { await state.beforeMessages?.(); return Response.json([]); }
       if (!chats.has(id)) return Response.json({ error: "not_found" }, { status: 404 });
       if (request.method === "DELETE") {
+        await state.beforeDelete?.();
         if (state.failDelete) return Response.json({ error: "unavailable" }, { status: 503 });
         state.deleted.push(id); remove(id); return Response.json(true);
       }
@@ -66,10 +68,11 @@ async function fixture(external = false) {
   } });
   cleanup.push(() => { engine.stop(true); });
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"),
-    projectsDirectory: managed, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
+    projectsDirectory: managed, opencodeBaseUrl: `http://127.0.0.1:${engine.port}`, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"],
     workspaces: [ { id: "source", name: "Source", path: folder }, { id: "other", name: "Other", path: other }, { id: "third", name: "Third", path: third } ].map(item => ({ ...item, preset: "starter", workspaceType: "local", baseUrl: `http://127.0.0.1:${engine.port}` })),
     authorizedRoots: [folder, other, third], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   await writeFile(config.configPath!, JSON.stringify({ workspaces: config.workspaces, authorizedRoots: config.authorizedRoots }));
+  if (origin !== "unknown") await recordProjectFolderOrigin(config, config.workspaces[0], origin);
   const server = await startServer(config); cleanup.push(() => server.stop());
   const request = (path: string, method = "GET", body?: unknown, host = true) => fetch(`http://127.0.0.1:${server.port}${path}`, {
     method, headers: { authorization: "Bearer client", ...(host ? { "x-legalwork-host-token": "host" } : {}), "content-type": "application/json" },
@@ -385,4 +388,125 @@ test("a detached tabular review blocks deletion until results and history have f
     expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
     expect(await stat(f.folder).catch(() => null)).toBeNull();
   } finally { release(); await Promise.allSettled(jobs); await service.stop(); }
+});
+
+
+for (const origin of ["selected_existing", "unknown"] satisfies Array<"selected_existing" | "unknown">) {
+  test(`${origin} folders inside the default project directory are retained, including attachments`, async () => {
+    const f = await fixture(false, origin);
+    await mkdir(join(f.folder, ".legalwork", "attachments"), { recursive: true });
+    await writeFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "Keep this upload");
+    // Project metadata / caller-supplied flags cannot grant recursive deletion.
+    await writeFile(join(f.folder, ".legalwork", "project.json"), JSON.stringify({ folderOrigin: "created_by_app" }));
+    const review = await f.review(); expect(review.deleteFolder).toBe(false);
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token, deleteFolder: true, folderOrigin: "created_by_app" })).status).toBe(200);
+    expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+    expect(await readFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "utf8")).toBe("Keep this upload");
+    expect([...f.chats.keys()]).toEqual(["unrelated"]);
+  });
+}
+
+test("creation records provenance and explicitly reattaching a folder treats it as a source folder", async () => {
+  const f = await fixture();
+  const response = await f.request("/workspaces/local", "POST", { name: "New project", preset: "starter", folderMode: "default" });
+  expect(response.status).toBe(201);
+  const id = z.object({ activeId: z.string() }).parse(await response.json()).activeId;
+  const workspace = f.config.workspaces.find(item => item.id === id)!;
+  expect(await projectFolderOrigin(f.config, workspace)).toBe("created_by_app");
+  expect(reviewSchema.parse(await (await f.request(`/workspaces/${id}/deletion`)).json()).deleteFolder).toBe(true);
+  expect((await f.request("/workspaces/local", "POST", { name: "Existing source", preset: "starter", folderMode: "selected", folderPath: workspace.path, folderOrigin: "created_by_app" })).status).toBe(201);
+  expect(await projectFolderOrigin(f.config, workspace)).toBe("selected_existing");
+  expect(reviewSchema.parse(await (await f.request(`/workspaces/${id}/deletion`)).json()).deleteFolder).toBe(false);
+});
+
+test("changing the default location does not change an app-created folder's deletion policy", async () => {
+  const f = await fixture();
+  f.config.projectsDirectory = join(f.root, "new-default");
+  const review = await f.review(); expect(review.deleteFolder).toBe(true);
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+  expect(await stat(f.folder).catch(() => null)).toBeNull();
+});
+
+test("a different folder at the same path does not inherit deletion rights or an old confirmation", async () => {
+  const f = await fixture(), before = await f.review();
+  await rename(f.folder, join(f.root, "original")); await mkdir(f.folder);
+  await writeFile(join(f.folder, "keep.txt"), "New folder supplied by user");
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: before.token })).status).toBe(409);
+  const review = await f.review(); expect(review.deleteFolder).toBe(false);
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+  expect(await readFile(join(f.folder, "keep.txt"), "utf8")).toBe("New folder supplied by user");
+});
+
+test("back up and delete preserves hidden files, empty folders, binary bytes and working links without overwriting", async () => {
+  const f = await fixture(), destination = join(f.root, "backups");
+  await mkdir(join(destination, "source backup"), { recursive: true });
+  await writeFile(join(destination, "source backup", "keep.txt"), "Previous backup");
+  await mkdir(join(f.folder, ".legalwork", "attachments"), { recursive: true });
+  const bytes = Buffer.from([0, 1, 255, 128, 0]);
+  await writeFile(join(f.folder, ".legalwork", "attachments", "original.bin"), bytes);
+  await mkdir(join(f.folder, "empty"));
+  await symlink(join(f.folder, "contract.docx"), join(f.folder, "internal"));
+  await symlink("../../external/keep.txt", join(f.folder, "external"));
+  await symlink(f.outside, join(f.folder, "linked-folder"));
+  const review = await f.review();
+  const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token, backupDirectory: destination });
+  const body = await response.json(); expect(response.status).toBe(200);
+  const saved = z.object({ backupPath: z.string() }).parse(body).backupPath;
+  expect(saved).toBe(await realpath(join(destination, "source backup (2)")));
+  expect(await readFile(join(saved, ".legalwork", "attachments", "original.bin"))).toEqual(bytes);
+  expect(await readdir(join(saved, "empty"))).toEqual([]);
+  expect(await readFile(join(saved, "internal"), "utf8")).toBe("Original contract");
+  expect(await readFile(join(saved, "external"), "utf8")).toBe("External original");
+  expect(await readlink(join(saved, "linked-folder"))).toBe(await realpath(f.outside));
+  expect(await readFile(join(destination, "source backup", "keep.txt"), "utf8")).toBe("Previous backup");
+  expect(await stat(f.folder).catch(() => null)).toBeNull();
+  expect([...f.chats.keys()]).toEqual(["unrelated"]);
+});
+
+test("invalid backup destinations leave all project files, chats and links untouched", async () => {
+  const f = await fixture(); await f.linked(f.other);
+  await mkdir(join(f.folder, "nested")); await symlink(f.folder, join(f.root, "alias"));
+  const review = await f.review();
+  for (const backupDirectory of [f.folder, join(f.folder, "nested"), join(f.root, "alias"), join(f.root, "missing"), join(f.folder, "contract.docx"), "relative/path"]) {
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token, backupDirectory })).status).toBe(400);
+    expect(f.state.deleted).toEqual([]);
+    expect(await readProjectFileLinks(f.other)).toHaveLength(1);
+    expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  }
+});
+
+test("if files change after backup, the project folder remains with its latest content", async () => {
+  const f = await fixture(), destination = join(f.root, "backups"); await mkdir(destination);
+  f.state.beforeDelete = async () => { await writeFile(join(f.folder, "contract.docx"), "Edited outside LegalWork during deletion"); };
+  const review = await f.review();
+  const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token, backupDirectory: destination });
+  expect(response.status).toBe(409);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Edited outside LegalWork during deletion");
+  expect(await readFile(join(destination, "source backup", "contract.docx"), "utf8")).toBe("Original contract");
+  expect(f.config.workspaces.some(item => item.id === "source")).toBe(true);
+});
+
+test("an uncopyable link fails the backup before deleting chats, files or project links", async () => {
+  const f = await fixture(), destination = join(f.root, "backups"); await mkdir(destination);
+  await f.linked(f.other);
+  await symlink("loop", join(f.folder, "loop"));
+  const review = await f.review();
+  const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token, backupDirectory: destination });
+  expect(response.status).toBe(409);
+  expect(z.object({ code: z.string() }).parse(await response.json()).code).toBe("project_backup_failed");
+  expect(f.state.deleted).toEqual([]);
+  expect(await readProjectFileLinks(f.other)).toHaveLength(1);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  expect(await readdir(destination)).toEqual([]);
+});
+
+test("a backup modified after copying prevents deletion of the original folder", async () => {
+  const f = await fixture(), destination = join(f.root, "backups"); await mkdir(destination);
+  f.state.beforeDelete = async () => { await writeFile(join(destination, "source backup", "contract.docx"), "Overwritten backup"); };
+  const review = await f.review();
+  const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token, backupDirectory: destination });
+  expect(response.status).toBe(409);
+  expect(z.object({ code: z.string() }).parse(await response.json()).code).toBe("project_backup_changed");
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  expect(f.config.workspaces.some(item => item.id === "source")).toBe(true);
 });

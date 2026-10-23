@@ -6,7 +6,7 @@ import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ProjectDeletionReview } from "@legalwork/types/workspace";
 import { ApiError } from "./errors.js";
 import { canonicalFilePath } from "./file-write-lock.js";
-import { defaultProjectRoot } from "./project-store.js";
+import { projectFolderOrigin } from "./project-folder-origin.js";
 import { readProjectFileLinks, updateProjectFileLinks, projectFileParent, importProjectFile } from "./project-file-links.js";
 import type { ProjectFileLink } from "./project-file-schema.js";
 import { beginSessionDeletion } from "./session-execution-gate.js";
@@ -14,6 +14,7 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { WikiStore } from "./wiki/store.js";
 import { assertProjectFolderIndependent } from "./wiki/workspace-safety.js";
 import { copyViewRecord } from "./views/repository.js";
+import { backupProjectFolder } from "./project-backup.js";
 
 type Engine = ReturnType<typeof createOpencodeClient>;
 type Incoming = { workspace: WorkspaceInfo; link: ProjectFileLink };
@@ -34,8 +35,8 @@ async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engi
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
   });
-  const managedRoot = await canonicalFilePath(defaultProjectRoot(config.projectsDirectory));
-  const deleteFolder = Boolean(info?.isDirectory() && !info.isSymbolicLink() && inside(managedRoot, canonical) && inside(resolve(defaultProjectRoot(config.projectsDirectory)), folder));
+  const folderOrigin = await projectFolderOrigin(config, workspace);
+  const deleteFolder = folderOrigin === "created_by_app";
   if (info && !info.isDirectory() && !info.isSymbolicLink()) throw new ApiError(409, "project_folder_unavailable", "The project folder is unavailable. Reconnect it before deleting the project.");
   if ((await new WikiStore(config).list()).some(wiki => wiki.workspaceId === workspace.id)) throw new ApiError(400, "wiki_deletion_required", "Delete this wiki through Wiki settings.");
   if (deleteFolder) await assertProjectFolderIndependent(canonical, await new WikiStore(config).list());
@@ -62,7 +63,7 @@ async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engi
   if (sessions.some(session => statuses[session.id] && statuses[session.id].type !== "idle"))
     throw new ApiError(409, "project_chats_busy", "Stop the project's running chats before deleting it.");
   const review: ProjectDeletionReview = {
-    token: createHash("sha256").update(JSON.stringify({ id: workspace.id, canonical, inode: info?.ino, device: info?.dev, deleteFolder,
+    token: createHash("sha256").update(JSON.stringify({ id: workspace.id, canonical, inode: info?.ino, device: info?.dev, folderOrigin, deleteFolder,
       sessions: sessions.map(session => [session.id, session.time.updated]).sort(),
       incoming: incoming.map(item => [item.workspace.id, item.workspace.path, item.link]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     })).digest("hex"),
@@ -118,10 +119,12 @@ export async function deleteProjectData(input: {
   readConnected: (link: ProjectFileLink) => Promise<Uint8Array>;
   cleanupSession: (id: string) => Promise<void>;
   beforeFiles: () => Promise<void>;
+  backupDirectory?: string;
 }) {
   const { config, workspace, engine } = input;
   const current = await plan(config, workspace, engine);
   if (current.review.token !== input.token) throw new ApiError(409, "project_deletion_changed", "The project changed. Review the deletion again.");
+  if (input.backupDirectory && !current.review.deleteFolder) throw new ApiError(400, "project_folder_retained", "This project folder is kept in place. No backup is needed to delete the project.");
   const releases: Array<() => void> = [];
   try {
     for (const session of current.sessions) releases.push(beginSessionDeletion(config, session.id));
@@ -133,6 +136,7 @@ export async function deleteProjectData(input: {
       if (messages.some(message => message.parts.some(part => part.type === "tool" && ["pending", "running"].includes(part.state.status))))
         throw new ApiError(409, "project_chats_busy", "A tool is still running. Wait for the project's chats to finish before deleting.");
     }
+    const backup = input.backupDirectory ? await backupProjectFolder(config, workspace.path, input.backupDirectory) : null;
     for (const item of current.incoming) {
       try { await preserveLink(config, item, input.readConnected); }
       catch (error) {
@@ -162,6 +166,7 @@ export async function deleteProjectData(input: {
       if (!session.directory || await canonicalFilePath(session.directory) === current.canonical)
         throw new ApiError(409, "project_chats_remaining", "Some chats remain in this project. Review the deletion again before removing its files.");
     }
+    await backup?.verify();
     await input.beforeFiles();
     if (current.review.deleteFolder) {
       const latest = await lstat(workspace.path);
@@ -173,6 +178,6 @@ export async function deleteProjectData(input: {
         throw new ApiError(409, "project_files_delete_failed", "The chats were deleted, but some project files could not be removed. Close files in other apps, check folder permissions and retry to finish deleting the project.");
       }
     }
-    return { sessionIds: [...ids], copiedFiles: current.incoming.length };
+    return { sessionIds: [...ids], copiedFiles: current.incoming.length, backupPath: backup?.path ?? null };
   } finally { for (const release of releases) release(); }
 }

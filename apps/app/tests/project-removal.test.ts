@@ -6,7 +6,7 @@ test("retrying native cleanup after deletion reuses the chat IDs without another
   let deletions = 0, attempts = 0;
   const remove = async () => {
     if (++deletions > 1) throw new Error("404: project no longer exists");
-    return { sessionIds: ["chat", "child"] };
+    return { sessionIds: ["chat", "child"], backupPath: "/chosen/Project backup" };
   };
   const finish = async (ids: string[]) => {
     expect(ids).toEqual(["chat", "child"]);
@@ -14,7 +14,8 @@ test("retrying native cleanup after deletion reuses the chat IDs without another
   };
   await expect(flow.run(remove, finish)).rejects.toThrow("registry");
   expect(flow.deleted).toBe(true);
-  await flow.run(remove, finish);
+  expect(flow.backupPath).toBe("/chosen/Project backup");
+  expect((await flow.run(remove, finish)).backupPath).toBe("/chosen/Project backup");
   expect(deletions).toBe(1); expect(attempts).toBe(2);
 });
 
