@@ -6460,6 +6460,8 @@ export default {
   "workspace.backup_warning_title": "These files will be lost",
   "workspace.backup_warning_description": "This project was created without a source folder. Save its files and folders before deleting it. Chats will still be deleted.",
   "workspace.backup_selected": "Save files in: {name}",
+  "workspace.save_location_title": "Your files will be saved here",
+  "workspace.save_location_description": "LegalWork will create a saved copy of the project files and folders in this folder before deleting the project. Chats will still be deleted.",
   "workspace.backup_working": "Saving and checking project files before deletion. Keep this window open.",
   "workspace.backup_saved": "Project files saved",
   "workspace.remove_failed": "Could not remove this project.",

@@ -6830,6 +6830,8 @@ const de = {
   "workspace.backup_warning_title": "Diese Dateien gehen verloren",
   "workspace.backup_warning_description": "Dieses Projekt wurde ohne Quellordner erstellt. Dateien und Ordner vor dem Löschen sichern. Chats werden trotzdem gelöscht.",
   "workspace.backup_selected": "Dateien sichern in: {name}",
+  "workspace.save_location_title": "Ihre Dateien werden hier gesichert",
+  "workspace.save_location_description": "LegalWork erstellt in diesem Ordner eine gesicherte Kopie der Projektdateien und -ordner, bevor das Projekt gelöscht wird. Chats werden trotzdem gelöscht.",
   "workspace.backup_working": "Projektdateien werden vor dem Löschen gesichert und geprüft. Dieses Fenster geöffnet lassen.",
   "workspace.backup_saved": "Projektdateien gesichert",
   "workspace.remove_failed": "Dieses Projekt konnte nicht entfernt werden.",
