@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckSquare, ChevronRight, FileText, Folder, LayoutGrid, ListTodo, MessageSquare, Mic, Pin, Square } from "lucide-react";
+import { CheckSquare, ChevronRight, FileText, Folder, ListTodo, MessageSquare, Mic, Pin, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { formatRelativeTime } from "@/app/utils";
 import { searchTerms } from "@legalwork/types/search";
@@ -8,7 +8,7 @@ import { primaryResultAction, resultActionMenu } from "./action-catalog";
 import { resultKey } from "./launcher-search-session";
 
 import { optionId, RESULT_KIND_ORDER } from "./launcher-keyboard";
-const ICONS = { projects: LayoutGrid, files: FileText, chats: MessageSquare, tasks: ListTodo, recordings: Mic };
+export const CATEGORY_ICONS = { projects: Folder, files: FileText, chats: MessageSquare, tasks: ListTodo, recordings: Mic };
 
 export function Highlight({ text, query }: { text: string; query: string }) {
   const terms = searchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -29,17 +29,18 @@ export type LauncherExtraAction = "preview" | "save-search";
 export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
-  items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean;
+  items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean; hideEmpty?: boolean;
   onSelect: (key: string) => void; onRun: (result: LauncherSearchResult, action: LauncherResultAction) => void; onToggleMulti: (key: string) => void; onOpenActions: (key: string) => void;
 }) {
-  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length || (group.sources.length && props.query));
-  if (!groups.length) return <div className="launcher-empty">{props.pending ? t("launcher.coverage.searching") : props.query.length === 1 ? t("content_search.keep_typing") : t("content_search.no_results")}</div>;
-  return <div id="launcher-options" role="listbox" aria-label={t("content_search.title")}>
+  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length || !props.hideEmpty && group.sources.length);
+  if (!groups.length) return props.hideEmpty ? null : <div className="launcher-empty">{props.pending ? t("launcher.coverage.searching") : props.query.length === 1 ? t("content_search.keep_typing") : t("content_search.no_results")}</div>;
+  return <>
     {groups.map(group => <section key={group.kind}>
       <div className="launcher-section-title"><span>{t(`launcher.kind.${group.kind}`)}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
+      {!group.items.length && !coverageLabel(group.sources) && <div className="launcher-empty">{t("content_search.no_results")}</div>}
       {group.items.map(item => {
         const key = resultKey(item);
-        const Icon = ICONS[item.kind];
+        const Icon = CATEGORY_ICONS[item.kind];
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
         return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
@@ -54,7 +55,7 @@ export function LauncherResultList(props: {
         </div>;
       })}
     </section>)}
-  </div>;
+  </>;
 }
 
 export type LauncherTransferAction = "copy-to-project" | "move-to-project";

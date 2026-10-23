@@ -32,4 +32,6 @@ test("typing a new search resets selection, while restoring a view keeps its cho
   expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
   store.setView("conversation"); store.setView("results"); store.select({ id: "restored", source: "user" });
   expect(useLauncherStore.getState().selection.id).toBe("restored");
+  store.setView("conversation"); store.select({ id: "command:old", source: "user" }); store.setInput("/new");
+  expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
 });

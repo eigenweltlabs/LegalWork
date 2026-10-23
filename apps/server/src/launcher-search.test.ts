@@ -38,5 +38,11 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     expect(scoped.sources.map(source => source.id)).toEqual(["recordings", "files:other", "unavailable:offline-project"]);
     const noRecorder = await searchLauncher({ ...deps, recordings: null }, { query: "x", kinds: ["recordings"], content: false, limit: 10 }, new AbortController().signal);
     expect(noRecorder.sources[0]).toMatchObject({ coverage: "unavailable", error: expect.stringContaining("desktop app") });
+    const browseFiles = await searchLauncher(deps, { query: "", kinds: ["files"], content: false, limit: 10 }, new AbortController().signal);
+    expect(browseFiles.items.map(item => item.title)).toContain("Mietvertrag Müller.docx");
+    const chatQueries: string[] = [];
+    const browseChats = await searchLauncher({ ...deps, sessionSearch: async (workspace, query, signal) => { chatQueries.push(query); return deps.sessionSearch(workspace, query, signal); } }, { query: "", kinds: ["chats"], content: false, limit: 10 }, new AbortController().signal);
+    expect(chatQueries).toEqual(["", ""]);
+    expect(browseChats.items.map(item => item.id)).toContain("ses-1");
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });

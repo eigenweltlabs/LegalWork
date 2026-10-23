@@ -1,4 +1,4 @@
-import type { LauncherDraft, LauncherDraftFile, DraftLease } from "@legalwork/types/launcher";
+import type { LauncherDraft, LauncherDraftFile, DraftLease, AssistantSubmission } from "@legalwork/types/launcher";
 export type { LauncherDraft, DraftLease } from "@legalwork/types/launcher";
 export type DraftFile = LauncherDraftFile;
 export type DraftStorage = { read: () => Promise<DraftFile>; write: (file: DraftFile, expectedVersion: number) => Promise<boolean> };
@@ -113,6 +113,25 @@ export class DraftCoordinator {
         lease.revision = current.revision + 1;
       });
       return file.drafts[conversationId];
+    });
+  }
+  acknowledgeSubmission(conversationId: string, owner: string, submission: Pick<AssistantSubmission, "requestId" | "messageId" | "state">) {
+    return this.serial(async () => {
+      const result: { cleared: Pick<LauncherDraft, "text" | "context"> | null } = { cleared: null };
+      await this.transact(next => {
+        result.cleared = null;
+        const current = next.drafts[conversationId], lease = next.leases[conversationId];
+        if (lease?.owner !== owner) throw new Error("draft_lease_lost");
+        if (!current?.submission || current.submission.requestId !== submission.requestId || current.submission.messageId !== submission.messageId) return;
+        const snapshot = current.submission.draftSnapshot;
+        if (["accepted", "running", "completed"].includes(submission.state) && snapshot && current.text === snapshot.text && JSON.stringify(current.context) === JSON.stringify(snapshot.context)) {
+          result.cleared = { text: current.text, context: current.context };
+          current.text = ""; current.context = []; current.pendingTranscription = null; delete current.composer;
+        }
+        current.submission.state = submission.state;
+        current.revision++; current.updatedAt = this.now(); lease.revision = current.revision;
+      });
+      return result.cleared;
     });
   }
   clear(conversationId: string, owner: string) {

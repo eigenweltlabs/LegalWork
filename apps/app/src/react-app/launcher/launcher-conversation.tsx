@@ -43,7 +43,7 @@ export function SubmissionStatusRow({ submission, onRetry }: { submission: { req
   const busy = submission.state === "sending" || submission.state === "accepted" || submission.state === "running";
   return <div className="launcher-status" role="status" aria-live="polite">
     {busy ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <AlertTriangle className="size-3.5" />}
-    <span>{t(`launcher.submission.${submission.state}`)}</span>
+    <span>{submission.state === "failed" && submission.error ? submission.error : t(`launcher.submission.${submission.state}`)}</span>
     {(submission.state === "unconfirmed" || submission.state === "failed") && <Button variant="ghost" size="sm" onClick={onRetry}><RefreshCw className="size-3.5" />{t("launcher.submission.retry")}</Button>}
   </div>;
 }

@@ -29,10 +29,10 @@ export class LauncherSearchSession {
     const generation = ++this.generation;
     const query = input.query.trim();
     const filtered = Boolean(input.fileTypes?.length || input.modifiedAfter);
-    if (!query && !input.kinds.includes("tasks") && !input.projectId && !filtered) { this.controller = null; this.publish({ items: [], sources: [], pending: false, query, error: null }); return; }
+    if (!query && input.kinds.length !== 1 && !input.kinds.includes("tasks") && !input.projectId && !filtered) { this.controller = null; this.publish({ items: [], sources: [], pending: false, query, error: null }); return; }
     const controller = new AbortController();
     this.controller = controller;
-    this.publish({ pending: true, query, error: null });
+    this.publish({ pending: true, query, error: null, ...(JSON.stringify({ ...input, query }) !== this.settledQuery ? { items: [], sources: [] } : {}) });
     this.timer = setTimeout(() => { this.timer = null; void this.execute(generation, controller, { ...input, query }); }, this.options.debounceMs ?? 120);
   }
   private merge(previous: LauncherSearchResult[], incoming: LauncherSearchResult[]) {

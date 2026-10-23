@@ -4,6 +4,21 @@ import { LauncherSearchSession } from "../src/react-app/launcher/launcher-search
 
 const item = (id: string, score: number): LauncherSearchResult => ({ id, kind: "files", workspaceId: "w", sourceId: "local:w", title: id, updatedAt: 0, match: "prefix", score, actions: ["open"] });
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+test("choosing a category browses without words and removes rows from the previous query immediately", async () => {
+  const calls: string[] = [];
+  const session = new LauncherSearchSession(async input => {
+    calls.push(`${input.kinds[0]}:${input.query}`);
+    return { items: [item(input.query || "recent.txt", 1)], sources: [], unavailable: [] };
+  }, { debounceMs: 0, contentPass: false });
+  session.search({ query: "old", kinds: ["files"], projectId: null });
+  await wait(10);
+  session.search({ query: "", kinds: ["files"], projectId: null });
+  expect(session.current().items).toEqual([]);
+  await wait(10);
+  expect(calls).toEqual(["files:old", "files:"]);
+  expect(session.current().items[0]?.id).toBe("recent.txt");
+  session.cancel();
+});
 test("stale queries are cancelled, the fast pass renders first, and the content pass appends without reordering", async () => {
   const calls: string[] = [];
   const session = new LauncherSearchSession(async (input, signal) => {

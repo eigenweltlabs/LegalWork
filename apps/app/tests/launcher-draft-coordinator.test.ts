@@ -10,6 +10,30 @@ function bus() {
   return { post: (message: DraftMessage) => { for (const listener of listeners) listener(message); }, subscribe: (listener: (message: DraftMessage) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
 }
 
+test("late delivery confirmation clears only its own unchanged draft, including after a restart", async () => {
+  const { storage } = memoryStorage();
+  const first = new DraftCoordinator(storage);
+  await first.claim("one", "panel");
+  const submission = { requestId: "request-one", messageId: "message-one", state: "sending" as const, draftSnapshot: { text: "Original", context: [] } };
+  await first.update("one", "panel", { text: "Original", submission });
+  const restarted = new DraftCoordinator(storage);
+  await restarted.claim("one", "panel");
+  expect(await restarted.acknowledgeSubmission("one", "panel", { ...submission, state: "running" })).toEqual({ text: "Original", context: [] });
+  expect(restarted.get("one").text).toBe("");
+  expect(restarted.get("one").submission?.state).toBe("running");
+
+  await restarted.update("one", "panel", { text: "Next question", submission });
+  expect(await restarted.acknowledgeSubmission("one", "panel", { ...submission, state: "completed" })).toBeNull();
+  expect(restarted.get("one").text).toBe("Next question");
+  await restarted.update("one", "panel", { text: "Original", context: [{ id: "new", type: "clipboard", text: "New context", capturedAt: 1 }], submission });
+  expect(await restarted.acknowledgeSubmission("one", "panel", { ...submission, state: "accepted" })).toBeNull();
+  expect(restarted.get("one").context).toHaveLength(1);
+  await restarted.update("one", "panel", { text: "Original", context: [], submission: { ...submission, requestId: "request-two" } });
+  expect(await restarted.acknowledgeSubmission("one", "panel", { ...submission, state: "completed" })).toBeNull();
+  expect(restarted.get("one").submission?.state).toBe("sending");
+  expect(restarted.get("one").text).toBe("Original");
+});
+
 test("one editor at a time: expanding to Home transfers the whole draft and the stale editor is refused", async () => {
   const { storage, current } = memoryStorage();
   const channel = bus();

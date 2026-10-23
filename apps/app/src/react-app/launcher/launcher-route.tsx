@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
@@ -79,6 +79,10 @@ export function LauncherRoute() {
   const { client, error } = useLauncherConnection();
   const navigate = useNavigate();
   const desktop = isDesktopRuntime();
+  useLayoutEffect(() => {
+    document.documentElement.classList.add("launcher-window");
+    return () => document.documentElement.classList.remove("launcher-window");
+  }, []);
   const [assistant, setAssistant] = useState<{ workspaceId: string; profile: AssistantProfile } | null>(null);
   const [workspaces, setWorkspaces] = useState<LegalworkWorkspaceInfo[]>([]);
   const drafts = useMemo(() => sharedDraftCoordinator(), []);
@@ -135,7 +139,8 @@ export function LauncherRoute() {
     if (!desktop || typeof ResizeObserver === "undefined") return;
     let timer: ReturnType<typeof setTimeout> | undefined, last = 0;
     const observer = new ResizeObserver(entries => {
-      const height = Math.ceil(entries[0]?.contentRect.height ?? 0);
+      const panelHeight = entries[0]?.target.getBoundingClientRect().height ?? 0;
+      const height = panelHeight ? Math.ceil(panelHeight + 4) : 0;
       if (!height || Math.abs(height - last) < 4) return;
       last = height;
       clearTimeout(timer);

@@ -86,7 +86,7 @@ export class AssistantSubmissions {
       if (existing) {
         if (existing.messageId !== input.messageId || existing.sessionId !== input.sessionId) throw new ApiError(409, "submission_identity", "This request ID already belongs to another message.");
         // A retry after a lost acknowledgement resends only what the engine never stored; anything else re-reads the engine.
-        return existing.state === "sending" || existing.state === "unconfirmed" ? this.dispatch(existing) : this.reconcile(existing);
+        return existing.state === "unconfirmed" || existing.state === "sending" && Date.now() - existing.updatedAt >= SENDING_GRACE_MS ? this.dispatch(existing) : this.reconcile(existing);
       }
       const byMessage = this.db.get("SELECT request_id FROM assistant_submissions WHERE message_id = ?", [input.messageId]);
       if (byMessage) throw new ApiError(409, "submission_identity", "This message ID already belongs to another request.");
@@ -100,7 +100,7 @@ export class AssistantSubmissions {
     return this.locked(requestId, async () => {
       const entry = this.get(requestId);
       if (!entry) throw new ApiError(404, "submission_not_found", "This request is unknown.");
-      return entry.state === "sending" || entry.state === "unconfirmed" ? this.dispatch(entry) : this.reconcile(entry);
+      return entry.state === "unconfirmed" || entry.state === "sending" && Date.now() - entry.updatedAt >= SENDING_GRACE_MS ? this.dispatch(entry) : this.reconcile(entry);
     });
   }
   private payload(requestId: string): SubmissionPayload {
@@ -113,7 +113,9 @@ export class AssistantSubmissions {
     try {
       if (!(await this.executor.hasMessage(target, entry.messageId, payload))) await this.executor.send(entry, payload);
       const stored = await this.executor.hasMessage(target, entry.messageId, payload);
-      return this.save({ ...entry, state: stored ? "accepted" : "unconfirmed", error: stored ? null : "Delivery could not be confirmed yet." });
+      // promptAsync acknowledges before the engine necessarily exposes the message.
+      // Keep checking the same request during the grace period; do not offer a duplicate send.
+      return this.save({ ...entry, state: stored ? "accepted" : "sending", error: null });
     } catch (error) {
       // The engine may have stored the message before the response was lost; its record decides.
       const refused = error instanceof ApiError && error.status < 500;

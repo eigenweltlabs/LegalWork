@@ -6,6 +6,23 @@ import { ApiError } from "./errors.js";
 import { AssistantSubmissions, type SubmissionExecutor } from "./assistant-submissions.js";
 
 const base = { conversationId: "conv_1", workspaceId: "assistant", sessionId: "ses_1", preview: "Was ist offen?", target: { kind: "assistant" as const }, payload: { parts: [{ type: "text" as const, text: "Was ist offen?" }] } };
+test("async engine acceptance waits for visibility without a false error or duplicate dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-delayed-"));
+  let stored = false, sends = 0;
+  const executor: SubmissionExecutor = { hasMessage: async () => stored, send: async () => { sends++; }, outcome: async () => "running" };
+  try {
+    const store = await AssistantSubmissions.open(join(root, "runtime.sqlite"), executor);
+    const input = { ...base, requestId: "req_aaaaaaaa", messageId: "msg_0123456789abcdef" };
+    expect(await store.submit(input)).toMatchObject({ state: "sending", error: null });
+    expect(await store.status(input.requestId)).toMatchObject({ state: "sending", error: null });
+    expect(await store.submit(input)).toMatchObject({ state: "sending", error: null });
+    expect(await store.retry(input.requestId)).toMatchObject({ state: "sending", error: null });
+    expect(sends).toBe(1);
+    stored = true;
+    expect(await store.status(input.requestId)).toMatchObject({ state: "running", error: null });
+    expect(sends).toBe(1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 test("a lost acknowledgement is retried with the same identity and never duplicates the message", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-submissions-"));
   const stored = new Set<string>();

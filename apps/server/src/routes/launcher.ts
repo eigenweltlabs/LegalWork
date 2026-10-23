@@ -100,7 +100,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);
-    if (assistant && kinds.includes("chats") && input.q.length >= 2 && (!input.projectId || input.projectId === assistant.id)) {
+    if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {
       const page = conversations.list(assistant.id, { query: input.q, limit: 20 });
       for (const conversation of page.items) {
         const score = titleScore(conversation.title, input.q) ?? { match: "content" as const, score: 300 };

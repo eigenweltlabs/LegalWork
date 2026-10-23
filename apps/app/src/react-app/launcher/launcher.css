@@ -1,12 +1,13 @@
 /* The quick panel: one compact surface that stays a launcher for a two-second action and grows into a conversation. */
+html.launcher-window, html.launcher-window body, html.launcher-window #root { background: transparent !important; }
 .launcher-root { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lw-text, inherit); background: transparent; }
-.launcher-root[data-surface="panel"] { height: 100vh; }
+.launcher-root[data-surface="panel"] { height: 100vh; padding: 2px; box-sizing: border-box; }
 .launcher-panel {
   position: relative; display: flex; flex-direction: column; min-height: 0; flex: 1;
   border: 1px solid var(--lw-border); border-radius: 14px; overflow: hidden;
   background: var(--lw-surface); box-shadow: none;
 }
-.launcher-root[data-surface="panel"] .launcher-panel { margin: 0; }
+.launcher-root[data-surface="panel"] .launcher-panel { margin: 0; border-color: color-mix(in srgb, var(--lw-text-secondary) 42%, var(--lw-surface)); background-clip: padding-box; }
 .launcher-entry { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--lw-border-subtle); -webkit-app-region: drag; }
 .launcher-entry > * { -webkit-app-region: no-drag; }
 .launcher-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 160px; height: 26px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--lw-sunken); color: var(--lw-text-secondary); border: 1px solid var(--lw-border-subtle); }
@@ -28,6 +29,7 @@
 .launcher-row-meta { font-size: 11.5px; color: var(--lw-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .launcher-row-excerpt { font-size: 12px; color: var(--lw-text-secondary); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .launcher-row-hint { font-size: 11px; color: var(--lw-text-secondary); flex-shrink: 0; }
+.launcher-row-shortcut { font: inherit; font-size: 11px; line-height: 20px; min-width: 22px; text-align: center; color: var(--lw-text-secondary); border: 1px solid var(--lw-border-subtle); border-radius: 4px; padding: 0 5px; }
 .launcher-row mark { background: color-mix(in srgb, var(--blue-9, #2563eb) 18%, transparent); color: inherit; border-radius: 3px; }
 .launcher-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--lw-text-secondary); }
 .launcher-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--lw-border-subtle); font-size: 11.5px; color: var(--lw-text-secondary); }

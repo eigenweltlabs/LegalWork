@@ -65,5 +65,7 @@ test("filters narrow by extension and modification time, and list recent files w
     expect(index.search("w", "", 10, { types: ["docx"] }).map(match => match.entry.name).sort()).toEqual(["Alt.docx", "Mietvertrag.docx"]);
     expect(index.search("w", "", 10, { types: ["docx"], modifiedAfter: Date.now() - 86_400_000 }).map(match => match.entry.name)).toEqual(["Mietvertrag.docx"]);
     expect(index.search("w", "", 10)).toEqual([]);
+    expect(index.search("w", "", 10, { browse: true }).map(match => match.entry.name)).toHaveLength(4);
+    expect(index.search("w", "", 10, { browse: true }).at(-1)?.entry.name).toBe("Alt.docx");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

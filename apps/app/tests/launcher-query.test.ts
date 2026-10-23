@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { DEFAULT_LAUNCHER_ALIASES } from "@legalwork/types/launcher";
-import { activateCategoryAlias, launcherAliasCollisions, looksLikeQuestion, normalizeLauncherAliases, parseLauncherEntry } from "../src/react-app/launcher/launcher-query";
+import { activateCategoryAlias, categorySuggestions, namedCategoryQuery, launcherAliasCollisions, looksLikeQuestion, normalizeLauncherAliases, parseLauncherEntry } from "../src/react-app/launcher/launcher-query";
 
 test("an exact alias plus its delimiter becomes a category; bare letters and prose stay text", () => {
   expect(activateCategoryAlias("f Mietvertrag", DEFAULT_LAUNCHER_ALIASES)).toEqual({ category: "files", rest: "Mietvertrag" });
@@ -24,4 +24,19 @@ test("slash commands and explicit asks are separate modes; question-shaped text 
   expect(parseLauncherEntry("Was ist offen?")).toEqual({ mode: "search", text: "Was ist offen?" });
   expect(looksLikeQuestion("Was ist offen?")).toBe(true);
   expect(looksLikeQuestion("Mietvertrag Müller")).toBe(false);
+});
+
+test("category names browse directly while partial names and configurable shortcuts complete first", () => {
+  expect(namedCategoryQuery("tasks")).toEqual({ category: "tasks", rest: "" });
+  expect(namedCategoryQuery("Aufgaben Müller Frist")).toEqual({ category: "tasks", rest: "Müller Frist" });
+  expect(namedCategoryQuery("tasksXYZ")).toBeNull();
+  expect(namedCategoryQuery("tas")).toBeNull();
+  expect(categorySuggestions("", DEFAULT_LAUNCHER_ALIASES)).toHaveLength(5);
+  expect(categorySuggestions("tas", DEFAULT_LAUNCHER_ALIASES)).toEqual(["tasks"]);
+  expect(categorySuggestions("auf", DEFAULT_LAUNCHER_ALIASES)).toEqual(["tasks", "recordings"]);
+  expect(categorySuggestions("tasks", DEFAULT_LAUNCHER_ALIASES)).toEqual([]);
+  expect(categorySuggestions("Mi", DEFAULT_LAUNCHER_ALIASES)).toEqual([]);
+  expect(categorySuggestions("dok", normalizeLauncherAliases({ files: "dok" }))).toEqual(["files"]);
+  expect(activateCategoryAlias("Dateien ", DEFAULT_LAUNCHER_ALIASES)).toEqual({ category: "files", rest: "" });
+  expect(activateCategoryAlias("Tasks", DEFAULT_LAUNCHER_ALIASES, "tab")).toEqual({ category: "tasks", rest: "" });
 });

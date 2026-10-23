@@ -103,9 +103,9 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       try {
         const index = await deps.fileIndex.ensure(workspace.id, workspace.path, false);
         const seen = new Set<string>();
-        const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null };
+        const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null, browse: input.kinds.length === 1 };
         const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
-        if (query || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
+        if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
           seen.add(found.entry.path);
           items.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
             revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: FILE_ACTIONS });
@@ -129,7 +129,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       } catch (error) { source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage: "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }
     });
   }
-  if (kinds.has("chats") && query.length >= 2) {
+  if (kinds.has("chats") && (query.length >= 2 || !query && input.kinds.length === 1)) {
     await eachLimited(scoped, 3, async workspace => {
       const label = deps.projectName(workspace);
       try {

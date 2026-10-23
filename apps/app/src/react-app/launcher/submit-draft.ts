@@ -35,14 +35,7 @@ export async function submitAssistantDraft(options: {
     }
     try {
       const { submission } = await client.submitAssistantMessage(conversationId, input);
-      const accepted = submission.state === "accepted" || submission.state === "running" || submission.state === "completed";
-      const current = drafts.get(conversationId);
-      // A retry acknowledges the frozen draft, not edits made after the first attempt.
-      const unchanged = draftSnapshot && current.text === draftSnapshot.text && JSON.stringify(current.context) === JSON.stringify(draftSnapshot.context);
-      await drafts.update(conversationId, owner, {
-        ...(accepted && unchanged ? { text: "", context: [], pendingTranscription: null, composer: undefined } : {}),
-        submission: { ...operation, state: submission.state },
-      });
+      await drafts.acknowledgeSubmission(conversationId, owner, submission);
       return submission;
     } catch (error) {
       const refused = error instanceof Error && "status" in error && typeof error.status === "number" && error.status >= 400 && error.status < 500 && error.status !== 408;

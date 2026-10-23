@@ -77,7 +77,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   ...initial,
   setInvocation: invocation => set({ invocation }),
   setVisible: visible => set({ visible }),
-  setInput: input => set(state => ({ input, ...(state.input !== input && state.view !== "conversation" ? { selection: { id: null, source: "auto" }, multiSelect: new Set<string>(), overlay: null } : {}) })),
+  setInput: input => set(state => ({ input, ...(state.input !== input ? { selection: { id: null, source: "auto" }, ...(state.view !== "conversation" ? { multiSelect: new Set<string>(), overlay: null } : {}) } : {}) })),
   setCategory: category => set({ category }),
   setFileFilter: filter => set(state => ({ fileFilter: { ...state.fileFilter, ...filter } })),
   // A search scope never silently becomes the execution target; the target changes only through its own control.

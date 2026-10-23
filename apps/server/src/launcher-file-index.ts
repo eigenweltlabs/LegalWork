@@ -96,12 +96,12 @@ export class LauncherFileIndex {
     if (wait && index.building) await index.building;
     return index;
   }
-  search(workspaceId: string, query: string, limit = 50, filter: { types?: string[] | null; modifiedAfter?: number | null } = {}): FileMatch[] {
+  search(workspaceId: string, query: string, limit = 50, filter: { types?: string[] | null; modifiedAfter?: number | null; browse?: boolean } = {}): FileMatch[] {
     const index = this.indexes.get(workspaceId);
     const terms = fold(query).trim().split(/\s+/).filter(Boolean);
     const types = filter.types?.length ? new Set(filter.types.map(type => `.${type.toLowerCase().replace(/^\./, "")}`)) : null;
     const since = filter.modifiedAfter ?? null;
-    if (!index || (!terms.length && !types && since === null)) return [];
+    if (!index || (!terms.length && !types && since === null && !filter.browse)) return [];
     const phrase = terms.join(" ");
     const matches: FileMatch[] = [];
     for (const entry of index.entries.values()) {

@@ -46,6 +46,8 @@ test("folder files join search with provenance and filters, but never become a p
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ title: "Contract.pdf", folderId: folder.id, workspaceId: null, subtitle: "Library" });
     expect(result.sources[0].coverage).toBe("filename-only");
+    const browse = await searchFolderFiles(folders, index, { query: "", kinds: ["files"], content: false, limit: 10 }, async () => ({ items: [] }), AbortSignal.timeout(1000));
+    expect(browse.items.map(item => item.title).sort()).toEqual(["Contract.pdf", "Contract.png"]);
     const scoped = await searchFolderFiles(folders, index, { ...input, kinds: [...input.kinds], projectId: "project" }, async () => ({ items: [] }), AbortSignal.timeout(1000));
     expect(scoped.items).toHaveLength(0);
     await rm(path, { recursive: true });
