@@ -5,7 +5,7 @@ import type { LauncherFileIndex } from "./launcher-file-index.js";
 import type { LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import type { WorkspaceInfo } from "./types.js";
 
-export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number };
+export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number; fileTypes?: string[]; modifiedAfter?: number };
 export type LauncherRecording = { id: string; title: string; createdAt: number; durationMs: number; projectIds?: string[]; status?: string };
 export type LauncherSearchDeps = {
   workspaces: () => Promise<{ workspaces: WorkspaceInfo[]; unavailable: string[] }>;
@@ -17,7 +17,7 @@ export type LauncherSearchDeps = {
   fileContentSearch: (workspace: WorkspaceInfo, query: string, signal: AbortSignal) => Promise<ContentSearchResponse>;
   budgetMs?: number;
 };
-const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-path", "pin"];
+const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-to-project", "move-to-project", "copy-path", "pin"];
 
 export function titleScore(title: string, query: string): { match: LauncherSearchResult["match"]; score: number } | null {
   const terms = query.normalize("NFC").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -99,7 +99,9 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       try {
         const index = await deps.fileIndex.ensure(workspace.id, workspace.path, false);
         const seen = new Set<string>();
-        if (query) for (const found of deps.fileIndex.search(workspace.id, query, 40)) {
+        const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null };
+        const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
+        if (query || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
           seen.add(found.entry.path);
           items.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
             revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: FILE_ACTIONS });
@@ -112,7 +114,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             const response = await withBudget(inner => deps.fileContentSearch(workspace, query, inner), budget, signal);
             preparing = response.preparing ?? 0; limited ||= Boolean(response.limited);
             for (const result of response.items) {
-              if (seen.has(result.id) || !result.sources?.length) continue;
+              if (seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
               items.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
                 fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: FILE_ACTIONS, sources: result.sources });
             }

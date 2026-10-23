@@ -58,3 +58,15 @@ test("insertion requires the validated destination; a changed document copies in
   assert.equal(await linux.capture(), null);
   assert.equal(linux.capabilities().selection, false);
 });
+
+test("on Windows a plain open never advertises the selection; the selection shortcut reads it before the panel and then offers it", async () => {
+  const { service: origins } = service("windows", [front(7, "Lease.docx", "WINWORD"), JSON.stringify({ ok: true, text: "Clause 9" })]);
+  const origin = await origins.capture();
+  assert.equal(origin.supportsSelection, false);
+  const plain = await origins.selection(origin.id);
+  assert.equal(plain.ok, false);
+  assert.equal(plain.ok === false && plain.reason, "changed");
+  assert.deepEqual(await origins.prefetchSelection(), { ok: true, text: "Clause 9", origin });
+  assert.equal(origin.supportsSelection, true);
+  assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Clause 9", origin });
+});

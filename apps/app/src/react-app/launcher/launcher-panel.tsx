@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Clipboard, Expand, FilePlus2, Filter, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, Trash2, X } from "lucide-react";
-import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
+import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -22,7 +22,7 @@ import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelecti
 import { activateCategoryAlias, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
 import { LauncherPreviewPane } from "./launcher-preview";
-import { LauncherActionMenu, LauncherResultList, actionLabel } from "./launcher-results";
+import { LauncherActionMenu, LauncherResultList, actionLabel, type LauncherTransferAction } from "./launcher-results";
 import { LauncherSearchSession, resultKey } from "./launcher-search-session";
 import { useLauncherShell } from "./launcher-shell";
 import { useLauncherStore } from "./launcher-store";
@@ -33,6 +33,21 @@ import { emptyLauncherDraft } from "./draft-coordinator";
 import "./launcher.css";
 
 const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
+/** File finder filters: a few named groups of extensions and a modification floor, both shown as removable chips. */
+const FILE_TYPE_PRESETS: Record<string, string[]> = { documents: ["docx", "doc", "pdf", "md", "txt", "rtf", "odt"], spreadsheets: ["xlsx", "xls", "csv"], presentations: ["pptx", "ppt"], images: ["png", "jpg", "jpeg", "gif", "tiff", "heic"], emails: ["eml", "msg"] };
+const MODIFIED_PRESETS = ["today", "week", "month", "year"] as const;
+function modifiedSince(preset: (typeof MODIFIED_PRESETS)[number], now = new Date()) {
+  if (preset === "today") return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (preset === "week") return now.getTime() - 7 * 86_400_000;
+  if (preset === "month") return now.getTime() - 30 * 86_400_000;
+  return new Date(now.getFullYear(), 0, 1).getTime();
+}
+function fileFilterLabels(filter: LauncherFileFilter) {
+  const type = filter.types ? Object.entries(FILE_TYPE_PRESETS).find(([, types]) => types.join() === filter.types?.join())?.[0] : null;
+  const since = filter.modifiedAfter;
+  const modified = since === null ? null : since >= modifiedSince("today") ? "today" : since >= modifiedSince("week") ? "week" : since >= modifiedSince("month") ? "month" : "year";
+  return { type: filter.types ? (type ? t(`launcher.filter.type.${type}`) : filter.types.join(", ")) : null, modified: modified ? t(`launcher.filter.modified.${modified}`) : null };
+}
 
 export function LauncherPanel() {
   const shell = useLauncherShell();
@@ -40,7 +55,7 @@ export function LauncherPanel() {
   const store = useLauncherStore();
   const local = useLocal();
   const queryClient = useQueryClient();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mod = isMacPlatform() ? "⌘" : "Ctrl";
   const [pins, setPins] = useState(() => typeof window === "undefined" ? [] : readPins());
@@ -99,19 +114,26 @@ export function LauncherPanel() {
   }, [conversation, drafts, owner, store.input, store.context, store.target, store.scope, mode, entry.text, local.prefs.defaultModel, local.prefs.modelVariant]);
 
   // Search: two-phase session bound to the current category and scope.
-  const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content }, signal)), [client]);
+  const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content, fileTypes: input.fileTypes, modifiedAfter: input.modifiedAfter }, signal)), [client]);
   useEffect(() => session.subscribe(snapshot => useLauncherStore.getState().setResults(snapshot.items, snapshot.sources, snapshot.pending, snapshot.error)), [session]);
+  const hasFileFilter = Boolean(store.fileFilter.types?.length || store.fileFilter.modifiedAfter);
+  const runSearch = useCallback(() => {
+    const state = useLauncherStore.getState();
+    session.search({ query: parseLauncherEntry(state.input).text, kinds: state.category ? [state.category] : [...LAUNCHER_SEARCH_KINDS], projectId: state.scope?.id ?? null, fileTypes: state.fileFilter.types, modifiedAfter: state.fileFilter.modifiedAfter });
+  }, [session]);
   useEffect(() => {
-    if (mode !== "search" || !store.input.trim() && !store.category && !store.scope) { if (mode !== "search") session.cancel(); return; }
-    session.search({ query: entry.text, kinds: store.category ? [store.category] : [...LAUNCHER_SEARCH_KINDS], projectId: store.scope?.id ?? null });
-  }, [session, mode, entry.text, store.category, store.scope, store.input]);
+    if (mode !== "search" || !store.input.trim() && !store.category && !store.scope && !hasFileFilter) { if (mode !== "search") session.cancel(); return; }
+    runSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, mode, entry.text, store.category, store.scope, store.input, store.fileFilter, runSearch]);
   useEffect(() => {
-    if (mode === "search" && (store.input.trim() || store.category)) store.setView("results");
+    if (mode === "search" && (store.input.trim() || store.category || hasFileFilter)) store.setView("results");
     else if (mode === "command") store.setView("commands");
     else if (mode === "ask") store.setView("conversation");
-    else if (store.view === "results" || store.view === "commands") store.setView(conversation && store.input ? "conversation" : "idle");
+    // An emptied field leaves a conversation that was never bound; a bound conversation keeps its view.
+    else if (store.view === "results" || store.view === "commands" || (store.view === "conversation" && !store.input && !conversation)) store.setView(conversation && store.input ? "conversation" : "idle");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, store.input, store.category]);
+  }, [mode, store.input, store.category, hasFileFilter]);
 
   // Catalog: engine commands and quick actions from the server, app actions and skills from this client.
   const catalogQuery = useQuery({ queryKey: ["launcher-catalog", client.baseUrl, store.scope?.id ?? ""], queryFn: () => client.launcherCatalog(store.scope?.id ?? null), staleTime: 30_000 });
@@ -206,6 +228,8 @@ export function LauncherPanel() {
     finally { setSending(false); }
   }, [sending, store, ensureConversation, drafts, owner, client, local.prefs.defaultModel, local.prefs.modelVariant, notify]);
   // The panel stays open across its own dialogs: the file chooser and an active dictation are not a blur to hide on.
+  // Menus restore focus to their trigger; the keyboard belongs to the entry once a choice is made.
+  const refocusEntry = () => setTimeout(() => inputRef.current?.focus(), 60);
   const holdPanel = (hold: boolean) => { if (desktop && surface === "panel") void launcherWindowControl(hold ? "dialog-begin" : "dialog-end").catch(() => undefined); };
   useEffect(() => {
     const input = fileInputRef.current;
@@ -257,6 +281,8 @@ export function LauncherPanel() {
     void launcherAttentionSet({ count: store.attentionCount, recording: dictation.active }).catch(() => undefined);
   }, [desktop, surface, store.attentionCount, dictation.active]);
   useEffect(() => { if (store.view !== "results" && store.overlay) store.setOverlay(null); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [store.view]);
+  // The entry grows with its text up to a few lines; a single search line stays a single line.
+  useEffect(() => { const element = inputRef.current; if (!element) return; element.style.height = "auto"; element.style.height = `${Math.min(160, element.scrollHeight)}px`; }, [store.input]);
 
   // Context capture: explicit actions with visible provenance; failures leave the draft intact.
   const addItems = (items: AssistantContextItem[], previews: { id: string; dataUrl: string }[] = []) => { store.addContext(items, previews); if (store.view === "idle" || store.view === "results") store.setView("conversation"); };
@@ -268,6 +294,21 @@ export function LauncherPanel() {
     files: () => { holdPanel(true); fileInputRef.current?.click(); },
   };
 
+  // Copy or move the selected files into another project: an explicit, approved action with its own audit trail.
+  const transferFiles = async (result: LauncherSearchResult, action: LauncherTransferAction, targetWorkspaceId: string) => {
+    const state = useLauncherStore.getState();
+    const items = (state.multiSelect.size ? state.results.filter(item => state.multiSelect.has(resultKey(item))) : [result]).filter(item => item.kind === "files" && item.workspaceId && item.path);
+    const project = workspaces.find(workspace => workspace.id === targetWorkspaceId);
+    const mode = action === "move-to-project" ? "move" : "copy";
+    let done = 0;
+    for (const item of items) {
+      try { await client.transferLauncherFile({ sourceWorkspaceId: item.workspaceId ?? "", targetWorkspaceId, path: item.path ?? "", mode }); done++; }
+      catch (error) { notify({ tone: "error", text: error instanceof Error && /already exists/.test(error.message) ? t("launcher.transfer.exists", { project: project?.displayName || project?.name || targetWorkspaceId }) : error instanceof Error ? error.message : String(error) }); break; }
+    }
+    if (done) notify({ tone: "info", text: t(mode === "move" ? "launcher.transfer.moved" : "launcher.transfer.copied", { count: done, project: project?.displayName || project?.name || targetWorkspaceId }) });
+    state.clearMultiSelect();
+    setTimeout(runSearch, 400);
+  };
   // One dispatcher for results, commands and app actions.
   const runResultAction = async (result: LauncherSearchResult, action: LauncherResultAction) => {
     const route = result.kind === "chats" ? workspaceSessionRoute(result.workspaceId ?? "", result.sessionId ?? result.id) : result.kind === "tasks" ? `/tasks?task=${encodeURIComponent(result.id)}` : result.kind === "recordings" ? `/recorder?recording=${encodeURIComponent(result.id)}` : result.workspaceId ? `${workspaceProjectRoute(result.workspaceId)}${result.kind === "files" ? `?file=${encodeURIComponent(result.path ?? result.id)}` : ""}` : "/home";
@@ -284,6 +325,7 @@ export function LauncherPanel() {
       case "copy-path": await navigator.clipboard.writeText(result.path ?? result.title); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
       case "copy-reference": await navigator.clipboard.writeText(`${result.subtitle ? `${result.subtitle}: ` : ""}${result.path ?? result.title}`); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
       case "pin": setPins(togglePinnedResult(result)); return;
+      case "copy-to-project": case "move-to-project": store.setOverlay({ kind: "actions", resultKey: resultKey(result) }); return;
       case "complete": try { await client.patchTask(result.workspaceId ?? "", result.id, { status: "done" }); notify({ tone: "info", text: t("launcher.notice.task_done", { title: result.title }) }); } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); } return;
       case "attach": case "ask": case "compare": case "summarize": case "hand-to-assistant": {
         const items: AssistantContextItem[] = [];
@@ -366,7 +408,7 @@ export function LauncherPanel() {
   }, [store.invocation, applyInvocation]);
 
   // Keyboard contract. The footer says what Enter does.
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKeyEvent(event)) return;
     const input = event.currentTarget;
     const key = event.key;
@@ -386,15 +428,18 @@ export function LauncherPanel() {
       return;
     }
     if (key === "Escape") {
-      const layer = escapeAction({ overlayOpen: store.overlay !== null, category: store.category !== null, pinned: store.pinned });
+      const layer = escapeAction({ overlayOpen: store.overlay !== null, category: store.category !== null || hasFileFilter, pinned: store.pinned });
       event.preventDefault();
       if (layer === "overlay") store.setOverlay(null);
-      else if (layer === "filter") store.setCategory(null);
+      else if (layer === "filter") { store.setCategory(null); store.setFileFilter({ types: null, modifiedAfter: null }); }
       else if (layer === "panel") dismiss();
       return;
     }
     if (key === "Enter") {
+      // Like the composer: Enter sends, Shift+Enter is a newline while writing; a search never takes a newline.
+      if (event.shiftKey && (mode === "ask" || mode === "conversation")) return;
       event.preventDefault();
+      if (event.shiftKey) return;
       if (mode === "ask" || mode === "conversation") { void submitAsk(mode === "ask" ? entry.text : store.input); return; }
       if (mode === "command") { const item = commandItems.find(entry => entry.id === store.selection.id); if (item) void runCatalogEntry(item); return; }
       const result = store.results.find(item => resultKey(item) === store.selection.id);
@@ -423,14 +468,18 @@ export function LauncherPanel() {
         {store.category && <span className="launcher-chip" data-kind="category">{t(KIND_HINT[store.category])}<button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         {store.scope && <span className="launcher-chip" data-kind="scope" title={t("launcher.chip.scope_hint")}>{store.scope.name}<button type="button" aria-label={t("launcher.chip.remove_scope")} onClick={() => { store.setScope(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         {store.target.kind === "project" && <span className="launcher-chip" data-kind="target" title={t("launcher.chip.target_hint")}>{t("launcher.chip.target", { name: (workspace => workspace ? workspace.displayName || workspace.name : store.target.kind === "project" ? store.target.workspaceId : "")(workspaces.find(workspace => workspace.id === (store.target.kind === "project" ? store.target.workspaceId : ""))) })}<button type="button" aria-label={t("launcher.chip.remove_target")} onClick={() => store.setTarget({ kind: "assistant" })}><X className="size-3" /></button></span>}
-        <input ref={inputRef} className="launcher-input" value={store.input} placeholder={placeholder} aria-label={t("launcher.title")} autoFocus autoComplete="off" spellCheck={false} onChange={event => onInputChange(event.target.value)} onKeyDown={onKeyDown}
+        {(() => { const labels = fileFilterLabels(store.fileFilter); return <>
+          {labels.type && <span className="launcher-chip" data-kind="filter">{labels.type}<button type="button" aria-label={t("launcher.filter.types_any")} onClick={() => { store.setFileFilter({ types: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+          {labels.modified && <span className="launcher-chip" data-kind="filter">{labels.modified}<button type="button" aria-label={t("launcher.filter.modified_any")} onClick={() => { store.setFileFilter({ modifiedAfter: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+        </>; })()}
+        <textarea ref={inputRef} className="launcher-input" rows={1} value={store.input} placeholder={placeholder} aria-label={t("launcher.title")} autoFocus autoComplete="off" spellCheck={false} onChange={event => onInputChange(event.target.value)} onKeyDown={onKeyDown}
           onFocus={() => { if (conversation && !drafts.owns(conversation.conversationId, owner)) void adoptDraft(conversation.conversationId, true); }}
           onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length && assistant) { event.preventDefault(); void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); } else if (event.clipboardData.getData("text")) pastedText.current = true; }} />
         <div className="launcher-entry-actions">
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.context.add")} title={t("launcher.context.add")} />}><Plus className="size-4" /></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {desktop && <DropdownMenuItem disabled={!store.origin?.supportsSelection} onClick={() => void captureActions.selection()}><MousePointerSquareDashed className="size-4" />{t("launcher.context.add_selection")}{store.origin?.app ? ` (${store.origin.app})` : ""}</DropdownMenuItem>}
+              {desktop && <DropdownMenuItem disabled={!store.origin?.supportsSelection} title={store.origin?.platform === "windows" && !store.origin.supportsSelection ? t("launcher.context.selection_windows_hint") : undefined} onClick={() => void captureActions.selection()}><MousePointerSquareDashed className="size-4" />{t("launcher.context.add_selection")}{store.origin?.app ? ` (${store.origin.app})` : ""}</DropdownMenuItem>}
               <DropdownMenuItem onClick={() => void captureActions.clipboard()}><Clipboard className="size-4" />{t("launcher.context.paste_clipboard")}</DropdownMenuItem>
               <DropdownMenuItem onClick={captureActions.files}><Paperclip className="size-4" />{t("launcher.context.attach_file")}</DropdownMenuItem>
               {desktop && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void captureActions.window()}><FilePlus2 className="size-4" />{t("launcher.context.capture_window")}</DropdownMenuItem><DropdownMenuItem onClick={() => void captureActions.region()}><ScanLine className="size-4" />{t("launcher.context.capture_region")}</DropdownMenuItem></>}
@@ -441,14 +490,27 @@ export function LauncherPanel() {
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>{t("launcher.picker.scope")}</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => store.setScope(null)}>{t("launcher.picker.scope_all")}{!store.scope ? " ✓" : ""}</DropdownMenuItem>
-                {workspaces.map(workspace => <DropdownMenuItem key={`scope:${workspace.id}`} onClick={() => store.setScope({ id: workspace.id, name: workspace.displayName || workspace.name })}>{workspace.displayName || workspace.name}{store.scope?.id === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
+                <DropdownMenuItem onClick={() => { store.setScope(null); refocusEntry(); }}>{t("launcher.picker.scope_all")}{!store.scope ? " ✓" : ""}</DropdownMenuItem>
+                {workspaces.map(workspace => <DropdownMenuItem key={`scope:${workspace.id}`} onClick={() => { store.setScope({ id: workspace.id, name: workspace.displayName || workspace.name }); refocusEntry(); }}>{workspace.displayName || workspace.name}{store.scope?.id === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("launcher.filter.types")}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => { store.setFileFilter({ types: null }); refocusEntry(); }}>{t("launcher.filter.types_any")}{!store.fileFilter.types ? " ✓" : ""}</DropdownMenuItem>
+                {Object.entries(FILE_TYPE_PRESETS).map(([preset, types]) => <DropdownMenuItem key={preset} onClick={() => { store.setFileFilter({ types }); store.setCategory("files"); store.setView("results"); refocusEntry(); }}>{t(`launcher.filter.type.${preset}`)}{store.fileFilter.types?.join() === types.join() ? " ✓" : ""}</DropdownMenuItem>)}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("launcher.filter.modified")}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => { store.setFileFilter({ modifiedAfter: null }); refocusEntry(); }}>{t("launcher.filter.modified_any")}{store.fileFilter.modifiedAfter === null ? " ✓" : ""}</DropdownMenuItem>
+                {MODIFIED_PRESETS.map(preset => <DropdownMenuItem key={preset} onClick={() => { store.setFileFilter({ modifiedAfter: modifiedSince(preset) }); store.setCategory("files"); store.setView("results"); refocusEntry(); }}>{t(`launcher.filter.modified.${preset}`)}</DropdownMenuItem>)}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuLabel>{t("launcher.picker.target")}</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => store.setTarget({ kind: "assistant" })}>{t("launcher.picker.target_assistant")}{store.target.kind === "assistant" ? " ✓" : ""}</DropdownMenuItem>
-                {workspaces.map(workspace => <DropdownMenuItem key={`target:${workspace.id}`} onClick={() => store.setTarget({ kind: "project", workspaceId: workspace.id })}>{workspace.displayName || workspace.name}{store.target.kind === "project" && store.target.workspaceId === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
+                <DropdownMenuItem onClick={() => { store.setTarget({ kind: "assistant" }); refocusEntry(); }}>{t("launcher.picker.target_assistant")}{store.target.kind === "assistant" ? " ✓" : ""}</DropdownMenuItem>
+                {workspaces.map(workspace => <DropdownMenuItem key={`target:${workspace.id}`} onClick={() => { store.setTarget({ kind: "project", workspaceId: workspace.id }); refocusEntry(); }}>{workspace.displayName || workspace.name}{store.target.kind === "project" && store.target.workspaceId === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -468,7 +530,8 @@ export function LauncherPanel() {
         {store.view === "results" && <>
           <LauncherResultList items={store.results} sources={store.sources} query={entry.text} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending}
             onSelect={key => store.select({ id: key, source: "user" })} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />
-          {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} extra={["preview", ...(entry.text.trim() || store.category ? ["save-search" as const] : [])]}
+          {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} extra={["preview", ...(entry.text.trim() || store.category ? ["save-search" as const] : [])]} projects={workspaces.filter(workspace => workspace.id !== selectedResult.workspaceId).map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name }))}
+            onTransfer={(action, projectId) => { store.setOverlay(null); void transferFiles(selectedResult, action, projectId); inputRef.current?.focus(); }}
             onRun={action => { store.setOverlay(null); void runResultAction(selectedResult, action); inputRef.current?.focus(); }} onExtra={action => { store.setOverlay(action === "preview" ? { kind: "preview", resultKey: resultKey(selectedResult) } : null); if (action === "save-search") void saveCurrentSearch(); inputRef.current?.focus(); }} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} />}
           {store.searchError && <p className="launcher-notice" data-tone="error">{store.searchError}</p>}
         </>}
@@ -499,7 +562,7 @@ export function LauncherPanel() {
       <div className="launcher-footer">
         <span>{verb === "none" ? t("launcher.footer.select") : verb === "ask" ? t("launcher.footer.ask", { mod }) : t("launcher.footer.enter", { action: actionLabel(verb === "run" ? "run" : verb === "attach" ? "attach" : verb === "resume" ? "resume" : verb === "answer" ? "complete" : "open") })}{store.target.kind === "project" ? ` · ${t("launcher.footer.target_bound")}` : ""}</span>
         <span aria-live="polite">{store.searchPending ? <><Loader2 className="inline size-3 animate-spin motion-reduce:animate-none" /> {t("content_search.searching")}</> : sending ? t("launcher.submission.sending") : null}</span>
-        <span><kbd>↑↓</kbd><kbd>↵</kbd><kbd>{mod}↵</kbd>{t("launcher.footer.ask_short")} <kbd>{mod}K</kbd>{t("launcher.footer.actions")} <kbd>{mod}Y</kbd>{t("launcher.footer.preview")} <kbd>Esc</kbd></span>
+        <span><kbd>↑↓</kbd><kbd>↵</kbd>{mode === "conversation" || mode === "ask" ? <><kbd>⇧↵</kbd>{t("launcher.footer.newline")} </> : null}<kbd>{mod}↵</kbd>{t("launcher.footer.ask_short")} <kbd>{mod}K</kbd>{t("launcher.footer.actions")} <kbd>{mod}Y</kbd>{t("launcher.footer.preview")} <kbd>Esc</kbd></span>
       </div>
     </div>
     <span className="sr-only"><Send className="size-0" /></span>

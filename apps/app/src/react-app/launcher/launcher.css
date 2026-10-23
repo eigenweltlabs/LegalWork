@@ -13,7 +13,7 @@
 .launcher-chip[data-kind="target"] { background: color-mix(in srgb, var(--blue-9, #2563eb) 14%, transparent); color: var(--blue-11, #1d4ed8); border-color: transparent; }
 .launcher-chip button { display: inline-flex; border: 0; background: transparent; color: inherit; padding: 0; margin-left: 2px; cursor: pointer; opacity: .7; }
 .launcher-chip button:hover { opacity: 1; }
-.launcher-input { flex: 1; min-width: 0; height: 34px; border: 0; outline: 0; background: transparent; font-size: 16px; color: inherit; }
+.launcher-input { flex: 1; min-width: 0; min-height: 34px; max-height: 160px; padding: 6px 0; border: 0; outline: 0; resize: none; overflow-y: auto; background: transparent; font: inherit; font-size: 16px; line-height: 22px; color: inherit; }
 .launcher-input::placeholder { color: var(--lw-text-tertiary, var(--lw-text-secondary)); }
 .launcher-entry-actions { display: flex; align-items: center; gap: 2px; }
 .launcher-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }

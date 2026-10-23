@@ -1,7 +1,10 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { constants as fsConstants } from "node:fs";
+import { copyFile, mkdir, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { recordAudit } from "../audit.js";
+import { shortId } from "../utils.js";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { isMainAssistant } from "../main-assistant.js";
 import { readAssistantAttention } from "../assistant-attention.js";
@@ -45,8 +48,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   };
   addRoute(routes, "GET", "/launcher/search", "client", async ctx => {
     read(ctx);
-    const input = parse(z.object({ q: z.string().trim().max(300).default(""), kinds: z.string().max(100).optional(), projectId: z.string().max(200).optional(), content: z.enum(["1", "0"]).optional(), limit: z.coerce.number().int().min(1).max(200).default(80) }),
+    const input = parse(z.object({ q: z.string().trim().max(300).default(""), kinds: z.string().max(100).optional(), projectId: z.string().max(200).optional(), content: z.enum(["1", "0"]).optional(), limit: z.coerce.number().int().min(1).max(200).default(80),
+      types: z.string().max(200).optional(), since: z.coerce.number().int().positive().optional() }),
       Object.fromEntries(ctx.url.searchParams), "launcher_query", "Check the search query, categories and project scope.");
+    const fileTypes = input.types ? input.types.split(",").map(type => type.trim().toLowerCase().replace(/^\./, "")).filter(type => /^[a-z0-9]{1,8}$/.test(type)) : undefined;
     const kinds = input.kinds ? input.kinds.split(",").map(kind => LauncherSearchKindSchema.parse(kind.trim())) : [...LAUNCHER_SEARCH_KINDS];
     const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
     const store = await taskStore(config);
@@ -55,7 +60,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
-    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit }, ctx.request.signal);
+    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal);
     // Remote projects are not searched from here yet: say so per project instead of answering "nothing found".
     for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && (!input.projectId || workspace.id === input.projectId)))
       response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
@@ -98,6 +103,36 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   });
   addRoute(routes, "DELETE", "/launcher/searches/:id", "client", async ctx => { write(ctx); savedSearches.remove(ctx.params.id); return jsonResponse({ ok: true }); });
   addRoute(routes, "POST", "/launcher/searches/:id/used", "client", async ctx => { write(ctx); return jsonResponse({ search: savedSearches.recordUse(ctx.params.id) }); });
+  // Copy or move a file into another project: explicit, approved and audited like the file routes.
+  addRoute(routes, "POST", "/launcher/files/transfer", "client", async ctx => {
+    write(ctx);
+    const input = parse(LauncherFileTransferInputSchema, await options.readJsonBodyLimited(ctx.request, 16_000), "launcher_transfer", "Name the file, the destination project and copy or move.");
+    if (input.sourceWorkspaceId === input.targetWorkspaceId) throw new ApiError(400, "launcher_transfer", "Choose a different project as the destination.");
+    const [source, target] = await Promise.all([options.resolveWorkspace(config, input.sourceWorkspaceId), options.resolveWorkspace(config, input.targetWorkspaceId)]);
+    if (source.workspaceType === "remote" || target.workspaceType === "remote") throw new ApiError(400, "launcher_transfer", "Files move between local projects only.");
+    const relativePath = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true });
+    const sourceRoot = await realpath(source.path), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
+    if (!sourceFile || (sourceFile !== sourceRoot && !sourceFile.startsWith(sourceRoot + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
+    if (!(await stat(sourceFile).catch(() => null))?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
+    const folder = input.folder ? normalizeWorkspaceRelativePath(input.folder, { allowSubdirs: true }) : "";
+    const targetRoot = await realpath(target.path), destination = resolve(targetRoot, folder, basename(sourceFile));
+    if (!destination.startsWith(targetRoot + sep)) throw new ApiError(400, "invalid_path", "The destination is outside the project.");
+    if (await stat(destination).catch(() => null)) throw new ApiError(409, "file_exists", "A file with that name already exists in the destination project.");
+    const destinationPath = relative(targetRoot, destination).split("\\").join("/");
+    await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `${input.mode === "move" ? "Move" : "Copy"} ${relativePath} from ${projectName(source)} to ${projectName(target)}`, paths: [destination, ...(input.mode === "move" ? [sourceFile] : [])] });
+    await mkdir(dirname(destination), { recursive: true });
+    if (input.mode === "copy") await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL);
+    else {
+      try { await rename(sourceFile, destination); }
+      catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EXDEV")) throw error; await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL); await unlink(sourceFile); }
+    }
+    const actor = ctx.actor ?? { type: "remote" as const };
+    await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor, action: "workspace.file.write", target: destination, summary: `${input.mode === "move" ? "Moved" : "Copied"} ${relativePath} from ${projectName(source)}`, timestamp: Date.now() });
+    if (input.mode === "move") await recordAudit(source.path, { id: shortId(), workspaceId: source.id, actor, action: "workspace.file.write", target: sourceFile, summary: `Moved ${relativePath} to ${projectName(target)}`, timestamp: Date.now() });
+    void fileIndex.ensure(source.id, source.path, false).catch(() => undefined);
+    void fileIndex.ensure(target.id, target.path, false).catch(() => undefined);
+    return jsonResponse({ ok: true, path: destinationPath }, 201);
+  });
   // Previews read what the result points at; nothing here reaches a model.
   addRoute(routes, "GET", "/launcher/preview", "client", async ctx => {
     read(ctx);

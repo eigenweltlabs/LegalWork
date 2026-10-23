@@ -47,3 +47,23 @@ test("a bounded index reports itself as limited instead of pretending completene
     expect(index.size("w")).toBe(2);
   } finally { index.dispose(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("filters narrow by extension and modification time, and list recent files without words", async () => {
+  const root = await mkdtemp(join(tmpdir(), "launcher-index-filters-"));
+  try {
+    await mkdir(join(root, "Verträge"), { recursive: true });
+    await writeFile(join(root, "Verträge", "Mietvertrag.docx"), "a");
+    await writeFile(join(root, "Verträge", "Mietvertrag.pdf"), "b");
+    await writeFile(join(root, "Notiz.md"), "c");
+    const old = join(root, "Alt.docx");
+    await writeFile(old, "d");
+    const { utimes } = await import("node:fs/promises");
+    await utimes(old, new Date(Date.now() - 90 * 86_400_000), new Date(Date.now() - 90 * 86_400_000));
+    const index = new LauncherFileIndex({ watch: false });
+    await index.ensure("w", root, true);
+    expect(index.search("w", "Mietvertrag", 10, { types: ["pdf"] }).map(match => match.entry.name)).toEqual(["Mietvertrag.pdf"]);
+    expect(index.search("w", "", 10, { types: ["docx"] }).map(match => match.entry.name).sort()).toEqual(["Alt.docx", "Mietvertrag.docx"]);
+    expect(index.search("w", "", 10, { types: ["docx"], modifiedAfter: Date.now() - 86_400_000 }).map(match => match.entry.name)).toEqual(["Mietvertrag.docx"]);
+    expect(index.search("w", "", 10)).toEqual([]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

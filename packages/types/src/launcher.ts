@@ -8,7 +8,7 @@ export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { fi
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
 export type LauncherCoverage = z.infer<typeof LauncherCoverageSchema>;
-export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "play", "resume", "hand-to-assistant"]);
+export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "play", "resume", "hand-to-assistant", "copy-to-project", "move-to-project"]);
 export type LauncherResultAction = z.infer<typeof LauncherResultActionSchema>;
 export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring", "fuzzy", "content", "metadata", "recent"]);
 export const LauncherSearchResultSchema = z.object({
@@ -105,6 +105,12 @@ export const LauncherCatalogEntrySchema = z.object({
   outputs: z.array(LauncherActionOutputSchema), workspaceId: z.string().nullable(), shortcut: z.string().nullable(), favorite: z.boolean(), usedAt: z.number().nullable(),
   command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(), savedSearch: SavedSearchSchema.optional(),
 });
+/** File finder filters: extensions and a modification floor. They narrow files only and stay visible as chips. */
+export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable() });
+export type LauncherFileFilter = z.infer<typeof LauncherFileFilterSchema>;
+/** Copy or move one file into another project. Explicit, approved and audited like the file routes; never a side effect of opening. */
+export const LauncherFileTransferInputSchema = z.object({ sourceWorkspaceId: z.string().min(1), targetWorkspaceId: z.string().min(1), path: z.string().min(1).max(4096), mode: z.enum(["copy", "move"]), folder: z.string().max(1024).optional() });
+export type LauncherFileTransferInput = z.infer<typeof LauncherFileTransferInputSchema>;
 /** A read-only look at one result. Reading a preview never submits anything to a model. */
 export const LauncherPreviewSchema = z.object({
   kind: LauncherSearchKindSchema, id: z.string(), title: z.string(), meta: z.array(z.string()), text: z.string(), truncated: z.boolean(),

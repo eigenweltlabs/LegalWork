@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
+import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
 import type { LauncherSelection } from "./launcher-keyboard";
 import { reconcileSelection } from "./launcher-keyboard";
 
@@ -13,6 +13,8 @@ export type LauncherState = {
   view: LauncherView;
   input: string;
   category: LauncherSearchKind | null;
+  /** File finder filters; they narrow files only and show as chips. */
+  fileFilter: LauncherFileFilter;
   scope: ProjectScope | null;
   /** The execution target bound to the next submission: distinct from the search scope. */
   target: AssistantExecutionTarget;
@@ -42,6 +44,7 @@ export type LauncherState = {
   setVisible: (visible: boolean) => void;
   setInput: (input: string) => void;
   setCategory: (category: LauncherSearchKind | null) => void;
+  setFileFilter: (filter: Partial<LauncherFileFilter>) => void;
   setScope: (scope: ProjectScope | null) => void;
   setTarget: (target: AssistantExecutionTarget) => void;
   setView: (view: LauncherView) => void;
@@ -65,7 +68,7 @@ export type LauncherState = {
 };
 
 const initial = {
-  view: "idle" as LauncherView, input: "", category: null, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
+  view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
   invocation: null as LauncherInvocation | null, visible: true,
 };
@@ -76,6 +79,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   setVisible: visible => set({ visible }),
   setInput: input => set({ input }),
   setCategory: category => set({ category }),
+  setFileFilter: filter => set(state => ({ fileFilter: { ...state.fileFilter, ...filter } })),
   // A search scope never silently becomes the execution target; the target changes only through its own control.
   setScope: scope => set({ scope }),
   setTarget: target => set({ target }),
@@ -99,6 +103,6 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   // Dismissal keeps the conversation, its draft and attachments; a search or command typed into the field is transient and clears.
   reset: () => set(state => {
     const keepDraft = state.view === "conversation";
-    return { ...state, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", category: keepDraft ? state.category : null, results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
+    return { ...state, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null }, results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
   }),
 }));

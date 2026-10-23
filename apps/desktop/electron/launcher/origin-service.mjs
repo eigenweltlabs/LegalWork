@@ -134,7 +134,8 @@ export class OriginService {
     if (!front?.ok || this.isOwnProcess(Number(front.pid) || null, front.bundleId || null)) return this.origin;
     const capabilities = this.capabilities();
     this.origin = { id: `origin_${randomBytes(6).toString("hex")}`, app: front.app || null, window: front.window || null, bundleId: front.bundleId || null, pid: Number.isInteger(front.pid) ? Number(front.pid) : null,
-      capturedAt: Date.now(), supportsSelection: capabilities.selection && Boolean(front.accessibility ?? true), supportsInsert: capabilities.insert, platform: this.platform };
+      // Windows can read the selection only while the source still has focus: the selection shortcut prefetches it; a plain open offers nothing it cannot deliver.
+      capturedAt: Date.now(), supportsSelection: capabilities.selection && Boolean(front.accessibility ?? true) && this.platform !== "windows", supportsInsert: capabilities.insert, platform: this.platform };
     return this.origin;
   }
   current() { return this.origin; }
@@ -143,18 +144,27 @@ export class OriginService {
   async prefetchSelection() {
     const origin = this.origin;
     if (!origin) return null;
-    const result = await this.selection(origin.id);
-    if (result.ok) this.prefetched = { originId: origin.id, text: result.text };
+    const result = await this.readSelection(origin);
+    if (result.ok) { this.prefetched = { originId: origin.id, text: result.text }; origin.supportsSelection = true; }
     return result;
   }
   /** @returns {Promise<import("@legalwork/types/launcher").LauncherSelectionResult>} */
   async selection(originId) {
     const origin = this.origin;
     if (!origin || origin.id !== originId) return { ok: false, reason: "no-origin", message: "The source app was not recorded.", origin: null };
+    if (this.prefetched?.originId === originId) { const { text } = this.prefetched; this.prefetched = null; return { ok: true, text, origin }; }
+    if (this.platform === "windows") return { ok: false, reason: "changed", message: "On Windows the selection is read by the selection shortcut before the panel opens. Select the text and use that shortcut.", origin };
+    return this.readSelection(origin);
+  }
+  /**
+   * Read the selection of the recorded origin from the platform.
+   * @param {import("@legalwork/types/launcher").LauncherOrigin} origin
+   * @returns {Promise<import("@legalwork/types/launcher").LauncherSelectionResult>}
+   */
+  async readSelection(origin) {
     if (!this.capabilities().selection) return { ok: false, reason: "unsupported", message: "Reading a selection is not supported on this system.", origin };
     try {
       let result = null;
-      if (this.prefetched?.originId === originId) { const { text } = this.prefetched; this.prefetched = null; return { ok: true, text, origin }; }
       if (this.platform === "darwin" && this.helperAvailable()) result = parseHelperJson(await this.exec(this.helperPath, ["--selected-text", String(origin.pid)], { timeoutMs: 5000 }));
       else if (this.platform === "windows") result = parseHelperJson(await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SELECTION_SCRIPT, "-TargetPid", String(origin.pid)], { timeoutMs: 8000 }));
       else return { ok: false, reason: "unsupported", message: "The native helper is not installed; the selection cannot be read.", origin };

@@ -1,6 +1,7 @@
 import type { LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 
-export type SearchRun = (input: { query: string; kinds: LauncherSearchKind[]; projectId: string | null; content: boolean }, signal: AbortSignal) => Promise<LauncherSearchResponse>;
+export type SearchInput = { query: string; kinds: LauncherSearchKind[]; projectId: string | null; fileTypes?: string[] | null; modifiedAfter?: number | null };
+export type SearchRun = (input: SearchInput & { content: boolean }, signal: AbortSignal) => Promise<LauncherSearchResponse>;
 export type SearchSnapshot = { items: LauncherSearchResult[]; sources: LauncherSourceState[]; pending: boolean; query: string; error: string | null };
 export const resultKey = (item: Pick<LauncherSearchResult, "kind" | "sourceId" | "id">) => `${item.kind}\u0000${item.sourceId}\u0000${item.id}`;
 
@@ -22,12 +23,13 @@ export class LauncherSearchSession {
   subscribe(listener: (snapshot: SearchSnapshot) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private publish(next: Partial<SearchSnapshot>) { this.snapshot = { ...this.snapshot, ...next }; for (const listener of this.listeners) listener(this.snapshot); }
   cancel() { this.controller?.abort(); this.controller = null; if (this.timer) clearTimeout(this.timer); this.timer = null; this.publish({ pending: false }); }
-  search(input: { query: string; kinds: LauncherSearchKind[]; projectId: string | null }) {
+  search(input: SearchInput) {
     this.controller?.abort();
     if (this.timer) clearTimeout(this.timer);
     const generation = ++this.generation;
     const query = input.query.trim();
-    if (!query && !input.kinds.includes("tasks") && !input.projectId) { this.controller = null; this.publish({ items: [], sources: [], pending: false, query, error: null }); return; }
+    const filtered = Boolean(input.fileTypes?.length || input.modifiedAfter);
+    if (!query && !input.kinds.includes("tasks") && !input.projectId && !filtered) { this.controller = null; this.publish({ items: [], sources: [], pending: false, query, error: null }); return; }
     const controller = new AbortController();
     this.controller = controller;
     this.publish({ pending: true, query, error: null });
@@ -39,7 +41,7 @@ export class LauncherSearchSession {
     const kept = previous.flatMap(item => { const next = seen.get(resultKey(item)); if (!next) return []; seen.delete(resultKey(item)); return [next]; });
     return [...kept, ...seen.values()];
   }
-  private async execute(generation: number, controller: AbortController, input: { query: string; kinds: LauncherSearchKind[]; projectId: string | null }) {
+  private async execute(generation: number, controller: AbortController, input: SearchInput) {
     try {
       const fast = await this.run({ ...input, content: false }, controller.signal);
       if (controller.signal.aborted || generation !== this.generation) return;

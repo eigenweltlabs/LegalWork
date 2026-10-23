@@ -109,6 +109,28 @@ Two independent review agents read the implementation diff (one for correctness 
 
 Still open after the review: a multiline composer honouring the Enter/Shift+Enter preference, file type and date filters plus copy/move to project, the Windows selection action advertised while it cannot work, and measured performance numbers.
 
+## Fourth round: composer, filters, transfers, Windows, numbers
+
+- The entry is a growing text area: in a conversation Enter sends and Shift+Enter inserts a newline (the same contract as the main composer); a search never takes a newline.
+- File finder filters: a file type group (documents, spreadsheets, presentations, images, emails) and a modification floor (today, 7 days, 30 days, this year) from the picker, shown as removable chips, cleared by Escape with the category. A filter without words lists the newest matching files. `GET /launcher/search` takes `types` and `since`.
+- Copy to project and Move to project on file results (and on a multi-selection) choose the destination inside the actions menu; `POST /launcher/files/transfer` resolves both paths inside their projects, refuses an existing name, asks for the host approval like the file routes, records an audit entry on both sides and refreshes both indexes.
+- Windows: a plain open never advertises Add selection, because the selection can only be read while the source still has focus; the selection shortcut reads it before the panel opens and then offers it. The menu item carries that hint.
+
+### Measured
+
+Measured on this machine (Apple silicon, local disk) with `bun scripts/launcher-bench.ts 50000 100` in `apps/server`, the smoke server over the same 50k-file project, and the Electron dev build driven over its debug port.
+
+| Measure | Result | Target |
+| --- | --- | --- |
+| Index build, 50,000 files | 1.1 s (corpus written in 4.2 s) | first results while indexing |
+| Filename pass in process, six queries, 100 runs each | p50 27 ms, p95 29 ms | 100 ms |
+| Filename pass over HTTP, 60 requests | p50 29 ms, p95 31 ms, max 32 ms | 100 ms |
+| Panel show, warm, 20 cycles (IPC round trip from the main window to the window being shown) | p50 6 ms, p95 45 ms | 150 ms |
+| Panel show, first time (renderer cold load) | 552 ms | — |
+| Panel renderer CPU, hidden and visible idle, three 8-second samples | 0.0 % | no hidden timers |
+
+The warm show number excludes the keypress itself and the origin capture, which runs the native helper once per open; the hidden-panel number is the panel renderer, the Home window keeps its own work.
+
 ## Verification
 
 Automated:
@@ -120,5 +142,7 @@ Automated:
 Electron runtime check on macOS (dev build, isolated profile, no engine), driven over the renderer's IPC bridge: the app boots with the launcher service (`launcherStatus` reports the global shortcut as registered without conflicts and the native helper capabilities for selection, insertion, capture and origin); `launcherWindowControl("show")` opens the panel window on the launcher route, which loads the catalog and the conversation list; `f ab` queries `/launcher/search` and renders the Files chip with its coverage; Escape first clears the query and then hides the window; enabling the companion creates the dictation HUD window with the Assistant handle; Raycast pairing writes `launcher-pairing.json` with mode 0600 and removes it on disable.
 
 Second round, web smoke run over the same sample matters: `Cmd+Y` on `f Mietvertrag` shows the file preview, `Down` moves the preview to the next file, `Cmd+S` saves the search, the saved search appears on the idle view and in the `/` menu with its scope, choosing it restores the chip and the words, and the delete control removes it. Electron dev build: a synthetic approval event renders the card with Deny focused and Deny clears it; a synthetic voice event disables and re-enables the Speak button.
+
+Fourth round, web smoke run with a third 50k-file project registered: the Documents filter lists the newest matching files across projects with its chip, `Shift+Enter` inserts a newline in a question and the entry grows, `Cmd+K` on a file offers Copy to project and Move to project, choosing Bench copies the file (notice, file on disk, audit entry under the server data directory); the route refuses a second copy of the same name with 409, rejects a path outside the project, and moves a file into a named folder of the other project.
 
 Manual and platform tests that still need a real device run are listed in the pull request: macOS Spaces/fullscreen, Windows foreground-lock and mixed DPI, sleep/wake, Raycast cold start and the end-to-end recording.

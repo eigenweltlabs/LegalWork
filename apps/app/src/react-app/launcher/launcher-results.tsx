@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckSquare, FileText, Folder, LayoutGrid, ListTodo, MessageSquare, Mic, Pin, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchKind, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { formatRelativeTime } from "@/app/utils";
@@ -62,8 +62,11 @@ export function LauncherResultList(props: {
   </div>;
 }
 
-export function LauncherActionMenu(props: { result: LauncherSearchResult; multiSelected: number; pinned: boolean; extra: LauncherExtraAction[]; onRun: (action: LauncherResultAction) => void; onExtra: (action: LauncherExtraAction) => void; onClose: () => void }) {
-  const actions = resultActionMenu(props.result, props.multiSelected);
+export type LauncherTransferAction = "copy-to-project" | "move-to-project";
+export function LauncherActionMenu(props: { result: LauncherSearchResult; multiSelected: number; pinned: boolean; extra: LauncherExtraAction[]; projects: { id: string; name: string }[]; onRun: (action: LauncherResultAction) => void; onExtra: (action: LauncherExtraAction) => void; onTransfer: (action: LauncherTransferAction, projectId: string) => void; onClose: () => void }) {
+  const actions = resultActionMenu(props.result, props.multiSelected).filter(action => (action !== "copy-to-project" && action !== "move-to-project") || props.projects.length > 0);
+  // Copy and move ask for the destination inside the same menu; nothing moves before a project is chosen.
+  const [pick, setPick] = useState<LauncherTransferAction | null>(null);
   const indexRef = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const propsRef = useRef(props);
@@ -82,8 +85,13 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [props.result]);
+  if (pick) return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={t("launcher.transfer.pick")}>
+    <div className="launcher-section-title">{t("launcher.transfer.pick")}</div>
+    {props.projects.map(project => <button key={project.id} type="button" role="menuitem" onClick={() => props.onTransfer(pick, project.id)}>{project.name}</button>)}
+    <button type="button" role="menuitem" onClick={() => setPick(null)}>{t("launcher.transfer.back")}</button>
+  </div>;
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
-    {actions.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onRun(action)}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
+    {actions.map(action => <button key={action} type="button" role="menuitem" onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
     {props.extra.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
   </div>;
 }

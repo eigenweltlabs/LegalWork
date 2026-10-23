@@ -7,7 +7,7 @@ const SKIP_DIRECTORIES = new Set(["node_modules", "vendor", "dist", "build", "co
 export type IndexedFile = { path: string; name: string; folded: string; mtimeMs: number; size: number; ext: string };
 type Index = { root: string; entries: Map<string, IndexedFile>; builtAt: number; building: Promise<void> | null; complete: boolean; limited: boolean; watcher: FSWatcher | null; dirty: boolean; timer: ReturnType<typeof setTimeout> | null };
 export type FileIndexState = "indexing" | "ready" | "limited" | "unavailable";
-export type FileMatch = { entry: IndexedFile; match: "exact" | "prefix" | "word" | "substring" | "fuzzy"; score: number };
+export type FileMatch = { entry: IndexedFile; match: "exact" | "prefix" | "word" | "substring" | "fuzzy" | "recent"; score: number };
 const fold = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
 
 /** Subsequence match with a bounded gap penalty: "mvtr" finds "Mietvertrag". */
@@ -93,16 +93,22 @@ export class LauncherFileIndex {
     if (wait && index.building) await index.building;
     return index;
   }
-  search(workspaceId: string, query: string, limit = 50): FileMatch[] {
+  search(workspaceId: string, query: string, limit = 50, filter: { types?: string[] | null; modifiedAfter?: number | null } = {}): FileMatch[] {
     const index = this.indexes.get(workspaceId);
     const terms = fold(query).trim().split(/\s+/).filter(Boolean);
-    if (!index || !terms.length) return [];
+    const types = filter.types?.length ? new Set(filter.types.map(type => `.${type.toLowerCase().replace(/^\./, "")}`)) : null;
+    const since = filter.modifiedAfter ?? null;
+    if (!index || (!terms.length && !types && since === null)) return [];
     const phrase = terms.join(" ");
     const matches: FileMatch[] = [];
     for (const entry of index.entries.values()) {
+      if (types && !types.has(entry.ext)) continue;
+      if (since !== null && entry.mtimeMs < since) continue;
       const name = fold(entry.name), stem = fold(basename(entry.name, extname(entry.name)));
       let match: FileMatch["match"] | null = null, score = 0;
-      if (stem === phrase || name === phrase) { match = "exact"; score = 1000; }
+      // A filter without words lists what it matches, newest first.
+      if (!terms.length) { match = "recent"; score = 0; }
+      else if (stem === phrase || name === phrase) { match = "exact"; score = 1000; }
       else if (name.startsWith(phrase)) { match = "prefix"; score = 800; }
       else if (terms.every(term => new RegExp(`(^|[^\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u").test(name))) { match = "word"; score = 650; }
       else if (terms.every(term => entry.folded.includes(term))) { match = "substring"; score = terms.every(term => name.includes(term)) ? 500 : 350; }
