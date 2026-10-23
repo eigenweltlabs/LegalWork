@@ -806,10 +806,13 @@ const dictationHud = new DictationHud({
 let recorderRendererReady = false;
 let pendingMeetingStart = null;
 let pendingMeetingOpen = false;
+// Assigned once the launcher service exists; meeting and dictation changes reach the panel through it.
+let notifyLauncherVoice = () => {};
 const meetingMonitor = new MeetingMonitor({
   app,
   onChange: status => {
     recorderService().broadcast({ type: "meeting-status", status });
+    notifyLauncherVoice();
     void dictationHud.setMeeting(status).catch(error => console.warn("[meeting-hud]", error));
     syncBackgroundPresence();
   },
@@ -890,7 +893,7 @@ const systemDictation = new SystemDictationService({
 const launcherWindow = new LauncherWindow({
   appRoot: APP_ROOT, startUrl: APP_START_URL, preloadPath: path.join(__dirname, "preload.cjs"), icon: APP_ICON_IMAGE, userDataDir: app.getPath("userData"),
   focusedDisplay: () => dictationHud.focusedDisplayId ?? null,
-  onVisibility: () => syncBackgroundPresence(),
+  onVisibility: state => { launcherService.onVisibility(state.visible); syncBackgroundPresence(); },
   onExpand: route => {
     void createMainWindow().then(win => {
       if (win.isDestroyed()) return;
@@ -915,6 +918,7 @@ const launcherService = new LauncherService({
   companion: state => { void dictationHud.setCompanion(state).catch(error => console.warn("[launcher-companion]", error)); },
   onPresenceChanged: () => syncBackgroundPresence(),
 });
+notifyLauncherVoice = () => launcherService.notifyVoice();
 
 // ── Background presence (tray + close-to-hide) ────────────────────────────
 //
@@ -1212,8 +1216,9 @@ const runtimeManager = createRuntimeManager({
   app,
   // Chromium networking follows the system/PAC proxy and enterprise certificates.
   modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
-  // Host approvals belong to a visible LegalWork window: the quick panel while it is open, otherwise the main window.
-  getApprovalWindow: () => launcherService.approvalWindow() ?? mainWindow,
+  // Host approvals are system UI: a card in the quick panel while it is open, otherwise a dialog on the main window.
+  getApprovalWindow: () => mainWindow,
+  presentApproval: (request, signal) => launcherService.presentApproval(request, signal),
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
@@ -2689,7 +2694,9 @@ const desktopCommandHandlers = {
       const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "cancelled", "error"].includes(args[0])
         ? args[0]
         : "idle";
-      return systemDictation.setRuntimeState(state, String(args[1] ?? ""), args[2] === "de" ? "de" : "en");
+      const status = systemDictation.setRuntimeState(state, String(args[1] ?? ""), args[2] === "de" ? "de" : "en");
+      notifyLauncherVoice();
+      return status;
   },
   "audioSystemDictationReadiness": async (event, ...args) => {
       return healDictationMonitor(await dictationPermissions.readiness());
@@ -2769,6 +2776,9 @@ const desktopCommandHandlers = {
   },
   "launcherAttentionSet": async (event, ...args) => {
       launcherService.setAttention(args[0] && typeof args[0] === "object" ? args[0] : { count: 0, recording: false });
+  },
+  "launcherApprovalReply": async (event, ...args) => {
+      return launcherService.replyApproval(String(args[0] ?? ""), String(args[1] ?? "deny"));
   },
   "launcherRaycastPairing": async (event, ...args) => {
       const action = String(args[0] ?? "status");

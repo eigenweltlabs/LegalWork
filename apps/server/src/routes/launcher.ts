@@ -1,12 +1,17 @@
-import { resolve } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { isMainAssistant } from "../main-assistant.js";
 import { readAssistantAttention } from "../assistant-attention.js";
 import { readDelegationResult } from "../assistant-delegation-result.js";
 import { listAssistantWork } from "../assistant-work.js";
 import { launcherCatalog, renderQuickActionPrompt } from "../launcher-actions.js";
+import { savedSearchCatalogEntries } from "../launcher-saved-searches.js";
+import { assemblePreview, clampPreview, messagesPreview } from "../launcher-preview.js";
+import { extractCorpusText } from "../corpus/extract.js";
+import { isSupportedWorkspaceTextFilePath, normalizeWorkspaceRelativePath } from "./files.js";
 import { filterRecordings, searchLauncher } from "../launcher-search.js";
 import { searchFileContents, searchSessionContents } from "../content-search.js";
 import { taskStore } from "../task-store.js";
@@ -23,7 +28,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown, code: string, message: s
 }
 
 export function registerLauncherRoutes(options: Parameters<typeof registerMainAssistantRoutes>[0]) {
-  const { config, routes, jsonResponse, quickActions, stagedContext, fileIndex, delegations, sessionQueue, conversations, submissions } = options;
+  const { config, routes, jsonResponse, quickActions, savedSearches, stagedContext, fileIndex, delegations, sessionQueue, conversations, submissions } = options;
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
@@ -67,7 +72,66 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
         groups.push({ workspaceId: isMainAssistant(workspace) ? null : workspace.id, items: result.data ?? [] });
       } catch { unavailable.push(source.id); }
     }
-    return jsonResponse({ entries: launcherCatalog({ commands: groups, quickActions: quickActions.list() }), unavailable });
+    const savedEntries = savedSearchCatalogEntries(savedSearches.list(), id => { const workspace = config.workspaces.find(workspace => workspace.id === id); return workspace ? projectName(workspace) : null; });
+    return jsonResponse({ entries: [...launcherCatalog({ commands: groups, quickActions: quickActions.list() }), ...savedEntries], unavailable });
+  });
+  addRoute(routes, "GET", "/launcher/searches", "client", async ctx => { read(ctx); return jsonResponse({ searches: savedSearches.list() }); });
+  addRoute(routes, "POST", "/launcher/searches", "client", async ctx => {
+    write(ctx);
+    const input = parse(SavedSearchInputSchema, await options.readJsonBodyLimited(ctx.request, 8_000), "saved_search_input", "Provide a name and the search to save.");
+    if (input.projectId && !config.workspaces.some(workspace => workspace.id === input.projectId)) throw new ApiError(404, "workspace_not_found", "The requested project is unknown.");
+    return jsonResponse({ search: savedSearches.create(input) }, 201);
+  });
+  addRoute(routes, "DELETE", "/launcher/searches/:id", "client", async ctx => { write(ctx); savedSearches.remove(ctx.params.id); return jsonResponse({ ok: true }); });
+  addRoute(routes, "POST", "/launcher/searches/:id/used", "client", async ctx => { write(ctx); return jsonResponse({ search: savedSearches.recordUse(ctx.params.id) }); });
+  // Previews read what the result points at; nothing here reaches a model.
+  addRoute(routes, "GET", "/launcher/preview", "client", async ctx => {
+    read(ctx);
+    const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
+    const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(15_000)]);
+    const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return options.resolveWorkspace(config, input.workspaceId); };
+    const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    if (input.kind === "projects") {
+      const workspace = await workspaceOf();
+      return jsonResponse(assemblePreview({ kind: "projects", id: workspace.id, title: projectName(workspace), meta: [workspace.path], updatedAt: null }, clampPreview(workspace.path), "metadata"));
+    }
+    if (input.kind === "files") {
+      const workspace = await workspaceOf();
+      const relativePath = normalizeWorkspaceRelativePath(input.id, { allowSubdirs: true });
+      const root = await realpath(workspace.path), absolute = resolve(root, relativePath);
+      if (absolute !== root && !absolute.startsWith(root + sep)) throw new ApiError(400, "invalid_path", "The file is outside this project.");
+      const info = await stat(absolute).catch(() => null);
+      if (!info?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
+      const source = { kind: "files" as const, id: relativePath, title: relativePath.split("/").pop() ?? relativePath, meta: [projectName(workspace), relativePath, size(info.size)], updatedAt: info.mtimeMs };
+      if (isSupportedWorkspaceTextFilePath(relativePath) && info.size <= 5_000_000) return jsonResponse(assemblePreview(source, clampPreview(await readFile(absolute, "utf8")), "text"));
+      try {
+        const prepared = await extractCorpusText(workspace.path, relativePath, options.preparation, signal);
+        if (prepared.text.trim()) return jsonResponse(assemblePreview(source, clampPreview(prepared.text), "prepared"));
+      } catch { /* metadata only */ }
+      return jsonResponse(assemblePreview({ ...source, meta: [...source.meta, extname(relativePath).replace(/^\./, "").toUpperCase()] }, { text: "", truncated: false }, "metadata"));
+    }
+    if (input.kind === "chats") {
+      const workspace = await workspaceOf();
+      const client = options.client(workspace);
+      const [session, messages] = await Promise.all([
+        client.session.get({ sessionID: input.id }, { throwOnError: true, signal }),
+        client.session.messages({ sessionID: input.id, limit: 12 }, { throwOnError: true, signal }),
+      ]);
+      const turns = (messages.data ?? []).map(message => ({ role: message.info.role, time: message.info.time.created, text: message.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n") }));
+      return jsonResponse(assemblePreview({ kind: "chats", id: input.id, title: session.data?.title ?? input.id, meta: [projectName(workspace)], updatedAt: session.data?.time.updated ?? null }, messagesPreview(turns), "messages"));
+    }
+    if (input.kind === "tasks") {
+      const task = (await taskStore(config)).getTask(input.id);
+      if (!task) throw new ApiError(404, "task_not_found", "This task no longer exists.");
+      const meta = [task.status, task.dueDate ? `Due ${task.dueDate.slice(0, 10)}` : null, task.assigneeName, ...task.tags].filter((value): value is string => Boolean(value));
+      return jsonResponse(assemblePreview({ kind: "tasks", id: task.id, title: task.title, meta, updatedAt: Date.parse(task.updatedAt) || null }, clampPreview(task.description), "metadata"));
+    }
+    const readRecording = config.recorder?.readRecording ?? config.recorder?.library?.read;
+    if (!readRecording) throw new ApiError(404, "recording_unavailable", "The recording library is only available in the desktop app.");
+    const detail = await readRecording(input.id);
+    if (!detail) throw new ApiError(404, "recording_not_found", "This recording no longer exists.");
+    const meta = [new Date(detail.meta.createdAt).toLocaleString("en-GB"), `${Math.round(detail.meta.durationMs / 60_000)} min`, detail.meta.status].filter((value): value is string => Boolean(value));
+    return jsonResponse(assemblePreview({ kind: "recordings", id: detail.meta.id, title: detail.meta.title, meta, updatedAt: detail.meta.createdAt }, clampPreview(detail.segments.map(segment => segment.text).join("\n")), "transcript"));
   });
   addRoute(routes, "GET", "/launcher/actions", "client", async ctx => { read(ctx); return jsonResponse({ actions: quickActions.list() }); });
   addRoute(routes, "POST", "/launcher/actions", "client", async ctx => {

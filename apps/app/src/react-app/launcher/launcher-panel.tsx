@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Clipboard, Expand, FilePlus2, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, X } from "lucide-react";
-import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bookmark, Clipboard, Expand, FilePlus2, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, Trash2, X } from "lucide-react";
+import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { isMacPlatform } from "@/app/utils";
-import { launcherStatus, listLocalSkills, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { launcherApprovalReply, launcherAttentionSet, launcherStatus, listLocalSkills, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
@@ -15,11 +15,13 @@ import { ComposerDictationBar } from "@/react-app/domains/session/surface/compos
 import { workspaceProjectRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { appActionEntries, filterCatalog, invocationForAppAction, primaryResultAction } from "./action-catalog";
 import { captureClipboard, captureScreen, captureSelection, fileReferenceItem, stageFiles } from "./context-capture";
+import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
 import { LauncherConversation, useSubmissionStatus } from "./launcher-conversation";
 import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
+import { LauncherPreviewPane } from "./launcher-preview";
 import { LauncherActionMenu, LauncherResultList, actionLabel } from "./launcher-results";
 import { LauncherSearchSession, resultKey } from "./launcher-search-session";
 import { useLauncherShell } from "./launcher-shell";
@@ -37,6 +39,7 @@ export function LauncherPanel() {
   const { client, assistant, workspaces, drafts, owner, surface, desktop, openInApp, dismiss } = shell;
   const store = useLauncherStore();
   const local = useLocal();
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mod = isMacPlatform() ? "⌘" : "Ctrl";
@@ -107,6 +110,29 @@ export function LauncherPanel() {
     return [...appActionEntries({ desktop, favorites, recent: new Map(), shortcuts: status.data?.actionShortcuts ?? {} }), ...(catalogQuery.data?.entries ?? []), ...skills];
   }, [catalogQuery.data, skillsQuery.data, desktop, status.data?.actionShortcuts]);
   const commandItems = useMemo(() => mode === "command" ? filterCatalog(catalog, entry.text) : [], [catalog, mode, entry.text]);
+  // Saved searches keep their scope visible and apply it exactly: category, project and words.
+  const savedSearches = useQuery({ queryKey: ["launcher-saved-searches", client.baseUrl], queryFn: () => client.savedSearches(), staleTime: 30_000 });
+  const applySavedSearch = (search: SavedSearch) => {
+    const state = useLauncherStore.getState();
+    const workspace = search.projectId ? workspaces.find(workspace => workspace.id === search.projectId) : null;
+    state.setScope(workspace ? { id: workspace.id, name: workspace.displayName || workspace.name } : null);
+    state.setCategory(search.kind); state.setInput(search.query); state.setOverlay(null); state.setView("results");
+    void client.recordSavedSearchUse(search.id).catch(() => undefined);
+    inputRef.current?.focus();
+  };
+  const refreshSavedSearches = () => Promise.all([queryClient.invalidateQueries({ queryKey: ["launcher-saved-searches"] }), queryClient.invalidateQueries({ queryKey: ["launcher-catalog"] })]);
+  const saveCurrentSearch = async () => {
+    if (mode !== "search" || (!entry.text.trim() && !store.category && !store.scope)) { store.notify({ tone: "info", text: t("launcher.saved.nothing") }); return; }
+    const name = [store.category ? t(KIND_HINT[store.category]) : null, entry.text.trim() || null, store.scope?.name ?? null].filter(Boolean).join(" · ");
+    try {
+      const { search } = await client.createSavedSearch({ name, query: entry.text.trim(), kind: store.category, projectId: store.scope?.id ?? null });
+      await refreshSavedSearches();
+      store.notify({ tone: "info", text: t("launcher.saved.saved", { name: search.name }) });
+    } catch (error) { store.notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+  };
+  const deleteSavedSearch = async (id: string) => {
+    try { await client.deleteSavedSearch(id); await refreshSavedSearches(); } catch (error) { store.notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+  };
 
   const selectable: SelectableItem[] = useMemo(() => mode === "command" ? commandItems.map(item => ({ id: item.id, primaryAction: item.kind === "agent" ? "run" : "open" as const }))
     : store.view === "results" ? store.results.map(item => ({ id: resultKey(item), primaryAction: primaryResultAction(item) })) : [], [mode, commandItems, store.view, store.results]);
@@ -183,14 +209,23 @@ export function LauncherPanel() {
     voiceCoordinator.release("panel");
     if (send) await submitAsk(next);
   }, store.visible);
+  // The desktop pushes capture ownership as it changes; the polled status is the fallback.
+  const voice = store.voice ?? status.data?.voice ?? null;
+  const voiceBusy = Boolean(voice?.externalDictation || voice?.meeting);
   const speak = async () => {
-    if (status.data?.voice.externalDictation || status.data?.voice.meeting) { notify({ tone: "error", text: t(status.data.voice.meeting ? "launcher.voice.meeting_active" : "launcher.voice.dictation_active") }); return; }
+    if (voice && voiceBusy) { notify({ tone: "error", text: t(voice.meeting ? "launcher.voice.meeting_active" : "launcher.voice.dictation_active") }); return; }
     const decision = voiceCoordinator.request({ destination: "assistant", ownerId: "panel", conversationId: conversation?.conversationId });
     if (!decision.ok) { notify({ tone: "error", text: t("launcher.voice.busy") }); return; }
     store.setView("conversation");
     await dictation.start();
   };
   useEffect(() => { if (!dictation.active) voiceCoordinator.release("panel"); }, [dictation.active]);
+  // The companion shows where the microphone is and how much needs attention.
+  useEffect(() => {
+    if (!desktop || surface !== "panel") return;
+    void launcherAttentionSet({ count: store.attentionCount, recording: dictation.active }).catch(() => undefined);
+  }, [desktop, surface, store.attentionCount, dictation.active]);
+  useEffect(() => { if (store.view !== "results" && store.overlay) store.setOverlay(null); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [store.view]);
 
   // Context capture: explicit actions with visible provenance; failures leave the draft intact.
   const addItems = (items: AssistantContextItem[], previews: { id: string; dataUrl: string }[] = []) => { store.addContext(items, previews); if (store.view === "idle" || store.view === "results") store.setView("conversation"); };
@@ -245,6 +280,7 @@ export function LauncherPanel() {
       if (invocation) applyInvocation({ id: `local_${crypto.randomUUID()}`, action: invocation, source: surface === "panel" ? "shortcut" : "home" });
       return;
     }
+    if (item.source === "saved-search" && item.savedSearch) { applySavedSearch(item.savedSearch); return; }
     if (item.source === "quick-action" && item.quickAction) {
       const selection = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "selection" }> => entry.type === "selection")?.text;
       const clipboard = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "clipboard" }> => entry.type === "clipboard")?.text;
@@ -296,6 +332,8 @@ export function LauncherPanel() {
     const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey;
     if (modifier && key === "Enter") { event.preventDefault(); void submitAsk(mode === "ask" ? entry.text : store.input); return; }
     if (modifier && key.toLowerCase() === "k") { event.preventDefault(); if (selected && store.view === "results") store.setOverlay({ kind: "actions", resultKey: selected.id }); return; }
+    if (modifier && key.toLowerCase() === "y") { event.preventDefault(); event.stopPropagation(); if (selected && store.view === "results") store.setOverlay(store.overlay?.kind === "preview" ? null : { kind: "preview", resultKey: selected.id }); return; }
+    if (modifier && key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void saveCurrentSearch(); return; }
     if (key === "ArrowDown" || key === "ArrowUp") { if (!selectable.length) return; event.preventDefault(); store.select(moveSelection(store.selection, selectable, key === "ArrowDown" ? 1 : -1)); return; }
     if (key === "Tab" && !event.shiftKey && !store.category) {
       const activated = activateCategoryAlias(store.input, aliases, "tab");
@@ -355,7 +393,7 @@ export function LauncherPanel() {
               {desktop && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void captureActions.window()}><FilePlus2 className="size-4" />{t("launcher.context.capture_window")}</DropdownMenuItem><DropdownMenuItem onClick={() => void captureActions.region()}><ScanLine className="size-4" />{t("launcher.context.capture_region")}</DropdownMenuItem></>}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked} onClick={() => void speak()}><Mic className="size-4" /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked || voiceBusy} onClick={() => void speak()}><Mic className="size-4" /></Button>
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.work.title")} title={t("launcher.work.title")} onClick={() => store.setView(store.view === "work" ? (conversation ? "conversation" : "idle") : "work")}><ListChecks className="size-4" />{store.attentionCount > 0 && <span className="ml-0.5 rounded-full bg-blue-9 px-1 text-[10px] text-white">{store.attentionCount}</span>}</Button>
           {surface === "panel" && shell.togglePin && <Button variant="ghost" size="icon-sm" aria-label={t(store.pinned ? "launcher.unpin" : "launcher.pin")} title={t(store.pinned ? "launcher.unpin" : "launcher.pin")} onClick={shell.togglePin}>{store.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}</Button>}
           {surface === "panel" && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.expand")} title={t("launcher.expand")} onClick={() => { if (conversation) { void drafts.release(conversation.conversationId, owner); openInApp(workspaceSessionRoute(conversation.workspaceId, conversation.sessionId)); } else openInApp("/home"); }}><Maximize2 className="size-4" /></Button>}
@@ -364,13 +402,15 @@ export function LauncherPanel() {
       </div>
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length && assistant) void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); }} />
       {store.notice && <div className="launcher-notice" data-tone={store.notice.tone} role={store.notice.tone === "error" ? "alert" : "status"}>{store.notice.text}<button type="button" className="float-right" aria-label={t("common.close")} onClick={() => notify(null)}><X className="size-3.5" /></button></div>}
+      {store.approval && surface === "panel" && <LauncherApprovalCard request={store.approval} onReply={async (id, decision) => { try { await launcherApprovalReply(id, decision); } finally { useLauncherStore.getState().setApproval(null); } }} />}
       {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}
       <LauncherContextBar />
       <div className="launcher-body" style={{ position: "relative" }}>
         {store.view === "results" && <>
           <LauncherResultList items={store.results} sources={store.sources} query={entry.text} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending}
             onSelect={key => store.select({ id: key, source: "user" })} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />
-          {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} onRun={action => { store.setOverlay(null); void runResultAction(selectedResult, action); inputRef.current?.focus(); }} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} />}
+          {store.overlay?.kind === "actions" && selectedResult && <LauncherActionMenu result={selectedResult} multiSelected={store.multiSelect.size} pinned={isPinned(pins, selectedResult)} extra={["preview", ...(entry.text.trim() || store.category ? ["save-search" as const] : [])]}
+            onRun={action => { store.setOverlay(null); void runResultAction(selectedResult, action); inputRef.current?.focus(); }} onExtra={action => { store.setOverlay(action === "preview" ? { kind: "preview", resultKey: resultKey(selectedResult) } : null); if (action === "save-search") void saveCurrentSearch(); inputRef.current?.focus(); }} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} />}
           {store.searchError && <p className="launcher-notice" data-tone="error">{store.searchError}</p>}
         </>}
         {store.view === "commands" && (commandItems.length ? <div role="listbox">{commandItems.map(item => <div key={item.id} role="option" aria-selected={store.selection.id === item.id} data-selected={store.selection.id === item.id} className="launcher-row" onMouseEnter={() => store.select({ id: item.id, source: "user" })} onClick={() => void runCatalogEntry(item)}>
@@ -385,15 +425,21 @@ export function LauncherPanel() {
           {conversation && <button type="button" className="launcher-row" onClick={() => store.setView("conversation")}><span className="launcher-row-icon"><Expand className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{t("launcher.idle.resume", { title: conversation.title })}</div><div className="launcher-row-meta">{store.attentionCount ? t("launcher.idle.attention", { count: store.attentionCount }) : t("launcher.idle.resume_hint")}</div></div></button>}
           <button type="button" className="launcher-row" onClick={() => void startNewConversation()}><span className="launcher-row-icon"><Plus className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{t("launcher.action.new-conversation")}</div><div className="launcher-row-meta">{t("launcher.idle.new_hint")}</div></div></button>
           {catalog.filter(item => item.favorite).slice(0, 5).map(item => <button key={item.id} type="button" className="launcher-row" onClick={() => void runCatalogEntry(item)}><span className="launcher-row-icon"><Sparkles className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{item.label}</div><div className="launcher-row-meta">{item.shortcut ?? t("launcher.source.quick_action")}</div></div></button>)}
+          {(savedSearches.data?.searches ?? []).slice(0, 5).map(search => <div key={search.id} role="button" tabIndex={0} className="launcher-row" onClick={() => applySavedSearch(search)} onKeyDown={event => { if (event.key === "Enter") applySavedSearch(search); }}>
+            <span className="launcher-row-icon"><Bookmark className="size-4" /></span>
+            <div className="launcher-row-main"><div className="launcher-row-title">{search.name}</div><div className="launcher-row-meta">{[search.kind ? t(KIND_HINT[search.kind]) : t("launcher.saved.all_kinds"), search.projectId ? workspaces.find(workspace => workspace.id === search.projectId)?.displayName ?? search.projectId : t("launcher.saved.all_projects"), search.query ? `“${search.query}”` : null].filter(Boolean).join(" · ")}</div></div>
+            <button type="button" className="launcher-row-hint" aria-label={t("launcher.saved.delete")} title={t("launcher.saved.delete")} onClick={event => { event.stopPropagation(); void deleteSavedSearch(search.id); }}><Trash2 className="size-3.5" /></button>
+          </div>)}
           {pins.slice(0, 4).map(pin => <button key={`${pin.kind}:${pin.sourceId}:${pin.id}`} type="button" className="launcher-row" onClick={() => openInApp(pin.kind === "chats" ? workspaceSessionRoute(pin.workspaceId ?? "", pin.id) : pin.workspaceId ? `${workspaceProjectRoute(pin.workspaceId)}${pin.kind === "files" ? `?file=${encodeURIComponent(pin.path ?? pin.id)}` : ""}` : "/home")}><span className="launcher-row-icon"><Pin className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{pin.title}</div><div className="launcher-row-meta">{[t(KIND_HINT[pin.kind]), pin.subtitle].filter(Boolean).join(" · ")}</div></div></button>)}
           {(conversations.data?.items ?? []).filter(item => item.id !== conversation?.conversationId).slice(0, 4).map(item => <button key={item.id} type="button" className="launcher-row" onClick={() => { store.bindConversation(item); store.setView("conversation"); }}><span className="launcher-row-icon"><AssistantAvatar icon={assistant?.profile.icon} className="size-4" /></span><div className="launcher-row-main"><div className="launcher-row-title">{item.title}</div><div className="launcher-row-meta">{item.kind === "day" ? t("launcher.idle.day") : t("launcher.idle.conversation")}{item.pinned ? " · ★" : ""}</div></div></button>)}
           <p className="launcher-empty">{t("launcher.idle.hint", { files: aliases.files, projects: aliases.projects, chats: aliases.chats, tasks: aliases.tasks, recordings: aliases.recordings })}</p>
         </div>}
       </div>
+      {store.view === "results" && store.overlay?.kind === "preview" && selectedResult && <LauncherPreviewPane result={selectedResult} />}
       <div className="launcher-footer">
         <span>{verb === "none" ? t("launcher.footer.select") : verb === "ask" ? t("launcher.footer.ask", { mod }) : t("launcher.footer.enter", { action: actionLabel(verb === "run" ? "run" : verb === "attach" ? "attach" : verb === "resume" ? "resume" : verb === "answer" ? "complete" : "open") })}{store.target.kind === "project" ? ` · ${t("launcher.footer.target_bound")}` : ""}</span>
         <span aria-live="polite">{store.searchPending ? <><Loader2 className="inline size-3 animate-spin motion-reduce:animate-none" /> {t("content_search.searching")}</> : sending ? t("launcher.submission.sending") : null}</span>
-        <span><kbd>↑↓</kbd><kbd>↵</kbd><kbd>{mod}↵</kbd>{t("launcher.footer.ask_short")} <kbd>{mod}K</kbd>{t("launcher.footer.actions")} <kbd>Esc</kbd></span>
+        <span><kbd>↑↓</kbd><kbd>↵</kbd><kbd>{mod}↵</kbd>{t("launcher.footer.ask_short")} <kbd>{mod}K</kbd>{t("launcher.footer.actions")} <kbd>{mod}Y</kbd>{t("launcher.footer.preview")} <kbd>Esc</kbd></span>
       </div>
     </div>
     <span className="sr-only"><Send className="size-0" /></span>

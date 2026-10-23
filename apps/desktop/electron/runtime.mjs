@@ -596,9 +596,10 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, presentApproval, modelDownloadFetch }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
+    presentInPanel: presentApproval,
     showMessageBox: async (window, options) => {
       const { dialog } = await import("electron");
       if (options.signal.aborted || window.isDestroyed()) return { response: 0, checkboxChecked: false };

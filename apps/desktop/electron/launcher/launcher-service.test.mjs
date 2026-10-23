@@ -94,3 +94,29 @@ test("assistant links carry identifiers only and reject unknown actions", () => 
   assert.equal(parseAssistantLink("legalwork://connect-remote?legalworkToken=x"), null);
   assert.equal(parseAssistantLink("legalwork-dev://assistant")?.action, "open");
 });
+
+test("approvals reach a visible panel as a card, come back unanswered when it hides, and voice changes are pushed", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-service-approvals-"));
+  try {
+    const { service, window } = await makeService(dir);
+    const request = { workspaceId: "matter", action: "skills.delete", summary: "Delete skill demo", paths: ["/matter/.opencode/skills/demo"], actor: { type: "remote", clientId: "client-1", scope: "collaborator" } };
+    assert.equal(await service.presentApproval(request, new AbortController().signal), null);
+    await service.windowControl("show");
+    const answered = service.presentApproval(request, new AbortController().signal);
+    const card = window.sent.find(event => event.type === "approval");
+    assert.deepEqual(card.request, { id: card.request.id, source: "Connected client: client-1", scope: "collaborator", workspaceId: "matter", action: "skills.delete", summary: "Delete skill demo", paths: ["/matter/.opencode/skills/demo"] });
+    assert.equal(service.replyApproval("unknown", "allow"), false);
+    assert.equal(service.replyApproval(card.request.id, "allow"), true);
+    assert.equal(await answered, "allow");
+    assert.equal(window.sent.at(-1)?.type, "approval-closed");
+    const handedBack = service.presentApproval(request, new AbortController().signal);
+    service.onVisibility(false);
+    assert.equal(await handedBack, null);
+    const controller = new AbortController();
+    const cancelled = service.presentApproval(request, controller.signal);
+    controller.abort();
+    assert.equal(await cancelled, "deny");
+    service.notifyVoice();
+    assert.deepEqual(window.sent.at(-1), { type: "voice", voice: { externalDictation: false, meeting: false } });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

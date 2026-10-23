@@ -33,6 +33,11 @@ Implemented in `apps/app/src/react-app/launcher/launcher-query.ts` and `launcher
 
 Result actions are only advertised when the provider can execute them: open, reveal, open with default app, attach, ask, compare, summarize, copy path, pin, mark done, hand to Assistant, play, resume. Multi-select with `Cmd/Ctrl`+click or the row checkbox enables compare and summarize over exactly the selected files.
 
+## Previews and saved searches
+
+- `Cmd/Ctrl+Y` or the Preview entry of the actions menu opens a pane under the results for the selected row: a text file or the prepared text of a document, the last turns of a chat, a task with its status and due date, or the transcript of a recording. The pane follows the selection, shows when only the beginning is visible, and `GET /launcher/preview` reads locally; nothing in a preview reaches a model.
+- `Cmd/Ctrl+S` or Save this search stores the current category, project and words on the server (`/launcher/searches`). Saved searches appear on the idle view and in the `/` command menu with their scope spelled out, apply exactly that scope when chosen, and can be deleted from the idle row.
+
 ## Conversations, drafts and submissions
 
 - `apps/server/src/assistant-conversations.ts`: explicit conversations in the Assistant workspace with pin, archive and search. Daily sessions from the first Assistant version stay readable as `day:YYYY-MM-DD`. `GET /assistant/conversations/current` is read-only; nothing creates a conversation except `POST /assistant/conversations`, a first Home message, or opening the Assistant from the sidebar.
@@ -42,6 +47,8 @@ Result actions are only advertised when the provider can execute them: open, rev
 
 ## Work and attention
 
+Host approvals (manual HTTP approvals the local server asks the desktop for) are system UI in the panel: while the panel is visible they arrive as a card with Deny focused, the answer goes back over `launcherApprovalReply`, and hiding the panel hands the request to the native dialog on the main window unanswered. Closing the panel never approves anything.
+
 `GET /assistant/work` lists every delegated job with its origin conversation, exact destination, live status and pending attention; `POST /assistant/work/:workspaceId/:sessionId/{stop,reply,redirect}` affects that job only. Pending questions and approvals are read from the engine (`GET /assistant/conversations/:id/attention` plus the existing delegated attention routes), so a blocking question is visible even when the model never presents it.
 
 ## Scope and execution target
@@ -49,6 +56,8 @@ Result actions are only advertised when the provider can execute them: open, rev
 Search scope (chip), source (provenance on each staged item) and execution target (the "Work in …" chip) are three different things in the panel. The target is frozen into the submission's context envelope and enforced on the server: a request bound to a project cannot be delegated elsewhere (`delegation_target_constraint` in `routes/main-assistant.ts`), and the Assistant's project-creation tool is refused for such a request. Captured text is quoted to the model as reference material.
 
 ## Context, capture and voice
+
+Capture ownership is pushed to the panel as it changes (`voice` events from the dictation and meeting state machines), so the Speak button and its explanation never wait for the 15-second status poll. The panel reports its own capture and the pending attention count back to the desktop, which the companion shows.
 
 - Add selection, paste clipboard, attach file, capture window and capture region are explicit actions (`context-capture.ts`). Captures are saved into the Assistant project and previewed with source app, window and time.
 - The desktop origin service (`origin-service.mjs`) records the frontmost app before the panel takes focus; the native macOS helper gained `--frontmost`, `--selected-text` and `--activate` modes (Accessibility, no continuous monitoring). Windows uses `GetForegroundWindow`, UI Automation text patterns and `SetForegroundWindow`. Insert validates the destination (process and window title) after reactivating it; a changed destination copies the result and says so.
@@ -76,6 +85,8 @@ Taken against the panel route served by Vite with an isolated LegalWork server o
 | Work view with status and project filters | ![Work](screenshots/global-assistant/panel-work.jpg) |
 | `? …`: explicit ask mode; the first message starts a new conversation | ![Ask](screenshots/global-assistant/panel-ask.jpg) |
 | The same panel embedded in Home on `Cmd/Ctrl+K`, with `t` activating the Tasks category | ![Embedded dialog](screenshots/global-assistant/home-embedded-dialog-tasks.jpg) |
+| `Cmd/Ctrl+Y` on a file result: the preview pane under the list shows the file's text, its size and date, and that nothing was sent to a model | ![Preview](screenshots/global-assistant/panel-preview.jpg) |
+| After `Cmd/Ctrl+S`: the saved search on the idle view with its scope ("Files · All projects · “Mietvertrag”") and its delete control | ![Saved search](screenshots/global-assistant/panel-saved-search.jpg) |
 | The panel as its own Electron window on macOS (dev build, isolated profile without projects): the `f` chip and the two-character hint | ![Electron panel](screenshots/global-assistant/electron-panel-macos.jpg) |
 
 ## Verification

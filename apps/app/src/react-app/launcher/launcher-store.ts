@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherCatalogEntry, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
+import type { AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
 import type { LauncherSelection } from "./launcher-keyboard";
 import { reconcileSelection } from "./launcher-keyboard";
 
@@ -30,6 +30,10 @@ export type LauncherState = {
   origin: LauncherOrigin | null;
   pinned: boolean;
   attentionCount: number;
+  /** A host approval the desktop routed to this panel; dismissing the panel hands it back, never approves it. */
+  approval: LauncherApprovalRequest | null;
+  /** Live capture ownership pushed by the desktop; the polled status is the fallback. */
+  voice: LauncherVoiceState | null;
   notice: { tone: "info" | "error"; text: string } | null;
   /** The next invocation to apply, delivered by the desktop or a deep link. */
   invocation: LauncherInvocation | null;
@@ -54,13 +58,15 @@ export type LauncherState = {
   setOrigin: (origin: LauncherOrigin | null) => void;
   setPinned: (pinned: boolean) => void;
   setAttentionCount: (count: number) => void;
+  setApproval: (approval: LauncherApprovalRequest | null) => void;
+  setVoice: (voice: LauncherVoiceState | null) => void;
   notify: (notice: LauncherState["notice"]) => void;
   reset: () => void;
 };
 
 const initial = {
   view: "idle" as LauncherView, input: "", category: null, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
-  selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, notice: null,
+  selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
   invocation: null as LauncherInvocation | null, visible: true,
 };
 
@@ -87,6 +93,8 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   setOrigin: origin => set({ origin }),
   setPinned: pinned => set({ pinned }),
   setAttentionCount: attentionCount => set({ attentionCount }),
+  setApproval: approval => set({ approval }),
+  setVoice: voice => set({ voice }),
   notify: notice => set({ notice }),
   // Dismissal keeps the conversation, draft and attachments; only transient search state resets.
   reset: () => set(state => ({ ...state, view: state.conversation ? "conversation" : "idle", results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null })),

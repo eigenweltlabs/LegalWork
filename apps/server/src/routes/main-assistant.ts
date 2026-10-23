@@ -32,6 +32,7 @@ import { registerLauncherRoutes } from "./launcher.js";
 import type { AssistantConversations } from "../assistant-conversations.js";
 import type { AssistantSubmissions } from "../assistant-submissions.js";
 import type { QuickActionStore } from "../launcher-actions.js";
+import type { SavedSearchStore } from "../launcher-saved-searches.js";
 import type { LauncherContextStore } from "../launcher-context.js";
 import type { LauncherFileIndex } from "../launcher-file-index.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
@@ -55,6 +56,7 @@ export function registerMainAssistantRoutes(options: {
   conversations: AssistantConversations;
   submissions: AssistantSubmissions;
   quickActions: QuickActionStore;
+  savedSearches: SavedSearchStore;
   stagedContext: LauncherContextStore;
   fileIndex: LauncherFileIndex;
   preparation: DocumentPreparation;

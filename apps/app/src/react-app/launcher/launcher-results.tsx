@@ -25,7 +25,8 @@ export function coverageLabel(sources: LauncherSourceState[]) {
   if (sources.some(source => source.coverage === "partial" || source.limited)) return t("launcher.coverage.partial");
   return "";
 }
-export function actionLabel(action: LauncherResultAction | "run" | "open-conversation") { return t(`launcher.result_action.${action}`); }
+export type LauncherExtraAction = "preview" | "save-search";
+export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
   items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean;
@@ -61,7 +62,7 @@ export function LauncherResultList(props: {
   </div>;
 }
 
-export function LauncherActionMenu(props: { result: LauncherSearchResult; multiSelected: number; pinned: boolean; onRun: (action: LauncherResultAction) => void; onClose: () => void }) {
+export function LauncherActionMenu(props: { result: LauncherSearchResult; multiSelected: number; pinned: boolean; extra: LauncherExtraAction[]; onRun: (action: LauncherResultAction) => void; onExtra: (action: LauncherExtraAction) => void; onClose: () => void }) {
   const actions = resultActionMenu(props.result, props.multiSelected);
   const indexRef = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -81,5 +82,6 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
   }, [props]);
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
     {actions.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onRun(action)}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
+    {props.extra.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
   </div>;
 }

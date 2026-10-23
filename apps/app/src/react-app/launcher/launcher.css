@@ -59,3 +59,9 @@
 .launcher-idle { display: grid; gap: 4px; padding: 6px 0; }
 .launcher-preview { padding: 10px 14px 14px; font-size: 12.5px; color: var(--lw-text-secondary); white-space: pre-wrap; border-top: 1px solid var(--lw-border-subtle); max-height: 180px; overflow: auto; }
 @media (prefers-reduced-motion: no-preference) { .launcher-panel { transition: height 160ms ease-out; } }
+.launcher-preview-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; color: var(--lw-text); }
+.launcher-preview-head span { font-size: 11.5px; color: var(--lw-text-secondary); }
+.launcher-preview-text { margin: 0; font: inherit; white-space: pre-wrap; word-break: break-word; color: var(--lw-text); }
+.launcher-preview-note { margin: 6px 0 0; font-size: 11px; color: var(--lw-text-secondary); }
+.launcher-approval { margin: 8px 12px 0; }
+.launcher-approval .launcher-attention-head span { display: block; color: var(--lw-text-secondary); }

@@ -94,12 +94,23 @@ export const QuickActionInputSchema = z.object({
 export type QuickActionInput = z.infer<typeof QuickActionInputSchema>;
 export const QuickActionSchema = QuickActionInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type QuickAction = z.infer<typeof QuickActionSchema>;
+/** A saved search keeps its scope visible: the category, the project and the words. */
+export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable() });
+export type SavedSearchInput = z.infer<typeof SavedSearchInputSchema>;
+export const SavedSearchSchema = SavedSearchInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
+export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const LauncherCatalogEntrySchema = z.object({
   id: z.string(), label: z.string(), description: z.string().nullable(), aliases: z.array(z.string()), kind: LauncherActionKindSchema,
-  source: z.enum(["app", "command", "skill", "quick-action"]), requires: z.array(LauncherActionInputSchema), target: LauncherActionTargetSchema,
+  source: z.enum(["app", "command", "skill", "quick-action", "saved-search"]), requires: z.array(LauncherActionInputSchema), target: LauncherActionTargetSchema,
   outputs: z.array(LauncherActionOutputSchema), workspaceId: z.string().nullable(), shortcut: z.string().nullable(), favorite: z.boolean(), usedAt: z.number().nullable(),
-  command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(),
+  command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(), savedSearch: SavedSearchSchema.optional(),
 });
+/** A read-only look at one result. Reading a preview never submits anything to a model. */
+export const LauncherPreviewSchema = z.object({
+  kind: LauncherSearchKindSchema, id: z.string(), title: z.string(), meta: z.array(z.string()), text: z.string(), truncated: z.boolean(),
+  source: z.enum(["text", "prepared", "messages", "transcript", "metadata"]), updatedAt: z.number().nullable(),
+});
+export type LauncherPreview = z.infer<typeof LauncherPreviewSchema>;
 export type LauncherCatalogEntry = z.infer<typeof LauncherCatalogEntrySchema>;
 
 /** One entry into the shared dispatcher: shortcut, companion, Home, tray, Raycast or a deep link. */
@@ -168,11 +179,16 @@ export const LauncherWindowStateSchema = z.object({ visible: z.boolean(), pinned
 export type LauncherWindowState = z.infer<typeof LauncherWindowStateSchema>;
 export const LauncherShortcutConflictSchema = z.object({ id: z.string(), accelerator: z.string(), reason: z.enum(["duplicate", "dictation", "registration-failed"]) });
 export type LauncherShortcutConflict = z.infer<typeof LauncherShortcutConflictSchema>;
+/** A host approval shown in the panel: the request as the host states it, never as the model describes it. */
+export const LauncherApprovalRequestSchema = z.object({ id: z.string(), source: z.string(), scope: z.string().nullable(), workspaceId: z.string(), action: z.string(), summary: z.string(), paths: z.array(z.string()) });
+export type LauncherApprovalRequest = z.infer<typeof LauncherApprovalRequestSchema>;
+export const LauncherVoiceStateSchema = z.object({ externalDictation: z.boolean(), meeting: z.boolean() });
+export type LauncherVoiceState = z.infer<typeof LauncherVoiceStateSchema>;
 export const LauncherDesktopStatusSchema = LauncherSettingsSchema.extend({
   shortcutRegistered: z.boolean(), conflicts: z.array(LauncherShortcutConflictSchema), autostartRequiresApproval: z.boolean(), raycastPairing: z.object({ enabled: z.boolean(), path: z.string().nullable() }),
   platform: z.enum(["darwin", "windows", "linux"]), capabilities: z.object({ selection: z.boolean(), insert: z.boolean(), windowCapture: z.boolean(), regionCapture: z.boolean(), origin: z.boolean() }),
   /** Live capture ownership on the desktop: external dictation and meeting recording block a second microphone owner. */
-  voice: z.object({ externalDictation: z.boolean(), meeting: z.boolean() }),
+  voice: LauncherVoiceStateSchema,
 });
 export type LauncherDesktopStatus = z.infer<typeof LauncherDesktopStatusSchema>;
 /** Events the desktop pushes into the panel renderer. */
@@ -180,4 +196,7 @@ export type LauncherDesktopEvent =
   | { type: "invocation"; invocation: LauncherInvocation }
   | { type: "visibility"; visible: boolean; pinned: boolean }
   | { type: "origin"; origin: LauncherOrigin | null }
-  | { type: "attention"; count: number };
+  | { type: "attention"; count: number }
+  | { type: "approval"; request: LauncherApprovalRequest }
+  | { type: "approval-closed"; id: string }
+  | { type: "voice"; voice: LauncherVoiceState };

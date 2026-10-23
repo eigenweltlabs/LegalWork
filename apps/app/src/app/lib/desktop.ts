@@ -588,6 +588,7 @@ const {
   launcherInvocationsDrain,
   launcherAttentionSet,
   launcherRaycastPairing,
+  launcherApprovalReply,
 } = desktopBridge;
 
 export {
@@ -724,4 +725,5 @@ export {
   launcherInvocationsDrain,
   launcherAttentionSet,
   launcherRaycastPairing,
+  launcherApprovalReply,
 };

@@ -34,6 +34,8 @@ export class LauncherService {
     this.attention = 0;
     this.recording = false;
     this.drafts = { drafts: {}, leases: {} };
+    /** @type {Map<string, (decision: "allow" | "deny" | null) => void>} */
+    this.approvals = new Map();
   }
   async initialize() {
     await this.settings.load();
@@ -58,14 +60,11 @@ export class LauncherService {
   /** @returns {Promise<import("@legalwork/types/launcher").LauncherDesktopStatus>} */
   async status() {
     const settings = this.settings.get();
-    const dictation = this.options.dictation();
-    const meeting = this.options.meeting();
     let autostartRequiresApproval = false, autostart = settings.autostart;
     try { const login = this.options.app.getLoginItemSettings(); autostart = login.openAtLogin === true; autostartRequiresApproval = login.status === "requires-approval"; } catch { /* unsupported */ }
     const capabilities = this.options.origin.capabilities();
     return { ...settings, autostart, shortcutRegistered: this.registry.isRegistered("launcher.open"), conflicts: this.registry.conflicts, autostartRequiresApproval, raycastPairing: this.options.pairing.status(), platform: this.platform,
-      capabilities: { selection: capabilities.selection, insert: capabilities.insert, windowCapture: capabilities.windowCapture, regionCapture: capabilities.regionCapture, origin: capabilities.origin },
-      voice: { externalDictation: ["starting", "listening", "transcribing", "inserting"].includes(dictation.runtimeState), meeting: meeting.state !== "idle" } };
+      capabilities: { selection: capabilities.selection, insert: capabilities.insert, windowCapture: capabilities.windowCapture, regionCapture: capabilities.regionCapture, origin: capabilities.origin }, voice: this.voiceState() };
   }
   async updateSettings(patch) {
     const before = this.settings.get();
@@ -92,6 +91,45 @@ export class LauncherService {
   }
   backgroundPresence() { return this.settings.get().backgroundPresence; }
   approvalWindow() { return this.options.window.isVisible() ? this.options.window.window : null; }
+  voiceState() {
+    const dictation = this.options.dictation(), meeting = this.options.meeting();
+    return { externalDictation: ["starting", "listening", "transcribing", "inserting"].includes(dictation.runtimeState), meeting: meeting.state !== "idle" };
+  }
+  /** Capture ownership changes reach the panel at once; the polled status is only the fallback. */
+  notifyVoice() { this.options.window.send({ type: "voice", voice: this.voiceState() }); }
+  /**
+   * A host approval for the visible panel. Resolves with the user's answer, or
+   * null when the panel is hidden or closes first, so the caller re-presents it.
+   * @param {{ workspaceId: string, action: string, summary: string, paths: string[], actor: { type: string, clientId?: string | null, scope?: string | null } }} request
+   * @param {AbortSignal} signal
+   * @returns {Promise<"allow" | "deny" | null>}
+   */
+  presentApproval(request, signal) {
+    if (!this.options.window.isVisible() || signal.aborted) return Promise.resolve(null);
+    const id = `apr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const source = request.actor.type === "host" ? "Host" : `Connected client${request.actor.clientId ? `: ${request.actor.clientId}` : ""}`;
+    return new Promise(resolve => {
+      const finish = (/** @type {"allow" | "deny" | null} */ decision) => {
+        if (!this.approvals.delete(id)) return;
+        signal.removeEventListener("abort", onAbort);
+        this.options.window.send({ type: "approval-closed", id });
+        resolve(decision);
+      };
+      const onAbort = () => finish("deny");
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.approvals.set(id, finish);
+      this.options.window.send({ type: "approval", request: { id, source, scope: request.actor.scope ?? null, workspaceId: request.workspaceId, action: request.action, summary: request.summary, paths: request.paths } });
+    });
+  }
+  /** @param {string} id @param {string} decision */
+  replyApproval(id, decision) {
+    const finish = this.approvals.get(id);
+    if (!finish) return false;
+    finish(decision === "allow" ? "allow" : "deny");
+    return true;
+  }
+  /** Hiding the panel hands every pending approval back unanswered; dismissal is never acceptance. */
+  onVisibility(visible) { if (!visible) for (const finish of [...this.approvals.values()]) finish(null); }
   remember(id) {
     if (this.seen.includes(id)) return false;
     this.seen.push(id);

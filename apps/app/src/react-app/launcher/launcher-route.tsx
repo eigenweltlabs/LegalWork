@@ -101,6 +101,9 @@ export function LauncherRoute() {
       } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) store.reset(); }
       else if (event.type === "origin") store.setOrigin(event.origin);
       else if (event.type === "attention") store.setAttentionCount(event.count);
+      else if (event.type === "approval") store.setApproval(event.request);
+      else if (event.type === "approval-closed") { if (store.approval?.id === event.id) store.setApproval(null); }
+      else if (event.type === "voice") store.setVoice(event.voice);
     };
     const listener = (event: Event) => { if (event instanceof CustomEvent) apply(event.detail as LauncherDesktopEvent); };
     window.addEventListener(LAUNCHER_EVENT, listener);
