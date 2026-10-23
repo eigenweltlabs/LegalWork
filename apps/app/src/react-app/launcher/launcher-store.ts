@@ -93,7 +93,10 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   addContext: (items, previews = []) => set(state => ({ context: [...state.context, ...items.filter(item => !state.context.some(existing => existing.id === item.id))], previews: [...state.previews, ...previews] })),
   removeContext: id => set(state => ({ context: state.context.filter(item => item.id !== id), previews: state.previews.filter(preview => preview.id !== id) })),
   replaceContext: context => set({ context }),
-  bindConversation: conversation => set({ conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null, pinned: conversation.pinned } : null }),
+  bindConversation: conversation => set(state => ({
+    ...(state.conversation?.conversationId !== conversation?.id ? { input: "", context: [], previews: [], target: { kind: "assistant" }, scope: null } : {}),
+    conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null, pinned: conversation.pinned } : null,
+  })),
   setOrigin: origin => set({ origin }),
   setPinned: pinned => set({ pinned }),
   setAttentionCount: attentionCount => set({ attentionCount }),

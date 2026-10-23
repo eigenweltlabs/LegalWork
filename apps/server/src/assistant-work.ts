@@ -23,7 +23,8 @@ export function workStatus(inspection: WorkInspection): AssistantWorkStatus {
 /** Work is addressable: every delegated job keeps its origin conversation, exact destination and current status. */
 export async function listAssistantWork(delegations: TrackedDelegation[], deps: WorkDeps, filter: { status?: AssistantWorkStatus; projectId?: string } = {}): Promise<AssistantWorkItem[]> {
   const visible = delegations.filter(delegation => !delegation.inputOnly && (!filter.projectId || delegation.workspaceId === filter.projectId));
-  const results = await Promise.allSettled(visible.map(delegation => deps.inspect(delegation)));
+  const results: PromiseSettledResult<WorkInspection>[] = [];
+  for (let offset = 0; offset < visible.length; offset += 8) results.push(...await Promise.allSettled(visible.slice(offset, offset + 8).map(delegation => deps.inspect(delegation))));
   const items: AssistantWorkItem[] = [];
   for (const [index, delegation] of visible.entries()) {
     const settled = results[index];

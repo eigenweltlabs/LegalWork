@@ -2,6 +2,7 @@ import { getSelectedText, open, showToast, Toast } from "@raycast/api";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { AssistantContextItem, LauncherSearchResult } from "@legalwork/types/launcher";
 
 /**
  * Transport contract shared with the desktop app:
@@ -12,11 +13,11 @@ import path from "node:path";
  */
 export type Pairing = { serverUrl: string; token: string; scheme: string };
 export type SearchKind = "files" | "projects" | "chats" | "tasks" | "recordings";
-export type SearchResult = { id: string; kind: SearchKind; workspaceId: string | null; sourceId: string; title: string; subtitle?: string; path?: string; excerpt?: string; sessionId?: string; actions: string[] };
+export type SearchResult = LauncherSearchResult;
 export type SourceState = { id: string; kind: SearchKind; label: string; coverage: string; count: number };
 export type CatalogEntry = { id: string; label: string; description: string | null; kind: string; source: string; requires: string[]; favorite: boolean; quickAction: { id: string } | null };
 export type WorkItem = { id: string; workspaceId: string; sessionId: string; projectName: string; title: string; status: string; pendingAttention: number; originConversationId: string | null; result: { outcome: string; preview: string } | null };
-export type ContextItem = { id: string; type: "selection"; text: string; sourceApp: string | null; sourceWindow: string | null; capturedAt: number } | { id: string; type: "clipboard"; text: string; capturedAt: number };
+export type ContextItem = AssistantContextItem;
 
 function pairingCandidates() {
   const home = homedir();

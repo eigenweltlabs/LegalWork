@@ -192,7 +192,7 @@ export type SessionSurfaceProps = {
   aiPlansGate?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
-  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => void | Promise<void>;
+  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => void | Promise<void | { preserveDraft: boolean }>;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string | null;
@@ -1155,10 +1155,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
     try {
       const prepared = await prepareProjectAttachments(text, attachments);
-      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions });
+      let preserveDraft = false;
+      await sharedQueue.enqueue(prepared.draft, async queue => {
+        const receipt = await props.onSendDraft(prepared.draft, props.sessionId, { queue });
+        preserveDraft = receipt?.preserveDraft ?? false;
+      }, { ...editor, mentions: prepared.mentions });
       preparedProjectDraft.current = null;
       // Typing during the request must not be cleared by its acknowledgement.
-      if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
+      if (!preserveDraft && useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
       else if (editor?.queuedDraftId) {
         // The submitted edit is complete. Preserve anything typed meanwhile as
         // this window's new draft, without retaining an expired queue lease.

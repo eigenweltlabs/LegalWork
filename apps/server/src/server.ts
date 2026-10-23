@@ -1,6 +1,7 @@
+import { enqueueAssistantSubmission, sendAssistantSubmission } from "./assistant-submission-send.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
-import { stopMessageQueue } from "./session-message-queue.js";
+import { getMessageQueue, stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { CloudAssistantSetup } from "./cloud-assistant-setup.js";
 import { AssistantChannelHistory } from "./assistant-channel-history.js";
@@ -1056,29 +1057,54 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
     config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
   const submissions = await AssistantSubmissions.open(runtimeDbPath(config), {
-    hasMessage: async (target, messageId) => {
+    waiting: async (entry, payload) => {
+      if (!payload.queue) return false;
+      const queue = await getMessageQueue(config).read(entry.workspaceId, entry.sessionId);
+      return queue.entries.some(item => item.id === payload.queue?.id && item.messageId === entry.messageId && (item.status === "queued" || item.status === "failed"));
+    },
+    hasMessage: async (target, messageId, payload) => {
+      if (payload.queue) {
+        const queue = await getMessageQueue(config).read(target.workspaceId, target.sessionId);
+        if (queue.entries.some(item => item.id === payload.queue?.id && item.messageId === messageId) || queue.completedIds.includes(payload.queue.id)) return true;
+      }
       const { client } = await delegationSession(target.workspaceId, target.sessionId);
       const result = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
       if (result.response.status === 404) return false;
       return unwrapOpencodeResult(result, "/session/message").info.id === messageId;
     },
     send: async (entry, payload) => {
+      if (payload.queue) {
+        await enqueueAssistantSubmission(getMessageQueue(config), entry, payload);
+        announceSyncChange(config, "sessions");
+        return;
+      }
       const { client } = await delegationSession(entry.workspaceId, entry.sessionId);
-      const result = await client.session.promptAsync({ sessionID: entry.sessionId, messageID: entry.messageId, agent: payload.agent ?? "legalwork",
-        ...(payload.model ? { model: payload.model } : {}), ...(payload.variant ? { variant: payload.variant } : {}), parts: payload.parts }, { signal: AbortSignal.timeout(30000) });
-      if (!result.response.ok) throw new Error("Message delivery could not be confirmed.");
+      await sendAssistantSubmission(client, entry, payload);
       announceSyncChange(config, "sessions");
     },
-    outcome: async (target, messageId) => {
+    outcome: async (target, messageId, payload) => {
       const { client } = await delegationSession(target.workspaceId, target.sessionId);
+      if (payload.queue) {
+        const queue = await getMessageQueue(config).read(target.workspaceId, target.sessionId);
+        const waiting = queue.entries.find(item => item.id === payload.queue?.id);
+        if (waiting?.messageId && waiting.messageId !== messageId) return "failed";
+        if (waiting?.status === "queued" || waiting?.status === "failed") return "accepted";
+        if (!waiting && queue.completedIds.includes(payload.queue.id)) {
+          const message = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
+          if (message.response.status === 404) return "failed"; // Removed before delivery.
+        }
+      }
       const [statuses, messages] = await Promise.all([
         client.session.status({}, { signal: AbortSignal.timeout(10000) }),
         client.session.messages({ sessionID: target.sessionId, limit: 40 }, { signal: AbortSignal.timeout(10000) }),
       ]);
       const list = messages.data ?? [];
-      const index = list.findIndex(message => message.info.id === messageId);
-      const reply = index >= 0 ? list.slice(index + 1).find(message => message.info.role === "assistant" && message.info.parentID === messageId) : undefined;
-      if (reply?.info.role === "assistant") return reply.info.error ? "failed" : reply.info.time.completed ? "completed" : "running";
+      const reply = [...list].reverse().find(message => message.info.role === "assistant" && message.info.parentID === messageId);
+      if (reply?.info.role === "assistant") {
+        if (reply.info.error || reply.info.finish === "length") return "failed";
+        if (reply.info.time.completed && reply.info.finish === "stop") return "completed";
+        return "running";
+      }
       const status = statuses.data?.[target.sessionId];
       return status && status.type !== "idle" ? "running" : "accepted";
     },

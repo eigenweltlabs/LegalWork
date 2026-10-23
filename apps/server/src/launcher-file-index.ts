@@ -38,6 +38,9 @@ export class LauncherFileIndex {
   }
   private async build(workspaceId: string, index: Index) {
     const entries = new Map<string, IndexedFile>();
+    // The first walk is immediately searchable; rebuilds keep the previous
+    // complete snapshot until the replacement is ready.
+    if (!index.complete) index.entries = entries;
     const max = this.options.maxEntries ?? 100_000;
     let limited = false, visited = 0;
     const visit = async (directory: string): Promise<void> => {

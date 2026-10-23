@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { queueInputSchema } from "./session-queue.js";
 
 /** Search categories the launcher can scope to. `f Mietvertrag` is files, `p Müller` projects, and so on. */
 export const LAUNCHER_SEARCH_KINDS = ["files", "projects", "chats", "tasks", "recordings"] as const;
@@ -60,10 +61,18 @@ export const AssistantSubmissionSchema = z.object({
   state: AssistantSubmissionStateSchema, createdAt: z.number(), updatedAt: z.number(), error: z.string().nullable(), preview: z.string(), target: AssistantExecutionTargetSchema,
 });
 export type AssistantSubmission = z.infer<typeof AssistantSubmissionSchema>;
+export const AssistantSubmissionPartSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional(), metadata: z.record(z.string(), z.unknown()).optional() }),
+  z.object({ type: z.literal("file"), mime: z.string(), filename: z.string().optional(), url: z.string() }),
+  z.object({ type: z.literal("agent"), name: z.string() }),
+]);
 export const AssistantSubmitInputSchema = z.object({
   requestId: z.string().min(8).max(100), messageId: z.string().regex(/^msg_[A-Za-z0-9]{10,60}$/), text: z.string().max(60_000),
   context: AssistantContextEnvelopeSchema.optional(), model: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).optional(),
   agent: z.string().max(60).optional(), variant: z.string().max(60).optional(),
+  command: z.object({ name: z.string().min(1).max(120), arguments: z.string().max(60000) }).optional(),
+  parts: z.array(AssistantSubmissionPartSchema).max(100).optional(),
+  queue: queueInputSchema.omit({ execution: true, messageId: true }).optional(),
 });
 export type AssistantSubmitInput = z.infer<typeof AssistantSubmitInputSchema>;
 
@@ -95,7 +104,8 @@ export type QuickActionInput = z.infer<typeof QuickActionInputSchema>;
 export const QuickActionSchema = QuickActionInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type QuickAction = z.infer<typeof QuickActionSchema>;
 /** A saved search keeps its scope visible: the category, the project and the words. */
-export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable() });
+export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable(),
+  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional() });
 export type SavedSearchInput = z.infer<typeof SavedSearchInputSchema>;
 export const SavedSearchSchema = SavedSearchInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
@@ -173,12 +183,13 @@ export type LauncherCaptureResult = z.infer<typeof LauncherCaptureResultSchema>;
 export const LauncherDraftSchema = z.object({
   conversationId: z.string(), revision: z.number(), text: z.string(), context: z.array(AssistantContextItemSchema), target: AssistantExecutionTargetSchema,
   searchScope: z.string().nullable(), pendingTranscription: z.string().nullable(), model: z.object({ providerID: z.string(), modelID: z.string() }).nullable(), variant: z.string().nullable(),
-  submission: z.object({ requestId: z.string(), messageId: z.string(), state: z.string() }).nullable(), updatedAt: z.number(),
+  submission: z.object({ requestId: z.string(), messageId: z.string(), state: z.string(), input: AssistantSubmitInputSchema.optional(), draftSnapshot: z.object({ text: z.string(), context: z.array(AssistantContextItemSchema) }).optional() }).nullable(), updatedAt: z.number(),
+  composer: z.object({ mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin"])), pasteParts: z.array(z.object({ id: z.string(), label: z.string(), text: z.string(), lines: z.number() })) }).optional(),
 });
 export type LauncherDraft = z.infer<typeof LauncherDraftSchema>;
-export const DraftLeaseSchema = z.object({ conversationId: z.string(), owner: z.string(), revision: z.number(), since: z.number() });
+export const DraftLeaseSchema = z.object({ conversationId: z.string(), owner: z.string(), revision: z.number(), since: z.number(), pending: z.boolean().optional() });
 export type DraftLease = z.infer<typeof DraftLeaseSchema>;
-export const LauncherDraftFileSchema = z.object({ drafts: z.record(z.string(), LauncherDraftSchema), leases: z.record(z.string(), DraftLeaseSchema) });
+export const LauncherDraftFileSchema = z.object({ version: z.number().int().nonnegative().default(0), drafts: z.record(z.string(), LauncherDraftSchema), leases: z.record(z.string(), DraftLeaseSchema) });
 export type LauncherDraftFile = z.infer<typeof LauncherDraftFileSchema>;
 
 export const LauncherWindowStateSchema = z.object({ visible: z.boolean(), pinned: z.boolean(), focused: z.boolean(), displayId: z.number().nullable() });

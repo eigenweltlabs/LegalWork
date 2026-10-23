@@ -1,4 +1,8 @@
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useLocal } from "@/react-app/kernel/local-provider";
+import { stageFiles } from "./context-capture";
 import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { createProjectAttachmentMention, createWorkspaceAttachmentMention } from "@/react-app/domains/session/surface/composer/workspace-attachment";
 import type { LauncherDraft } from "@legalwork/types/launcher";
@@ -16,50 +20,74 @@ export function launcherDraftToComposerText(draft: Pick<LauncherDraft, "text" | 
   return parts.filter(Boolean).join("\n\n");
 }
 
-/**
- * Home continuity for an Assistant chat: focusing the composer claims the
- * shared draft lease and shows the panel's complete draft; typing while
- * owning it keeps the panel current. Sending clears it through the normal path.
- */
-export function useHomeDraftSync(input: { active: boolean; conversationId: string | null; sessionId: string | null; assistantWorkspaceId: string | null; projectNames: Map<string, string> }) {
+const pendingWrites = new Map<string, Promise<void>>();
+export async function flushHomeDraft(conversationId: string) {
+  await pendingWrites.get(conversationId);
+  await sharedDraftCoordinator().flush();
+}
+
+/** Home persists text, mention/paste identities and uploaded attachment references
+ * into the same draft as the panel. Uploads finish before ownership can move. */
+export function useHomeDraftSync(input: { active: boolean; conversationId: string | null; sessionId: string | null; assistantWorkspaceId: string | null; projectNames: Map<string, string>; client: LegalworkServerClient | null }) {
   const owner = useRef(windowOwnerId("home"));
   const drafts = sharedDraftCoordinator();
-  const applied = useRef<string | null>(null);
+  const local = useLocal();
+  const latest = useRef(local);
+  latest.current = local;
   useEffect(() => {
-    const { active, conversationId, sessionId, assistantWorkspaceId } = input;
-    if (!active || !conversationId || !sessionId || !assistantWorkspaceId) return;
-    let disposed = false;
-    // Mounting only shows the draft; the lease moves to Home on focus, or when nobody live holds it.
+    const { active, conversationId, sessionId, assistantWorkspaceId, client } = input;
+    if (!active || !conversationId || !sessionId || !assistantWorkspaceId || !client) return;
+    let disposed = false, applying = false;
+    let presentedContext: LauncherDraft["context"] = [];
+    let writes: Promise<void> = Promise.resolve();
+    const uploads = new Map<string, LauncherDraft["context"][number]>();
+    const show = () => {
+      if (disposed) return;
+      const draft = drafts.get(conversationId);
+      presentedContext = draft.context;
+      const composer = useComposerStateStore.getState();
+      applying = true;
+      composer.setDraft(sessionId, launcherDraftToComposerText(draft, assistantWorkspaceId, input.projectNames));
+      composer.setMentions(sessionId, draft.composer?.mentions ?? {});
+      composer.setPasteParts(sessionId, draft.composer?.pasteParts ?? []);
+      composer.setAttachments(sessionId, []);
+      applying = false;
+      if (draft.model) latest.current.setPrefs(previous => ({ ...previous, defaultModel: draft.model, modelVariant: draft.variant }));
+    };
     const claim = async (take = true) => {
       await drafts.ready();
+      await writes;
       if (take || !drafts.lease(conversationId) || drafts.isLeaseStale(conversationId)) await drafts.claim(conversationId, owner.current);
-      const draft = drafts.get(conversationId);
-      if (disposed) return;
-      const key = `${conversationId}:${draft.revision}`;
-      if (applied.current === key) return;
-      applied.current = key;
-      const text = launcherDraftToComposerText(draft, assistantWorkspaceId, input.projectNames);
-      const composer = useComposerStateStore.getState();
-      if (text && composer.sessions[sessionId]?.draft !== text) composer.setDraft(sessionId, text);
+      show();
     };
     const onFocus = (event: FocusEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("[data-lw-composer], .lw-composer, [contenteditable=\"true\"]")) void claim();
+      if (target?.closest('[data-lw-composer], .lw-composer, [contenteditable="true"]') && !drafts.owns(conversationId, owner.current)) void claim().catch(error => toast.error(String(error)));
     };
     document.addEventListener("focusin", onFocus);
-    void claim(false);
+    void claim(false).catch(error => toast.error(String(error)));
     const unsubscribe = useComposerStateStore.subscribe((state, previous) => {
-      const current = state.sessions[sessionId]?.draft ?? "";
-      if (current === (previous.sessions[sessionId]?.draft ?? "") || !drafts.owns(conversationId, owner.current)) return;
-      // The rendered context stays context; once the user edits inside it, it is their text.
-      const draft = drafts.get(conversationId);
-      const rendered = launcherDraftToComposerText({ text: "", context: draft.context }, assistantWorkspaceId, input.projectNames);
-      const patch = rendered && current.trimEnd().endsWith(rendered) ? { text: current.trimEnd().slice(0, current.trimEnd().length - rendered.length).trim() } : { text: current, context: [] };
-      void drafts.update(conversationId, owner.current, patch).catch(() => undefined);
+      const current = state.sessions[sessionId];
+      if (applying || !current || current === previous.sessions[sessionId] || !drafts.owns(conversationId, owner.current)) return;
+      writes = writes.catch(() => {}).then(() => drafts.protect(conversationId, owner.current, async () => {
+        for (const attachment of current.attachments) if (!uploads.has(attachment.id)) {
+          const [item] = await stageFiles(client, assistantWorkspaceId, [attachment.file]);
+          if (item) uploads.set(attachment.id, { ...item, id: `home_${attachment.id}` });
+        }
+        const rendered = launcherDraftToComposerText({ text: "", context: presentedContext }, assistantWorkspaceId, input.projectNames);
+        const keepsContext = Boolean(rendered && current.draft.trimEnd().endsWith(rendered));
+        const context = keepsContext ? [...presentedContext] : [];
+        for (const attachment of current.attachments) { const item = uploads.get(attachment.id); if (item) context.push(item); }
+        await drafts.update(conversationId, owner.current, {
+          text: keepsContext ? current.draft.trimEnd().slice(0, -rendered.length).trim() : current.draft,
+          context, composer: { mentions: current.mentions, pasteParts: current.pasteParts },
+          model: latest.current.prefs.defaultModel, variant: latest.current.prefs.modelVariant,
+        });
+      }));
+      pendingWrites.set(conversationId, writes);
+      void writes.catch(error => toast.error(String(error)));
     });
-    const unsubscribeDrafts = drafts.subscribe(id => { if (id === conversationId && !drafts.owns(conversationId, owner.current)) { applied.current = null; void claim(false); } });
+    const unsubscribeDrafts = drafts.subscribe(id => { if (id === conversationId && !drafts.owns(id, owner.current)) show(); });
     return () => { disposed = true; document.removeEventListener("focusin", onFocus); unsubscribe(); unsubscribeDrafts(); };
-    // Rebind only when the conversation or session changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input.active, input.conversationId, input.sessionId, input.assistantWorkspaceId]);
+  }, [input.active, input.conversationId, input.sessionId, input.assistantWorkspaceId, input.client]);
 }

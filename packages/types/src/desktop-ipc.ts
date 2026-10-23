@@ -856,7 +856,7 @@ export type DesktopCommandMap = {
   launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
   launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
   launcherDraftsRead: { args: []; result: LauncherDraftFile };
-  launcherDraftsWrite: { args: [file: LauncherDraftFile]; result: boolean };
+  launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number]; result: boolean };
   launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };
   launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
   launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };

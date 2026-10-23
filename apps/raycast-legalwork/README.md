@@ -21,8 +21,10 @@ A cold start is an ordinary launch URL; LegalWork queues the invocation and deli
 ## Development
 
 ```bash
-pnpm install
-pnpm --filter legalwork-raycast dev
+pnpm --dir apps/raycast-legalwork install --ignore-workspace --frozen-lockfile --ignore-scripts
+pnpm --dir apps/raycast-legalwork dev
 ```
 
-The extension targets Raycast on macOS and Windows; `getSelectedText` and `open` are the only platform APIs it relies on.
+Run `node apps/raycast-legalwork/node_modules/typescript/bin/tsc --noEmit -p apps/raycast-legalwork/tsconfig.json` for its type check. Build from the extension directory with `./node_modules/.bin/ray build -e dist`. The extension is installed independently because it is excluded from the application workspace; its lockfile and shared `@legalwork/types` dependency are committed.
+
+The extension uses Raycast's selection and launch APIs. Type checking and building do not verify platform behaviour; cold start and selection still need a real Raycast run.

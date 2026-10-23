@@ -2888,10 +2888,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     patchAssistantConversation: (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => requestJson<{ conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: patch }),
     updateAssistantConversation: (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => requestJson<{ conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: patch }),
     submitAssistantMessage: (conversationId: string, input: AssistantSubmitInput) => requestJson<{ submission: AssistantSubmission; conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(conversationId)}/messages`, { token, hostToken, method: "POST", body: input, timeoutMs: 45_000 }),
+    assistantConversationForSession: (sessionId: string) => requestJson<{ conversation: AssistantConversation | null }>(baseUrl, `/assistant/conversation-for-session/${encodeURIComponent(sessionId)}`, { token, hostToken }),
     assistantSubmission: (requestId: string) => requestJson<{ submission: AssistantSubmission }>(baseUrl, `/assistant/submissions/${encodeURIComponent(requestId)}`, { token, hostToken }),
     assistantConversationAttention: (id: string) => requestJson<{ items: AssistantAttentionItem[] }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}/attention`, { token, hostToken }),
     replyAssistantConversationAttention: (id: string, reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}/attention/reply`, { token, hostToken, method: "POST", body: reply }),
-    assistantAttentionAll: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
+    assistantAttentionAll: async (cursor?: string) => {
+      const items: AssistantAttentionItem[] = [], unavailable: string[] = [];
+      let next = cursor;
+      do {
+        const page = await requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention${next ? `?cursor=${encodeURIComponent(next)}` : ""}`, { token, hostToken });
+        items.push(...page.items); unavailable.push(...page.unavailable); next = page.nextCursor ?? undefined;
+      } while (next);
+      return { items, unavailable, nextCursor: null };
+    },
     recordingTranscript: (recordingId: string, options?: { offset?: number; limit?: number }) => requestJson<{ recording: { id: string; title: string }; content: string; totalCharacters: number; nextOffset: number | null }>(baseUrl, `/recorder/recordings/${encodeURIComponent(recordingId)}?${new URLSearchParams({ ...(options?.offset ? { offset: String(options.offset) } : {}), ...(options?.limit ? { limit: String(options.limit) } : {}) })}`, { token, hostToken }),
     assistantConversationConstraint: (id: string) => requestJson<{ target: AssistantExecutionTarget | null }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}/constraint`, { token, hostToken }),
     launcherSearch: (input: { query: string; kinds?: LauncherSearchKind[]; projectId?: string | null; content?: boolean; limit?: number; fileTypes?: string[] | null; modifiedAfter?: number | null }, signal?: AbortSignal) => requestJson<LauncherSearchResponse>(baseUrl, `/launcher/search?${new URLSearchParams({ q: input.query, ...(input.kinds?.length ? { kinds: input.kinds.join(",") } : {}), ...(input.projectId ? { projectId: input.projectId } : {}), ...(input.content ? { content: "1" } : {}), ...(input.limit ? { limit: String(input.limit) } : {}), ...(input.fileTypes?.length ? { types: input.fileTypes.join(",") } : {}), ...(input.modifiedAfter ? { since: String(input.modifiedAfter) } : {}) })}`, { token, hostToken, signal, timeoutMs: 20_000 }),
@@ -2911,7 +2920,16 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     stageLauncherContext: (items: AssistantContextItem[], source: LauncherInvocation["source"], ttlMs?: number) => requestJson<{ id: string; expiresAt: number; items: number }>(baseUrl, "/launcher/context", { token, hostToken, method: "POST", body: { items, source, ...(ttlMs ? { ttlMs } : {}) } }),
     consumeLauncherContext: (id: string) => requestJson<LauncherStagedContext>(baseUrl, `/launcher/context/${encodeURIComponent(id)}/consume`, { token, hostToken, method: "POST", body: {} }),
     registerLauncherInvocation: (invocation: LauncherInvocation) => requestJson<{ invocation: LauncherInvocation; duplicate: boolean; context: { id: string; items: number; expiresAt: number } | null }>(baseUrl, "/launcher/invocations", { token, hostToken, method: "POST", body: invocation }),
-    assistantWork: (filter: { status?: AssistantWorkStatus; projectId?: string } = {}) => requestJson<{ items: AssistantWorkItem[] }>(baseUrl, `/assistant/work?${new URLSearchParams({ ...(filter.status ? { status: filter.status } : {}), ...(filter.projectId ? { projectId: filter.projectId } : {}) })}`, { token, hostToken, timeoutMs: 30_000 }),
+    assistantWork: async (filter: { status?: AssistantWorkStatus; projectId?: string } = {}) => {
+      const items: AssistantWorkItem[] = [];
+      let offset: number | null = 0;
+      do {
+        const query = new URLSearchParams({ offset: String(offset), limit: "100", ...(filter.status ? { status: filter.status } : {}), ...(filter.projectId ? { projectId: filter.projectId } : {}) });
+        const page: { items: AssistantWorkItem[]; nextOffset: number | null } = await requestJson(baseUrl, `/assistant/work?${query}`, { token, hostToken, timeoutMs: 30_000 });
+        items.push(...page.items); offset = page.nextOffset ?? null;
+      } while (offset !== null);
+      return { items };
+    },
     assistantWorkAction: (item: Pick<AssistantWorkItem, "workspaceId" | "sessionId">, action: "stop" | "redirect" | "reply", input: { prompt?: string; requestId?: string } = {}) => requestJson<{ ok: boolean; status?: string }>(baseUrl, `/assistant/work/${encodeURIComponent(item.workspaceId)}/${encodeURIComponent(item.sessionId)}/${action}`, { token, hostToken, method: "POST", body: input }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),

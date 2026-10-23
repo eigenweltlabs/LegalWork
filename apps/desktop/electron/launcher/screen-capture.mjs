@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserWindow, desktopCapturer, ipcMain, nativeImage, screen, systemPreferences } from "electron";
+import { windowCaptureSource } from "./capture-source.mjs";
 
 const OVERLAY_CHANNEL = "legalwork:launcher:region";
 
@@ -25,8 +26,7 @@ export class ScreenCapture {
       try {
         const origin = this.options.origin();
         const sources = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 2560, height: 1600 }, fetchWindowIcons: false });
-        const candidates = sources.filter(source => !/LegalWork/i.test(source.name));
-        const match = (origin?.window && candidates.find(source => source.name === origin.window)) || (origin?.app && candidates.find(source => source.name.includes(origin.app))) || candidates[0];
+        const match = windowCaptureSource(sources, origin);
         if (!match || match.thumbnail.isEmpty()) return { ok: false, reason: "failed", message: "No window could be captured." };
         return { ok: true, capture: { dataUrl: dataUrl(match.thumbnail), width: match.thumbnail.getSize().width, height: match.thumbnail.getSize().height, capture: "window", sourceApp: origin?.app ?? null, sourceWindow: match.name, capturedAt: Date.now() } };
       } catch (error) { return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: error instanceof Error ? error.message : String(error) }; }

@@ -14,7 +14,7 @@
     { "name": "quick-action", "title": "Run LegalWork Quick Action", "subtitle": "LegalWork", "description": "Run a saved quick action on the selected text or clipboard.", "mode": "view" },
     { "name": "work", "title": "LegalWork Work", "subtitle": "LegalWork", "description": "Show delegated work and what needs your decision.", "mode": "view" }
   ],
-  "dependencies": { "@raycast/api": "^1.100.0" },
-  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.6.0" },
-  "scripts": { "build": "ray build -e dist", "dev": "ray develop", "lint": "ray lint" }
+  "dependencies": { "@raycast/api": "^1.100.0", "@legalwork/types": "file:../../packages/types", "react": "19.2.4" },
+  "devDependencies": { "@types/node": "^22.0.0", "@types/react": "^19.2.2", "typescript": "^5.6.0" },
+  "scripts": { "build": "ray build -e dist", "dev": "ray develop", "lint": "ray lint", "typecheck": "tsc --noEmit" }
 }

@@ -1102,22 +1102,26 @@ let launcherDraftWrites = Promise.resolve();
 async function readLauncherDrafts() {
   try {
     const parsed = JSON.parse(await readFile(path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE), "utf8"));
-    return { drafts: parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {}, leases: parsed?.leases && typeof parsed.leases === "object" ? parsed.leases : {} };
+    return { version: Number.isSafeInteger(parsed?.version) ? parsed.version : 0, drafts: parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {}, leases: parsed?.leases && typeof parsed.leases === "object" ? parsed.leases : {} };
   } catch {
-    return { drafts: {}, leases: {} };
+    return { version: 0, drafts: {}, leases: {} };
   }
 }
-function writeLauncherDrafts(file) {
+function writeLauncherDrafts(file, expectedVersion) {
   if (!file || typeof file !== "object") return Promise.resolve(false);
-  const snapshot = JSON.stringify({ drafts: file.drafts ?? {}, leases: file.leases ?? {} });
+  if (!Number.isSafeInteger(expectedVersion) || file.version !== expectedVersion + 1) return Promise.resolve(false);
+  const snapshot = JSON.stringify(file);
   if (snapshot.length > 8 * 1024 * 1024) return Promise.resolve(false);
   const target = path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE);
-  launcherDraftWrites = launcherDraftWrites.catch(() => {}).then(async () => {
+  const operation = launcherDraftWrites.catch(() => {}).then(async () => {
+    if ((await readLauncherDrafts()).version !== expectedVersion) return false;
     const temporary = `${target}.${process.pid}.tmp`;
     await writeFile(temporary, snapshot, "utf8");
     await rename(temporary, target);
+    return true;
   });
-  return launcherDraftWrites.then(() => true, () => false);
+  launcherDraftWrites = operation.then(() => undefined);
+  return operation;
 }
 
 function configHomePath() {
@@ -2783,7 +2787,7 @@ const desktopCommandHandlers = {
       return readLauncherDrafts();
   },
   "launcherDraftsWrite": async (event, ...args) => {
-      return writeLauncherDrafts(args[0]);
+      return writeLauncherDrafts(args[0], args[1]);
   },
   "launcherInvocationsDrain": async (event, ...args) => {
       return launcherService.drain();

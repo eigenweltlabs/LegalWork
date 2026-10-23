@@ -1,26 +1,9 @@
-import type { AssistantContextItem, AssistantExecutionTarget } from "@legalwork/types/launcher";
-import type { ModelRef } from "@/app/types";
-
-/** The complete draft: everything a surface needs to continue exactly where the other left off. */
-export type LauncherDraft = {
-  conversationId: string;
-  revision: number;
-  text: string;
-  context: AssistantContextItem[];
-  target: AssistantExecutionTarget;
-  searchScope: string | null;
-  pendingTranscription: string | null;
-  model: ModelRef | null;
-  variant: string | null;
-  submission: { requestId: string; messageId: string; state: string } | null;
-  updatedAt: number;
-};
-export type DraftLease = { conversationId: string; owner: string; revision: number; since: number };
-export type DraftFile = { drafts: Record<string, LauncherDraft>; leases: Record<string, DraftLease> };
-export type DraftStorage = { read: () => Promise<DraftFile>; write: (file: DraftFile) => Promise<void> };
-export type DraftMessage = { type: "draft"; draft: LauncherDraft; owner: string } | { type: "lease"; lease: DraftLease | null; conversationId: string };
-export const EMPTY_DRAFT_FILE: DraftFile = { drafts: {}, leases: {} };
-const LEASE_STALE_MS = 15 * 60_000;
+import type { LauncherDraft, LauncherDraftFile, DraftLease } from "@legalwork/types/launcher";
+export type { LauncherDraft, DraftLease } from "@legalwork/types/launcher";
+export type DraftFile = LauncherDraftFile;
+export type DraftStorage = { read: () => Promise<DraftFile>; write: (file: DraftFile, expectedVersion: number) => Promise<boolean> };
+export type DraftMessage = { file: DraftFile };
+export const EMPTY_DRAFT_FILE: DraftFile = { version: 0, drafts: {}, leases: {} };
 
 export function emptyLauncherDraft(conversationId: string, now = Date.now()): LauncherDraft {
   return { conversationId, revision: 0, text: "", context: [], target: { kind: "assistant" }, searchScope: null, pendingTranscription: null, model: null, variant: null, submission: null, updatedAt: now };
@@ -29,98 +12,125 @@ export function isDraftEmpty(draft: LauncherDraft) {
   return !draft.text.trim() && !draft.context.length && !draft.pendingTranscription && !draft.submission;
 }
 
-/**
- * One authoritative, revisioned draft per conversation with a single editor
- * at a time. Focusing a composer or expanding to Home transfers the lease and
- * the whole draft together; notifications only say that something changed.
- */
+/** A renderer cache, never a write authority. The shared store accepts a write
+ * only against its current version, including all editor ownership changes. */
 export class DraftCoordinator {
-  private file: DraftFile = { drafts: {}, leases: {} };
+  private file: DraftFile = structuredClone(EMPTY_DRAFT_FILE);
   private loaded: Promise<void> | null = null;
   private listeners = new Set<(conversationId: string) => void>();
-  private writes = Promise.resolve();
+  private writes: Promise<unknown> = Promise.resolve();
+  private protectedWork = new Map<string, number>();
   constructor(private storage: DraftStorage, private channel?: { post: (message: DraftMessage) => void; subscribe: (listener: (message: DraftMessage) => void) => () => void }, private now: () => number = Date.now) {
-    channel?.subscribe(message => this.receive(message));
+    channel?.subscribe(message => this.adopt(message.file));
   }
-  private load() {
-    if (!this.loaded) this.loaded = this.storage.read().then(file => { this.file = { drafts: { ...file.drafts, ...this.file.drafts }, leases: { ...file.leases, ...this.file.leases } }; }).catch(() => {});
-    return this.loaded;
+  private adopt(file: DraftFile) {
+    if (file.version < this.file.version) return;
+    const previous = this.file;
+    this.file = file;
+    for (const id of new Set([...Object.keys(previous.drafts), ...Object.keys(file.drafts), ...Object.keys(previous.leases), ...Object.keys(file.leases)])) {
+      if (previous.drafts[id]?.revision !== file.drafts[id]?.revision || previous.leases[id]?.owner !== file.leases[id]?.owner)
+        for (const listener of this.listeners) listener(id);
+    }
   }
-  private persist() {
-    const snapshot: DraftFile = { drafts: { ...this.file.drafts }, leases: { ...this.file.leases } };
-    this.writes = this.writes.catch(() => {}).then(() => this.storage.write(snapshot));
-    return this.writes;
+  private serial<T>(action: () => Promise<T>): Promise<T> {
+    const operation = this.writes.catch(() => {}).then(action);
+    this.writes = operation;
+    return operation;
   }
-  private emit(conversationId: string) { for (const listener of this.listeners) listener(conversationId); }
+  private async transact(change: (file: DraftFile) => void) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const current = await this.storage.read();
+      const next = structuredClone(current);
+      try { change(next); } catch (error) { this.adopt(current); throw error; }
+      next.version = current.version + 1;
+      if (!await this.storage.write(next, current.version)) continue;
+      this.adopt(next);
+      this.channel?.post({ file: next });
+      return next;
+    }
+    throw new Error("The draft changed in another window. Focus it again before editing.");
+  }
   subscribe(listener: (conversationId: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  async ready() { await this.load(); }
+  async ready() { this.loaded ??= this.reconcile(); await this.loaded; }
   get(conversationId: string): LauncherDraft { return this.file.drafts[conversationId] ?? emptyLauncherDraft(conversationId, this.now()); }
   lease(conversationId: string): DraftLease | null { return this.file.leases[conversationId] ?? null; }
-  owns(conversationId: string, owner: string) { return this.file.leases[conversationId]?.owner === owner; }
-  /** Take over editing. The previous editor keeps displaying but can no longer submit or mutate. */
-  async claim(conversationId: string, owner: string): Promise<{ draft: LauncherDraft; lease: DraftLease }> {
-    await this.load();
-    const lease: DraftLease = { conversationId, owner, revision: this.get(conversationId).revision, since: this.now() };
-    this.file.leases[conversationId] = lease;
-    this.channel?.post({ type: "lease", lease, conversationId });
-    await this.persist();
-    this.emit(conversationId);
-    return { draft: this.get(conversationId), lease };
+  owns(conversationId: string, owner: string) { return this.lease(conversationId)?.owner === owner; }
+  async claim(conversationId: string, owner: string) {
+    // An attachment upload or an explicit handoff must finish before another
+    // surface can take its draft. Wait outside the local write queue.
+    for (let attempt = 0; ; attempt++) {
+      const file = await this.storage.read(), lease = file.leases[conversationId];
+      if (!lease?.pending || lease.owner === owner || this.now() - lease.since > 60_000) break;
+      if (attempt >= 600) throw new Error("An attachment is still being saved. Please try again when it finishes.");
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return this.serial(async () => {
+      const file = await this.transact(next => {
+        const lease = next.leases[conversationId];
+        if (lease?.pending && lease.owner !== owner && this.now() - lease.since <= 60_000) throw new Error("An attachment is still being saved.");
+        const draft = next.drafts[conversationId] ?? emptyLauncherDraft(conversationId, this.now());
+        next.drafts[conversationId] = draft;
+        next.leases[conversationId] = { conversationId, owner, revision: draft.revision, since: this.now(), ...(lease?.owner === owner && lease.pending ? { pending: true } : {}) };
+      });
+      return { draft: file.drafts[conversationId], lease: file.leases[conversationId] };
+    });
   }
-  /** Mutations require the lease and bump the revision; a stale editor is refused instead of overwriting. */
-  async update(conversationId: string, owner: string, patch: Partial<Omit<LauncherDraft, "conversationId" | "revision" | "updatedAt">>): Promise<LauncherDraft> {
-    await this.load();
-    const lease = this.file.leases[conversationId];
-    if (!lease || lease.owner !== owner) throw new Error("draft_lease_lost");
-    const current = this.get(conversationId);
-    const next: LauncherDraft = { ...current, ...patch, conversationId, revision: current.revision + 1, updatedAt: this.now() };
-    this.file.drafts[conversationId] = next;
-    lease.revision = next.revision;
-    this.channel?.post({ type: "draft", draft: next, owner });
-    await this.persist();
-    this.emit(conversationId);
-    return next;
+  async protect<T>(conversationId: string, owner: string, work: () => Promise<T>) {
+    const key = JSON.stringify([conversationId, owner]);
+    await this.serial(async () => {
+      await this.transact(next => {
+        const lease = next.leases[conversationId];
+        if (lease?.owner !== owner) throw new Error("draft_lease_lost");
+        lease.pending = true; lease.since = this.now();
+      });
+      this.protectedWork.set(key, (this.protectedWork.get(key) ?? 0) + 1);
+    });
+    const heartbeat = setInterval(() => {
+      void this.serial(() => this.transact(next => {
+        const lease = next.leases[conversationId];
+        if (lease?.owner === owner && lease.pending) lease.since = this.now();
+      })).catch(() => undefined);
+    }, 15_000);
+    try { return await work(); }
+    finally {
+      clearInterval(heartbeat);
+      await this.serial(async () => {
+        const remaining = (this.protectedWork.get(key) ?? 1) - 1;
+        if (remaining) this.protectedWork.set(key, remaining); else this.protectedWork.delete(key);
+        await this.transact(next => { const lease = next.leases[conversationId]; if (lease?.owner === owner) lease.pending = remaining > 0; });
+      });
+    }
   }
-  async clear(conversationId: string, owner: string) {
+  update(conversationId: string, owner: string, patch: Partial<Omit<LauncherDraft, "conversationId" | "revision" | "updatedAt">>) {
+    return this.serial(async () => {
+      const expectedRevision = this.get(conversationId).revision;
+      const file = await this.transact(next => {
+        const lease = next.leases[conversationId];
+        if (!lease || lease.owner !== owner) throw new Error("draft_lease_lost");
+        const current = next.drafts[conversationId] ?? emptyLauncherDraft(conversationId, this.now());
+        if (current.revision !== expectedRevision) throw new Error("draft_revision_changed");
+        next.drafts[conversationId] = { ...current, ...patch, conversationId, revision: current.revision + 1, updatedAt: this.now() };
+        lease.revision = current.revision + 1;
+      });
+      return file.drafts[conversationId];
+    });
+  }
+  clear(conversationId: string, owner: string) {
     return this.update(conversationId, owner, { ...emptyLauncherDraft(conversationId, this.now()), model: this.get(conversationId).model, variant: this.get(conversationId).variant });
   }
-  async release(conversationId: string, owner: string) {
-    await this.load();
-    if (this.file.leases[conversationId]?.owner !== owner) return false;
-    delete this.file.leases[conversationId];
-    this.channel?.post({ type: "lease", lease: null, conversationId });
-    await this.persist();
-    this.emit(conversationId);
-    return true;
+  release(conversationId: string, owner: string) {
+    return this.serial(async () => {
+      let released = false;
+      await this.transact(next => {
+        if (next.leases[conversationId]?.owner === owner) { delete next.leases[conversationId]; released = true; }
+      });
+      return released;
+    });
   }
-  /** A crashed or stale editor's lease is reclaimable; its last persisted draft wins over anything older. */
   isLeaseStale(conversationId: string) {
-    const lease = this.file.leases[conversationId];
-    return Boolean(lease && this.now() - lease.since > LEASE_STALE_MS);
+    const lease = this.lease(conversationId);
+    return Boolean(lease && this.now() - lease.since > 15 * 60_000);
   }
-  private receive(message: DraftMessage) {
-    if (message.type === "lease") {
-      if (message.lease) this.file.leases[message.conversationId] = message.lease;
-      else delete this.file.leases[message.conversationId];
-      this.emit(message.conversationId);
-      return;
-    }
-    const current = this.file.drafts[message.draft.conversationId];
-    if (current && current.revision >= message.draft.revision) return;
-    this.file.drafts[message.draft.conversationId] = message.draft;
-    this.emit(message.draft.conversationId);
-  }
-  /** Reconcile with the persisted file after a crash or reconnect: never overwrite a newer revision. */
-  async reconcile() {
-    const file = await this.storage.read().catch(() => EMPTY_DRAFT_FILE);
-    for (const [id, draft] of Object.entries(file.drafts)) {
-      const current = this.file.drafts[id];
-      if (!current || current.revision < draft.revision) { this.file.drafts[id] = draft; this.emit(id); }
-    }
-    for (const [id, lease] of Object.entries(file.leases)) {
-      const current = this.file.leases[id];
-      if (!current || current.since < lease.since) this.file.leases[id] = lease;
-    }
-    for (const id of Object.keys(this.file.leases)) if (!file.leases[id] && this.file.leases[id]) delete this.file.leases[id];
-  }
+  async reconcile() { this.adopt(await this.storage.read()); }
+  async flush() { await this.writes; }
 }

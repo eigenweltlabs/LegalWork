@@ -70,3 +70,13 @@ test("on Windows a plain open never advertises the selection; the selection shor
   assert.equal(origin.supportsSelection, true);
   assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Clause 9", origin });
 });
+
+test("reopening from another application cannot retarget an earlier automatic insert", async () => {
+  const { service: origins, clipboard } = service("darwin", [front(42, "A.docx"), front(43, "B.docx")]);
+  const original = await origins.capture();
+  await origins.capture();
+  const result = await origins.insert(original.id, "Reply for A");
+  assert.equal(result.ok, false);
+  assert.equal(clipboard.text, "Reply for A");
+  assert.equal(originMatches({ pid: 42, window: "A.docx" }, { ok: true, pid: 42, window: null }), false);
+});

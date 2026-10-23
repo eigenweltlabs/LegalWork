@@ -1,6 +1,6 @@
 # Global Assistant: implementation notes
 
-This documents the implementation of the complete experience specified in [`docs/proposals/global-assistant-launcher.md`](proposals/global-assistant-launcher.md). It records what exists, how the contracts from the proposal are enforced, what was verified, and what remains open.
+This documents the implementation toward the experience specified in [`docs/proposals/global-assistant-launcher.md`](proposals/global-assistant-launcher.md). It records what exists, how the contracts from the proposal are enforced, what was verified, and what remains open. The [review fixes and current verification](global-assistant-review-fixes.md) supersede the earlier review-round claims below; the complete proposal is not yet fully implemented or verified.
 
 ## Surfaces and entry points
 

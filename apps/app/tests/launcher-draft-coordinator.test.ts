@@ -3,7 +3,7 @@ import { DraftCoordinator, EMPTY_DRAFT_FILE, type DraftFile, type DraftMessage }
 
 function memoryStorage() {
   let file: DraftFile = EMPTY_DRAFT_FILE;
-  return { storage: { read: async () => structuredClone(file), write: async (next: DraftFile) => { file = structuredClone(next); } }, current: () => file };
+  return { storage: { read: async () => structuredClone(file), write: async (next: DraftFile, expected: number) => { if (file.version !== expected) return false; file = structuredClone(next); return true; } }, current: () => file };
 }
 function bus() {
   const listeners = new Set<(message: DraftMessage) => void>();
@@ -56,4 +56,53 @@ test("a crashed renderer never overwrites a newer draft, and its lease becomes r
   expect(current().drafts.conv_1.text).toBe("v2");
   expect(await second.release("conv_1", "window-b")).toBe(true);
   expect(second.lease("conv_1")).toBeNull();
+});
+
+test("delayed cross-window notifications cannot authorize a stale write or erase another conversation", async () => {
+  const { storage, current } = memoryStorage();
+  const panel = new DraftCoordinator(storage);
+  const home = new DraftCoordinator(storage);
+  await panel.claim("one", "panel");
+  await panel.update("one", "panel", { text: "original" });
+  await home.claim("one", "home");
+  await home.update("one", "home", { text: "newer" });
+  // No notifications at all: the old renderer still thinks it owns revision 1.
+  await expect(panel.update("one", "panel", { text: "stale" })).rejects.toThrow("draft_lease_lost");
+  await Promise.all([panel.claim("two", "panel"), home.claim("three", "home")]);
+  await Promise.all([panel.update("two", "panel", { text: "second" }), home.update("three", "home", { text: "third" })]);
+  expect(Object.values(current().drafts).map(draft => draft.text).sort()).toEqual(["newer", "second", "third"]);
+});
+
+test("an upload is persisted before the next editor takes ownership", async () => {
+  const { storage } = memoryStorage();
+  const panel = new DraftCoordinator(storage), home = new DraftCoordinator(storage);
+  await home.claim("one", "home");
+  let finish = () => {};
+  const upload = new Promise<void>(resolve => { finish = resolve; });
+  const save = home.protect("one", "home", async () => {
+    await upload;
+    await home.update("one", "home", { text: "uploaded attachment" });
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  let claimed = false;
+  const takeover = panel.claim("one", "panel").then(result => { claimed = true; return result; });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  expect(claimed).toBe(false);
+  finish(); await save;
+  expect((await takeover).draft.text).toBe("uploaded attachment");
+});
+
+test("overlapping saves keep ownership protected until all operations finish", async () => {
+  const { storage } = memoryStorage();
+  const home = new DraftCoordinator(storage);
+  await home.claim("one", "home");
+  let finish = () => {};
+  const waiting = new Promise<void>(resolve => { finish = resolve; });
+  const sending = home.protect("one", "home", async () => waiting);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await home.protect("one", "home", () => home.update("one", "home", { text: "Next question" }));
+  await home.claim("one", "home"); // A repeated focus event cannot release an in-flight send.
+  expect((await storage.read()).leases.one.pending).toBe(true);
+  finish(); await sending;
+  expect((await storage.read()).leases.one.pending).toBe(false);
 });

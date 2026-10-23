@@ -9,7 +9,9 @@ import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
 import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
-import { useHomeDraftSync } from "@/react-app/launcher/home-draft-sync";
+import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
+import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
+import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
 import { LauncherDialog } from "@/react-app/launcher/launcher-dialog";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
@@ -570,12 +572,14 @@ export function SessionRoute() {
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
+  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: assistantActive && Boolean(client),
+    queryFn: async () => client && selectedSessionId ? client.assistantConversationForSession(selectedSessionId) : null });
   const assistantConversationId = useMemo(() => {
     const requested = new URLSearchParams(location.search).get("conversation");
     if (requested) return requested;
-    return assistant.data?.conversation && assistant.data.conversation.sessionId === selectedSessionId ? assistant.data.conversation.id : null;
-  }, [location.search, assistant.data?.conversation, selectedSessionId]);
-  useHomeDraftSync({ active: assistantActive, conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: assistant.data?.workspace.id ?? null,
+    return assistant.data?.conversation && assistant.data.conversation.sessionId === selectedSessionId ? assistant.data.conversation.id : assistantSessionConversation.data?.conversation?.id ?? null;
+  }, [location.search, assistant.data?.conversation, selectedSessionId, assistantSessionConversation.data]);
+  useHomeDraftSync({ client, active: assistantActive, conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: assistant.data?.workspace.id ?? null,
     projectNames: useMemo(() => new Map(workspaces.map(workspace => [workspace.id, workspace.displayNameResolved])), [workspaces]) });
   // Home already knows the current conversation. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
@@ -1622,6 +1626,29 @@ export function SessionRoute() {
         if (!sendModel) throw new Error(t("session_route.no_model"));
         if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
+        if (selectedWorkspace?.preset === "main-assistant" && !assistantConversationId) throw new Error(t("session.loading_detail"));
+        if (selectedWorkspace?.preset === "main-assistant" && assistantConversationId && draft.mode !== "shell") {
+          const drafts = sharedDraftCoordinator();
+          await flushHomeDraft(assistantConversationId);
+          await drafts.flush();
+          const shared = drafts.get(assistantConversationId);
+          const parts = await draftToParts(draft, selectedWorkspaceRoot);
+          const environment = await buildLegalworkEnvSystemContext(client, { cacheKey: targetSessionId, runtimeKey: environmentRuntimeKey });
+          const pluginContext = await loadPluginSelectionContext({ parts: draft.parts, client, workspaceId: selectedWorkspaceId,
+            readStatuses: async () => unwrap(await opencodeClient.mcp.status({ directory: selectedWorkspaceRoot || undefined })) });
+          const context = [environment, draft.modelContext, pluginContext].filter(Boolean).join("\n\n");
+          if (context) parts.push(systemReminderPart(context));
+          const queueIdentity = options?.queue ? options.queue.editToken ?? options.queue.id : null;
+          const submission = await submitAssistantDraft({ client, drafts, owner: windowOwnerId("home"), conversationId: assistantConversationId,
+            identity: queueIdentity ? { requestId: `req_queue_${queueIdentity}`, messageId: `msg_${queueIdentity.replaceAll("-", "")}` } : undefined, input: {
+            text, parts, queue: options?.queue, command: draft.command, model: sendModel, variant: sendVariant ?? undefined, agent: selectedAgent ?? undefined,
+            context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
+          } });
+          if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+          const remaining = drafts.get(assistantConversationId);
+          return { preserveDraft: Boolean(remaining.text || remaining.context.length) };
+        }
+
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
@@ -2403,12 +2430,14 @@ export function SessionRoute() {
       const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
       let assistantSessionId: string | null = null;
+      let homeConversationId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
         // The first Home message is the explicit action that creates a conversation when none exists.
         const current = await resolveAssistantConversation(client, getReactQueryClient());
         workspace = mapDesktopWorkspace(current.workspace);
         assistantSessionId = current.sessionId;
+        homeConversationId = current.conversation.id;
         const assistantWorkspace = workspace;
         setWorkspaces(previous => previous.some(item => item.id === assistantWorkspace.id) ? previous : [...previous, assistantWorkspace]);
       }
@@ -2451,6 +2480,18 @@ export function SessionRoute() {
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          if (homeConversationId) {
+            const drafts = sharedDraftCoordinator(), owner = windowOwnerId("home");
+            if (!drafts.owns(homeConversationId, owner)) await drafts.claim(homeConversationId, owner);
+            const shared = drafts.get(homeConversationId);
+            const submission = await submitAssistantDraft({ client, drafts, owner, conversationId: homeConversationId,
+              identity: { requestId: `req_home_${message.id}`, messageId: message.id }, input: {
+                text: prompt, model, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined,
+                parts: [{ type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
+                context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
+              } });
+            if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+          } else {
           const result = await workspaceClient.session.promptAsync({
             sessionID: sessionId,
             messageID: message.id,
@@ -2460,6 +2501,7 @@ export function SessionRoute() {
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
           });
           if (result.error) throw new Error(serializeSDKError(result.error));
+          }
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
             role: "user",

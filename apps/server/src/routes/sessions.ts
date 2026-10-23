@@ -100,10 +100,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   }
   const messageQueue = registerMessageQueue(config, {
     confirmed: async (workspaceId, sessionID, entry) => {
-      if (entry.execution.kind !== "prompt") return false;
+      if (entry.execution.kind === "shell") return false;
       const workspace = await resolveWorkspace(config, workspaceId);
       const client = await queueClient(workspace, sessionID);
-      const messageID = `msg_${entry.id.replaceAll("-", "")}`;
+      const messageID = entry.messageId ?? `msg_${entry.id.replaceAll("-", "")}`;
       const result = await client.session.message({ sessionID, messageID }, { signal: AbortSignal.timeout(5000) });
       return result.data?.info.id === messageID && result.data.info.role === "user" && result.data.info.sessionID === sessionID;
     },
@@ -130,11 +130,11 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       })();
       const execution = entry.execution;
       if (execution.kind === "prompt") {
-        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
+        const result = unwrapOpencodeResult(await client.session.prompt({ sessionID, messageID: entry.messageId ?? `msg_${entry.id.replaceAll("-", "")}`, ...queuedPromptPayload(execution) }), "session/prompt");
         // A terminal assistant result confirms delivery, including Stop/model errors.
         // Pause follow-ups, but never offer to resend the already accepted prompt.
         return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
-      } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
+      } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, messageID: entry.messageId ?? `msg_${entry.id.replaceAll("-", "")}`, ...execution }), "session/command");
       else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
     }, true),
   });

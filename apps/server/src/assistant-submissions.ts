@@ -1,20 +1,23 @@
 import { z } from "zod";
 import { ApiError } from "./errors.js";
 import { openSqlite, type Row, type SqliteHandle } from "./runtime-db.js";
-import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, type AssistantExecutionTarget, type AssistantSubmission } from "@legalwork/types/launcher";
+import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, AssistantSubmissionPartSchema, AssistantSubmitInputSchema, type AssistantExecutionTarget, type AssistantSubmission, type AssistantSubmitInput } from "@legalwork/types/launcher";
 
 export type SubmissionTarget = { workspaceId: string; sessionId: string };
-export type SubmissionPart = { type: "text"; text: string; synthetic?: boolean; metadata?: Record<string, unknown> };
-export type SubmissionPayload = { parts: SubmissionPart[]; model?: { providerID: string; modelID: string }; agent?: string; variant?: string };
+export type SubmissionPart = z.infer<typeof AssistantSubmissionPartSchema>;
+export type SubmissionPayload = { parts: SubmissionPart[]; model?: { providerID: string; modelID: string }; agent?: string; variant?: string; command?: { name: string; arguments: string }; queue?: AssistantSubmitInput["queue"] };
 const SubmissionPayloadSchema = z.object({
-  parts: z.array(z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional(), metadata: z.record(z.string(), z.unknown()).optional() })),
+  parts: z.array(AssistantSubmissionPartSchema),
   model: z.object({ providerID: z.string(), modelID: z.string() }).optional(), agent: z.string().optional(), variant: z.string().optional(),
+  command: z.object({ name: z.string(), arguments: z.string() }).optional(),
+  queue: AssistantSubmitInputSchema.shape.queue,
 });
 export type SubmissionExecutor = {
-  hasMessage: (target: SubmissionTarget, messageId: string) => Promise<boolean>;
+  hasMessage: (target: SubmissionTarget, messageId: string, payload: SubmissionPayload) => Promise<boolean>;
   send: (entry: AssistantSubmission, payload: SubmissionPayload) => Promise<void>;
+  waiting?: (entry: AssistantSubmission, payload: SubmissionPayload) => Promise<boolean>;
   /** The engine's view once a message is stored: nothing yet, a running turn, an answer, or an error. */
-  outcome: (target: SubmissionTarget, messageId: string) => Promise<"accepted" | "running" | "completed" | "failed">;
+  outcome: (target: SubmissionTarget, messageId: string, payload: SubmissionPayload) => Promise<"accepted" | "running" | "completed" | "failed">;
 };
 const SENDING_GRACE_MS = 60_000;
 
@@ -69,9 +72,12 @@ export class AssistantSubmissions {
    * and a queued general question does not unbind the job still running.
    */
   async activeConstraint(sessionId: string): Promise<AssistantExecutionTarget | null> {
-    const recent = this.db.all("SELECT * FROM assistant_submissions WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5", [sessionId]).map(row => this.item(row));
+    const recent = this.db.all("SELECT * FROM assistant_submissions WHERE session_id = ? AND state NOT IN ('completed', 'failed') ORDER BY created_at DESC, rowid DESC", [sessionId]).map(row => this.item(row));
     const open: AssistantSubmission[] = [];
-    for (const entry of recent) { const current = await this.reconcile(entry); if (current.state !== "completed" && current.state !== "failed") open.push(current); }
+    for (const entry of recent) {
+      const current = await this.reconcile(entry);
+      if (current.state !== "completed" && current.state !== "failed" && !await this.executor.waiting?.(current, this.payload(current.requestId))) open.push(current);
+    }
     return open.at(-1)?.target ?? null;
   }
   submit(input: Omit<AssistantSubmission, "state" | "createdAt" | "updatedAt" | "error"> & { payload: SubmissionPayload }) {
@@ -89,20 +95,29 @@ export class AssistantSubmissions {
       return this.dispatch(this.save({ ...rest, state: "sending", createdAt: now, updatedAt: now, error: null }, payload));
     });
   }
+  prepare<T>(requestId: string, action: () => Promise<T>) { return this.locked(`prepare:${requestId}`, action); }
+  retry(requestId: string) {
+    return this.locked(requestId, async () => {
+      const entry = this.get(requestId);
+      if (!entry) throw new ApiError(404, "submission_not_found", "This request is unknown.");
+      return entry.state === "sending" || entry.state === "unconfirmed" ? this.dispatch(entry) : this.reconcile(entry);
+    });
+  }
   private payload(requestId: string): SubmissionPayload {
     const row = this.db.get("SELECT parts FROM assistant_submissions WHERE request_id = ?", [requestId]);
     return SubmissionPayloadSchema.parse(JSON.parse(String(row?.parts ?? "{\"parts\":[]}")));
   }
   private async dispatch(entry: AssistantSubmission): Promise<AssistantSubmission> {
     const target = { workspaceId: entry.workspaceId, sessionId: entry.sessionId };
+    const payload = this.payload(entry.requestId);
     try {
-      if (!(await this.executor.hasMessage(target, entry.messageId))) await this.executor.send(entry, this.payload(entry.requestId));
-      const stored = await this.executor.hasMessage(target, entry.messageId);
+      if (!(await this.executor.hasMessage(target, entry.messageId, payload))) await this.executor.send(entry, payload);
+      const stored = await this.executor.hasMessage(target, entry.messageId, payload);
       return this.save({ ...entry, state: stored ? "accepted" : "unconfirmed", error: stored ? null : "Delivery could not be confirmed yet." });
     } catch (error) {
       // The engine may have stored the message before the response was lost; its record decides.
       const refused = error instanceof ApiError && error.status < 500;
-      const stored = refused ? false : await this.executor.hasMessage(target, entry.messageId).catch(() => false);
+      const stored = refused ? false : await this.executor.hasMessage(target, entry.messageId, payload).catch(() => false);
       return this.save({ ...entry, state: stored ? "accepted" : refused ? "failed" : "unconfirmed", error: stored ? null : error instanceof Error ? error.message : String(error) });
     }
   }
@@ -112,10 +127,10 @@ export class AssistantSubmissions {
     if (entry.state === "failed" || entry.state === "completed") return entry;
     try {
       if (entry.state === "sending" || entry.state === "unconfirmed") {
-        if (await this.executor.hasMessage(target, entry.messageId)) entry = this.save({ ...entry, state: "accepted", error: null });
+        if (await this.executor.hasMessage(target, entry.messageId, this.payload(entry.requestId))) entry = this.save({ ...entry, state: "accepted", error: null });
         else return entry.state === "sending" && Date.now() - entry.updatedAt < SENDING_GRACE_MS ? entry : this.save({ ...entry, state: "unconfirmed", error: entry.error ?? "Delivery could not be confirmed." });
       }
-      const outcome = await this.executor.outcome(target, entry.messageId);
+      const outcome = await this.executor.outcome(target, entry.messageId, this.payload(entry.requestId));
       if (outcome === entry.state || (outcome === "accepted" && entry.state === "running")) return entry;
       return this.save({ ...entry, state: outcome, error: outcome === "failed" ? "The Assistant did not finish this request." : null });
     } catch (error) {

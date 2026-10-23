@@ -13,11 +13,11 @@ import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-a
 import { appendDictatedText, useComposerDictation } from "@/react-app/domains/session/surface/composer/use-composer-dictation";
 import { ComposerDictationBar } from "@/react-app/domains/session/surface/composer/composer-dictation";
 import { workspaceProjectRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
-import { appActionEntries, filterCatalog, invocationForAppAction, primaryResultAction } from "./action-catalog";
+import { appActionEntries, catalogArguments, filterCatalog, invocationForAppAction, primaryResultAction } from "./action-catalog";
 import { captureClipboard, captureScreen, captureSelection, fileReferenceItem, stageFiles } from "./context-capture";
 import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
-import { LauncherConversation, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
+import { AttentionCards, LauncherConversation, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
 import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
@@ -27,9 +27,8 @@ import { LauncherSearchSession, resultKey } from "./launcher-search-session";
 import { useLauncherShell } from "./launcher-shell";
 import { useLauncherStore } from "./launcher-store";
 import { LauncherWork } from "./launcher-work";
-import { createSubmissionIdentity } from "./submission-identity";
+import { submitAssistantDraft } from "./submit-draft";
 import { voiceCoordinator } from "./voice-coordinator";
-import { emptyLauncherDraft } from "./draft-coordinator";
 import "./launcher.css";
 
 const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
@@ -57,6 +56,7 @@ export function LauncherPanel() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const invocationRunning = useRef<string | null>(null);
   const mod = isMacPlatform() ? "⌘" : "Ctrl";
   const [pins, setPins] = useState(() => typeof window === "undefined" ? [] : readPins());
   const [submission, setSubmission] = useState<{ requestId: string; messageId: string; state: string; error?: string | null } | null>(null);
@@ -71,7 +71,11 @@ export function LauncherPanel() {
   // Conversation binding: read-only lookup first; a conversation is only created by an explicit action.
   // Callbacks read the store imperatively: depending on the whole store object would re-run effects on every state change.
   const bindCurrent = useCallback(async () => {
-    const bound = shell.conversationId ? (await client.assistantConversation(shell.conversationId)).conversation : (await client.assistantConversationCurrent()).conversation;
+    const before = useLauncherStore.getState().conversation?.conversationId;
+    const id = shell.conversationId ?? useLauncherStore.getState().conversation?.conversationId;
+    const bound = id ? (await client.assistantConversation(id)).conversation : (await client.assistantConversationCurrent()).conversation;
+    const after = useLauncherStore.getState().conversation?.conversationId;
+    if (after && after !== before) return (await client.assistantConversation(after)).conversation;
     useLauncherStore.getState().bindConversation(bound);
     return bound;
   }, [client, shell.conversationId]);
@@ -82,12 +86,18 @@ export function LauncherPanel() {
     const { draft } = await drafts.claim(conversationId, owner);
     const state = useLauncherStore.getState();
     if (state.conversation?.conversationId !== conversationId) return;
-    state.replaceContext([...draft.context, ...state.context.filter(item => !draft.context.some(existing => existing.id === item.id))]);
-    if (draft.target.kind === "project" || overwrite) state.setTarget(draft.target);
-    if (draft.submission && draft.submission.state !== "completed") setSubmission({ ...draft.submission, state: draft.submission.state });
-    if (draft.text && (overwrite || !state.input)) { if (draft.text !== state.input) state.setInput(draft.text); state.setView("conversation"); }
-  }, [drafts, owner]);
-  useEffect(() => { if (conversation) void adoptDraft(conversation.conversationId, false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conversation?.conversationId, adoptDraft]);
+    state.replaceContext(draft.context);
+    state.setTarget(draft.target);
+    const scope = workspaces.find(workspace => workspace.id === draft.searchScope);
+    state.setScope(scope ? { id: scope.id, name: scope.displayName || scope.name } : null);
+    setSubmission(draft.submission);
+    let text = draft.text;
+    for (const part of draft.composer?.pasteParts ?? []) text = text.replace(`[pasted text ${part.label}]`, () => part.text);
+    if (overwrite || !state.input) state.setInput(text);
+    if (draft.model) local.setPrefs(previous => ({ ...previous, defaultModel: draft.model, modelVariant: draft.variant }));
+    if (draft.text) state.setView("conversation");
+  }, [drafts, owner, workspaces]);
+  useEffect(() => { if (conversation && !invocationRunning.current) void adoptDraft(conversation.conversationId, false).catch(error => store.notify({ tone: "error", text: String(error) })); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conversation?.conversationId]);
   useEffect(() => {
     if (!store.visible || !conversation || drafts.owns(conversation.conversationId, owner)) return;
     void adoptDraft(conversation.conversationId, true);
@@ -109,7 +119,7 @@ export function LauncherPanel() {
       const text = mode === "conversation" || mode === "ask" ? (mode === "ask" ? entry.text : store.input) : current.text;
       if (current.text === text && current.context === store.context && current.target === store.target && current.searchScope === (store.scope?.id ?? null)) return;
       void drafts.update(conversation.conversationId, owner, { text, context: store.context, target: store.target, searchScope: store.scope?.id ?? null, model: local.prefs.defaultModel, variant: local.prefs.modelVariant }).catch(() => undefined);
-    }, 250);
+    }, 0);
     return () => clearTimeout(timer);
   }, [conversation, drafts, owner, store.input, store.context, store.target, store.scope, mode, entry.text, local.prefs.defaultModel, local.prefs.modelVariant]);
 
@@ -151,6 +161,7 @@ export function LauncherPanel() {
     const workspace = search.projectId ? workspaces.find(workspace => workspace.id === search.projectId) : null;
     state.setScope(workspace ? { id: workspace.id, name: workspace.displayName || workspace.name } : null);
     state.setCategory(search.kind); state.setInput(search.query); state.setOverlay(null); state.setView("results");
+    state.setFileFilter({ types: search.fileTypes ?? null, modifiedAfter: search.modifiedAfter ?? null });
     void client.recordSavedSearchUse(search.id).catch(() => undefined);
     inputRef.current?.focus();
   };
@@ -159,7 +170,7 @@ export function LauncherPanel() {
     if (mode !== "search" || (!entry.text.trim() && !store.category && !store.scope)) { store.notify({ tone: "info", text: t("launcher.saved.nothing") }); return; }
     const name = [store.category ? t(KIND_HINT[store.category]) : null, entry.text.trim() || null, store.scope?.name ?? null].filter(Boolean).join(" · ");
     try {
-      const { search } = await client.createSavedSearch({ name, query: entry.text.trim(), kind: store.category, projectId: store.scope?.id ?? null });
+      const { search } = await client.createSavedSearch({ name, query: entry.text.trim(), kind: store.category, projectId: store.scope?.id ?? null, fileTypes: store.fileFilter.types, modifiedAfter: store.fileFilter.modifiedAfter });
       await refreshSavedSearches();
       store.notify({ tone: "info", text: t("launcher.saved.saved", { name: search.name }) });
     } catch (error) { store.notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
@@ -195,35 +206,34 @@ export function LauncherPanel() {
     inputRef.current?.focus();
   }, [client, drafts, owner, surface]);
 
-  const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }, output?: PendingOutput["output"]) => {
+  const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }, output?: PendingOutput["output"], command?: { name: string; arguments: string }) => {
     const trimmed = text.trim();
     // The live store, not this render's snapshot: a target chosen a moment ago must be the one that ships.
     const live = useLauncherStore.getState();
-    if (sending || (!trimmed && !live.context.length)) return;
+    if (sending || (!reuse && !trimmed && !live.context.length && !command)) return;
     setSending(true);
     try {
       const target = await ensureConversation();
-      if (!drafts.owns(target.conversationId, owner)) await drafts.claim(target.conversationId, owner);
-      const identity = reuse ?? createSubmissionIdentity();
       const context = { items: live.context, target: live.target, searchScope: live.scope?.id ?? null, capturedAt: Date.now() };
-      await drafts.update(target.conversationId, owner, { text: trimmed, context: live.context, submission: { requestId: identity.requestId, messageId: identity.messageId, state: "sending" } });
-      setSubmission({ requestId: identity.requestId, messageId: identity.messageId, state: "sending" });
-      setPendingOutput(output ? { messageId: identity.messageId, output } : null);
+      if (!reuse) await drafts.update(target.conversationId, owner, { text: trimmed, context: live.context, target: live.target, searchScope: live.scope?.id ?? null });
       store.setView("conversation");
       let result: AssistantSubmission;
       try {
-        result = (await client.submitAssistantMessage(target.conversationId, { requestId: identity.requestId, messageId: identity.messageId, text: trimmed, context, model: local.prefs.defaultModel ?? undefined, variant: local.prefs.modelVariant ?? undefined })).submission;
+        result = await submitAssistantDraft({ client, drafts, owner, conversationId: target.conversationId, retry: Boolean(reuse), input: { text: trimmed, context, command, model: local.prefs.defaultModel ?? undefined, variant: local.prefs.modelVariant ?? undefined } });
       } catch (error) {
         // Ambiguous: keep the identity and draft; the status poll and Retry reuse it.
-        setSubmission({ ...identity, state: "unconfirmed", error: error instanceof Error ? error.message : String(error) });
-        await drafts.update(target.conversationId, owner, { submission: { ...identity, state: "unconfirmed" } }).catch(() => undefined);
-        notify({ tone: "error", text: t("launcher.submission.unconfirmed") });
+        const pending = drafts.get(target.conversationId).submission;
+        if (pending) setSubmission({ ...pending, error: error instanceof Error ? error.message : String(error) });
+        if (pending?.state === "unconfirmed" && output) setPendingOutput({ messageId: pending.messageId, output, originId: live.origin?.id ?? null });
+        notify({ tone: "error", text: pending?.state === "failed" && error instanceof Error ? error.message : t("launcher.submission.unconfirmed") });
         return;
       }
       setSubmission({ requestId: result.requestId, messageId: result.messageId, state: result.state, error: result.error });
-      if (result.state === "failed") { notify({ tone: "error", text: result.error ?? t("launcher.submission.failed") }); await drafts.update(target.conversationId, owner, { submission: { ...identity, state: "failed" } }).catch(() => undefined); return; }
-      store.setInput(""); store.replaceContext([]);
-      await drafts.update(target.conversationId, owner, { ...emptyLauncherDraft(target.conversationId), model: local.prefs.defaultModel, variant: local.prefs.modelVariant, submission: { ...identity, state: result.state } }).catch(() => undefined);
+      if (output && result.state !== "failed") setPendingOutput({ messageId: result.messageId, output, originId: live.origin?.id ?? null });
+      if (result.state === "failed" || result.state === "unconfirmed") { notify({ tone: "error", text: result.error ?? t(`launcher.submission.${result.state}`) }); return; }
+      const current = useLauncherStore.getState();
+      const saved = drafts.get(target.conversationId);
+      if (!saved.text && !saved.context.length && current.conversation?.conversationId === target.conversationId && current.input === live.input && JSON.stringify(current.context) === JSON.stringify(live.context)) { store.setInput(""); store.replaceContext([]); }
     } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
     finally { setSending(false); }
   }, [sending, store, ensureConversation, drafts, owner, client, local.prefs.defaultModel, local.prefs.modelVariant, notify]);
@@ -246,7 +256,10 @@ export function LauncherPanel() {
   }, [submission, conversation, drafts, submitAsk, store.input]);
   const onSubmissionChange = useCallback((next: AssistantSubmission) => {
     setSubmission(current => current && current.requestId === next.requestId ? { ...current, state: next.state, error: next.error } : current);
-    if (conversation && drafts.owns(conversation.conversationId, owner)) void drafts.update(conversation.conversationId, owner, { submission: { requestId: next.requestId, messageId: next.messageId, state: next.state } }).catch(() => undefined);
+    if (conversation && drafts.owns(conversation.conversationId, owner)) {
+      const pending = drafts.get(conversation.conversationId).submission;
+      if (pending?.requestId === next.requestId && pending.state !== next.state) void drafts.update(conversation.conversationId, owner, { submission: { ...pending, state: next.state } }).catch(() => undefined);
+    }
   }, [conversation, drafts, owner]);
   useSubmissionStatus(submission && submission.state !== "completed" && submission.state !== "failed" ? submission.requestId : null, onSubmissionChange);
 
@@ -273,7 +286,16 @@ export function LauncherPanel() {
   // Pending questions and approvals are counted whatever view is open; the companion shows the number.
   const ownAttention = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation?.conversationId], queryFn: () => client.assistantConversationAttention(conversation?.conversationId ?? ""), enabled: Boolean(conversation), refetchInterval: store.visible ? 4000 : false });
   const delegatedAttention = useQuery({ queryKey: ["launcher-attention-delegated", client.baseUrl], queryFn: () => client.assistantAttentionAll(), refetchInterval: store.visible ? 5000 : false });
-  const attentionCount = (ownAttention.data?.items.length ?? 0) + (delegatedAttention.data?.items ?? []).filter(item => item.kind !== "widget").length;
+  const attentionItems = [...new Map([...(ownAttention.data?.items ?? []), ...(delegatedAttention.data?.items ?? [])].filter(item => item.kind !== "widget").map(item => [item.id, item])).values()];
+  const attentionCount = attentionItems.length;
+  const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
+  const replyAttention: Parameters<typeof AttentionCards>[0]["onReply"] = async (item, answer) => {
+    if (attentionBusy) return;
+    setAttentionBusy(item.id);
+    try { await client.replyAssistantAttention({ id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, ...answer }); }
+    catch (error) { notify({ tone: "error", text: String(error) }); }
+    finally { setAttentionBusy(null); await Promise.all([ownAttention.refetch(), delegatedAttention.refetch()]); }
+  };
   useEffect(() => { useLauncherStore.getState().setAttentionCount(attentionCount); }, [attentionCount]);
   // The companion shows where the microphone is and how much needs attention.
   useEffect(() => {
@@ -347,7 +369,7 @@ export function LauncherPanel() {
       }
     }
   };
-  const runCatalogEntry = async (item: LauncherCatalogEntry, args = "") => {
+  const runCatalogEntry = async (item: LauncherCatalogEntry, args = catalogArguments(item, parseLauncherEntry(useLauncherStore.getState().input).text)) => {
     if (item.source === "app") {
       const invocation = invocationForAppAction(item.id);
       if (item.id === "app.add-selection") return captureActions.selection();
@@ -360,51 +382,68 @@ export function LauncherPanel() {
     }
     if (item.source === "saved-search" && item.savedSearch) { applySavedSearch(item.savedSearch); return; }
     if (item.source === "quick-action" && item.quickAction) {
-      const selection = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "selection" }> => entry.type === "selection")?.text;
-      const clipboard = store.context.find((entry): entry is Extract<AssistantContextItem, { type: "clipboard" }> => entry.type === "clipboard")?.text;
-      const files = store.context.flatMap(entry => entry.type === "file" ? [entry.path] : []);
+      const context = useLauncherStore.getState().context;
+      const selection = context.find((entry): entry is Extract<AssistantContextItem, { type: "selection" }> => entry.type === "selection")?.text;
+      const clipboard = context.find((entry): entry is Extract<AssistantContextItem, { type: "clipboard" }> => entry.type === "clipboard")?.text;
+      const files = context.flatMap(entry => entry.type === "file" ? [entry.path] : []);
       try {
         const rendered = await client.renderQuickAction(item.quickAction.id, { selection, clipboard, files, arguments: args });
         if (item.quickAction.target === "project" && item.quickAction.projectId) useLauncherStore.getState().setTarget({ kind: "project", workspaceId: item.quickAction.projectId });
         else if (item.quickAction.target === "project" && useLauncherStore.getState().target.kind !== "project") { notify({ tone: "error", text: t("launcher.notice.needs_project") }); return; }
+        else if (item.quickAction.target !== "project") useLauncherStore.getState().setTarget({ kind: "assistant" });
         void client.recordQuickActionUse(item.quickAction.id).catch(() => undefined);
-        await submitAsk(rendered.prompt, undefined, item.quickAction.output === "copy" || item.quickAction.output === "insert" ? item.quickAction.output : undefined);
+        const prompt = item.quickAction.skill ? `Load [skill ${item.quickAction.skill}] and follow its instructions.\n\n${rendered.prompt}` : rendered.prompt;
+        await submitAsk(prompt, undefined, item.quickAction.output === "copy" || item.quickAction.output === "insert" ? item.quickAction.output : undefined,
+          item.quickAction.command ? { name: item.quickAction.command, arguments: prompt } : undefined);
       } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
       return;
     }
-    if (item.source === "skill") { store.setInput(`${item.label} ${args}`.trim()); store.setView("conversation"); return; }
+    if (item.source === "skill") { await submitAsk(`Load [skill ${item.label}] and follow its instructions.\n\n${args}`); return; }
     // Slash commands run through the engine as agent work; a project's own command binds that project.
     if (item.workspaceId) useLauncherStore.getState().setTarget({ kind: "project", workspaceId: item.workspaceId });
-    await submitAsk(`/${item.command?.name ?? item.label.replace(/^\//, "")}${args ? ` ${args}` : ""}`);
+    const name = item.command?.name ?? item.label.replace(/^\//, "");
+    await submitAsk(`/${name}${args ? ` ${args}` : ""}`, undefined, undefined, { name, arguments: args });
   };
-  const applyInvocation = useCallback((invocation: LauncherInvocation) => {
+  const applyInvocation = useCallback(async (invocation: LauncherInvocation) => {
+    const bound = invocation.action === "new-conversation" ? (await client.createAssistantConversation({ origin: surface })).conversation
+      : invocation.conversationId ? (await client.assistantConversation(invocation.conversationId)).conversation : await bindCurrent();
+    if (bound) { useLauncherStore.getState().bindConversation(bound); await adoptDraft(bound.id, true); }
     const aliasKinds: Partial<Record<LauncherInvocation["action"], LauncherSearchKind>> = { files: "files", projects: "projects", chats: "chats", tasks: "tasks", recordings: "recordings" };
     const kind = aliasKinds[invocation.action];
     if (invocation.projectId) { const workspace = workspaces.find(workspace => workspace.id === invocation.projectId); if (workspace) store.setScope({ id: workspace.id, name: workspace.displayName || workspace.name }); }
-    if (invocation.contextId) void client.consumeLauncherContext(invocation.contextId).then(staged => addItems(staged.items)).catch(() => notify({ tone: "error", text: t("launcher.notice.context_expired") }));
+    if (invocation.contextId) { const staged = await client.consumeLauncherContext(invocation.contextId); addItems(staged.items); }
     if (kind) { store.setCategory(kind); store.setInput(invocation.query ?? ""); store.setView("results"); }
     else if (invocation.action === "search") { store.setCategory(null); store.setInput(invocation.query ?? ""); }
     else if (invocation.action === "ask") { store.setInput(invocation.query ?? ""); store.setView("conversation"); }
-    else if (invocation.action === "new-conversation") void startNewConversation();
-    else if (invocation.action === "resume") { void bindCurrent(); store.setView("conversation"); }
+    else if (invocation.action === "new-conversation") store.setView("conversation");
+    else if (invocation.action === "resume") store.setView("conversation");
     else if (invocation.action === "work") store.setView("work");
     else if (invocation.action === "speak") void speak();
     else if (invocation.action === "capture-region") void captureActions.region();
     else if (invocation.action === "capture-window") void captureActions.window();
-    else if (invocation.action === "quick-action" && invocation.actionId) { const item = catalog.find(entry => entry.id === invocation.actionId); if (item) void runCatalogEntry(item, invocation.query ?? ""); else notify({ tone: "error", text: t("launcher.notice.action_unknown") }); }
+    else if (invocation.action === "quick-action" && invocation.actionId) {
+      const loaded = await client.launcherCatalog(invocation.projectId ?? null);
+      const item = loaded.entries.find(entry => entry.id === invocation.actionId);
+      if (!item) throw new Error(t("launcher.notice.action_unknown"));
+      await runCatalogEntry(item, invocation.query ?? "");
+    }
     else if (invocation.action === "dictate" || invocation.action === "record") {
       if (!desktop) openInApp("/recorder");
       else { if (invocation.action === "dictate" && surface === "panel") dismiss(); void launcherVoice(invocation.action).catch(() => openInApp("/recorder")); }
     }
-    if (invocation.conversationId) void client.assistantConversation(invocation.conversationId).then(({ conversation }) => { store.bindConversation(conversation); store.setView("conversation"); }).catch(() => undefined);
+    if (invocation.conversationId) store.setView("conversation");
     requestAnimationFrame(() => inputRef.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaces, client, catalog, startNewConversation, bindCurrent]);
+  }, [workspaces, client, catalog, startNewConversation, bindCurrent, adoptDraft]);
   useEffect(() => {
-    if (!store.invocation) return;
+    if (!store.invocation || invocationRunning.current) return;
     const invocation = store.invocation;
-    useLauncherStore.getState().setInvocation(null);
-    applyInvocation(invocation);
+    invocationRunning.current = invocation.id;
+    void applyInvocation(invocation).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })).finally(() => {
+      invocationRunning.current = null;
+      if (useLauncherStore.getState().invocation?.id === invocation.id) useLauncherStore.getState().setInvocation(null);
+      else { const pending = useLauncherStore.getState().invocation; if (pending) useLauncherStore.getState().setInvocation({ ...pending }); }
+    });
   }, [store.invocation, applyInvocation]);
 
   // Keyboard contract. The footer says what Enter does.
@@ -441,7 +480,7 @@ export function LauncherPanel() {
       event.preventDefault();
       if (event.shiftKey) return;
       if (mode === "ask" || mode === "conversation") { void submitAsk(mode === "ask" ? entry.text : store.input); return; }
-      if (mode === "command") { const item = commandItems.find(entry => entry.id === store.selection.id); if (item) void runCatalogEntry(item); return; }
+      if (mode === "command") { const item = commandItems.find(entry => entry.id === store.selection.id); if (item) void runCatalogEntry(item, catalogArguments(item, entry.text)); return; }
       const result = store.results.find(item => resultKey(item) === store.selection.id);
       if (result) void runResultAction(result, primaryResultAction(result));
     }
@@ -453,6 +492,14 @@ export function LauncherPanel() {
       if (activated) { store.setCategory(activated.category); store.setInput(activated.rest); return; }
     }
     store.setInput(value);
+  };
+  const expand = async () => {
+    if (!conversation) { openInApp("/home"); return; }
+    const live = useLauncherStore.getState();
+    await drafts.update(conversation.conversationId, owner, { text: mode === "ask" ? entry.text : live.input, context: live.context,
+      target: live.target, searchScope: live.scope?.id ?? null, model: local.prefs.defaultModel, variant: local.prefs.modelVariant });
+    await drafts.release(conversation.conversationId, owner);
+    openInApp(`${workspaceSessionRoute(conversation.workspaceId, conversation.sessionId)}?conversation=${encodeURIComponent(conversation.conversationId)}`);
   };
 
   const selectedResult = store.view === "results" ? store.results.find(item => resultKey(item) === store.selection.id) ?? null : null;
@@ -517,7 +564,7 @@ export function LauncherPanel() {
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked || voiceBusy} onClick={() => void speak()}><Mic className="size-4" /></Button>
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.work.title")} title={t("launcher.work.title")} onClick={() => store.setView(store.view === "work" ? (conversation ? "conversation" : "idle") : "work")}><ListChecks className="size-4" />{store.attentionCount > 0 && <span className="ml-0.5 rounded-full bg-blue-9 px-1 text-[10px] text-white">{store.attentionCount}</span>}</Button>
           {surface === "panel" && shell.togglePin && <Button variant="ghost" size="icon-sm" aria-label={t(store.pinned ? "launcher.unpin" : "launcher.pin")} title={t(store.pinned ? "launcher.unpin" : "launcher.pin")} onClick={shell.togglePin}>{store.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}</Button>}
-          {surface === "panel" && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.expand")} title={t("launcher.expand")} onClick={() => { if (conversation) { void drafts.release(conversation.conversationId, owner); openInApp(workspaceSessionRoute(conversation.workspaceId, conversation.sessionId)); } else openInApp("/home"); }}><Maximize2 className="size-4" /></Button>}
+          {surface === "panel" && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.expand")} title={t("launcher.expand")} onClick={() => void expand().catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }))}><Maximize2 className="size-4" /></Button>}
           {surface === "embedded" && <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={dismiss}><X className="size-4" /></Button>}
         </div>
       </div>
@@ -526,6 +573,7 @@ export function LauncherPanel() {
       {store.approval && surface === "panel" && <LauncherApprovalCard request={store.approval} onReply={async (id, decision) => { try { await launcherApprovalReply(id, decision); } finally { useLauncherStore.getState().setApproval(null); } }} />}
       {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}
       <LauncherContextBar />
+      {store.view !== "conversation" && attentionItems.length > 0 && <AttentionCards items={attentionItems} busy={attentionBusy} onReply={replyAttention} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />}
       <div className="launcher-body" style={{ position: "relative" }}>
         {store.view === "results" && <>
           <LauncherResultList items={store.results} sources={store.sources} query={entry.text} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending}

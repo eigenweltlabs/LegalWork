@@ -44,12 +44,19 @@ export function filterCatalog(entries: LauncherCatalogEntry[], query: string, li
     let score = 0;
     if (!needle) score = 1;
     else if (label === needle || aliases.includes(needle)) score = 100;
+    else if ([label, ...aliases].some(alias => needle.startsWith(`${alias} `))) score = 110;
     else if (label.startsWith(needle) || aliases.some(alias => alias.startsWith(needle))) score = 80;
     else if (label.includes(needle) || aliases.some(alias => alias.includes(needle))) score = 50;
     else if (entry.description?.toLowerCase().includes(needle)) score = 20;
     return { entry, score: score ? score + (entry.favorite ? 5 : 0) + Math.min(4, (entry.usedAt ?? 0) > 0 ? 2 : 0) : 0 };
   }).filter(item => item.score > 0);
   return scored.sort((a, b) => b.score - a.score || a.entry.label.localeCompare(b.entry.label)).slice(0, limit).map(item => item.entry);
+}
+export function catalogArguments(entry: LauncherCatalogEntry, query: string) {
+  const value = query.trim().replace(/^\//, "");
+  const names = [entry.label, ...entry.aliases].map(name => name.replace(/^\//, "")).sort((a, b) => b.length - a.length);
+  const matched = names.find(name => value.toLowerCase() === name.toLowerCase() || value.toLowerCase().startsWith(`${name.toLowerCase()} `));
+  return matched ? value.slice(matched.length).trim() : "";
 }
 
 /** The visible primary action of a result row: what Enter does. */

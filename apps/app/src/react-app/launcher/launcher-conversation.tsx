@@ -63,7 +63,7 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
   </article>)}</>;
 }
 
-export type PendingOutput = { messageId: string; output: "copy" | "insert" };
+export type PendingOutput = { messageId: string; output: "copy" | "insert"; originId: string | null };
 export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void }) {
   const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
@@ -78,7 +78,7 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   useEffect(() => onSyncPoke(poke => { if (poke.sessions || poke.approvals || poke.resync) { void snapshot.refetch(); void own.refetch(); void delegated.refetch(); } }), [snapshot, own, delegated]);
   const messages = useMemo(() => snapshot.data ? snapshotToUIMessages(snapshot.data.item) : [], [snapshot.data]);
   const status = snapshot.data?.item.status.type === "busy" ? "streaming" : snapshot.data?.item.status.type === "retry" ? "retrying" : "ready";
-  const attention = useMemo(() => [...(own.data?.items ?? []), ...(delegated.data?.items ?? []).filter(item => item.kind !== "widget")], [own.data, delegated.data]);
+  const attention = useMemo(() => [...new Map([...(own.data?.items ?? []), ...(delegated.data?.items ?? [])].filter(item => item.kind !== "widget").map(item => [item.id, item])).values()], [own.data, delegated.data]);
   // The last finished reply is what Copy, Insert and a quick action's output policy act on.
   const lastReply = useMemo(() => {
     const last = messages.at(-1);
@@ -87,21 +87,22 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     return text ? { id: last.id, text } : null;
   }, [messages]);
   const copyReply = async (text: string) => { await navigator.clipboard.writeText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); };
-  const insertReply = async (text: string) => {
-    if (!desktop || !origin?.supportsInsert) { await copyReply(text); return; }
-    const result = await launcherOriginInsert(origin.id, text);
+  const insertReply = async (text: string, originId: string | null = origin?.id ?? null) => {
+    if (!desktop || !originId) { await copyReply(text); return; }
+    const result = await launcherOriginInsert(originId, text);
     if (result.ok) notify({ tone: "info", text: result.method === "paste" ? t("launcher.reply.inserted", { app: result.origin.app ?? "" }) : t("launcher.reply.copied_instead") });
     else notify({ tone: "error", text: result.copied ? t("launcher.reply.copied_instead") : result.message });
   };
   useEffect(() => {
-    if (!pendingOutput || !lastReply || status !== "ready") return;
-    // Only a reply that came after the identified request counts, never the previous one.
-    const asked = messages.findIndex(message => message.id === pendingOutput.messageId);
-    if (asked < 0 || asked >= messages.length - 1) return;
+    if (!pendingOutput || status !== "ready") return;
+    const answer = [...(snapshot.data?.item.messages ?? [])].reverse().find(message => message.info.role === "assistant" && message.info.parentID === pendingOutput.messageId);
+    if (answer?.info.role !== "assistant" || !answer.info.time.completed || answer.info.error || answer.info.finish !== "stop") return;
+    const text = answer.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
+    if (!text) return;
     onOutputApplied();
-    void (pendingOutput.output === "copy" ? copyReply(lastReply.text) : insertReply(lastReply.text));
+    void (pendingOutput.output === "copy" ? copyReply(text) : insertReply(text, pendingOutput.originId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingOutput, lastReply?.id, status]);
+  }, [pendingOutput, snapshot.data, status]);
   const togglePin = async () => {
     try { const { conversation: updated } = await client.patchAssistantConversation(conversation.conversationId, { pinned: !conversation.pinned }); useLauncherStore.getState().bindConversation(updated); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); }
     catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }

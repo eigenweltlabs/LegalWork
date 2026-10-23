@@ -1,8 +1,9 @@
 import { constants as fsConstants } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
-import { basename, dirname, extname, relative, resolve, sep } from "node:path";
+import { copyFile, readFile, realpath, stat, unlink } from "node:fs/promises";
+import { basename, extname, relative, resolve, sep } from "node:path";
 import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
+import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
 import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
@@ -116,16 +117,15 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (!(await stat(sourceFile).catch(() => null))?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
     const folder = input.folder ? normalizeWorkspaceRelativePath(input.folder, { allowSubdirs: true }) : "";
     const targetRoot = await realpath(target.path), destination = resolve(targetRoot, folder, basename(sourceFile));
+    await launcherDestination(targetRoot, folder);
     if (!destination.startsWith(targetRoot + sep)) throw new ApiError(400, "invalid_path", "The destination is outside the project.");
     if (await stat(destination).catch(() => null)) throw new ApiError(409, "file_exists", "A file with that name already exists in the destination project.");
     const destinationPath = relative(targetRoot, destination).split("\\").join("/");
     await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `${input.mode === "move" ? "Move" : "Copy"} ${relativePath} from ${projectName(source)} to ${projectName(target)}`, paths: [destination, ...(input.mode === "move" ? [sourceFile] : [])] });
-    await mkdir(dirname(destination), { recursive: true });
-    if (input.mode === "copy") await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL);
-    else {
-      try { await rename(sourceFile, destination); }
-      catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EXDEV")) throw error; await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL); await unlink(sourceFile); }
-    }
+    await launcherDestination(targetRoot, folder, true);
+    // Exclusive creation also protects Move from overwriting a file created while approval was pending.
+    await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL);
+    if (input.mode === "move") await unlink(sourceFile);
     const actor = ctx.actor ?? { type: "remote" as const };
     await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor, action: "workspace.file.write", target: destination, summary: `${input.mode === "move" ? "Moved" : "Copied"} ${relativePath} from ${projectName(source)}`, timestamp: Date.now() });
     if (input.mode === "move") await recordAudit(source.path, { id: shortId(), workspaceId: source.id, actor, action: "workspace.file.write", target: sourceFile, summary: `Moved ${relativePath} to ${projectName(target)}`, timestamp: Date.now() });
@@ -233,10 +233,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   };
   addRoute(routes, "GET", "/assistant/work", "client", async ctx => {
     read(ctx);
-    const filter = parse(z.object({ status: AssistantWorkStatusSchema.optional(), projectId: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).default(40) }), Object.fromEntries(ctx.url.searchParams), "work_query", "Check the work filters.");
+    const filter = parse(z.object({ status: AssistantWorkStatusSchema.optional(), projectId: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).default(40), offset: z.coerce.number().int().nonnegative().default(0) }), Object.fromEntries(ctx.url.searchParams), "work_query", "Check the work filters.");
     const source = await sourceWorkspace();
     if (!source) return jsonResponse({ items: [] });
-    const tracked = delegations.list(source.id).filter(delegation => !filter.projectId || delegation.workspaceId === filter.projectId).slice(0, filter.limit);
+    const tracked = delegations.list(source.id).filter(delegation => !filter.projectId || delegation.workspaceId === filter.projectId);
     const items = await listAssistantWork(tracked, {
       originConversationId: sessionId => conversations.bySession(source.id, sessionId)?.id ?? null,
       inspect: async delegation => {
@@ -255,7 +255,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
         return { ...common, available: true, busy: Boolean(status && status.type !== "idle"), result, pendingAttention: attention.filter(item => item.kind !== "widget").length };
       },
     }, { status: filter.status, projectId: filter.projectId });
-    return jsonResponse({ items: items.slice(0, filter.limit) });
+    const end = filter.offset + filter.limit;
+    return jsonResponse({ items: items.slice(filter.offset, end), nextOffset: end < items.length ? end : null });
   });
   addRoute(routes, "POST", "/assistant/work/:workspaceId/:sessionId/:action", "client", async ctx => {
     write(ctx);

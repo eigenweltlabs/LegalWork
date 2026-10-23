@@ -37,3 +37,18 @@ test("a new query renders the server's order; only the content pass for the same
   await wait(20);
   expect(seen.at(-1)).toEqual(["ab.txt", "abc.txt", "alpha.txt"]);
 });
+
+test("slow chat and task providers do not delay local filename results", async () => {
+  let finish = () => {};
+  const slow = new Promise<void>(resolve => { finish = resolve; });
+  const session = new LauncherSearchSession(async input => {
+    if (input.kinds[0] !== "files") await slow;
+    return { items: input.kinds[0] === "files" ? [item("ready.txt", 100)] : [], sources: [], unavailable: [] };
+  }, { debounceMs: 0, contentPass: false });
+  session.search({ query: "ready", kinds: ["chats", "tasks", "files"], projectId: null });
+  await wait(10);
+  expect(session.current().items.map(entry => entry.id)).toEqual(["ready.txt"]);
+  expect(session.current().pending).toBe(true);
+  finish(); await wait(10);
+  expect(session.current().pending).toBe(false);
+});

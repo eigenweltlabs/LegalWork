@@ -297,7 +297,7 @@ export function registerMainAssistantRoutes(options: {
     if (workspace.workspaceType === "remote" || source.workspaceType === "remote") throw new ApiError(400, "delegation_local", "Choose an available local project.");
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
     // An explicitly chosen project is an execution constraint enforced here, not a prompt suggestion.
-    const bound = isMainAssistant(source) ? await options.submissions.activeConstraint(input.sourceSessionId) : null;
+    const bound = await options.submissions.activeConstraint(input.sourceSessionId);
     if (bound?.kind === "project" && bound.workspaceId !== workspace.id) throw new ApiError(409, "delegation_target_constraint", `The user bound this request to project ${bound.workspaceId}. Delegate there or ask the user to change the target.`);
     const sourceResult = await options.client(source).session.get({ sessionID: input.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
     if (!sourceResult.data || resolve(sourceResult.data.directory) !== resolve(source.path)) throw new ApiError(400, "delegation_source", "The source chat is not in this project.");

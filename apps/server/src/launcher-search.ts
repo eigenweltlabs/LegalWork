@@ -31,10 +31,14 @@ export function titleScore(title: string, query: string): { match: LauncherSearc
 }
 async function withBudget<T>(work: (signal: AbortSignal) => Promise<T>, ms: number, parent: AbortSignal): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
+  const timer = setTimeout(() => controller.abort(new DOMException("Search source timed out", "TimeoutError")), ms);
   const abort = () => controller.abort();
   parent.addEventListener("abort", abort, { once: true });
-  try { return await work(controller.signal); } finally { clearTimeout(timer); parent.removeEventListener("abort", abort); }
+  if (parent.aborted) controller.abort(parent.reason);
+  let rejectTimeout: () => void = () => {};
+  const timeout = new Promise<never>((_resolve, reject) => { rejectTimeout = () => reject(controller.signal.reason); controller.signal.addEventListener("abort", rejectTimeout, { once: true }); if (controller.signal.aborted) rejectTimeout(); });
+  try { return await Promise.race([work(controller.signal), timeout]); }
+  finally { clearTimeout(timer); parent.removeEventListener("abort", abort); controller.signal.removeEventListener("abort", rejectTimeout); }
 }
 const timedOut = (error: unknown) => error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 const TOO_SLOW = "Took too long; results may be incomplete.";

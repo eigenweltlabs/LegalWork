@@ -42,19 +42,30 @@ export class LauncherSearchSession {
     return [...kept, ...seen.values()];
   }
   private async execute(generation: number, controller: AbortController, input: SearchInput) {
-    try {
-      const fast = await this.run({ ...input, content: false }, controller.signal);
+    const responses = new Map<LauncherSearchKind, LauncherSearchResponse>();
+    const fingerprint = JSON.stringify(input);
+    let remaining = input.kinds.length;
+    let rendered: LauncherSearchResult[] = this.settledQuery === fingerprint ? this.snapshot.items : [];
+    const publish = () => {
       if (controller.signal.aborted || generation !== this.generation) return;
-      const wantsContent = this.options.contentPass !== false && input.kinds.includes("files") && input.query.length >= 2;
-      this.publish({ items: this.merge(this.settledQuery === input.query ? this.snapshot.items : [], fast.items), sources: fast.sources, pending: wantsContent });
-      this.settledQuery = input.query;
-      if (!wantsContent) return;
-      const full = await this.run({ ...input, content: true }, controller.signal);
-      if (controller.signal.aborted || generation !== this.generation) return;
-      this.publish({ items: this.merge(this.snapshot.items, full.items), sources: full.sources, pending: false });
-    } catch (error) {
-      if (controller.signal.aborted || generation !== this.generation) return;
-      this.publish({ pending: false, error: error instanceof Error ? error.message : String(error) });
-    }
+      const pages = [...responses.values()];
+      rendered = this.merge(rendered, pages.flatMap(page => page.items));
+      this.publish({ items: rendered, sources: pages.flatMap(page => page.sources), pending: remaining > 0 });
+      this.settledQuery = fingerprint;
+    };
+    await Promise.all(input.kinds.map(async kind => {
+      try {
+        const fast = await this.run({ ...input, kinds: [kind], content: false }, controller.signal);
+        if (controller.signal.aborted || generation !== this.generation) return;
+        responses.set(kind, fast);
+        if (this.options.contentPass !== false && kind === "files" && input.query.length >= 2) {
+          publish();
+          responses.set(kind, await this.run({ ...input, kinds: [kind], content: true }, controller.signal));
+        }
+      } catch (error) {
+        if (controller.signal.aborted || generation !== this.generation) return;
+        this.publish({ error: error instanceof Error ? error.message : String(error) });
+      } finally { remaining--; publish(); }
+    }));
   }
 }

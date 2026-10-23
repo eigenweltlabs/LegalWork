@@ -21,10 +21,15 @@ const DRAFTS_KEY = "legalwork.launcher.drafts.v1";
 
 /** The desktop file is the source of truth; the browser fallback keeps a local copy for the web app only. */
 export function createDraftStorage(desktop: boolean): DraftStorage {
-  if (desktop) return { read: async () => launcherDraftsRead(), write: async file => { await launcherDraftsWrite(LauncherDraftFileSchema.parse(file)); } };
+  if (desktop) return { read: async () => LauncherDraftFileSchema.parse(await launcherDraftsRead()), write: (file, expectedVersion) => launcherDraftsWrite(file, expectedVersion) };
+  const read = async () => { const raw = window.localStorage.getItem(DRAFTS_KEY); return raw ? LauncherDraftFileSchema.parse(JSON.parse(raw)) : structuredClone(EMPTY_DRAFT_FILE); };
   return {
-    read: async () => { try { const raw = window.localStorage.getItem(DRAFTS_KEY); return raw ? JSON.parse(raw) : EMPTY_DRAFT_FILE; } catch { return EMPTY_DRAFT_FILE; } },
-    write: async file => { try { window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(file)); } catch { /* storage may be unavailable */ } },
+    read,
+    write: async (file, expectedVersion) => await navigator.locks.request(DRAFTS_KEY, async () => {
+      if ((await read()).version !== expectedVersion) return false;
+      window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(file));
+      return true;
+    }),
   };
 }
 export function createDraftChannel() {
@@ -40,10 +45,10 @@ export function sharedDraftCoordinator() {
 export function windowOwnerId(prefix: string) {
   try {
     const existing = window.sessionStorage.getItem("legalwork.launcher.owner");
-    if (existing) return existing;
+    if (existing) return `${prefix}:${existing}`;
     const id = `${prefix}:${crypto.randomUUID().slice(0, 8)}`;
     window.sessionStorage.setItem("legalwork.launcher.owner", id);
-    return id;
+    return `${prefix}:${id}`;
   } catch { return `${prefix}:${crypto.randomUUID().slice(0, 8)}`; }
 }
 

@@ -7,7 +7,11 @@ const ICONS: Record<string, Icon> = { "input-required": Icon.QuestionMark, runni
 export default function Command() {
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
   const [items, setItems] = useState<WorkItem[]>([]);
-  useEffect(() => { void readPairing().then(async found => { setPairing(found); if (found) setItems((await request<{ items: WorkItem[] }>(found, "/assistant/work")).items); }); }, []);
+  useEffect(() => { void readPairing().then(async found => { setPairing(found); if (found) {
+    const work: WorkItem[] = []; let offset: number | null = 0;
+    do { const page: { items: WorkItem[]; nextOffset: number | null } = await request(found, `/assistant/work?limit=100&offset=${offset}`); work.push(...page.items); offset = page.nextOffset ?? null; } while (offset !== null);
+    setItems(work);
+  } }); }, []);
   if (pairing === null) return <List><List.EmptyView title="LegalWork is not paired" description="Enable Raycast pairing in LegalWork Settings, Assistant launcher." /></List>;
   return <List isLoading={pairing === undefined} searchBarPlaceholder="Delegated work">
     {items.map(item => <List.Item key={item.id} icon={ICONS[item.status] ?? Icon.Circle} title={item.title} subtitle={item.projectName} accessories={[{ text: item.pendingAttention ? `${item.pendingAttention} waiting for you` : item.status }]}

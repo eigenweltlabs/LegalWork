@@ -27,10 +27,10 @@ public static class LegalWorkFront {
 '@
 $window = [LegalWorkFront]::GetForegroundWindow()
 if ($window -eq [IntPtr]::Zero) { '{"ok":false,"reason":"none"}'; exit 0 }
-$pid = 0; [LegalWorkFront]::GetWindowThreadProcessId($window, [ref]$pid) | Out-Null
+$foregroundProcessId = [uint32]0; [LegalWorkFront]::GetWindowThreadProcessId($window, [ref]$foregroundProcessId) | Out-Null
 $title = New-Object System.Text.StringBuilder 512; [LegalWorkFront]::GetWindowText($window, $title, 512) | Out-Null
-$process = Get-Process -Id $pid -ErrorAction SilentlyContinue
-@{ ok = $true; pid = [int]$pid; app = $(if ($process) { $process.ProcessName } else { "" }); bundleId = $(if ($process -and $process.Path) { $process.Path } else { "" }); window = $title.ToString(); accessibility = $true } | ConvertTo-Json -Compress
+$process = Get-Process -Id $foregroundProcessId -ErrorAction SilentlyContinue
+@{ ok = $true; pid = [int]$foregroundProcessId; app = $(if ($process) { $process.ProcessName } else { "" }); bundleId = $(if ($process -and $process.Path) { $process.Path } else { "" }); window = $title.ToString(); accessibility = $true } | ConvertTo-Json -Compress
 `;
 const WINDOWS_SELECTION_SCRIPT = String.raw`
 param([int]$TargetPid)
@@ -64,8 +64,8 @@ if ($null -eq $process -or $process.MainWindowHandle -eq [IntPtr]::Zero) { '{"ok
 [LegalWorkActivate]::ShowWindow($process.MainWindowHandle, 9) | Out-Null
 [LegalWorkActivate]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 120
-$pid = 0; [LegalWorkActivate]::GetWindowThreadProcessId([LegalWorkActivate]::GetForegroundWindow(), [ref]$pid) | Out-Null
-@{ ok = ([int]$pid -eq $TargetPid); reason = $(if ([int]$pid -eq $TargetPid) { "" } else { "changed" }) } | ConvertTo-Json -Compress
+$foregroundProcessId = [uint32]0; [LegalWorkActivate]::GetWindowThreadProcessId([LegalWorkActivate]::GetForegroundWindow(), [ref]$foregroundProcessId) | Out-Null
+@{ ok = ([int]$foregroundProcessId -eq $TargetPid); reason = $(if ([int]$foregroundProcessId -eq $TargetPid) { "" } else { "changed" }) } | ConvertTo-Json -Compress
 `;
 
 /** The last JSON object a helper printed, or null for anything else. */
@@ -79,7 +79,7 @@ export function originMatches(origin, front) {
   if (!origin || !front?.ok) return false;
   if (origin.pid !== null && front.pid !== undefined && origin.pid !== Number(front.pid)) return false;
   if (origin.bundleId && front.bundleId && origin.bundleId !== front.bundleId) return false;
-  if (origin.window && front.window && origin.window !== front.window) return false;
+  if (!origin.window || !front.window || origin.window !== front.window) return false;
   return true;
 }
 const ownPids = () => new Set([process.pid]);

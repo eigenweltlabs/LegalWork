@@ -62,6 +62,11 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
     options.changed();
     return jsonResponse({ conversation: created }, 201);
   });
+  addRoute(routes, "GET", "/assistant/conversation-for-session/:sessionId", "client", async ctx => {
+    read(ctx);
+    const found = await workspace();
+    return jsonResponse({ conversation: conversations.bySession(found.id, ctx.params.sessionId) });
+  });
   addRoute(routes, "GET", "/assistant/conversations/:id", "client", async ctx => {
     read(ctx);
     const found = await workspace();
@@ -84,23 +89,43 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
     const conversation = conversations.find(found.id, ctx.params.id);
     if (!conversation) throw new ApiError(404, "conversation_not_found", "This conversation is no longer available.");
     if (conversation.archivedAt !== null) throw new ApiError(409, "conversation_archived", "This conversation is archived. Unarchive it or start a new one.");
-    const parsed = AssistantSubmitInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 512 * 1024));
+    const parsed = AssistantSubmitInputSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "submission_input", "Provide the request ID, message ID and message text.");
     const input = parsed.data;
-    if (!input.text.trim() && !input.context?.items.length) throw new ApiError(400, "submission_empty", "Type a message or add context before sending.");
+    if (!input.text.trim() && !input.context?.items.length && !input.parts?.length && !input.command) throw new ApiError(400, "submission_empty", "Type a message or add context before sending.");
+    return submissions.prepare(input.requestId, async () => {
+    const existing = submissions.get(input.requestId);
+    if (existing) {
+      if (existing.conversationId !== conversation.id || existing.messageId !== input.messageId) throw new ApiError(409, "submission_identity", "This request belongs to another message.");
+      return jsonResponse({ submission: await submissions.retry(input.requestId), conversation }, 202);
+    }
     const client = options.client(found);
     const session = await client.session.get({ sessionID: conversation.sessionId }, { signal: AbortSignal.timeout(10000) });
     if (!session.data || session.data.time.archived || resolve(session.data.directory) !== resolve(found.path)) throw new ApiError(404, "conversation_session", "The conversation's chat is no longer available.");
     const history = await client.session.messages({ sessionID: conversation.sessionId, limit: 1 }, { signal: AbortSignal.timeout(10000) });
     const last = history.data?.at(-1)?.info;
     const model = input.model ?? (last?.role === "assistant" ? { providerID: last.providerID, modelID: last.modelID } : last?.model);
-    const parts: SubmissionPart[] = [{ type: "text", text: input.text, metadata: { legalworkLauncherRequest: { requestId: input.requestId, source: "launcher" } } }];
+    const parts: SubmissionPart[] = input.parts ?? [{ type: "text", text: input.text, metadata: { legalworkLauncherRequest: { requestId: input.requestId, source: "launcher" } } }];
     if (input.context) parts.push({ type: "text", synthetic: true, text: launcherContextReminder(input.context) });
-    const submission = await submissions.submit({ requestId: input.requestId, messageId: input.messageId, conversationId: conversation.id, workspaceId: found.id, sessionId: conversation.sessionId,
-      preview: input.text.trim().slice(0, 200), target: input.context?.target ?? { kind: "assistant" }, payload: { parts, ...(model ? { model } : {}), ...(input.agent ? { agent: input.agent } : {}), ...(input.variant ? { variant: input.variant } : {}) } });
+    let destination = { workspaceId: found.id, sessionId: conversation.sessionId };
+    if (input.command) {
+      const project = input.context?.target.kind === "project" ? await options.resolveWorkspace(config, input.context.target.workspaceId) : found;
+      const engine = options.client(project);
+      const commands = await engine.command.list({}, { signal: AbortSignal.timeout(10000) });
+      if (!commands.data?.some(command => command.name === input.command?.name)) throw new ApiError(404, "command_missing", "This command is not available in the selected project.");
+      if (project.id !== found.id) {
+        const created = await engine.session.create({ title: `/${input.command.name}` }, { signal: AbortSignal.timeout(10000) });
+        if (!created.data || resolve(created.data.directory) !== resolve(project.path)) throw new ApiError(502, "command_session", "Could not create the command's project conversation.");
+        destination = { workspaceId: project.id, sessionId: created.data.id };
+        options.delegations.track({ ...destination, sourceWorkspaceId: found.id, sourceSessionId: conversation.sessionId, title: `/${input.command.name}`, scope: input.command.arguments, model: model ?? null });
+      }
+    }
+    const submission = await submissions.submit({ requestId: input.requestId, messageId: input.messageId, conversationId: conversation.id, ...destination,
+      preview: input.text.trim().slice(0, 200), target: input.context?.target ?? { kind: "assistant" }, payload: { parts, ...(input.queue ? { queue: input.queue } : {}), ...(input.command ? { command: input.command } : {}), ...(model ? { model } : {}), ...(input.agent ? { agent: input.agent } : {}), ...(input.variant ? { variant: input.variant } : {}) } });
     if (submission.state !== "failed") conversations.touch(found.id, conversation.sessionId);
     options.changed();
     return jsonResponse({ submission, conversation: conversations.find(found.id, conversation.id) }, submission.state === "failed" ? 409 : 202);
+    });
   });
   // The conversation's own pending questions and approvals, read from the engine: never only what the model chose to present.
   const locks = new Set<string>();
