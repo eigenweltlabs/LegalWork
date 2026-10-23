@@ -108,6 +108,7 @@ export function LauncherRoute() {
         if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) store.setInvocation(event.invocation); }).catch(() => store.setInvocation(event.invocation));
         else store.setInvocation(event.invocation);
       } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned);  }
+      else if (event.type === "position") store.setPositionMoved(event.moved);
       else if (event.type === "origin") store.setOrigin(event.origin);
       else if (event.type === "attention") store.setAttentionCount(event.count);
       else if (event.type === "approval") store.setApproval(event.request);
@@ -118,6 +119,7 @@ export function LauncherRoute() {
     window.addEventListener(LAUNCHER_EVENT, listener);
     void launcherInvocationsDrain().then(invocations => invocations.forEach(invocation => apply({ type: "invocation", invocation }))).catch(() => undefined);
     void launcherOriginGet().then(origin => useLauncherStore.getState().setOrigin(origin)).catch(() => undefined);
+    void launcherWindowControl("state").then(state => useLauncherStore.getState().setPositionMoved(state.moved)).catch(() => undefined);
     return () => window.removeEventListener(LAUNCHER_EVENT, listener);
   }, [desktop, client]);
   // Deep links reaching this window directly (web): the same invocation contract.
@@ -134,22 +136,6 @@ export function LauncherRoute() {
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
     refresh,
   } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh]);
-  // The panel grows with its content; the window follows the rendered height.
-  useEffect(() => {
-    if (!desktop || typeof ResizeObserver === "undefined") return;
-    let timer: ReturnType<typeof setTimeout> | undefined, last = 0;
-    const observer = new ResizeObserver(entries => {
-      const panelHeight = entries[0]?.target.getBoundingClientRect().height ?? 0;
-      const height = panelHeight ? Math.ceil(panelHeight + 4) : 0;
-      if (!height || Math.abs(height - last) < 4) return;
-      last = height;
-      clearTimeout(timer);
-      timer = setTimeout(() => { void launcherWindowControl("resize", { height }); }, 40);
-    });
-    const target = document.querySelector(".launcher-panel");
-    if (target) observer.observe(target);
-    return () => { clearTimeout(timer); observer.disconnect(); };
-  }, [desktop, shell]);
   if (!shell) return <div className="launcher-root" data-surface="panel"><div className="launcher-panel"><div className="launcher-empty"><Loader2 className="mx-auto mb-2 size-5 animate-spin motion-reduce:animate-none" />{error ?? t("launcher.connecting")}</div></div></div>;
   return <LauncherShellContext.Provider value={shell}><LauncherPanel /></LauncherShellContext.Provider>;
 }

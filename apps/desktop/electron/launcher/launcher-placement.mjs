@@ -7,3 +7,9 @@ export function placePanel(workArea, size, remembered) {
   const y = inside ? remembered.y : workArea.y + Math.round(workArea.height * 0.18);
   return { x: Math.round(Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width))), y: Math.round(Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - height))), width, height };
 }
+
+/** Compare with the current display's default, so saved default positions never show a reset control. */
+export function panelWasMoved(workArea, bounds) {
+  const origin = placePanel(workArea, bounds, null);
+  return Math.abs(bounds.x - origin.x) > 2 || Math.abs(bounds.y - origin.y) > 2;
+}

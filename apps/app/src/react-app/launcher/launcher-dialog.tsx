@@ -20,6 +20,7 @@ export function LauncherDialog(props: { inline?: boolean; workspace?: { id: stri
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
   useEffect(() => { const reset = () => setOffset({ x: 0, y: 0 }); window.addEventListener("legalwork:launcher-reset-position", reset); window.addEventListener("resize", reset); return () => { window.removeEventListener("legalwork:launcher-reset-position", reset); window.removeEventListener("resize", reset); }; }, []);
+  useEffect(() => { if (!props.inline) useLauncherStore.getState().setPositionMoved(offset.x !== 0 || offset.y !== 0); }, [props.inline, offset.x, offset.y]);
   const drafts = useMemo(() => sharedDraftCoordinator(), []);
   const owner = useMemo(() => windowOwnerId("main"), []);
   useEffect(() => {
@@ -42,7 +43,7 @@ export function LauncherDialog(props: { inline?: boolean; workspace?: { id: stri
   if (isDesktopRuntime()) return null;
   return <CommandDialog open={props.open} onOpenChange={open => { if (!open) props.onClose(); }}>
     <CommandDialogPopup className="search-dialog" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
-      onPointerDown={event => { if (!(event.target instanceof Element) || !event.target.closest(".launcher-grip") || event.target.closest("button")) return; drag.current = { x: offset.x, y: offset.y, startX: event.clientX, startY: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }}
+      onPointerDown={event => { if (!(event.target instanceof Element) || !event.target.closest(".launcher-context-destination") || event.target.closest("button, select, input, textarea")) return; drag.current = { x: offset.x, y: offset.y, startX: event.clientX, startY: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }}
       onPointerMove={event => { if (!drag.current) return; const bounds = event.currentTarget.getBoundingClientRect(); const x = drag.current.x + event.clientX - drag.current.startX, y = drag.current.y + event.clientY - drag.current.startY; setOffset(current => ({ x: Math.min(current.x + window.innerWidth - bounds.right - 8, Math.max(current.x - bounds.left + 8, x)), y: Math.min(current.y + window.innerHeight - bounds.bottom - 8, Math.max(current.y - bounds.top + 8, y)) })); }}
       onPointerUp={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }} backdropClassName="search-backdrop" viewportClassName="search-viewport">
       <CommandDialogTitle>{t("launcher.title")}</CommandDialogTitle>

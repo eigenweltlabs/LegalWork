@@ -216,7 +216,7 @@ export type LauncherOutputTask = LauncherOutputIntent & {
   text?: string; error?: string; result?: "copied" | "inserted" | "recovered";
 };
 
-export const LauncherWindowStateSchema = z.object({ visible: z.boolean(), pinned: z.boolean(), focused: z.boolean(), displayId: z.number().nullable() });
+export const LauncherWindowStateSchema = z.object({ visible: z.boolean(), pinned: z.boolean(), focused: z.boolean(), displayId: z.number().nullable(), moved: z.boolean() });
 export type LauncherWindowState = z.infer<typeof LauncherWindowStateSchema>;
 export const LauncherShortcutConflictSchema = z.object({ id: z.string(), accelerator: z.string(), reason: z.enum(["duplicate", "dictation", "registration-failed"]) });
 export type LauncherShortcutConflict = z.infer<typeof LauncherShortcutConflictSchema>;
@@ -237,6 +237,7 @@ export type LauncherDesktopStatus = z.infer<typeof LauncherDesktopStatusSchema>;
 export const LauncherDesktopEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("invocation"), invocation: LauncherInvocationSchema }),
   z.object({ type: z.literal("visibility"), visible: z.boolean(), pinned: z.boolean() }),
+  z.object({ type: z.literal("position"), moved: z.boolean() }),
   z.object({ type: z.literal("origin"), origin: LauncherOriginSchema.nullable() }),
   z.object({ type: z.literal("attention"), count: z.number() }),
   z.object({ type: z.literal("approval"), request: LauncherApprovalRequestSchema }),

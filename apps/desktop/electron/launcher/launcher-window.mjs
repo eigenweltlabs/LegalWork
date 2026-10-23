@@ -1,12 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrowserWindow, screen } from "electron";
-import { placePanel } from "./launcher-placement.mjs";
+import { panelWasMoved, placePanel } from "./launcher-placement.mjs";
 
-const PANEL_WIDTH = 680;
+const PANEL_WIDTH = 560;
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 720;
-const DEFAULT_HEIGHT = 420;
+const DEFAULT_HEIGHT = 300;
 const EVENT = "legalwork:launcher:event";
 
 /**
@@ -42,7 +42,13 @@ export class LauncherWindow {
   }
   isVisible() { return Boolean(this.window && !this.window.isDestroyed() && this.window.isVisible()); }
   isFocused() { return Boolean(this.window && !this.window.isDestroyed() && this.window.isFocused()); }
-  state() { return { visible: this.isVisible(), pinned: this.pinned, focused: this.isFocused(), displayId: this.displayId }; }
+  positionMoved() {
+    if (!this.window || this.window.isDestroyed()) return false;
+    const bounds = this.window.getBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    return panelWasMoved(area, bounds);
+  }
+  state() { return { visible: this.isVisible(), pinned: this.pinned, focused: this.isFocused(), displayId: this.displayId, moved: this.positionMoved() }; }
   webContents() { return this.window && !this.window.isDestroyed() ? this.window.webContents : null; }
   send(event) { this.webContents()?.send(EVENT, event); }
   async loadPosition() {
@@ -96,7 +102,7 @@ export class LauncherWindow {
       this.blurTimer = setTimeout(() => { if (!this.pinned && this.childDialogs === 0 && this.isVisible() && !this.isFocused()) this.hide(); }, 120);
     });
     window.on("focus", () => { this.options.onFocusChange?.(true); if (this.blurTimer) clearTimeout(this.blurTimer); });
-    window.on("moved", () => this.savePosition());
+    window.on("moved", () => { this.savePosition(); this.send({ type: "position", moved: this.positionMoved() }); });
     window.on("closed", () => { if (this.window === window) this.window = null; });
     const route = "/launcher";
     this.loading = (this.options.startUrl ? window.loadURL(`${this.options.startUrl}#${route}`) : window.loadFile(path.join(this.options.appRoot, "index.html"), { hash: route })).finally(() => { this.loading = null; });
@@ -114,6 +120,7 @@ export class LauncherWindow {
     window.focus();
     this.options.onVisibility({ visible: true, pinned: this.pinned });
     this.send({ type: "visibility", visible: true, pinned: this.pinned });
+    this.send({ type: "position", moved: this.positionMoved() });
     return this.state();
   }
   async resetPosition() {
@@ -128,6 +135,7 @@ export class LauncherWindow {
     if (this.blurTimer) clearTimeout(this.blurTimer);
     if (this.window && !this.window.isDestroyed() && this.window.isVisible()) {
       this.window.hide();
+      this.height = DEFAULT_HEIGHT;
       this.options.onVisibility({ visible: false, pinned: this.pinned });
       this.send({ type: "visibility", visible: false, pinned: this.pinned });
     }

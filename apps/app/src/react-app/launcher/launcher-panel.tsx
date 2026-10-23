@@ -3,7 +3,7 @@ import { LauncherCreateForm, excerptText, type LauncherCreate } from "./launcher
 import { launcherFileRoute } from "./launcher-handoff";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bookmark, Calculator, Clipboard, Folder, MessageSquare, FilePlus2, Filter, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Plus, ScanLine, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Bookmark, Calculator, Clipboard, Folder, MessageSquare, FilePlus2, Filter, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
 import type { LauncherWorkspaceContext, AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,7 @@ export function LauncherPanel() {
   const [openChoice, setOpenChoice] = useState<LauncherSearchResult | null>(null);
   const [parkedDrafts, setParkedDrafts] = useState<Array<Pick<typeof store, "input" | "context" | "target" | "workspaceContext" | "conversation">>>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [scrollExpansion, setScrollExpansion] = useState<{ view: string; category: LauncherSearchKind | null } | null>(null);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const uploadingRef = useRef(false);
@@ -88,6 +89,13 @@ export function LauncherPanel() {
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const pastedText = useRef(false);
+  const expandedByScroll = scrollExpansion?.view === store.view && scrollExpansion.category === store.category;
+  const expanded = expandedByScroll || store.view === "conversation" || store.view === "work" || Boolean(creation || transfer || openChoice || store.approval);
+  useEffect(() => {
+    if (surface !== "panel" || !desktop || !store.visible) return;
+    void launcherWindowControl("resize", { height: expanded ? 520 : 300 }).catch(() => undefined);
+  }, [surface, desktop, store.visible, expanded]);
+  useEffect(() => { if (!store.visible) setScrollExpansion(null); }, [store.visible]);
   const status = useQuery({ queryKey: ["launcher-desktop-status"], queryFn: () => launcherStatus(), enabled: desktop, refetchInterval: 15_000 });
   const aliases = useMemo(() => normalizeLauncherAliases(status.data?.aliases), [status.data?.aliases]);
   const entry = parseLauncherEntry(store.input);
@@ -811,16 +819,15 @@ export function LauncherPanel() {
   const pinnedKeys = useMemo(() => new Set(pins.map(pin => `${pin.kind}\u0000${pin.sourceId}\u0000${pin.id}`)), [pins]);
   const placeholder = mode === "conversation" ? t("launcher.placeholder.conversation", { name: assistant?.profile.name ?? t("assistant.title") }) : store.category ? t("launcher.placeholder.category", { kind: t(KIND_HINT[store.category]) }) : t("launcher.placeholder.search");
 
-  return <div className="launcher-root" data-surface={surface} data-view={store.view} onKeyDown={onKeyDown}
+  return <div className="launcher-root" data-surface={surface} data-view={store.view} data-expanded={expanded || undefined} onKeyDown={onKeyDown}
     onDragEnter={event => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); if (dragDepth.current++ === 0) { setDragging(true); holdPanel(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.dataTransfer.dropEffect = uploading ? "none" : "copy"; } }}
     onDragLeave={event => { if (!event.dataTransfer.types.includes("Files") || !dragDepth.current) return; event.preventDefault(); if (--dragDepth.current === 0) { setDragging(false); holdPanel(false); } }}
     onDrop={event => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); if (dragDepth.current) holdPanel(false); dragDepth.current = 0; setDragging(false); const dropped = droppedFiles(event.dataTransfer); if (dropped.folders) notify({ tone: "error", text: t("launcher.drop.folders") }); void uploadFiles(dropped.files); }}>
     <div className="launcher-panel" role="dialog" aria-label={t("launcher.title")}>
       {(dragging || uploading) && <div className="launcher-drop-status" role="status">{uploading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}{t(uploading ? "launcher.drop.busy" : "launcher.drop.hint")}</div>}
-      {surface !== "home" && <div className="launcher-grip" aria-label={t("launcher.flow.move")}><span /><button type="button" onClick={() => desktop ? void launcherWindowControl("reset-position") : window.dispatchEvent(new Event("legalwork:launcher-reset-position"))} title={t("launcher.flow.reset_position")}>↺</button></div>}
       {pendingContext && <div className="launcher-notice">{t("launcher.flow.new_context", { project: pendingContext.context?.workspaceName ?? t("assistant.title") })}<Button size="sm" variant="ghost" onClick={() => void useContext(pendingContext.context)}>{t("launcher.flow.use_context")}</Button><Button size="sm" variant="ghost" onClick={() => setPendingContext(null)}>{t("common.close")}</Button></div>}
-      <div className="launcher-context-destination"><select aria-label={t("launcher.picker.target")} value={store.target.kind === "project" ? store.target.workspaceId : ""} disabled={sending || uploading} onChange={event => void switchTarget(event.target.value)}><option value="">{t("launcher.picker.target_assistant")}</option>{workspaces.map(item => <option key={item.id} value={item.id}>{item.displayName || item.name}</option>)}</select>{store.target.kind === "project" && <><span className="text-xs text-muted-foreground">{conversation?.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: conversation.title }) : store.workspaceContext?.sessionId && store.workspaceContext.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: t("launcher.kind.chats") }) : t("launcher.flow.new_project_chat")}</span><Button variant="ghost" size="sm" disabled={sending || uploading} onClick={async () => { if (store.target.kind !== "project") return; await switchTarget(store.target.workspaceId); useLauncherStore.setState({ workspaceContext: store.workspaceContext ? { ...store.workspaceContext, sessionId: undefined } : null }); }}>{t("launcher.flow.new_chat")}</Button></>}</div>
+      <div className="launcher-context-destination"><select aria-label={t("launcher.picker.target")} value={store.target.kind === "project" ? store.target.workspaceId : ""} disabled={sending || uploading} onChange={event => void switchTarget(event.target.value)}><option value="">{t("launcher.picker.target_assistant")}</option>{workspaces.map(item => <option key={item.id} value={item.id}>{item.displayName || item.name}</option>)}</select>{store.target.kind === "project" && <><span className="text-xs text-muted-foreground">{conversation?.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: conversation.title }) : store.workspaceContext?.sessionId && store.workspaceContext.workspaceId === store.target.workspaceId ? t("launcher.flow.continue_chat", { title: t("launcher.kind.chats") }) : t("launcher.flow.new_project_chat")}</span><Button variant="ghost" size="sm" disabled={sending || uploading} onClick={async () => { if (store.target.kind !== "project") return; await switchTarget(store.target.workspaceId); useLauncherStore.setState({ workspaceContext: store.workspaceContext ? { ...store.workspaceContext, sessionId: undefined } : null }); }}>{t("launcher.flow.new_chat")}</Button></>}{surface !== "home" && store.positionMoved && <button type="button" className="launcher-position-reset" aria-label={t("launcher.flow.reset_position")} title={t("launcher.flow.reset_position")} onClick={() => desktop ? void launcherWindowControl("reset-position").then(state => store.setPositionMoved(state.moved)) : window.dispatchEvent(new Event("legalwork:launcher-reset-position"))}><RotateCcw className="size-3.5" /></button>}</div>
       <div className="launcher-entry">
         {(store.view === "conversation" || store.view === "work") ? <Button variant="ghost" size="icon-sm" aria-label={t("launcher.back")} title={t("launcher.back")} onClick={() => void goBack()}><ArrowLeft className="size-4" /></Button> : <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />}
         {store.category && <span className="launcher-chip" data-kind="category">{t(KIND_HINT[store.category])}<button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
@@ -889,7 +896,7 @@ export function LauncherPanel() {
         <Button variant="ghost" size="sm" onClick={() => openCreate("task")}>{t("launcher.flow.create_task")}</Button>
       </div>}
       {store.view !== "conversation" && attentionItems.length > 0 && <AttentionCards items={attentionItems} busy={attentionBusy} onReply={replyAttention} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />}
-      <div ref={bodyRef} className="launcher-body">
+      <div ref={bodyRef} className="launcher-body" onScroll={event => { if (event.currentTarget.scrollTop > 48 && !expandedByScroll) setScrollExpansion({ view: store.view, category: store.category }); }}>
         {transfer ? <LauncherTransferForm transfer={transfer} onClose={() => { setTransfer(null); store.clearMultiSelect(); runSearch(); }} /> : creation ? <LauncherCreateForm initial={creation} onClose={() => setCreation(null)} onAttach={stageInChat} onDraft={draftDocument} /> : openChoice ? <div className="launcher-open-choice" onKeyDown={event => { const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")]; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); event.stopPropagation(); const index = buttons.findIndex(button => button === document.activeElement); buttons[(index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus(); } }}>
           <strong>{t("launcher.flow.where_open")}</strong><p>{openChoice.title}</p>
           <Button autoFocus variant="outline" onClick={() => openFile(openChoice, openChoice.workspaceId ?? "")}>{t("launcher.flow.open_original", { project: workspaces.find(item => item.id === openChoice.workspaceId)?.name ?? openChoice.subtitle ?? "" })}</Button>

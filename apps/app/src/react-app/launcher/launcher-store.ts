@@ -32,6 +32,7 @@ export type LauncherState = {
   conversation: LauncherConversationBinding | null;
   origin: LauncherOrigin | null;
   pinned: boolean;
+  positionMoved: boolean;
   attentionCount: number;
   /** A host approval the desktop routed to this panel; dismissing the panel hands it back, never approves it. */
   approval: LauncherApprovalRequest | null;
@@ -61,6 +62,7 @@ export type LauncherState = {
   bindConversation: (conversation: AssistantConversation | null) => void;
   setOrigin: (origin: LauncherOrigin | null) => void;
   setPinned: (pinned: boolean) => void;
+  setPositionMoved: (moved: boolean) => void;
   setAttentionCount: (count: number) => void;
   setApproval: (approval: LauncherApprovalRequest | null) => void;
   setVoice: (voice: LauncherVoiceState | null) => void;
@@ -71,7 +73,7 @@ export type LauncherState = {
 const initial = {
   workspaceContext: null as LauncherWorkspaceContext | null,
   view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
-  selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
+  selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, positionMoved: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
   invocation: null as LauncherInvocation | null, visible: true,
 };
 
@@ -101,6 +103,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   })),
   setOrigin: origin => set({ origin }),
   setPinned: pinned => set({ pinned }),
+  setPositionMoved: positionMoved => set({ positionMoved }),
   setAttentionCount: attentionCount => set({ attentionCount }),
   setApproval: approval => set({ approval }),
   setVoice: voice => set({ voice }),
