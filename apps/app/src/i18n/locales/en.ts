@@ -6482,6 +6482,7 @@ export default {
   "workspace.delete_scheduled_tasks": "Scheduled tasks: {count}",
   "workspace.delete_unsaved_dashboards": "Unsaved dashboards: {count}",
   "workspace.delete_folder": "These LegalWork project files will be deleted",
+  "workspace.save_then_delete_folder": "These project files will be saved, then deleted from this project",
   "workspace.keep_folder": "Your source folder stays",
   "workspace.keep_folder_description": "Its files and folders are not changed. Only the project data listed above is deleted.",
   "workspace.folder_already_removed": "The project folder is already gone",

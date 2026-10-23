@@ -115,8 +115,8 @@ export function RemoveProjectDialog({ name, workspaceId, remote, client, onConfi
             </ul>
           </section>}
           {!review.data.folderExists && <p className="text-muted-foreground">{t("workspace.folder_already_removed")}</p>}
-          {deletesFiles && <section className="rounded-lg border p-3">
-            <p className="font-medium">{t("workspace.delete_folder")}</p>
+          {deletesFiles && <section className={wantsBackup ? "rounded-lg border border-blue-6/30 bg-blue-3/20 p-3" : "rounded-lg border p-3"}>
+            <p className={wantsBackup ? "font-medium text-blue-11" : "font-medium"}>{t(wantsBackup ? "workspace.save_then_delete_folder" : "workspace.delete_folder")}</p>
             {review.data.folderItems && <>
               <p className="mt-1 text-xs text-muted-foreground">{t("workspace.folder_items", { count: review.data.folderItems.total })}</p>
               {review.data.folderItems.items.length > 0 && <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-muted-foreground">{(showAllFiles ? review.data.folderItems.items : review.data.folderItems.items.slice(0, 6)).map(item => <li key={item.name} className="flex items-center gap-2 break-words"><span className="shrink-0">{item.kind === "folder" ? <Folder className="size-4" /> : item.kind === "link" ? <Link2 className="size-4" /> : <File className="size-4" />}</span>{item.name}</li>)}</ul>}

@@ -6852,6 +6852,7 @@ const de = {
   "workspace.delete_scheduled_tasks": "Geplante Aufgaben: {count}",
   "workspace.delete_unsaved_dashboards": "Ungespeicherte Dashboards: {count}",
   "workspace.delete_folder": "Diese LegalWork-Projektdateien werden gelöscht",
+  "workspace.save_then_delete_folder": "Diese Projektdateien werden gesichert und danach aus diesem Projekt gelöscht",
   "workspace.keep_folder": "Ihr Quellordner bleibt erhalten",
   "workspace.keep_folder_description": "Seine Dateien und Ordner bleiben unverändert. Nur die oben aufgeführten Projektdaten werden gelöscht.",
   "workspace.folder_already_removed": "Der Projektordner ist bereits nicht mehr vorhanden",
