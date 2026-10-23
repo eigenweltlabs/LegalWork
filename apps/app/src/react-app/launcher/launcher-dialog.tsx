@@ -12,13 +12,13 @@ import { useLauncherStore } from "./launcher-store";
 import "@/react-app/shell/command-palette.css";
 
 /** The same panel inside the main window (Cmd/Ctrl+K): identical results, actions and conversation. */
-export function LauncherDialog(props: { open: boolean; onClose: () => void; client: LegalworkServerClient; assistant: { workspaceId: string; profile: AssistantProfile } | null; workspaces: LegalworkWorkspaceInfo[] }) {
+export function LauncherDialog(props: { open: boolean; onClose: () => void; client: LegalworkServerClient; assistant: { workspaceId: string; profile: AssistantProfile } | null; workspaces: LegalworkWorkspaceInfo[]; conversationId: string | null }) {
   const navigate = useNavigate();
   const drafts = useMemo(() => sharedDraftCoordinator(), []);
   const owner = useMemo(() => windowOwnerId("main"), []);
   useEffect(() => { useLauncherStore.getState().setVisible(props.open); if (!props.open) useLauncherStore.getState().reset(); }, [props.open]);
   const shell = useMemo<LauncherShellValue>(() => ({
-    client: props.client, assistant: props.assistant, workspaces: props.workspaces, drafts, owner, surface: "embedded", desktop: isDesktopRuntime(),
+    client: props.client, assistant: props.assistant, workspaces: props.workspaces, drafts, owner, surface: "embedded", conversationId: props.conversationId, desktop: isDesktopRuntime(),
     openInApp: route => { props.onClose(); navigate(route); }, dismiss: props.onClose, togglePin: null, refresh: async () => undefined,
   }), [props, drafts, owner, navigate]);
   return <CommandDialog open={props.open} onOpenChange={open => { if (!open) props.onClose(); }}>

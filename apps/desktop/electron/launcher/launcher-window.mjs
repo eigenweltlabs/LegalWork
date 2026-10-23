@@ -17,7 +17,7 @@ const EVENT = "legalwork:launcher:event";
 export class LauncherWindow {
   /**
    * @param {{ appRoot: string, startUrl?: string, preloadPath: string, icon?: import("electron").NativeImage | null, userDataDir: string, focusedDisplay: () => number | null,
-   *   onVisibility: (state: { visible: boolean, pinned: boolean }) => void, onExpand: (route: string) => void }} options
+   *   onVisibility: (state: { visible: boolean, pinned: boolean }) => void, onExpand: (route: string) => void, onFocusChange?: (focused: boolean) => void }} options
    */
   constructor(options) {
     this.options = options;
@@ -73,12 +73,13 @@ export class LauncherWindow {
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", event => event.preventDefault());
     window.on("blur", () => {
+      this.options.onFocusChange?.(false);
       // Menus, previews and file choosers must not dismiss the panel; a pinned panel never auto-hides.
       if (this.pinned || this.childDialogs > 0) return;
       if (this.blurTimer) clearTimeout(this.blurTimer);
       this.blurTimer = setTimeout(() => { if (!this.pinned && this.childDialogs === 0 && this.isVisible() && !this.isFocused()) this.hide(); }, 120);
     });
-    window.on("focus", () => { if (this.blurTimer) clearTimeout(this.blurTimer); });
+    window.on("focus", () => { this.options.onFocusChange?.(true); if (this.blurTimer) clearTimeout(this.blurTimer); });
     window.on("moved", () => this.savePosition());
     window.on("closed", () => { if (this.window === window) this.window = null; });
     const route = "/launcher";

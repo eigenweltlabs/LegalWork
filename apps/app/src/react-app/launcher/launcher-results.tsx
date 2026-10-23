@@ -66,11 +66,13 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
   const actions = resultActionMenu(props.result, props.multiSelected);
   const indexRef = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  const propsRef = useRef(props);
+  propsRef.current = props;
   useEffect(() => {
     const first = menuRef.current?.querySelector<HTMLButtonElement>("button");
     first?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); props.onClose(); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); propsRef.current.onClose(); return; }
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       event.preventDefault();
       const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
@@ -79,7 +81,7 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [props]);
+  }, [props.result]);
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
     {actions.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onRun(action)}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
     {props.extra.map(action => <button key={action} type="button" role="menuitem" onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}

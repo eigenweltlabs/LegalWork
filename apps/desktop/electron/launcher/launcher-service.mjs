@@ -19,7 +19,7 @@ export class LauncherService {
    * @param {{ app: import("electron").App, globalShortcut: import("electron").GlobalShortcut, userDataDir: string, platform?: string,
    *   window: import("./launcher-window.mjs").LauncherWindow, origin: import("./origin-service.mjs").OriginService, capture: import("./screen-capture.mjs").ScreenCapture,
    *   pairing: import("./raycast-pairing.mjs").RaycastPairing, dictation: () => { enabled: boolean, accelerator: string, runtimeState: string }, meeting: () => { state: string },
-   *   companion: (state: { enabled: boolean, badge: boolean, attention: number, recording: boolean }) => void, onPresenceChanged: () => void, settings?: LauncherSettingsStore, registry?: LauncherShortcutRegistry }} options
+   *   companion: (state: { enabled: boolean, badge: boolean, attention: number, recording: boolean }) => void, onPresenceChanged: () => void, dictate: () => void, record: () => void, composerRecording: () => boolean, settings?: LauncherSettingsStore, registry?: LauncherShortcutRegistry }} options
    */
   constructor(options) {
     this.options = options;
@@ -36,6 +36,8 @@ export class LauncherService {
     this.drafts = { drafts: {}, leases: {} };
     /** @type {Map<string, (decision: "allow" | "deny" | null) => void>} */
     this.approvals = new Map();
+    /** The renderer that drained the cold-start queue: only it receives pushed invocations. */
+    this.readyContents = null;
   }
   async initialize() {
     await this.settings.load();
@@ -44,6 +46,8 @@ export class LauncherService {
     this.syncCompanion();
     this.options.window.rememberPosition = this.settings.get().rememberPosition;
     if (this.settings.get().pinned) this.options.window.setPinned(true);
+    // Background presence keeps the renderer warm, so the first shortcut after boot does not cold-load it.
+    if (this.settings.get().backgroundPresence) void this.options.window.ensure().catch(() => {});
   }
   bindings() {
     const settings = this.settings.get();
@@ -93,7 +97,7 @@ export class LauncherService {
   approvalWindow() { return this.options.window.isVisible() ? this.options.window.window : null; }
   voiceState() {
     const dictation = this.options.dictation(), meeting = this.options.meeting();
-    return { externalDictation: ["starting", "listening", "transcribing", "inserting"].includes(dictation.runtimeState), meeting: meeting.state !== "idle" };
+    return { externalDictation: ["starting", "listening", "transcribing", "inserting"].includes(dictation.runtimeState), meeting: meeting.state !== "idle", composer: this.options.composerRecording() };
   }
   /** Capture ownership changes reach the panel at once; the polled status is only the fallback. */
   notifyVoice() { this.options.window.send({ type: "voice", voice: this.voiceState() }); }
@@ -142,6 +146,8 @@ export class LauncherService {
    */
   async invoke(invocation) {
     if (!invocation?.id || !this.remember(invocation.id)) return this.options.window.state();
+    // The two other voice destinations never open the panel: dictation goes to the front app, recording to the recorder.
+    if (invocation.action === "dictate" || invocation.action === "record") { this.voiceAction(invocation.action); return this.options.window.state(); }
     const { selection, ...payload } = invocation;
     // Capture the external origin before the panel takes focus; an ordinary invocation records identity only.
     if (!this.options.window.isVisible()) await this.options.origin.capture();
@@ -153,11 +159,17 @@ export class LauncherService {
   }
   deliver(invocation) {
     const contents = this.options.window.webContents();
-    if (!contents || contents.isLoading()) { this.pending.push(invocation); return; }
+    if (!contents || contents.isLoading() || this.readyContents !== contents) { this.pending.push(invocation); return; }
     this.options.window.send({ type: "invocation", invocation });
   }
-  /** The cold-start queue: the panel drains what arrived before its renderer was ready. */
-  drain() { const pending = this.pending.splice(0, this.pending.length); return pending; }
+  /** The cold-start queue: the panel drains what arrived before its listener existed, and is pushed to from then on. */
+  drain() { this.readyContents = this.options.window.webContents(); return this.pending.splice(0, this.pending.length); }
+  /** @param {string} action */
+  voiceAction(action) {
+    if (action === "dictate") { this.options.window.hide(); this.options.dictate(); return true; }
+    if (action === "record") { this.options.record(); return true; }
+    return false;
+  }
   /** @param {import("@legalwork/types/launcher").LauncherInvocation["source"]} source */
   async toggle(source) {
     if (this.options.window.isVisible() && this.options.window.isFocused()) return this.options.window.hide();
@@ -183,6 +195,8 @@ export class LauncherService {
       case "pin": await this.settings.update({ pinned: true }); return window.setPinned(true);
       case "unpin": await this.settings.update({ pinned: false }); return window.setPinned(false);
       case "resize": return window.resize(payload?.height);
+      case "dialog-begin": window.beginDialog(); return window.state();
+      case "dialog-end": window.endDialog(); return window.state();
       case "expand": window.expand(typeof payload?.route === "string" && payload.route.startsWith("/") ? payload.route : "/home"); return window.state();
       default: return window.state();
     }

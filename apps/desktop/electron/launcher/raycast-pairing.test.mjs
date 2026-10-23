@@ -18,9 +18,13 @@ test("pairing writes a private credential file while enabled and removes it when
     assert.equal(parsed.token, "client-token");
     if (process.platform !== "win32") assert.equal((await stat(file)).mode & 0o777, 0o600);
     // The server restarted with a new port and token: refresh rewrites the file.
-    info = { running: true, baseUrl: "http://127.0.0.1:4999", clientToken: null, ownerToken: "fresh-owner" };
+    info = { running: true, baseUrl: "http://127.0.0.1:4999", clientToken: "fresh-client", ownerToken: "fresh-owner" };
     await pairing.refresh();
-    assert.equal(JSON.parse(await readFile(file, "utf8")).token, "fresh-owner");
+    assert.equal(JSON.parse(await readFile(file, "utf8")).token, "fresh-client");
+    // The owner token never leaves the app: without a client token nothing is rewritten.
+    info = { running: true, baseUrl: "http://127.0.0.1:5000", clientToken: null, ownerToken: "owner-only" };
+    await pairing.refresh();
+    assert.equal(JSON.parse(await readFile(file, "utf8")).token, "fresh-client");
     // A stopped server never writes a stale credential.
     info = { running: false, baseUrl: null, clientToken: null, ownerToken: null };
     await pairing.refresh();

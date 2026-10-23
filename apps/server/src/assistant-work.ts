@@ -17,7 +17,7 @@ export function workStatus(inspection: WorkInspection): AssistantWorkStatus {
   if (inspection.result?.outcome === "failed") return "failed";
   if (inspection.result?.outcome === "interrupted") return "stopped";
   if (inspection.result?.outcome === "reply") return "returned";
-  return inspection.queuedMessages > 0 ? "queued" : "queued";
+  return inspection.queuedMessages > 0 ? "queued" : "returned";
 }
 
 /** Work is addressable: every delegated job keeps its origin conversation, exact destination and current status. */

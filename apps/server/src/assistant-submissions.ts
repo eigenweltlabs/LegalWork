@@ -1,10 +1,15 @@
+import { z } from "zod";
 import { ApiError } from "./errors.js";
 import { openSqlite, type Row, type SqliteHandle } from "./runtime-db.js";
-import { AssistantExecutionTargetSchema, type AssistantExecutionTarget, type AssistantSubmission } from "@legalwork/types/launcher";
+import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, type AssistantExecutionTarget, type AssistantSubmission } from "@legalwork/types/launcher";
 
 export type SubmissionTarget = { workspaceId: string; sessionId: string };
 export type SubmissionPart = { type: "text"; text: string; synthetic?: boolean; metadata?: Record<string, unknown> };
 export type SubmissionPayload = { parts: SubmissionPart[]; model?: { providerID: string; modelID: string }; agent?: string; variant?: string };
+const SubmissionPayloadSchema = z.object({
+  parts: z.array(z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional(), metadata: z.record(z.string(), z.unknown()).optional() })),
+  model: z.object({ providerID: z.string(), modelID: z.string() }).optional(), agent: z.string().optional(), variant: z.string().optional(),
+});
 export type SubmissionExecutor = {
   hasMessage: (target: SubmissionTarget, messageId: string) => Promise<boolean>;
   send: (entry: AssistantSubmission, payload: SubmissionPayload) => Promise<void>;
@@ -29,7 +34,7 @@ export class AssistantSubmissions {
   }
   private item(row: Row): AssistantSubmission {
     return { requestId: String(row.request_id), messageId: String(row.message_id), conversationId: String(row.conversation_id), workspaceId: String(row.workspace_id), sessionId: String(row.session_id),
-      state: String(row.state) as AssistantSubmission["state"], createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), error: row.error === null || row.error === undefined ? null : String(row.error), preview: String(row.preview),
+      state: AssistantSubmissionStateSchema.parse(row.state), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), error: row.error === null || row.error === undefined ? null : String(row.error), preview: String(row.preview),
       target: AssistantExecutionTargetSchema.parse(JSON.parse(String(row.target))) };
   }
   private save(entry: AssistantSubmission, payload?: SubmissionPayload) {
@@ -49,10 +54,25 @@ export class AssistantSubmissions {
     const row = this.db.get("SELECT * FROM assistant_submissions WHERE request_id = ?", [requestId]);
     return row ? this.item(row) : null;
   }
+  latest(sessionId: string): AssistantSubmission | null {
+    const row = this.db.get("SELECT * FROM assistant_submissions WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", [sessionId]);
+    return row ? this.item(row) : null;
+  }
   /** The execution constraint bound to a conversation's latest request, enforced on delegation. */
   constraint(sessionId: string): AssistantExecutionTarget | null {
-    const row = this.db.get("SELECT target FROM assistant_submissions WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", [sessionId]);
-    return row ? AssistantExecutionTargetSchema.parse(JSON.parse(String(row.target))) : null;
+    return this.latest(sessionId)?.target ?? null;
+  }
+  /**
+   * The constraint that applies right now: the oldest identified request the
+   * engine has not finished, since turns run in order. A finished request binds
+   * nothing, so a later message sent from Home is free to pick its own project,
+   * and a queued general question does not unbind the job still running.
+   */
+  async activeConstraint(sessionId: string): Promise<AssistantExecutionTarget | null> {
+    const recent = this.db.all("SELECT * FROM assistant_submissions WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5", [sessionId]).map(row => this.item(row));
+    const open: AssistantSubmission[] = [];
+    for (const entry of recent) { const current = await this.reconcile(entry); if (current.state !== "completed" && current.state !== "failed") open.push(current); }
+    return open.at(-1)?.target ?? null;
   }
   submit(input: Omit<AssistantSubmission, "state" | "createdAt" | "updatedAt" | "error"> & { payload: SubmissionPayload }) {
     return this.locked(input.requestId, async () => {
@@ -71,7 +91,7 @@ export class AssistantSubmissions {
   }
   private payload(requestId: string): SubmissionPayload {
     const row = this.db.get("SELECT parts FROM assistant_submissions WHERE request_id = ?", [requestId]);
-    return JSON.parse(String(row?.parts ?? "{\"parts\":[]}")) as SubmissionPayload;
+    return SubmissionPayloadSchema.parse(JSON.parse(String(row?.parts ?? "{\"parts\":[]}")));
   }
   private async dispatch(entry: AssistantSubmission): Promise<AssistantSubmission> {
     const target = { workspaceId: entry.workspaceId, sessionId: entry.sessionId };

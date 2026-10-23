@@ -3066,6 +3066,7 @@ export function SessionRoute() {
     />
     {client && <LauncherDialog
       open={commandPaletteOpen}
+      conversationId={assistantConversationId}
       onClose={() => setCommandPaletteOpen(false)}
       client={client}
       assistant={assistant.data ? { workspaceId: assistant.data.workspace.id, profile: assistant.data.profile } : null}

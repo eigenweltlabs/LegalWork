@@ -894,6 +894,8 @@ const launcherWindow = new LauncherWindow({
   appRoot: APP_ROOT, startUrl: APP_START_URL, preloadPath: path.join(__dirname, "preload.cjs"), icon: APP_ICON_IMAGE, userDataDir: app.getPath("userData"),
   focusedDisplay: () => dictationHud.focusedDisplayId ?? null,
   onVisibility: state => { launcherService.onVisibility(state.visible); syncBackgroundPresence(); },
+  // While the panel has the keyboard, Escape works its layers; dictation's global Escape waits.
+  onFocusChange: focused => { if (focused) systemDictation.suspendEscape(); else systemDictation.resumeEscape(); },
   onExpand: route => {
     void createMainWindow().then(win => {
       if (win.isDestroyed()) return;
@@ -917,7 +919,13 @@ const launcherService = new LauncherService({
   meeting: () => meetingMonitor.status(),
   companion: state => { void dictationHud.setCompanion(state).catch(error => console.warn("[launcher-companion]", error)); },
   onPresenceChanged: () => syncBackgroundPresence(),
+  dictate: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
+  record: () => { void openMeetingRecorder(); },
+  // A recording started by another window's composer is a live microphone owner the panel must not compete with.
+  composerRecording: () => [...recorderService().activeRecordings.keys()].some(id => recordingSenders.get(id) !== undefined && recordingSenders.get(id) !== launcherWindow.webContents()?.id),
 });
+/** Which renderer started each recording. @type {Map<string, number>} */
+const recordingSenders = new Map();
 notifyLauncherVoice = () => launcherService.notifyVoice();
 
 // ── Background presence (tray + close-to-hide) ────────────────────────────
@@ -1430,6 +1438,8 @@ async function bootRuntimeForSelectedWorkspace() {
     name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
   }).catch(() => undefined);
   const legalworkServer = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+  // The pairing credential is per boot: rewrite it once the server is confirmed up.
+  void raycastPairing.refresh().catch(() => undefined);
   return { ok: true, skipped: false, engine, legalworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
@@ -2546,10 +2556,13 @@ const desktopCommandHandlers = {
   },
   "audioRecordingStart": async (event, ...args) => {
       const meta = await recorderService().startRecording(args[0] ?? {});
+      recordingSenders.set(meta.id, event.sender.id);
+      notifyLauncherVoice();
       if (!meta.ephemeral) meetingMonitor.setRecording({ state: "starting", recordingId: meta.id, startedAt: null, error: null });
       return meta;
   },
   "audioRecordingStop": async (event, ...args) => {
+      queueMicrotask(() => notifyLauncherVoice());
       const id = String(args[0] ?? "");
       const meeting = meetingMonitor.status().recordingId === id;
       if (meeting) meetingMonitor.setRecording({ state: "saving", error: null });
@@ -2567,6 +2580,7 @@ const desktopCommandHandlers = {
       }
   },
   "audioRecordingCancel": async (event, ...args) => {
+      queueMicrotask(() => notifyLauncherVoice());
       try {
         return await recorderService().cancelRecording(String(args[0] ?? ""));
       } finally {
@@ -2779,6 +2793,9 @@ const desktopCommandHandlers = {
   },
   "launcherApprovalReply": async (event, ...args) => {
       return launcherService.replyApproval(String(args[0] ?? ""), String(args[1] ?? "deny"));
+  },
+  "launcherVoice": async (event, ...args) => {
+      return launcherService.voiceAction(String(args[0] ?? ""));
   },
   "launcherRaycastPairing": async (event, ...args) => {
       const action = String(args[0] ?? "status");

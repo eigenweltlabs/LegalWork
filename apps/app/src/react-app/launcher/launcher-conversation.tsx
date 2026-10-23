@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowUpRight, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Archive, ArrowUpRight, ClipboardPaste, Copy, Loader2, Pin, PinOff, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { AssistantSubmission } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
+import { launcherOriginInsert } from "@/app/lib/desktop";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider } from "@/components/chat/message-list-provider";
 import { OpenTargetProvider } from "@/lib/target-provider";
@@ -62,19 +63,53 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
   </article>)}</>;
 }
 
-export function LauncherConversation({ conversation, submission, onRetry }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; onRetry: () => void }) {
-  const { client, assistant, openInApp } = useLauncherShell();
+export type PendingOutput = { messageId: string; output: "copy" | "insert" };
+export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void }) {
+  const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
   const notify = useLauncherStore(state => state.notify);
+  const visible = useLauncherStore(state => state.visible);
+  const origin = useLauncherStore(state => state.origin);
   const [busy, setBusy] = useState<string | null>(null);
-  const snapshot = useQuery({ queryKey: ["launcher-snapshot", client.baseUrl, conversation.workspaceId, conversation.sessionId], queryFn: () => client.getSessionSnapshot(conversation.workspaceId, conversation.sessionId, { limit: 40 }), refetchInterval: 2500, refetchOnWindowFocus: true });
-  const own = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation.conversationId], queryFn: () => client.assistantConversationAttention(conversation.conversationId), refetchInterval: 4000 });
-  const delegated = useQuery({ queryKey: ["launcher-attention-delegated", client.baseUrl], queryFn: () => client.assistantAttentionAll(), refetchInterval: 5000 });
+  // A hidden panel stops polling; nothing animates or refreshes off screen.
+  const snapshot = useQuery({ queryKey: ["launcher-snapshot", client.baseUrl, conversation.workspaceId, conversation.sessionId], queryFn: () => client.getSessionSnapshot(conversation.workspaceId, conversation.sessionId, { limit: 40 }), refetchInterval: visible ? 2500 : false, refetchOnWindowFocus: true });
+  const own = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation.conversationId], queryFn: () => client.assistantConversationAttention(conversation.conversationId), refetchInterval: visible ? 4000 : false });
+  const delegated = useQuery({ queryKey: ["launcher-attention-delegated", client.baseUrl], queryFn: () => client.assistantAttentionAll(), refetchInterval: visible ? 5000 : false });
   useEffect(() => onSyncPoke(poke => { if (poke.sessions || poke.approvals || poke.resync) { void snapshot.refetch(); void own.refetch(); void delegated.refetch(); } }), [snapshot, own, delegated]);
   const messages = useMemo(() => snapshot.data ? snapshotToUIMessages(snapshot.data.item) : [], [snapshot.data]);
   const status = snapshot.data?.item.status.type === "busy" ? "streaming" : snapshot.data?.item.status.type === "retry" ? "retrying" : "ready";
   const attention = useMemo(() => [...(own.data?.items ?? []), ...(delegated.data?.items ?? []).filter(item => item.kind !== "widget")], [own.data, delegated.data]);
-  useEffect(() => { useLauncherStore.getState().setAttentionCount(attention.length); }, [attention.length]);
+  // The last finished reply is what Copy, Insert and a quick action's output policy act on.
+  const lastReply = useMemo(() => {
+    const last = messages.at(-1);
+    if (!last || last.role !== "assistant") return null;
+    const text = last.parts.flatMap(part => part.type === "text" ? [part.text] : []).join("\n").trim();
+    return text ? { id: last.id, text } : null;
+  }, [messages]);
+  const copyReply = async (text: string) => { await navigator.clipboard.writeText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); };
+  const insertReply = async (text: string) => {
+    if (!desktop || !origin?.supportsInsert) { await copyReply(text); return; }
+    const result = await launcherOriginInsert(origin.id, text);
+    if (result.ok) notify({ tone: "info", text: result.method === "paste" ? t("launcher.reply.inserted", { app: result.origin.app ?? "" }) : t("launcher.reply.copied_instead") });
+    else notify({ tone: "error", text: result.copied ? t("launcher.reply.copied_instead") : result.message });
+  };
+  useEffect(() => {
+    if (!pendingOutput || !lastReply || status !== "ready") return;
+    // Only a reply that came after the identified request counts, never the previous one.
+    const asked = messages.findIndex(message => message.id === pendingOutput.messageId);
+    if (asked < 0 || asked >= messages.length - 1) return;
+    onOutputApplied();
+    void (pendingOutput.output === "copy" ? copyReply(lastReply.text) : insertReply(lastReply.text));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOutput, lastReply?.id, status]);
+  const togglePin = async () => {
+    try { const { conversation: updated } = await client.patchAssistantConversation(conversation.conversationId, { pinned: !conversation.pinned }); useLauncherStore.getState().bindConversation(updated); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); }
+    catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+  };
+  const archive = async () => {
+    try { await client.patchAssistantConversation(conversation.conversationId, { archived: true }); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); notify({ tone: "info", text: t("launcher.conversation.archived") }); onArchived(); }
+    catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
+  };
   const reply = async (item: AssistantAttentionItem, answer: { kind: "approval"; reply: "once" | "reject" } | { kind: "question"; answers: string[][] }) => {
     if (busy) return;
     setBusy(item.id);
@@ -87,6 +122,10 @@ export function LauncherConversation({ conversation, submission, onRetry }: { co
     finally { setBusy(null); await Promise.all([own.refetch(), delegated.refetch()]); void cache.invalidateQueries({ queryKey: ["launcher-work"] }); }
   };
   return <div className="launcher-conversation lw-session-typography">
+    <div className="launcher-conversation-head"><span className="truncate">{conversation.title}</span>
+      <Button size="icon-sm" variant="ghost" aria-label={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} title={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} onClick={() => void togglePin()}>{conversation.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}</Button>
+      <Button size="icon-sm" variant="ghost" aria-label={t("launcher.conversation.archive")} title={t("launcher.conversation.archive")} onClick={() => void archive()}><Archive className="size-3.5" /></Button>
+    </div>
     <AttentionCards items={attention} busy={busy} onReply={reply} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />
     {snapshot.isError && <p role="alert" className="launcher-status"><AlertTriangle className="size-3.5" />{t("launcher.conversation.unavailable")} <button className="underline" onClick={() => void snapshot.refetch()}>{t("assistant.attention_retry")}</button></p>}
     <OpenTargetProvider openTargets={[]} onOpenTarget={() => openInApp(workspaceSessionRoute(conversation.workspaceId, conversation.sessionId))}>
@@ -96,6 +135,10 @@ export function LauncherConversation({ conversation, submission, onRetry }: { co
           : messages.length ? <MessageList showWelcome={false} messages={messages} status={status} /> : <p className="launcher-empty">{t("launcher.conversation.empty")}</p>}
       </MessageListProvider>
     </OpenTargetProvider>
+    {lastReply && status === "ready" && <div className="launcher-reply-actions">
+      <Button size="sm" variant="ghost" onClick={() => void copyReply(lastReply.text)}><Copy className="size-3.5" />{t("launcher.reply.copy")}</Button>
+      {desktop && origin?.supportsInsert && <Button size="sm" variant="ghost" onClick={() => void insertReply(lastReply.text)}><ClipboardPaste className="size-3.5" />{t("launcher.reply.insert", { app: origin.app ?? "" })}</Button>}
+    </div>}
     <SubmissionStatusRow submission={submission} onRetry={onRetry} />
   </div>;
 }

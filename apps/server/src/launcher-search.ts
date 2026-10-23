@@ -19,7 +19,7 @@ export type LauncherSearchDeps = {
 };
 const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-path", "pin"];
 
-function titleScore(title: string, query: string): { match: LauncherSearchResult["match"]; score: number } | null {
+export function titleScore(title: string, query: string): { match: LauncherSearchResult["match"]; score: number } | null {
   const terms = query.normalize("NFC").trim().toLowerCase().split(/\s+/).filter(Boolean);
   const phrase = terms.join(" "), value = title.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ");
   if (!phrase) return { match: "recent", score: 0 };
@@ -36,6 +36,8 @@ async function withBudget<T>(work: (signal: AbortSignal) => Promise<T>, ms: numb
   parent.addEventListener("abort", abort, { once: true });
   try { return await work(controller.signal); } finally { clearTimeout(timer); parent.removeEventListener("abort", abort); }
 }
+const timedOut = (error: unknown) => error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+const TOO_SLOW = "Took too long; results may be incomplete.";
 async function eachLimited<T>(items: T[], concurrency: number, work: (item: T) => Promise<void>) {
   const queue = [...items];
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => { while (queue.length) { const item = queue.shift(); if (item) await work(item); } }));
@@ -76,7 +78,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
           match: score.match, score: score.score - (task.completed ? 100 : 0), actions: task.completed ? ["open", "hand-to-assistant"] : ["open", "complete", "hand-to-assistant"] });
       }
       source({ id: "tasks", kind: "tasks", workspaceId: null, label: "Tasks", coverage: tasks.length > 60 ? "partial" : "complete", count: tasks.length, limited: tasks.length > 60 });
-    } catch (error) { source({ id: "tasks", kind: "tasks", workspaceId: null, label: "Tasks", coverage: "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { source({ id: "tasks", kind: "tasks", workspaceId: null, label: "Tasks", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
   }
   if (kinds.has("recordings")) {
     if (!deps.recordings) source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: "unavailable", count: 0, error: "The recording library is only available in the desktop app." });
@@ -89,7 +91,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
           match: score.match, score: score.score, actions: ["play", "open", "attach", "ask"] });
       }
       source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: "complete", count: recordings.length });
-    } catch (error) { source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
   }
   if (kinds.has("files")) {
     await eachLimited(scoped, 4, async workspace => {
@@ -132,7 +134,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             match: score.match, score: score.score, actions: ["resume", "open", "ask"] });
         }
         source({ id: `chats:${workspace.id}`, kind: "chats", workspaceId: workspace.id, label, coverage: response.limited ? "partial" : "complete", count: response.items.length, limited: response.limited });
-      } catch (error) { source({ id: `chats:${workspace.id}`, kind: "chats", workspaceId: workspace.id, label, coverage: signal.aborted ? "searching" : "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) { source({ id: `chats:${workspace.id}`, kind: "chats", workspaceId: workspace.id, label, coverage: signal.aborted ? "searching" : timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
     });
   }
   for (const id of unavailable) source({ id: `unavailable:${id}`, kind: "projects", workspaceId: id, label: id, coverage: "unavailable", count: 0 });

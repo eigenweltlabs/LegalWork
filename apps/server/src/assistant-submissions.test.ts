@@ -27,6 +27,9 @@ test("a lost acknowledgement is retried with the same identity and never duplica
     answered = true;
     expect((await store.status("req_aaaaaaaa")).state).toBe("completed");
     expect(store.constraint("ses_1")).toEqual({ kind: "assistant" });
+    // A finished request binds nothing any more; a later message from Home is free to choose.
+    expect(await store.activeConstraint("ses_1")).toBeNull();
+    expect(await store.activeConstraint("ses_unknown")).toBeNull();
     await expect(store.submit({ ...base, requestId: "req_aaaaaaaa", messageId: "msg_fedcba9876543210" })).rejects.toThrow("another message");
     await expect(store.submit({ ...base, requestId: "req_bbbbbbbb", messageId: "msg_0123456789abcdef" })).rejects.toThrow("another request");
     // A send that fails before the engine stored anything stays unconfirmed, and the retry really sends.
@@ -36,6 +39,7 @@ test("a lost acknowledgement is retried with the same identity and never duplica
     const unconfirmed = await second.submit({ ...base, requestId: "req_cccccccc", messageId: "msg_aaaaaaaaaaaaaaaa", target: { kind: "project", workspaceId: "matter" } });
     expect(unconfirmed.state).toBe("unconfirmed");
     expect(second.constraint("ses_1")).toEqual({ kind: "project", workspaceId: "matter" });
+    expect(await second.activeConstraint("ses_1")).toEqual({ kind: "project", workspaceId: "matter" });
     const third = await AssistantSubmissions.open(join(root, "runtime.sqlite"), executor);
     expect((await third.submit({ ...base, requestId: "req_cccccccc", messageId: "msg_aaaaaaaaaaaaaaaa", target: { kind: "project", workspaceId: "matter" } })).state).toBe("accepted");
     expect(sends).toBe(3);

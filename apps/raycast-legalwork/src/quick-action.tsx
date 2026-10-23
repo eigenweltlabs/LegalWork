@@ -11,7 +11,7 @@ export default function Command() {
     if (!pairing) return;
     try {
       let selection = "";
-      try { selection = (await getSelectedText()).trim(); } catch { selection = ""; }
+      if (entry.requires.includes("selection")) { try { selection = (await getSelectedText()).trim(); } catch { selection = ""; } }
       const clipboard = entry.requires.includes("clipboard") ? ((await Clipboard.readText()) ?? "").trim() : "";
       const items = [...(selection ? [{ id: `sel_${Date.now().toString(36)}`, type: "selection", text: selection.slice(0, 200_000), sourceApp: null, sourceWindow: null, capturedAt: Date.now() }] : []), ...(clipboard ? [{ id: `clip_${Date.now().toString(36)}`, type: "clipboard", text: clipboard.slice(0, 200_000), capturedAt: Date.now() }] : [])];
       const staged = items.length ? await request<{ id: string }>(pairing, "/launcher/context", { method: "POST", body: { items, source: "raycast" } }) : null;

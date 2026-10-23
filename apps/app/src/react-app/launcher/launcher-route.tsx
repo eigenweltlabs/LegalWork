@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
-import type { LauncherDesktopEvent, LauncherDraftFile } from "@legalwork/types/launcher";
+import { LauncherDesktopEventSchema, LauncherDraftFileSchema, type LauncherDesktopEvent } from "@legalwork/types/launcher";
 import { createLegalworkServerClient, type LegalworkServerClient, type LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
 import { launcherDraftsRead, launcherDraftsWrite, launcherInvocationsDrain, launcherOriginGet, launcherWindowControl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -21,7 +21,7 @@ const DRAFTS_KEY = "legalwork.launcher.drafts.v1";
 
 /** The desktop file is the source of truth; the browser fallback keeps a local copy for the web app only. */
 export function createDraftStorage(desktop: boolean): DraftStorage {
-  if (desktop) return { read: async () => launcherDraftsRead(), write: async file => { await launcherDraftsWrite(file as LauncherDraftFile); } };
+  if (desktop) return { read: async () => launcherDraftsRead(), write: async file => { await launcherDraftsWrite(LauncherDraftFileSchema.parse(file)); } };
   return {
     read: async () => { try { const raw = window.localStorage.getItem(DRAFTS_KEY); return raw ? JSON.parse(raw) : EMPTY_DRAFT_FILE; } catch { return EMPTY_DRAFT_FILE; } },
     write: async file => { try { window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(file)); } catch { /* storage may be unavailable */ } },
@@ -105,7 +105,7 @@ export function LauncherRoute() {
       else if (event.type === "approval-closed") { if (store.approval?.id === event.id) store.setApproval(null); }
       else if (event.type === "voice") store.setVoice(event.voice);
     };
-    const listener = (event: Event) => { if (event instanceof CustomEvent) apply(event.detail as LauncherDesktopEvent); };
+    const listener = (event: Event) => { if (!(event instanceof CustomEvent)) return; const parsed = LauncherDesktopEventSchema.safeParse(event.detail); if (parsed.success) apply(parsed.data); };
     window.addEventListener(LAUNCHER_EVENT, listener);
     void launcherInvocationsDrain().then(invocations => invocations.forEach(invocation => apply({ type: "invocation", invocation }))).catch(() => undefined);
     void launcherOriginGet().then(origin => useLauncherStore.getState().setOrigin(origin)).catch(() => undefined);
@@ -113,11 +113,14 @@ export function LauncherRoute() {
   }, [desktop, client]);
   // Deep links reaching this window directly (web): the same invocation contract.
   useEffect(() => {
-    const invocation = parseAssistantDeepLink(window.location.href.replace(/^[^#]*#/, "legalwork://"));
+    // On the web the launcher route takes `?action=ask&q=…`; the desktop delivers links through the service.
+    const url = new URL(window.location.href);
+    const action = url.searchParams.get("action");
+    const invocation = action ? parseAssistantDeepLink(`legalwork://assistant/${encodeURIComponent(action)}?${url.searchParams}`) : null;
     if (invocation && !seen.current.has(invocation.id)) { seen.current.add(invocation.id); useLauncherStore.getState().setInvocation(invocation); }
   }, []);
   const shell = useMemo<LauncherShellValue | null>(() => client ? {
-    client, assistant, workspaces, drafts, owner, surface: "panel", desktop,
+    client, assistant, workspaces, drafts, owner, surface: "panel", conversationId: null, desktop,
     openInApp: route => { if (desktop) void launcherWindowControl("expand", { route }); else navigate(route); },
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
     togglePin: desktop ? () => { const pinned = useLauncherStore.getState().pinned; void launcherWindowControl(pinned ? "unpin" : "pin").then(state => useLauncherStore.getState().setPinned(state.pinned)); } : null,

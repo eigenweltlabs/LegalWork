@@ -7973,6 +7973,20 @@ const de = {
   "launcher.approval.allow": "Erlauben",
   "launcher.approval.deny": "Ablehnen",
   "launcher.voice.recording_here": "Der Assistent hört zu.",
+  "launcher.reply.copy": "Antwort kopieren",
+  "launcher.reply.insert": "In {app} einfügen",
+  "launcher.reply.inserted": "In {app} eingefügt.",
+  "launcher.reply.copied_instead": "Das Ziel hat sich geändert. Die Antwort wurde stattdessen kopiert.",
+  "launcher.picker.title": "Suchbereich und Ziel",
+  "launcher.picker.scope": "Suche beschränken auf",
+  "launcher.picker.scope_all": "Alle Projekte",
+  "launcher.picker.target": "Arbeiten in",
+  "launcher.picker.target_assistant": "Assistent entscheidet",
+  "launcher.conversation.pin": "Unterhaltung anheften",
+  "launcher.conversation.unpin": "Anheften aufheben",
+  "launcher.conversation.archive": "Unterhaltung archivieren",
+  "launcher.conversation.archived": "Unterhaltung archiviert.",
+  "launcher.notice.needs_project": "Diese Aktion braucht ein Projekt. Wählen Sie eines unter „Arbeiten in“.",
 } as const;
 
 export default de;

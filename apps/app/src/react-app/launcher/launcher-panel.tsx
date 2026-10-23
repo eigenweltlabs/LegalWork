@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Clipboard, Expand, FilePlus2, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, Trash2, X } from "lucide-react";
+import { Bookmark, Clipboard, Expand, FilePlus2, Filter, ListChecks, Loader2, Maximize2, Mic, MousePointerSquareDashed, Paperclip, Pin, PinOff, Plus, ScanLine, Send, Sparkles, Trash2, X } from "lucide-react";
 import type { AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { isMacPlatform } from "@/app/utils";
-import { launcherApprovalReply, launcherAttentionSet, launcherStatus, listLocalSkills, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { launcherApprovalReply, launcherAttentionSet, launcherStatus, launcherVoice, launcherWindowControl, listLocalSkills, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
@@ -17,7 +17,7 @@ import { appActionEntries, filterCatalog, invocationForAppAction, primaryResultA
 import { captureClipboard, captureScreen, captureSelection, fileReferenceItem, stageFiles } from "./context-capture";
 import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
-import { LauncherConversation, useSubmissionStatus } from "./launcher-conversation";
+import { LauncherConversation, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
 import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
@@ -45,7 +45,9 @@ export function LauncherPanel() {
   const mod = isMacPlatform() ? "⌘" : "Ctrl";
   const [pins, setPins] = useState(() => typeof window === "undefined" ? [] : readPins());
   const [submission, setSubmission] = useState<{ requestId: string; messageId: string; state: string; error?: string | null } | null>(null);
+  const [pendingOutput, setPendingOutput] = useState<PendingOutput | null>(null);
   const [sending, setSending] = useState(false);
+  const pastedText = useRef(false);
   const status = useQuery({ queryKey: ["launcher-desktop-status"], queryFn: () => launcherStatus(), enabled: desktop, refetchInterval: 15_000 });
   const aliases = useMemo(() => normalizeLauncherAliases(status.data?.aliases), [status.data?.aliases]);
   const entry = parseLauncherEntry(store.input);
@@ -54,26 +56,36 @@ export function LauncherPanel() {
   // Conversation binding: read-only lookup first; a conversation is only created by an explicit action.
   // Callbacks read the store imperatively: depending on the whole store object would re-run effects on every state change.
   const bindCurrent = useCallback(async () => {
-    const current = await client.assistantConversationCurrent();
-    useLauncherStore.getState().bindConversation(current.conversation);
-    return current.conversation;
-  }, [client]);
+    const bound = shell.conversationId ? (await client.assistantConversation(shell.conversationId)).conversation : (await client.assistantConversationCurrent()).conversation;
+    useLauncherStore.getState().bindConversation(bound);
+    return bound;
+  }, [client, shell.conversationId]);
   useEffect(() => { void bindCurrent().catch(() => undefined); }, [bindCurrent]);
   const conversation = store.conversation;
+  // Adopt the authoritative draft: on binding, and again on reopening or focus when another surface edited meanwhile. Context staged by an invocation stays.
+  const adoptDraft = useCallback(async (conversationId: string, overwrite: boolean) => {
+    const { draft } = await drafts.claim(conversationId, owner);
+    const state = useLauncherStore.getState();
+    if (state.conversation?.conversationId !== conversationId) return;
+    state.replaceContext([...draft.context, ...state.context.filter(item => !draft.context.some(existing => existing.id === item.id))]);
+    if (draft.target.kind === "project" || overwrite) state.setTarget(draft.target);
+    if (draft.submission && draft.submission.state !== "completed") setSubmission({ ...draft.submission, state: draft.submission.state });
+    if (draft.text && (overwrite || !state.input)) { if (draft.text !== state.input) state.setInput(draft.text); state.setView("conversation"); }
+  }, [drafts, owner]);
+  useEffect(() => { if (conversation) void adoptDraft(conversation.conversationId, false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [conversation?.conversationId, adoptDraft]);
   useEffect(() => {
-    if (!conversation) return;
-    let cancelled = false;
-    void drafts.claim(conversation.conversationId, owner).then(({ draft }) => {
-      if (cancelled) return;
-      store.replaceContext(draft.context);
-      if (draft.target.kind === "project") store.setTarget(draft.target);
-      if (draft.submission && draft.submission.state !== "completed") setSubmission({ ...draft.submission, state: draft.submission.state });
-      if (draft.text && !useLauncherStore.getState().input) { store.setInput(draft.text); store.setView("conversation"); }
-    });
-    return () => { cancelled = true; };
-    // Binding changes only when the conversation changes.
+    if (!store.visible || !conversation || drafts.owns(conversation.conversationId, owner)) return;
+    void adoptDraft(conversation.conversationId, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversation?.conversationId, drafts, owner]);
+  }, [store.visible, conversation?.conversationId]);
+  // While another surface holds the lease, this one only displays what it writes.
+  useEffect(() => drafts.subscribe(id => {
+    const state = useLauncherStore.getState();
+    if (state.conversation?.conversationId !== id || drafts.owns(id, owner)) return;
+    const draft = drafts.get(id);
+    if (draft.text !== state.input) state.setInput(draft.text);
+    state.replaceContext(draft.context);
+  }), [drafts, owner]);
   // Persist the complete draft while this surface owns it.
   useEffect(() => {
     if (!conversation || !drafts.owns(conversation.conversationId, owner)) return;
@@ -149,7 +161,7 @@ export function LauncherPanel() {
     const { conversation: created } = await client.createAssistantConversation({ origin: surface });
     useLauncherStore.getState().bindConversation(created);
     await drafts.claim(created.id, owner);
-    return { conversationId: created.id, sessionId: created.sessionId, workspaceId: created.workspaceId, title: created.title, archived: false };
+    return { conversationId: created.id, sessionId: created.sessionId, workspaceId: created.workspaceId, title: created.title, archived: false, pinned: false };
   }, [client, drafts, owner, surface]);
   const startNewConversation = useCallback(async () => {
     const state = useLauncherStore.getState();
@@ -161,17 +173,20 @@ export function LauncherPanel() {
     inputRef.current?.focus();
   }, [client, drafts, owner, surface]);
 
-  const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }) => {
+  const submitAsk = useCallback(async (text: string, reuse?: { requestId: string; messageId: string }, output?: PendingOutput["output"]) => {
     const trimmed = text.trim();
-    if (sending || (!trimmed && !store.context.length)) return;
+    // The live store, not this render's snapshot: a target chosen a moment ago must be the one that ships.
+    const live = useLauncherStore.getState();
+    if (sending || (!trimmed && !live.context.length)) return;
     setSending(true);
     try {
       const target = await ensureConversation();
       if (!drafts.owns(target.conversationId, owner)) await drafts.claim(target.conversationId, owner);
       const identity = reuse ?? createSubmissionIdentity();
-      const context = { items: store.context, target: store.target, searchScope: store.scope?.id ?? null, capturedAt: Date.now() };
-      await drafts.update(target.conversationId, owner, { text: trimmed, context: store.context, submission: { requestId: identity.requestId, messageId: identity.messageId, state: "sending" } });
+      const context = { items: live.context, target: live.target, searchScope: live.scope?.id ?? null, capturedAt: Date.now() };
+      await drafts.update(target.conversationId, owner, { text: trimmed, context: live.context, submission: { requestId: identity.requestId, messageId: identity.messageId, state: "sending" } });
       setSubmission({ requestId: identity.requestId, messageId: identity.messageId, state: "sending" });
+      setPendingOutput(output ? { messageId: identity.messageId, output } : null);
       store.setView("conversation");
       let result: AssistantSubmission;
       try {
@@ -190,6 +205,16 @@ export function LauncherPanel() {
     } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
     finally { setSending(false); }
   }, [sending, store, ensureConversation, drafts, owner, client, local.prefs.defaultModel, local.prefs.modelVariant, notify]);
+  // The panel stays open across its own dialogs: the file chooser and an active dictation are not a blur to hide on.
+  const holdPanel = (hold: boolean) => { if (desktop && surface === "panel") void launcherWindowControl(hold ? "dialog-begin" : "dialog-end").catch(() => undefined); };
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    const onCancel = () => holdPanel(false);
+    input.addEventListener("cancel", onCancel);
+    return () => input.removeEventListener("cancel", onCancel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktop, surface]);
   const retrySubmission = useCallback(() => {
     if (!submission || !conversation) return;
     const draft = drafts.get(conversation.conversationId);
@@ -211,15 +236,21 @@ export function LauncherPanel() {
   }, store.visible);
   // The desktop pushes capture ownership as it changes; the polled status is the fallback.
   const voice = store.voice ?? status.data?.voice ?? null;
-  const voiceBusy = Boolean(voice?.externalDictation || voice?.meeting);
+  const voiceBusy = Boolean(voice?.externalDictation || voice?.meeting || voice?.composer);
   const speak = async () => {
-    if (voice && voiceBusy) { notify({ tone: "error", text: t(voice.meeting ? "launcher.voice.meeting_active" : "launcher.voice.dictation_active") }); return; }
+    if (voice && voiceBusy) { notify({ tone: "error", text: t(voice.meeting ? "launcher.voice.meeting_active" : voice.externalDictation ? "launcher.voice.dictation_active" : "launcher.voice.busy") }); return; }
     const decision = voiceCoordinator.request({ destination: "assistant", ownerId: "panel", conversationId: conversation?.conversationId });
     if (!decision.ok) { notify({ tone: "error", text: t("launcher.voice.busy") }); return; }
     store.setView("conversation");
     await dictation.start();
   };
   useEffect(() => { if (!dictation.active) voiceCoordinator.release("panel"); }, [dictation.active]);
+  useEffect(() => { if (!dictation.active) return; holdPanel(true); return () => holdPanel(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dictation.active]);
+  // Pending questions and approvals are counted whatever view is open; the companion shows the number.
+  const ownAttention = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation?.conversationId], queryFn: () => client.assistantConversationAttention(conversation?.conversationId ?? ""), enabled: Boolean(conversation), refetchInterval: store.visible ? 4000 : false });
+  const delegatedAttention = useQuery({ queryKey: ["launcher-attention-delegated", client.baseUrl], queryFn: () => client.assistantAttentionAll(), refetchInterval: store.visible ? 5000 : false });
+  const attentionCount = (ownAttention.data?.items.length ?? 0) + (delegatedAttention.data?.items ?? []).filter(item => item.kind !== "widget").length;
+  useEffect(() => { useLauncherStore.getState().setAttentionCount(attentionCount); }, [attentionCount]);
   // The companion shows where the microphone is and how much needs attention.
   useEffect(() => {
     if (!desktop || surface !== "panel") return;
@@ -234,13 +265,18 @@ export function LauncherPanel() {
     clipboard: async () => { const outcome = await captureClipboard(); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
     window: async () => { if (!assistant) return; const outcome = await captureScreen("window", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
     region: async () => { if (!assistant) return; const outcome = await captureScreen("region", client, assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
-    files: () => fileInputRef.current?.click(),
+    files: () => { holdPanel(true); fileInputRef.current?.click(); },
   };
 
   // One dispatcher for results, commands and app actions.
   const runResultAction = async (result: LauncherSearchResult, action: LauncherResultAction) => {
     const route = result.kind === "chats" ? workspaceSessionRoute(result.workspaceId ?? "", result.sessionId ?? result.id) : result.kind === "tasks" ? `/tasks?task=${encodeURIComponent(result.id)}` : result.kind === "recordings" ? `/recorder?recording=${encodeURIComponent(result.id)}` : result.workspaceId ? `${workspaceProjectRoute(result.workspaceId)}${result.kind === "files" ? `?file=${encodeURIComponent(result.path ?? result.id)}` : ""}` : "/home";
     const multi = store.multiSelect.size ? store.results.filter(item => store.multiSelect.has(resultKey(item))) : [result];
+    if (result.kind === "chats" && result.sourceId === "assistant" && (action === "resume" || action === "open")) {
+      try { const { conversation: found } = await client.assistantConversation(result.id); store.bindConversation(found); store.setInput(""); store.setView("conversation"); }
+      catch { notify({ tone: "error", text: t("launcher.conversation.unavailable") }); }
+      return;
+    }
     switch (action) {
       case "open": case "resume": case "play": openInApp(route); if (surface === "panel" && !store.pinned) dismiss(); return;
       case "reveal": { const path = absolutePath(result); if (path) await revealDesktopItemInDir(path); return; }
@@ -287,14 +323,16 @@ export function LauncherPanel() {
       const files = store.context.flatMap(entry => entry.type === "file" ? [entry.path] : []);
       try {
         const rendered = await client.renderQuickAction(item.quickAction.id, { selection, clipboard, files, arguments: args });
+        if (item.quickAction.target === "project" && item.quickAction.projectId) useLauncherStore.getState().setTarget({ kind: "project", workspaceId: item.quickAction.projectId });
+        else if (item.quickAction.target === "project" && useLauncherStore.getState().target.kind !== "project") { notify({ tone: "error", text: t("launcher.notice.needs_project") }); return; }
         void client.recordQuickActionUse(item.quickAction.id).catch(() => undefined);
-        if (item.quickAction.target === "project" && item.quickAction.projectId) store.setTarget({ kind: "project", workspaceId: item.quickAction.projectId });
-        await submitAsk(rendered.prompt);
+        await submitAsk(rendered.prompt, undefined, item.quickAction.output === "copy" || item.quickAction.output === "insert" ? item.quickAction.output : undefined);
       } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
       return;
     }
     if (item.source === "skill") { store.setInput(`${item.label} ${args}`.trim()); store.setView("conversation"); return; }
-    // Slash commands run through the engine as agent work; the label says so.
+    // Slash commands run through the engine as agent work; a project's own command binds that project.
+    if (item.workspaceId) useLauncherStore.getState().setTarget({ kind: "project", workspaceId: item.workspaceId });
     await submitAsk(`/${item.command?.name ?? item.label.replace(/^\//, "")}${args ? ` ${args}` : ""}`);
   };
   const applyInvocation = useCallback((invocation: LauncherInvocation) => {
@@ -312,7 +350,10 @@ export function LauncherPanel() {
     else if (invocation.action === "capture-region") void captureActions.region();
     else if (invocation.action === "capture-window") void captureActions.window();
     else if (invocation.action === "quick-action" && invocation.actionId) { const item = catalog.find(entry => entry.id === invocation.actionId); if (item) void runCatalogEntry(item, invocation.query ?? ""); else notify({ tone: "error", text: t("launcher.notice.action_unknown") }); }
-    else if (invocation.action === "dictate" || invocation.action === "record") openInApp("/recorder");
+    else if (invocation.action === "dictate" || invocation.action === "record") {
+      if (!desktop) openInApp("/recorder");
+      else { if (invocation.action === "dictate" && surface === "panel") dismiss(); void launcherVoice(invocation.action).catch(() => openInApp("/recorder")); }
+    }
     if (invocation.conversationId) void client.assistantConversation(invocation.conversationId).then(({ conversation }) => { store.bindConversation(conversation); store.setView("conversation"); }).catch(() => undefined);
     requestAnimationFrame(() => inputRef.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -345,7 +386,7 @@ export function LauncherPanel() {
       return;
     }
     if (key === "Escape") {
-      const layer = escapeAction({ overlayOpen: store.overlay !== null, category: store.category !== null, pinned: store.pinned || surface === "embedded" && false });
+      const layer = escapeAction({ overlayOpen: store.overlay !== null, category: store.category !== null, pinned: store.pinned });
       event.preventDefault();
       if (layer === "overlay") store.setOverlay(null);
       else if (layer === "filter") store.setCategory(null);
@@ -361,6 +402,7 @@ export function LauncherPanel() {
     }
   };
   const onInputChange = (value: string) => {
+    if (pastedText.current) { pastedText.current = false; store.setInput(value); return; }
     if (!store.category && mode === "search") {
       const activated = activateCategoryAlias(value, aliases);
       if (activated) { store.setCategory(activated.category); store.setInput(activated.rest); return; }
@@ -380,9 +422,10 @@ export function LauncherPanel() {
         <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />
         {store.category && <span className="launcher-chip" data-kind="category">{t(KIND_HINT[store.category])}<button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         {store.scope && <span className="launcher-chip" data-kind="scope" title={t("launcher.chip.scope_hint")}>{store.scope.name}<button type="button" aria-label={t("launcher.chip.remove_scope")} onClick={() => { store.setScope(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
-        {store.target.kind === "project" && <span className="launcher-chip" data-kind="target" title={t("launcher.chip.target_hint")}>{t("launcher.chip.target", { name: workspaces.find(workspace => workspace.id === (store.target.kind === "project" ? store.target.workspaceId : ""))?.displayName ?? (store.target.kind === "project" ? store.target.workspaceId : "") })}<button type="button" aria-label={t("launcher.chip.remove_target")} onClick={() => store.setTarget({ kind: "assistant" })}><X className="size-3" /></button></span>}
+        {store.target.kind === "project" && <span className="launcher-chip" data-kind="target" title={t("launcher.chip.target_hint")}>{t("launcher.chip.target", { name: (workspace => workspace ? workspace.displayName || workspace.name : store.target.kind === "project" ? store.target.workspaceId : "")(workspaces.find(workspace => workspace.id === (store.target.kind === "project" ? store.target.workspaceId : ""))) })}<button type="button" aria-label={t("launcher.chip.remove_target")} onClick={() => store.setTarget({ kind: "assistant" })}><X className="size-3" /></button></span>}
         <input ref={inputRef} className="launcher-input" value={store.input} placeholder={placeholder} aria-label={t("launcher.title")} autoFocus autoComplete="off" spellCheck={false} onChange={event => onInputChange(event.target.value)} onKeyDown={onKeyDown}
-          onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length && assistant) { event.preventDefault(); void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); } }} />
+          onFocus={() => { if (conversation && !drafts.owns(conversation.conversationId, owner)) void adoptDraft(conversation.conversationId, true); }}
+          onPaste={event => { const files = Array.from(event.clipboardData.files); if (files.length && assistant) { event.preventDefault(); void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); } else if (event.clipboardData.getData("text")) pastedText.current = true; }} />
         <div className="launcher-entry-actions">
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.context.add")} title={t("launcher.context.add")} />}><Plus className="size-4" /></DropdownMenuTrigger>
@@ -393,6 +436,22 @@ export function LauncherPanel() {
               {desktop && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void captureActions.window()}><FilePlus2 className="size-4" />{t("launcher.context.capture_window")}</DropdownMenuItem><DropdownMenuItem onClick={() => void captureActions.region()}><ScanLine className="size-4" />{t("launcher.context.capture_region")}</DropdownMenuItem></>}
             </DropdownMenuContent>
           </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.picker.title")} title={t("launcher.picker.title")} />}><Filter className="size-4" /></DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("launcher.picker.scope")}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => store.setScope(null)}>{t("launcher.picker.scope_all")}{!store.scope ? " ✓" : ""}</DropdownMenuItem>
+                {workspaces.map(workspace => <DropdownMenuItem key={`scope:${workspace.id}`} onClick={() => store.setScope({ id: workspace.id, name: workspace.displayName || workspace.name })}>{workspace.displayName || workspace.name}{store.scope?.id === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("launcher.picker.target")}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => store.setTarget({ kind: "assistant" })}>{t("launcher.picker.target_assistant")}{store.target.kind === "assistant" ? " ✓" : ""}</DropdownMenuItem>
+                {workspaces.map(workspace => <DropdownMenuItem key={`target:${workspace.id}`} onClick={() => store.setTarget({ kind: "project", workspaceId: workspace.id })}>{workspace.displayName || workspace.name}{store.target.kind === "project" && store.target.workspaceId === workspace.id ? " ✓" : ""}</DropdownMenuItem>)}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.voice.speak")} title={t("launcher.voice.speak")} disabled={!dictation.supported || dictation.blocked || voiceBusy} onClick={() => void speak()}><Mic className="size-4" /></Button>
           <Button variant="ghost" size="icon-sm" aria-label={t("launcher.work.title")} title={t("launcher.work.title")} onClick={() => store.setView(store.view === "work" ? (conversation ? "conversation" : "idle") : "work")}><ListChecks className="size-4" />{store.attentionCount > 0 && <span className="ml-0.5 rounded-full bg-blue-9 px-1 text-[10px] text-white">{store.attentionCount}</span>}</Button>
           {surface === "panel" && shell.togglePin && <Button variant="ghost" size="icon-sm" aria-label={t(store.pinned ? "launcher.unpin" : "launcher.pin")} title={t(store.pinned ? "launcher.unpin" : "launcher.pin")} onClick={shell.togglePin}>{store.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}</Button>}
@@ -400,7 +459,7 @@ export function LauncherPanel() {
           {surface === "embedded" && <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={dismiss}><X className="size-4" /></Button>}
         </div>
       </div>
-      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length && assistant) void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); }} />
+      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={event => { holdPanel(false); const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length && assistant) void stageFiles(client, assistant.workspaceId, files).then(addItems).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })); }} />
       {store.notice && <div className="launcher-notice" data-tone={store.notice.tone} role={store.notice.tone === "error" ? "alert" : "status"}>{store.notice.text}<button type="button" className="float-right" aria-label={t("common.close")} onClick={() => notify(null)}><X className="size-3.5" /></button></div>}
       {store.approval && surface === "panel" && <LauncherApprovalCard request={store.approval} onReply={async (id, decision) => { try { await launcherApprovalReply(id, decision); } finally { useLauncherStore.getState().setApproval(null); } }} />}
       {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}
@@ -418,7 +477,8 @@ export function LauncherPanel() {
           <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(`launcher.action_kind.${item.kind}`), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(`launcher.input.${input}`)).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
           <span className="launcher-row-hint">{store.selection.id === item.id ? `↵ ${actionLabel(item.kind === "agent" ? "run" : "open")}` : item.shortcut}</span>
         </div>)}</div> : <div className="launcher-empty">{t("launcher.commands_empty")}</div>)}
-        {store.view === "conversation" && conversation && <LauncherConversation conversation={conversation} submission={submission} onRetry={retrySubmission} />}
+        {store.view === "conversation" && conversation && <LauncherConversation conversation={conversation} submission={submission} pendingOutput={pendingOutput} onRetry={retrySubmission} onOutputApplied={() => setPendingOutput(null)}
+          onArchived={() => { const state = useLauncherStore.getState(); state.bindConversation(null); state.setInput(""); state.replaceContext([]); setSubmission(null); state.setView("idle"); void bindCurrent().catch(() => undefined); }} />}
         {store.view === "conversation" && !conversation && <div className="launcher-empty">{t("launcher.conversation.new_hint")}</div>}
         {store.view === "work" && <LauncherWork onOpenConversation={id => void client.assistantConversation(id).then(({ conversation: found }) => { store.bindConversation(found); store.setView("conversation"); }).catch(() => notify({ tone: "error", text: t("launcher.conversation.unavailable") }))} />}
         {store.view === "idle" && <div className="launcher-idle">

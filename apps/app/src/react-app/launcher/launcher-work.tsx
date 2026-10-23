@@ -35,7 +35,7 @@ export function LauncherWork(props: { onOpenConversation: (conversationId: strin
     <div className="launcher-section-title">
       <span>{t("launcher.work.title")}</span>
       <span className="launcher-coverage flex gap-2">
-        <select aria-label={t("launcher.work.filter_status")} value={status} onChange={event => setStatus(event.target.value as AssistantWorkStatus | "all")} className="rounded-md border border-border bg-transparent px-1 text-xs">
+        <select aria-label={t("launcher.work.filter_status")} value={status} onChange={event => setStatus(STATUSES.find(value => value === event.target.value) ?? "all")} className="rounded-md border border-border bg-transparent px-1 text-xs">
           <option value="all">{t("launcher.work.status_all")}</option>{STATUSES.map(value => <option key={value} value={value}>{t(`launcher.work.status.${value}`)}</option>)}
         </select>
         <select aria-label={t("launcher.work.filter_project")} value={projectId} onChange={event => setProjectId(event.target.value)} className="max-w-32 rounded-md border border-border bg-transparent px-1 text-xs">
@@ -56,7 +56,7 @@ export function LauncherWork(props: { onOpenConversation: (conversationId: strin
         <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>{t("common.cancel")}</Button>
       </form> : <div className="launcher-work-actions">
         <Button size="sm" variant="ghost" onClick={() => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))}><ArrowUpRight className="size-3.5" />{t("launcher.work.open")}</Button>
-        {item.originConversationId && <Button size="sm" variant="ghost" onClick={() => props.onOpenConversation(item.originConversationId as string)}>{t("launcher.work.origin")}</Button>}
+        {item.originConversationId && <Button size="sm" variant="ghost" onClick={() => { if (item.originConversationId) props.onOpenConversation(item.originConversationId); }}>{t("launcher.work.origin")}</Button>}
         {(item.status === "running" || item.status === "queued" || item.status === "input-required") && <Button size="sm" variant="ghost" disabled={busy === item.id} onClick={() => void act(item, "stop")}><OctagonX className="size-3.5" />{t("launcher.work.stop")}</Button>}
         {item.status !== "unavailable" && <Button size="sm" variant="ghost" onClick={() => setEditing({ id: item.id, action: "reply", text: "" })}><Reply className="size-3.5" />{t("launcher.work.reply")}</Button>}
         {(item.status === "running" || item.status === "queued") && <Button size="sm" variant="ghost" onClick={() => setEditing({ id: item.id, action: "redirect", text: "" })}><Shuffle className="size-3.5" />{t("launcher.work.redirect")}</Button>}

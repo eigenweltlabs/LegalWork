@@ -29,8 +29,11 @@ export function useHomeDraftSync(input: { active: boolean; conversationId: strin
     const { active, conversationId, sessionId, assistantWorkspaceId } = input;
     if (!active || !conversationId || !sessionId || !assistantWorkspaceId) return;
     let disposed = false;
-    const claim = async () => {
-      const { draft } = await drafts.claim(conversationId, owner.current);
+    // Mounting only shows the draft; the lease moves to Home on focus, or when nobody live holds it.
+    const claim = async (take = true) => {
+      await drafts.ready();
+      if (take || !drafts.lease(conversationId) || drafts.isLeaseStale(conversationId)) await drafts.claim(conversationId, owner.current);
+      const draft = drafts.get(conversationId);
       if (disposed) return;
       const key = `${conversationId}:${draft.revision}`;
       if (applied.current === key) return;
@@ -44,13 +47,17 @@ export function useHomeDraftSync(input: { active: boolean; conversationId: strin
       if (target?.closest("[data-lw-composer], .lw-composer, [contenteditable=\"true\"]")) void claim();
     };
     document.addEventListener("focusin", onFocus);
-    void claim();
+    void claim(false);
     const unsubscribe = useComposerStateStore.subscribe((state, previous) => {
       const current = state.sessions[sessionId]?.draft ?? "";
       if (current === (previous.sessions[sessionId]?.draft ?? "") || !drafts.owns(conversationId, owner.current)) return;
-      void drafts.update(conversationId, owner.current, { text: current }).catch(() => undefined);
+      // The rendered context stays context; once the user edits inside it, it is their text.
+      const draft = drafts.get(conversationId);
+      const rendered = launcherDraftToComposerText({ text: "", context: draft.context }, assistantWorkspaceId, input.projectNames);
+      const patch = rendered && current.trimEnd().endsWith(rendered) ? { text: current.trimEnd().slice(0, current.trimEnd().length - rendered.length).trim() } : { text: current, context: [] };
+      void drafts.update(conversationId, owner.current, patch).catch(() => undefined);
     });
-    const unsubscribeDrafts = drafts.subscribe(id => { if (id === conversationId && !drafts.owns(conversationId, owner.current)) applied.current = null; });
+    const unsubscribeDrafts = drafts.subscribe(id => { if (id === conversationId && !drafts.owns(conversationId, owner.current)) { applied.current = null; void claim(false); } });
     return () => { disposed = true; document.removeEventListener("focusin", onFocus); unsubscribe(); unsubscribeDrafts(); };
     // Rebind only when the conversation or session changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

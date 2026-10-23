@@ -88,6 +88,26 @@ Taken against the panel route served by Vite with an isolated LegalWork server o
 | `Cmd/Ctrl+Y` on a file result: the preview pane under the list shows the file's text, its size and date, and that nothing was sent to a model | ![Preview](screenshots/global-assistant/panel-preview.jpg) |
 | After `Cmd/Ctrl+S`: the saved search on the idle view with its scope ("Files · All projects · “Mietvertrag”") and its delete control | ![Saved search](screenshots/global-assistant/panel-saved-search.jpg) |
 | The panel as its own Electron window on macOS (dev build, isolated profile without projects): the `f` chip and the two-character hint | ![Electron panel](screenshots/global-assistant/electron-panel-macos.jpg) |
+| A host approval as a card in the Electron panel (dev build): source, access, project, action and paths, Deny focused, with the note that closing the panel hands the request back | ![Approval card](screenshots/global-assistant/electron-panel-approval.jpg) |
+
+## Review round
+
+Two independent review agents read the implementation diff (one for correctness and security, one for plan compliance). What they found and what changed:
+
+- The execution constraint now binds only while the identified request is in flight (`activeConstraint`: the oldest unfinished submission of the session); a finished panel request no longer refuses later Home messages, and a queued general question does not unbind a running job.
+- A new query renders the server's order; only the content pass for the same words keeps rows in place. Hiding the panel clears a typed search or command; a conversation draft stays.
+- Sends read the live store, so a target chosen a moment before ships with the request. Context staged by an invocation survives the draft claim.
+- Draft handoff is two-way: reopening or focusing the panel adopts the draft another surface edited; Home shows the panel's draft on mount but takes the lease only on focus; Home's write-back strips the rendered context so nothing is sent twice.
+- `Cmd/Ctrl+K` inside the Home-embedded panel opens the result's actions, and that panel binds the conversation open in Home.
+- The file chooser and an active dictation hold the panel open; cold-start invocations wait for the renderer's first drain; a watcher event during an index rebuild schedules another walk; a provider that exceeds its budget reports partial, not unavailable; Work filters before limiting and an idle job without a result reads as returned.
+- Remote projects appear as unavailable sources instead of nothing; Assistant conversations are searchable under `c` and resume in place; conversations can be pinned and archived from the panel.
+- Replies have Copy and Insert into the origin app; a quick action's copy or insert output policy applies to the reply that answers it; project-scoped slash commands bind their project; a quick action that needs a project says so.
+- Dictate and Record are real destinations: `legalwork://assistant/dictate` starts system dictation into the front app without opening the panel, Record opens the meeting recorder; the desktop reports recordings started by another window as a live microphone owner.
+- Quick-action shortcuts are registered with the desktop registry when saved; the panel stays warm under background presence; the dictation's global Escape is suspended while the panel has focus.
+- The Raycast pairing file never carries the owner token and is rewritten when the server comes up; Raycast opens files by path and attaches a staged file reference for Ask; quick actions stage only the inputs they declare.
+- Pasted prose that starts with an alias stays text; the preview route resolves symlinks before the project boundary check; desktop events are validated with zod before the renderer acts on them; the listed `as` casts were removed.
+
+Still open after the review: a multiline composer honouring the Enter/Shift+Enter preference, file type and date filters plus copy/move to project, the Windows selection action advertised while it cannot work, and measured performance numbers.
 
 ## Verification
 
@@ -98,5 +118,7 @@ Automated:
 - `pnpm --filter @legalwork/desktop typecheck:electron`, `check:electron`, desktop unit tests for settings, shortcuts, origin validation and insertion, pairing, placement and the service's invocation path.
 
 Electron runtime check on macOS (dev build, isolated profile, no engine), driven over the renderer's IPC bridge: the app boots with the launcher service (`launcherStatus` reports the global shortcut as registered without conflicts and the native helper capabilities for selection, insertion, capture and origin); `launcherWindowControl("show")` opens the panel window on the launcher route, which loads the catalog and the conversation list; `f ab` queries `/launcher/search` and renders the Files chip with its coverage; Escape first clears the query and then hides the window; enabling the companion creates the dictation HUD window with the Assistant handle; Raycast pairing writes `launcher-pairing.json` with mode 0600 and removes it on disable.
+
+Second round, web smoke run over the same sample matters: `Cmd+Y` on `f Mietvertrag` shows the file preview, `Down` moves the preview to the next file, `Cmd+S` saves the search, the saved search appears on the idle view and in the `/` menu with its scope, choosing it restores the chip and the words, and the delete control removes it. Electron dev build: a synthetic approval event renders the card with Deny focused and Deny clears it; a synthetic voice event disables and re-enables the Speak button.
 
 Manual and platform tests that still need a real device run are listed in the pull request: macOS Spaces/fullscreen, Windows foreground-lock and mixed DPI, sleep/wake, Raycast cold start and the end-to-end recording.

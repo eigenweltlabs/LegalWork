@@ -277,7 +277,7 @@ export function registerMainAssistantRoutes(options: {
     const parsed = z.object({ name: z.string().trim().min(1).max(120), sourceSessionId: z.string().min(1).max(200).optional() }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!parsed.success) throw new ApiError(400, "project_name", "A project name is required.");
     // A request bound to an existing project cannot create another one, whatever captured material suggests.
-    const bound = parsed.data.sourceSessionId ? options.submissions.constraint(parsed.data.sourceSessionId) : null;
+    const bound = parsed.data.sourceSessionId ? await options.submissions.activeConstraint(parsed.data.sourceSessionId) : null;
     if (bound?.kind === "project") throw new ApiError(409, "delegation_target_constraint", "The user bound this request to an existing project. Work there instead of creating a new project.");
     const folderPath = await createDefaultProjectFolder(parsed.data.name, defaultProjectRoot(config.projectsDirectory));
     const { workspace } = await registerLocalProject(config, { folderPath, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
@@ -297,7 +297,7 @@ export function registerMainAssistantRoutes(options: {
     if (workspace.workspaceType === "remote" || source.workspaceType === "remote") throw new ApiError(400, "delegation_local", "Choose an available local project.");
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
     // An explicitly chosen project is an execution constraint enforced here, not a prompt suggestion.
-    const bound = isMainAssistant(source) ? options.submissions.constraint(input.sourceSessionId) : null;
+    const bound = isMainAssistant(source) ? await options.submissions.activeConstraint(input.sourceSessionId) : null;
     if (bound?.kind === "project" && bound.workspaceId !== workspace.id) throw new ApiError(409, "delegation_target_constraint", `The user bound this request to project ${bound.workspaceId}. Delegate there or ask the user to change the target.`);
     const sourceResult = await options.client(source).session.get({ sessionID: input.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
     if (!sourceResult.data || resolve(sourceResult.data.directory) !== resolve(source.path)) throw new ApiError(400, "delegation_source", "The source chat is not in this project.");

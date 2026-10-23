@@ -79,11 +79,11 @@ export function LauncherSettingsView({ client }: { client: LegalworkServerClient
         <p className="text-sm text-subtext">{status.data.raycastPairing.enabled && status.data.raycastPairing.path ? t("launcher.settings.raycast_path", { path: status.data.raycastPairing.path }) : t("launcher.settings.raycast_off")}</p>
       </LayoutSectionItem>
     </>}
-    {client && <QuickActionsSection client={client} platform={status.data?.platform ?? "darwin"} />}
+    {client && <QuickActionsSection client={client} platform={status.data?.platform ?? "darwin"} shortcuts={desktop && status.data ? { current: status.data.actionShortcuts, apply: next => apply({ actionShortcuts: next }) } : null} />}
   </LayoutStack>;
 }
 
-function QuickActionsSection({ client, platform }: { client: LegalworkServerClient; platform: LauncherDesktopStatus["platform"] }) {
+function QuickActionsSection({ client, platform, shortcuts }: { client: LegalworkServerClient; platform: LauncherDesktopStatus["platform"]; shortcuts: { current: Record<string, string>; apply: (next: Record<string, string>) => Promise<void> } | null }) {
   const cache = useQueryClient();
   const actions = useQuery({ queryKey: ["quick-actions", client.baseUrl], queryFn: () => client.quickActions() });
   const [editing, setEditing] = useState<{ id: string | null; draft: QuickActionInput } | null>(null);
@@ -95,13 +95,22 @@ function QuickActionsSection({ client, platform }: { client: LegalworkServerClie
     setBusy(true); setError(null);
     try {
       const input: QuickActionInput = { ...editing.draft, name: editing.draft.name.trim(), alias: editing.draft.alias.trim().toLowerCase(), prompt: editing.draft.prompt.trim() };
-      if (editing.id) await client.updateQuickAction(editing.id, input); else await client.createQuickAction(input);
+      const { action } = editing.id ? await client.updateQuickAction(editing.id, input) : await client.createQuickAction(input);
+      // The saved shortcut is a desktop registration too; the registry reports conflicts.
+      if (shortcuts) { const next = { ...shortcuts.current }; if (action.shortcut) next[`quick-action:${action.id}`] = action.shortcut; else delete next[`quick-action:${action.id}`]; await shortcuts.apply(next); }
       setEditing(null);
       await refresh();
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { setBusy(false); }
   };
-  const remove = async (action: QuickAction) => { setBusy(true); try { await client.deleteQuickAction(action.id); await refresh(); } finally { setBusy(false); } };
+  const remove = async (action: QuickAction) => {
+    setBusy(true);
+    try {
+      await client.deleteQuickAction(action.id);
+      if (shortcuts && `quick-action:${action.id}` in shortcuts.current) { const next = { ...shortcuts.current }; delete next[`quick-action:${action.id}`]; await shortcuts.apply(next); }
+      await refresh();
+    } finally { setBusy(false); }
+  };
   return <LayoutSectionItem>
     <LayoutSectionItemHeader><div><LayoutSectionItemTitle>{t("launcher.settings.quick_actions")}</LayoutSectionItemTitle><LayoutSectionItemDescription>{t("launcher.settings.quick_actions_hint")}</LayoutSectionItemDescription></div>
       <LayoutSectionItemHeaderActions><Button variant="outline" size="sm" disabled={busy || editing !== null} onClick={() => setEditing({ id: null, draft: { ...emptyAction } })}><Plus className="size-4" />{t("launcher.settings.quick_action_new")}</Button></LayoutSectionItemHeaderActions></LayoutSectionItemHeader>
@@ -120,7 +129,7 @@ function QuickActionsSection({ client, platform }: { client: LegalworkServerClie
       <div className="grid gap-3 sm:grid-cols-3">
         <fieldset className="flex flex-col gap-1 text-xs font-medium text-ink"><legend>{t("launcher.settings.quick_action_requires")}</legend>{(["selection", "clipboard", "files", "arguments"] as const).map(input => <label key={input} className="flex items-center gap-2 font-normal"><input type="checkbox" checked={editing.draft.requires.includes(input)} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, requires: event.target.checked ? [...editing.draft.requires, input] : editing.draft.requires.filter(item => item !== input) } })} />{t(`launcher.input.${input}`)}</label>)}</fieldset>
         <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_output")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.output} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, output: event.target.value as QuickActionInput["output"] } })}>{(["preview", "copy", "save", "insert", "open"] as const).map(output => <option key={output} value={output}>{t(`launcher.settings.output.${output}`)}</option>)}</select></label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_target")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.target} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, target: event.target.value as QuickActionInput["target"] } })}>{(["assistant", "project", "none"] as const).map(target => <option key={target} value={target}>{t(`launcher.settings.target.${target}`)}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_target")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.target} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, target: event.target.value === "project" || event.target.value === "none" ? event.target.value : "assistant" } })}>{(["assistant", "project", "none"] as const).map(target => <option key={target} value={target}>{t(`launcher.settings.target.${target}`)}</option>)}</select></label>
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm"><Switch checked={editing.draft.favorite} onCheckedChange={checked => setEditing({ ...editing, draft: { ...editing.draft, favorite: checked } })} />{t("launcher.settings.quick_action_favorite")}</label>

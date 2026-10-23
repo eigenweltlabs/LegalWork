@@ -61,6 +61,12 @@ export async function stageSelection(pairing: Pairing): Promise<{ id: string } |
   const item: ContextItem = { id: `sel_${Date.now().toString(36)}`, type: "selection", text: text.slice(0, 200_000), sourceApp: null, sourceWindow: null, capturedAt: Date.now() };
   return request<{ id: string }>(pairing, "/launcher/context", { method: "POST", body: { items: [item], source: "raycast", ttlMs: 5 * 60_000 } });
 }
+/** A file result travels as a staged file reference, never as content and never in the URL. */
+export async function stageFile(pairing: Pairing, item: SearchResult): Promise<{ id: string } | null> {
+  if (item.kind !== "files" || !item.path) return null;
+  const file: ContextItem = { id: `file_${Date.now().toString(36)}`, type: "file", workspaceId: item.workspaceId, path: item.path, name: item.title, revision: item.revision ?? null, sourceLabel: item.subtitle ?? null };
+  return request<{ id: string }>(pairing, "/launcher/context", { method: "POST", body: { items: [file], source: "raycast", ttlMs: 5 * 60_000 } });
+}
 export async function requirePairing(): Promise<Pairing | null> {
   const pairing = await readPairing();
   if (!pairing) await showToast({ style: Toast.Style.Failure, title: "LegalWork is not paired", message: "Enable Raycast pairing in LegalWork Settings, Assistant launcher." });

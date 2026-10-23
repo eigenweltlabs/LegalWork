@@ -12,7 +12,7 @@ import { savedSearchCatalogEntries } from "../launcher-saved-searches.js";
 import { assemblePreview, clampPreview, messagesPreview } from "../launcher-preview.js";
 import { extractCorpusText } from "../corpus/extract.js";
 import { isSupportedWorkspaceTextFilePath, normalizeWorkspaceRelativePath } from "./files.js";
-import { filterRecordings, searchLauncher } from "../launcher-search.js";
+import { filterRecordings, searchLauncher, titleScore } from "../launcher-search.js";
 import { searchFileContents, searchSessionContents } from "../content-search.js";
 import { taskStore } from "../task-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
@@ -56,6 +56,20 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
     }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit }, ctx.request.signal);
+    // Remote projects are not searched from here yet: say so per project instead of answering "nothing found".
+    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && (!input.projectId || workspace.id === input.projectId)))
+      response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
+    // The Assistant's own conversations are chats too: resume them in place.
+    const assistant = config.workspaces.find(isMainAssistant);
+    if (assistant && kinds.includes("chats") && input.q.length >= 2 && (!input.projectId || input.projectId === assistant.id)) {
+      const page = conversations.list(assistant.id, { query: input.q, limit: 20 });
+      for (const conversation of page.items) {
+        const score = titleScore(conversation.title, input.q) ?? { match: "content" as const, score: 300 };
+        response.items.push({ id: conversation.id, kind: "chats", workspaceId: assistant.id, sourceId: "assistant", title: conversation.title, subtitle: projectName(assistant), updatedAt: conversation.updatedAt, sessionId: conversation.sessionId, match: score.match, score: score.score, actions: ["resume", "open"] });
+      }
+      response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: page.nextCursor ? "partial" : "complete", count: page.items.length, limited: Boolean(page.nextCursor) });
+      response.items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en"));
+    }
     return jsonResponse(response);
   });
   addRoute(routes, "GET", "/launcher/catalog", "client", async ctx => {
@@ -98,8 +112,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (input.kind === "files") {
       const workspace = await workspaceOf();
       const relativePath = normalizeWorkspaceRelativePath(input.id, { allowSubdirs: true });
-      const root = await realpath(workspace.path), absolute = resolve(root, relativePath);
-      if (absolute !== root && !absolute.startsWith(root + sep)) throw new ApiError(400, "invalid_path", "The file is outside this project.");
+      const root = await realpath(workspace.path), absolute = await realpath(resolve(root, relativePath)).catch(() => null);
+      if (!absolute || (absolute !== root && !absolute.startsWith(root + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
       const info = await stat(absolute).catch(() => null);
       if (!info?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
       const source = { kind: "files" as const, id: relativePath, title: relativePath.split("/").pop() ?? relativePath, meta: [projectName(workspace), relativePath, size(info.size)], updatedAt: info.mtimeMs };
@@ -187,7 +201,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const filter = parse(z.object({ status: AssistantWorkStatusSchema.optional(), projectId: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).default(40) }), Object.fromEntries(ctx.url.searchParams), "work_query", "Check the work filters.");
     const source = await sourceWorkspace();
     if (!source) return jsonResponse({ items: [] });
-    const tracked = delegations.list(source.id).slice(0, filter.limit);
+    const tracked = delegations.list(source.id).filter(delegation => !filter.projectId || delegation.workspaceId === filter.projectId).slice(0, filter.limit);
     const items = await listAssistantWork(tracked, {
       originConversationId: sessionId => conversations.bySession(source.id, sessionId)?.id ?? null,
       inspect: async delegation => {
@@ -206,7 +220,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
         return { ...common, available: true, busy: Boolean(status && status.type !== "idle"), result, pendingAttention: attention.filter(item => item.kind !== "widget").length };
       },
     }, { status: filter.status, projectId: filter.projectId });
-    return jsonResponse({ items });
+    return jsonResponse({ items: items.slice(0, filter.limit) });
   });
   addRoute(routes, "POST", "/assistant/work/:workspaceId/:sessionId/:action", "client", async ctx => {
     write(ctx);

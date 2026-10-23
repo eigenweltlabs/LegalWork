@@ -9,9 +9,11 @@ import { parseAssistantLink } from "./launcher-links.mjs";
 
 function fakeWindow() {
   const sent = [];
-  let visible = false, focused = false, loading = true, pinned = false;
-  return { sent, get visibleNow() { return visible; }, setLoading: value => { loading = value; }, window: {}, rememberPosition: true,
-    isVisible: () => visible, isFocused: () => focused, state: () => ({ visible, pinned, focused, displayId: null }), webContents: () => ({ isLoading: () => loading }),
+  let visible = false, focused = false, loading = true, pinned = false, dialogs = 0, ensured = 0;
+  const contents = { isLoading: () => loading };
+  return { sent, get visibleNow() { return visible; }, get dialogs() { return dialogs; }, get ensured() { return ensured; }, setLoading: value => { loading = value; }, window: {}, rememberPosition: true,
+    ensure: async () => { ensured++; return {}; }, beginDialog: () => { dialogs++; }, endDialog: () => { dialogs = Math.max(0, dialogs - 1); },
+    isVisible: () => visible, isFocused: () => focused, state: () => ({ visible, pinned, focused, displayId: null }), webContents: () => contents,
     show: async () => { visible = true; focused = true; return { visible, pinned, focused, displayId: null }; }, hide: () => { visible = false; focused = false; return { visible, pinned, focused, displayId: null }; },
     send: event => sent.push(event), setPinned: value => { pinned = value; return { visible, pinned, focused, displayId: null }; }, resize: () => ({ visible, pinned, focused, displayId: null }), expand: () => { visible = false; }, destroy: () => {} };
 }
@@ -27,14 +29,16 @@ async function makeService(dir) {
   const origin = fakeOrigin();
   const globalShortcut = fakeShortcut();
   const companionStates = [];
+  const voice = [];
   const service = new LauncherService(/** @type {any} */ ({
     app: { getLoginItemSettings: () => ({ openAtLogin: false, status: "enabled" }), setLoginItemSettings: () => {} }, globalShortcut, userDataDir: dir, platform: "darwin",
     window, origin, capture: { destroy: () => {} }, pairing: { load: async () => ({ enabled: false, path: null }), status: () => ({ enabled: false, path: null }) },
     dictation: () => ({ enabled: true, accelerator: "Control", runtimeState: "idle" }), meeting: () => ({ state: "idle" }), companion: state => companionStates.push(state), onPresenceChanged: () => {},
+    dictate: () => voice.push("dictate"), record: () => voice.push("record"), composerRecording: () => false,
     registry: new LauncherShortcutRegistry({ globalShortcut, platform: "darwin", reserved: () => ["Control"] }),
   }));
   await service.initialize();
-  return { service, window, origin, globalShortcut, companionStates };
+  return { service, window, origin, globalShortcut, companionStates, voice };
 }
 
 test("the shortcut opens the panel after capturing the origin; repeated invocations and duplicate links do nothing twice", async () => {
@@ -51,6 +55,11 @@ test("the shortcut opens the panel after capturing the origin; repeated invocati
     assert.equal(origin.captures, 1);
     assert.deepEqual(service.drain(), []);
     window.setLoading(false);
+    // Loaded but not yet drained by this renderer: still queued, never lost between load and listener.
+    service.readyContents = null;
+    await service.invoke({ id: "inv_early", action: "work", source: "hud" });
+    assert.equal(window.sent.some(event => event.type === "invocation" && event.invocation.id === "inv_early"), false);
+    assert.deepEqual(service.drain().map(item => item.id), ["inv_early"]);
     const remaining = await service.handleDeepLinks(["legalwork://assistant/files?q=Mietvertrag&invocation=link_2", "legalwork://connect-remote?x=1", "legalwork://assistant/files?q=Mietvertrag&invocation=link_2"]);
     assert.deepEqual(remaining, ["legalwork://connect-remote?x=1"]);
     assert.deepEqual(window.sent.filter(event => event.type === "invocation").map(event => event.invocation.query), ["Mietvertrag"]);
@@ -72,6 +81,7 @@ test("direct action shortcuts jump into the panel and the selection shortcut pre
     await service.updateSettings({ actionShortcuts: { "app.search-files": "Alt+F", "app.add-selection": "Alt+S", "app.dictate": "Alt+D", "quick-action:qa_1": "Alt+Q" }, companion: true });
     assert.deepEqual([...globalShortcut.bound.keys()].sort(), ["Alt+F", "Alt+Q", "Alt+S", "Command+Shift+Space"]);
     window.setLoading(false);
+    service.drain();
     globalShortcut.bound.get("Alt+S")();
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(origin.prefetches, 1);
@@ -117,6 +127,26 @@ test("approvals reach a visible panel as a card, come back unanswered when it hi
     controller.abort();
     assert.equal(await cancelled, "deny");
     service.notifyVoice();
-    assert.deepEqual(window.sent.at(-1), { type: "voice", voice: { externalDictation: false, meeting: false } });
+    assert.deepEqual(window.sent.at(-1), { type: "voice", voice: { externalDictation: false, meeting: false, composer: false } });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("file choosers and dictation hold the panel open, voice destinations never open it, and background presence warms the renderer", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-service-dialogs-"));
+  try {
+    const { service, window, voice } = await makeService(dir);
+    await service.windowControl("dialog-begin");
+    assert.equal(window.dialogs, 1);
+    await service.windowControl("dialog-end");
+    assert.equal(window.dialogs, 0);
+    await service.invoke({ id: "inv_dictate", action: "dictate", source: "raycast" });
+    assert.equal(window.visibleNow, false);
+    assert.equal(service.voiceAction("record"), true);
+    assert.equal(service.voiceAction("sing"), false);
+    assert.deepEqual(voice, ["dictate", "record"]);
+    assert.equal(window.ensured, 0);
+    await service.updateSettings({ backgroundPresence: true });
+    await service.initialize();
+    assert.equal(window.ensured, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

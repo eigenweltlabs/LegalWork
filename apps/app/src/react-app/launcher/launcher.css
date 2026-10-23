@@ -65,3 +65,6 @@
 .launcher-preview-note { margin: 6px 0 0; font-size: 11px; color: var(--lw-text-secondary); }
 .launcher-approval { margin: 8px 12px 0; }
 .launcher-approval .launcher-attention-head span { display: block; color: var(--lw-text-secondary); }
+.launcher-conversation-head { display: flex; align-items: center; gap: 2px; margin-bottom: 4px; font-size: 12px; color: var(--lw-text-secondary); }
+.launcher-conversation-head > span { flex: 1; min-width: 0; }
+.launcher-reply-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }

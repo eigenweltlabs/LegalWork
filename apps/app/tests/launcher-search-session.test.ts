@@ -25,3 +25,15 @@ test("stale queries are cancelled, the fast pass renders first, and the content 
   session.search({ query: "", kinds: ["files"], projectId: null });
   expect(session.current().items).toEqual([]);
 });
+
+test("a new query renders the server's order; only the content pass for the same words keeps rows in place", async () => {
+  const responses: Record<string, LauncherSearchResult[]> = { a: [item("alpha.txt", 500), item("abc.txt", 400)], ab: [item("ab.txt", 1000), item("abc.txt", 800), item("alpha.txt", 100)] };
+  const session = new LauncherSearchSession(async (input): Promise<LauncherSearchResponse> => ({ items: responses[input.query] ?? [], sources: [], unavailable: [] }), { debounceMs: 0, contentPass: false });
+  const seen: string[][] = [];
+  session.subscribe(snapshot => { if (!snapshot.pending) seen.push(snapshot.items.map(entry => entry.id)); });
+  session.search({ query: "a", kinds: ["files"], projectId: null });
+  await wait(20);
+  session.search({ query: "ab", kinds: ["files"], projectId: null });
+  await wait(20);
+  expect(seen.at(-1)).toEqual(["ab.txt", "abc.txt", "alpha.txt"]);
+});

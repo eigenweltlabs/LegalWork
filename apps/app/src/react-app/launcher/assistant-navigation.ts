@@ -21,8 +21,9 @@ export async function resolveAssistantConversation(
   origin: "home" | "navigation" = "home",
 ) {
   const current = await client.assistantConversationCurrent();
-  if (!current.workspace) throw new Error("The Assistant is not set up yet.");
+  const workspace = current.workspace;
+  if (!workspace) throw new Error("The Assistant is not set up yet.");
   const conversation = current.conversation ?? (await client.createAssistantConversation({ origin })).conversation;
-  cache.setQueryData<AssistantShellState>(assistantShellQueryKey(client.baseUrl), previous => previous ? { ...previous, conversation } : { workspace: current.workspace as LegalworkWorkspaceInfo, profile: current.profile, conversation, day: current.day });
-  return { workspace: current.workspace, profile: current.profile, conversation, sessionId: conversation.sessionId };
+  cache.setQueryData<AssistantShellState>(assistantShellQueryKey(client.baseUrl), previous => previous ? { ...previous, conversation } : { workspace, profile: current.profile, conversation, day: current.day });
+  return { workspace, profile: current.profile, conversation, sessionId: conversation.sessionId };
 }

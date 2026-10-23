@@ -25,8 +25,9 @@ export class RaycastPairing {
   async refresh() {
     if (!this.enabled) return this.status();
     const info = await this.serverInfo().catch(() => null);
-    if (!info?.running || !info.baseUrl || !(info.clientToken || info.ownerToken)) return this.status();
-    const payload = { enabled: true, version: 1, serverUrl: info.baseUrl, token: info.clientToken ?? info.ownerToken, scheme: "legalwork", updatedAt: Date.now() };
+    // Only the collaborator-scoped client token leaves the app; the owner token never reaches another process.
+    if (!info?.running || !info.baseUrl || !info.clientToken) return this.status();
+    const payload = { enabled: true, version: 1, serverUrl: info.baseUrl, token: info.clientToken, scheme: "legalwork", updatedAt: Date.now() };
     const temporary = `${this.path}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     await chmod(temporary, 0o600).catch(() => {});

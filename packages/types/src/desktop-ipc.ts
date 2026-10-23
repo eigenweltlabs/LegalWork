@@ -848,7 +848,7 @@ export type DesktopCommandMap = {
    */
   launcherStatus: { args: []; result: LauncherDesktopStatus };
   launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
-  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state", payload?: { height?: number; route?: string; conversationId?: string }]; result: LauncherWindowState };
+  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end", payload?: { height?: number; route?: string; conversationId?: string }]; result: LauncherWindowState };
   launcherOriginGet: { args: []; result: LauncherOrigin | null };
   launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
   launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
@@ -861,6 +861,8 @@ export type DesktopCommandMap = {
   launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
   launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };
   launcherApprovalReply: { args: [id: string, decision: "allow" | "deny"]; result: boolean };
+  /** Dictate into the captured origin app, or open the meeting recorder: the two other voice destinations. */
+  launcherVoice: { args: [action: "dictate" | "record"]; result: boolean };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

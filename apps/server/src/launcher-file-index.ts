@@ -56,9 +56,12 @@ export class LauncherFileIndex {
         entries.set(relativePath, { path: relativePath, name: entry.name, folded: fold(relativePath), mtimeMs: info.mtimeMs, size: info.size, ext: extname(entry.name).toLowerCase() });
       }
     };
+    index.dirty = false;
     await visit(index.root);
     if (this.indexes.get(workspaceId) !== index) return;
-    index.entries = entries; index.builtAt = Date.now(); index.complete = true; index.limited = limited; index.dirty = false;
+    index.entries = entries; index.builtAt = Date.now(); index.complete = true; index.limited = limited;
+    // A change that arrived mid-walk is not in this snapshot: walk again.
+    if (index.dirty) { index.building = null; void this.ensure(workspaceId, index.root); }
   }
   private startWatching(workspaceId: string, index: Index) {
     if (index.watcher || this.options.watch === false) return;

@@ -182,7 +182,8 @@ export type LauncherShortcutConflict = z.infer<typeof LauncherShortcutConflictSc
 /** A host approval shown in the panel: the request as the host states it, never as the model describes it. */
 export const LauncherApprovalRequestSchema = z.object({ id: z.string(), source: z.string(), scope: z.string().nullable(), workspaceId: z.string(), action: z.string(), summary: z.string(), paths: z.array(z.string()) });
 export type LauncherApprovalRequest = z.infer<typeof LauncherApprovalRequestSchema>;
-export const LauncherVoiceStateSchema = z.object({ externalDictation: z.boolean(), meeting: z.boolean() });
+/** Who owns the microphone right now: external dictation, a meeting, or a composer in another LegalWork window. */
+export const LauncherVoiceStateSchema = z.object({ externalDictation: z.boolean(), meeting: z.boolean(), composer: z.boolean() });
 export type LauncherVoiceState = z.infer<typeof LauncherVoiceStateSchema>;
 export const LauncherDesktopStatusSchema = LauncherSettingsSchema.extend({
   shortcutRegistered: z.boolean(), conflicts: z.array(LauncherShortcutConflictSchema), autostartRequiresApproval: z.boolean(), raycastPairing: z.object({ enabled: z.boolean(), path: z.string().nullable() }),
@@ -191,12 +192,14 @@ export const LauncherDesktopStatusSchema = LauncherSettingsSchema.extend({
   voice: LauncherVoiceStateSchema,
 });
 export type LauncherDesktopStatus = z.infer<typeof LauncherDesktopStatusSchema>;
-/** Events the desktop pushes into the panel renderer. */
-export type LauncherDesktopEvent =
-  | { type: "invocation"; invocation: LauncherInvocation }
-  | { type: "visibility"; visible: boolean; pinned: boolean }
-  | { type: "origin"; origin: LauncherOrigin | null }
-  | { type: "attention"; count: number }
-  | { type: "approval"; request: LauncherApprovalRequest }
-  | { type: "approval-closed"; id: string }
-  | { type: "voice"; voice: LauncherVoiceState };
+/** Events the desktop pushes into the panel renderer; the renderer validates them before acting. */
+export const LauncherDesktopEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("invocation"), invocation: LauncherInvocationSchema }),
+  z.object({ type: z.literal("visibility"), visible: z.boolean(), pinned: z.boolean() }),
+  z.object({ type: z.literal("origin"), origin: LauncherOriginSchema.nullable() }),
+  z.object({ type: z.literal("attention"), count: z.number() }),
+  z.object({ type: z.literal("approval"), request: LauncherApprovalRequestSchema }),
+  z.object({ type: z.literal("approval-closed"), id: z.string() }),
+  z.object({ type: z.literal("voice"), voice: LauncherVoiceStateSchema }),
+]);
+export type LauncherDesktopEvent = z.infer<typeof LauncherDesktopEventSchema>;

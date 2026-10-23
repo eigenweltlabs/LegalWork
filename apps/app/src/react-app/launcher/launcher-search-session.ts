@@ -16,6 +16,8 @@ export class LauncherSearchSession {
   private listeners = new Set<(snapshot: SearchSnapshot) => void>();
   constructor(private run: SearchRun, private options: { debounceMs?: number; contentPass?: boolean } = {}) {}
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** The query whose rows are on screen; only a content pass for the same words keeps their order. */
+  private settledQuery = "";
   current() { return this.snapshot; }
   subscribe(listener: (snapshot: SearchSnapshot) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private publish(next: Partial<SearchSnapshot>) { this.snapshot = { ...this.snapshot, ...next }; for (const listener of this.listeners) listener(this.snapshot); }
@@ -42,7 +44,8 @@ export class LauncherSearchSession {
       const fast = await this.run({ ...input, content: false }, controller.signal);
       if (controller.signal.aborted || generation !== this.generation) return;
       const wantsContent = this.options.contentPass !== false && input.kinds.includes("files") && input.query.length >= 2;
-      this.publish({ items: this.merge(this.snapshot.query === input.query ? this.snapshot.items : [], fast.items), sources: fast.sources, pending: wantsContent });
+      this.publish({ items: this.merge(this.settledQuery === input.query ? this.snapshot.items : [], fast.items), sources: fast.sources, pending: wantsContent });
+      this.settledQuery = input.query;
       if (!wantsContent) return;
       const full = await this.run({ ...input, content: true }, controller.signal);
       if (controller.signal.aborted || generation !== this.generation) return;

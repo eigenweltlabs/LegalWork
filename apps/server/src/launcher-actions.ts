@@ -21,6 +21,11 @@ export class QuickActionStore {
     const row = this.db.get("SELECT * FROM launcher_quick_actions WHERE id = ?", [id]);
     return row ? this.item(row) : null;
   }
+  private require(id: string): QuickAction {
+    const action = this.get(id);
+    if (!action) throw new ApiError(404, "quick_action_not_found", "This quick action no longer exists.");
+    return action;
+  }
   private assertAlias(alias: string, except?: string) {
     if (alias && this.list().some(action => action.alias === alias && action.id !== except)) throw new ApiError(409, "quick_action_alias", `The alias "${alias}" is already used by another quick action.`);
   }
@@ -29,7 +34,7 @@ export class QuickActionStore {
     this.assertAlias(parsed.alias);
     const id = `qa_${randomBytes(6).toString("hex")}`;
     this.db.run("INSERT INTO launcher_quick_actions (id, data, created_at, updated_at, used_at, uses) VALUES (?, ?, ?, ?, NULL, 0)", [id, JSON.stringify(parsed), now, now]);
-    return this.get(id) as QuickAction;
+    return this.require(id);
   }
   update(id: string, patch: Partial<QuickActionInput>, now = Date.now()): QuickAction {
     const current = this.get(id);
@@ -38,7 +43,7 @@ export class QuickActionStore {
     const parsed = QuickActionInputSchema.parse({ ...data, ...patch });
     this.assertAlias(parsed.alias, id);
     this.db.run("UPDATE launcher_quick_actions SET data = ?, updated_at = ? WHERE id = ?", [JSON.stringify(parsed), now, id]);
-    return this.get(id) as QuickAction;
+    return this.require(id);
   }
   remove(id: string) {
     if (!this.get(id)) throw new ApiError(404, "quick_action_not_found", "This quick action no longer exists.");
@@ -77,7 +82,7 @@ export function launcherCatalog(input: { commands: { workspaceId: string | null;
       workspaceId: group.workspaceId, shortcut: null, favorite: false, usedAt: null, command: { name: command.name, template: command.template ?? null, agent: command.agent ?? null }, quickAction: null });
   }
   for (const action of input.quickActions) {
-    entries.push({ id: `quick-action:${action.id}`, label: action.name, description: null, aliases: action.alias ? [action.alias] : [], kind: action.command ? "agent" : action.skill ? "agent" : "agent",
+    entries.push({ id: `quick-action:${action.id}`, label: action.name, description: null, aliases: action.alias ? [action.alias] : [], kind: "agent",
       source: "quick-action", requires: action.requires, target: action.target, outputs: [action.output], workspaceId: action.projectId, shortcut: action.shortcut,
       favorite: action.favorite, usedAt: action.usedAt, command: action.command ? { name: action.command, template: null, agent: null } : null, quickAction: action });
   }

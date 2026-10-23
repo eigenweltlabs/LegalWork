@@ -29,7 +29,9 @@ export class SavedSearchStore {
     if (existing) return existing;
     const id = `ss_${randomBytes(6).toString("hex")}`;
     this.db.run("INSERT INTO launcher_saved_searches (id, data, created_at, updated_at, used_at, uses) VALUES (?, ?, ?, ?, NULL, 0)", [id, JSON.stringify(parsed), now, now]);
-    return this.get(id) as SavedSearch;
+    const saved = this.get(id);
+    if (!saved) throw new ApiError(500, "saved_search_write", "The saved search could not be stored.");
+    return saved;
   }
   remove(id: string) {
     if (!this.get(id)) throw new ApiError(404, "saved_search_not_found", "This saved search no longer exists.");

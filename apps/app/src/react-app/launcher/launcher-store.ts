@@ -6,7 +6,7 @@ import { reconcileSelection } from "./launcher-keyboard";
 export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work";
 export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "context-menu" } | null;
 export type ProjectScope = { id: string; name: string };
-export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean };
+export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean; pinned: boolean };
 export type StagedPreview = { id: string; dataUrl: string };
 
 export type LauncherState = {
@@ -89,13 +89,16 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   addContext: (items, previews = []) => set(state => ({ context: [...state.context, ...items.filter(item => !state.context.some(existing => existing.id === item.id))], previews: [...state.previews, ...previews] })),
   removeContext: id => set(state => ({ context: state.context.filter(item => item.id !== id), previews: state.previews.filter(preview => preview.id !== id) })),
   replaceContext: context => set({ context }),
-  bindConversation: conversation => set({ conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null } : null }),
+  bindConversation: conversation => set({ conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null, pinned: conversation.pinned } : null }),
   setOrigin: origin => set({ origin }),
   setPinned: pinned => set({ pinned }),
   setAttentionCount: attentionCount => set({ attentionCount }),
   setApproval: approval => set({ approval }),
   setVoice: voice => set({ voice }),
   notify: notice => set({ notice }),
-  // Dismissal keeps the conversation, draft and attachments; only transient search state resets.
-  reset: () => set(state => ({ ...state, view: state.conversation ? "conversation" : "idle", results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null })),
+  // Dismissal keeps the conversation, its draft and attachments; a search or command typed into the field is transient and clears.
+  reset: () => set(state => {
+    const keepDraft = state.view === "conversation";
+    return { ...state, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", category: keepDraft ? state.category : null, results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
+  }),
 }));
