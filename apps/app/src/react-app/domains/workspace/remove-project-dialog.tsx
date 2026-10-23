@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlarmClock, CalendarDays, Copy, File, Folder, FolderOpen, Link2, ListTodo, Loader2, MessageSquare, TriangleAlert } from "lucide-react";
+import { AlarmClock, ArrowUpRight, CalendarDays, Copy, File, Folder, FolderOpen, Link2, ListTodo, Loader2, MessageSquare, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
@@ -16,7 +16,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { t } from "@/i18n";
 import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
+import { openDesktopFolder } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
+import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
 import { createProjectRemoval } from "./project-removal";
+
+function folderParentLabel(path: string) {
+  const parts = path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").filter(Boolean);
+  const parents = parts.slice(-3, -1);
+  return parents.length ? `… / ${parents.join(" / ")}` : "";
+}
 
 export function RemoveProjectDialog({ name, workspaceId, remote, client, onConfirm, onClose }: {
   name: string;
@@ -120,7 +129,7 @@ export function RemoveProjectDialog({ name, workspaceId, remote, client, onConfi
               {backupMode && !manualBackupPath && backupFolderName && <div className="flex items-center gap-2"><FolderOpen className="size-4 shrink-0" /><span className="min-w-0 flex-1 truncate">{t("workspace.backup_selected", { name: backupFolderName })}</span><Button variant="ghost" size="sm" disabled={busy || picking} onClick={() => void chooseBackup()}>{t("common.edit")}</Button></div>}
             </div>
           </section>}
-          {review.data.folderExists && !review.data.deleteFolder && <div className="flex items-start gap-3 rounded-lg border border-blue-6/30 bg-blue-3/20 p-3"><Folder className="mt-0.5 size-4 shrink-0 text-blue-11" /><div className="min-w-0"><p className="font-medium text-blue-11">{t("workspace.keep_folder")}</p><p className="mt-1 text-xs text-muted-foreground">{t("workspace.keep_folder_description")}</p><p className="mt-2 break-all rounded bg-blue-3/40 px-2 py-1 font-mono text-xs text-blue-11">{t("workspace.source_folder_path", { path: review.data.folder })}</p></div></div>}
+          {review.data.folderExists && !review.data.deleteFolder && <div className="flex items-start gap-3 rounded-lg border border-blue-6/30 bg-blue-3/20 p-3"><Folder className="mt-0.5 size-4 shrink-0 text-blue-11" /><div className="min-w-0 flex-1"><p className="font-medium text-blue-11">{t("workspace.keep_folder")}</p><p className="mt-1 text-xs text-muted-foreground">{t("workspace.keep_folder_description")}</p><button type="button" disabled={!isDesktopRuntime()} title={review.data.folder} className="mt-2 flex w-full items-center gap-2 rounded-md bg-blue-3/40 px-2 py-2 text-left text-blue-11 transition-colors hover:bg-blue-4/50 disabled:cursor-default disabled:hover:bg-blue-3/40" onClick={() => { void openDesktopFolder(review.data!.folder).catch(() => toast.error(t("workspace_files.open_failed_title"))); }}><FolderOpen className="size-4 shrink-0" /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{folderNameFromPath(review.data.folder)}</span>{folderParentLabel(review.data.folder) && <span className="block truncate text-xs text-muted-foreground">{folderParentLabel(review.data.folder)}</span>}</span>{isDesktopRuntime() && <ArrowUpRight className="size-4 shrink-0" />}</button></div></div>}
           {review.data.copies.length > 0 && <section className="rounded-lg border p-3"><p className="flex items-center gap-2 font-medium"><Copy className="size-4" />{t("workspace.delete_keep_copies")}</p><p className="mt-1 text-xs text-muted-foreground">{t("workspace.delete_keep_copies_description")}</p><ul className="mt-2 max-h-40 space-y-1 overflow-auto text-muted-foreground">{review.data.copies.map((copy, index) => <li key={index} className="break-words">{copy.name} <span className="text-xs">→ {copy.projectName}</span></li>)}</ul></section>}
         </div>}
         {(error || review.error && !remote && !removal.deleted) && <p role="alert" className="text-sm text-destructive">{error || review.error?.message}</p>}

@@ -6482,7 +6482,6 @@ export default {
   "workspace.delete_folder": "These LegalWork project files will be deleted",
   "workspace.keep_folder": "Your source folder stays",
   "workspace.keep_folder_description": "Its files and folders are not changed. Only the project data listed above is deleted.",
-  "workspace.source_folder_path": "Folder: {path}",
   "workspace.folder_already_removed": "The project folder is already gone",
   "workspace.folder_items": "{count} files and folders — folder contents included",
   "workspace.folder_items_show_all": "Show all {count} items",

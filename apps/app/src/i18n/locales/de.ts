@@ -6852,7 +6852,6 @@ const de = {
   "workspace.delete_folder": "Diese LegalWork-Projektdateien werden gelöscht",
   "workspace.keep_folder": "Ihr Quellordner bleibt erhalten",
   "workspace.keep_folder_description": "Seine Dateien und Ordner bleiben unverändert. Nur die oben aufgeführten Projektdaten werden gelöscht.",
-  "workspace.source_folder_path": "Ordner: {path}",
   "workspace.folder_already_removed": "Der Projektordner ist bereits nicht mehr vorhanden",
   "workspace.folder_items": "{count} Dateien und Ordner, einschließlich der Ordnerinhalte",
   "workspace.folder_items_show_all": "Alle {count} Einträge anzeigen",
