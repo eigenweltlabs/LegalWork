@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { queueInputSchema } from "./session-queue.js";
+import { queueInputSchema } from "@legalwork/types/session-queue";
 
 /** Search categories the launcher can scope to. `f Mietvertrag` is files, `p Müller` projects, and so on. */
 export const LAUNCHER_SEARCH_KINDS = ["files", "projects", "chats", "tasks", "recordings"] as const;
 export const LauncherSearchKindSchema = z.enum(LAUNCHER_SEARCH_KINDS);
 export type LauncherSearchKind = z.infer<typeof LauncherSearchKindSchema>;
+export const LauncherSearchFolderSchema = z.object({ id: z.string(), name: z.string(), path: z.string(), createdAt: z.number() });
+export type LauncherSearchFolder = z.infer<typeof LauncherSearchFolderSchema>;
 export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { files: "f", projects: "p", chats: "c", tasks: "t", recordings: "r" };
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
@@ -14,7 +16,7 @@ export type LauncherResultAction = z.infer<typeof LauncherResultActionSchema>;
 export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring", "fuzzy", "content", "metadata", "recent"]);
 export const LauncherSearchResultSchema = z.object({
   id: z.string(), kind: LauncherSearchKindSchema, workspaceId: z.string().nullable(), sourceId: z.string(), title: z.string(),
-  subtitle: z.string().optional(), path: z.string().optional(), excerpt: z.string().optional(), updatedAt: z.number(), revision: z.string().optional(),
+  subtitle: z.string().optional(), path: z.string().optional(), folderId: z.string().optional(), excerpt: z.string().optional(), updatedAt: z.number(), revision: z.string().optional(),
   fileType: z.string().optional(), size: z.number().optional(), completed: z.boolean().optional(), status: z.string().optional(), dueDate: z.string().nullable().optional(),
   sessionId: z.string().optional(), messageId: z.string().optional(), durationMs: z.number().optional(), incomplete: z.boolean().optional(),
   match: LauncherMatchSchema, score: z.number(), actions: z.array(LauncherResultActionSchema),
@@ -191,6 +193,18 @@ export const DraftLeaseSchema = z.object({ conversationId: z.string(), owner: z.
 export type DraftLease = z.infer<typeof DraftLeaseSchema>;
 export const LauncherDraftFileSchema = z.object({ version: z.number().int().nonnegative().default(0), drafts: z.record(z.string(), LauncherDraftSchema), leases: z.record(z.string(), DraftLeaseSchema) });
 export type LauncherDraftFile = z.infer<typeof LauncherDraftFileSchema>;
+
+export const AssistantOutputSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pending"), requestId: z.string(), messageId: z.string(), conversationId: z.string() }),
+  z.object({ state: z.literal("ready"), requestId: z.string(), messageId: z.string(), conversationId: z.string(), text: z.string() }),
+  z.object({ state: z.literal("failed"), requestId: z.string(), messageId: z.string(), conversationId: z.string(), error: z.string() }),
+]);
+export type AssistantOutput = z.infer<typeof AssistantOutputSchema>;
+export type LauncherOutputIntent = { requestId: string; messageId: string; conversationId: string; output: "copy" | "insert"; originId: string | null };
+export type LauncherOutputTask = LauncherOutputIntent & {
+  createdAt: number; updatedAt: number; state: "waiting" | "delivering" | "done" | "failed" | "cancelled";
+  text?: string; error?: string; result?: "copied" | "inserted" | "recovered";
+};
 
 export const LauncherWindowStateSchema = z.object({ visible: z.boolean(), pinned: z.boolean(), focused: z.boolean(), displayId: z.number().nullable() });
 export type LauncherWindowState = z.infer<typeof LauncherWindowStateSchema>;

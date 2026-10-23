@@ -93,7 +93,7 @@ function documentEntry(preparation: DocumentPreparation, root: string, path: str
   return entry;
 }
 
-export async function searchFileContents(workspace: WorkspaceInfo, query: string, signal: AbortSignal, preparation: DocumentPreparation, retry = false): Promise<ContentSearchResponse> {
+export async function searchFileContents(workspace: Pick<WorkspaceInfo, "id" | "path">, query: string, signal: AbortSignal, preparation: DocumentPreparation, retry = false): Promise<ContentSearchResponse> {
   const root = await realpath(workspace.path);
   const items: ContentSearchResult[] = [], issues: Array<{ path: string; reason: string }> = [];
   let visited = 0, skipped = 0, incomplete = 0, preparing = 0, limited = false;

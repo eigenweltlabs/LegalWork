@@ -1,5 +1,7 @@
 import { constants as fsConstants } from "node:fs";
-import { copyFile, readFile, realpath, stat, unlink } from "node:fs/promises";
+import { copyFile, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { searchFolderFiles } from "../launcher-folder-search.js";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
@@ -36,6 +38,36 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
+  addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
+  addRoute(routes, "POST", "/launcher/folders", "client", async ctx => {
+    options.ensureWritable(config); options.requireClientScope(ctx, "owner");
+    const input = parse(z.object({ path: z.string().trim().min(1).max(4096), name: z.string().trim().max(160).optional() }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_input", "Choose a folder to search.");
+    const folder = await options.searchFolders.add(input.path, input.name);
+    void fileIndex.ensure(`folder:${folder.id}`, folder.path).catch(() => undefined);
+    return jsonResponse({ folder }, 201);
+  });
+  addRoute(routes, "DELETE", "/launcher/folders/:id", "client", async ctx => {
+    options.ensureWritable(config); options.requireClientScope(ctx, "owner");
+    options.searchFolders.remove(ctx.params.id); fileIndex.invalidate(`folder:${ctx.params.id}`);
+    return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "GET", "/launcher/folders/:id/file", "client", async ctx => {
+    read(ctx);
+    const file = await options.searchFolders.file(ctx.params.id, ctx.url.searchParams.get("path") ?? "");
+    return jsonResponse({ path: file.absolute });
+  });
+  addRoute(routes, "POST", "/launcher/folders/:id/attach", "client", async ctx => {
+    write(ctx);
+    const input = parse(z.object({ path: z.string().min(1).max(4096) }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_file", "Choose a file to attach.");
+    const file = await options.searchFolders.file(ctx.params.id, input.path);
+    if (file.info.size > 64 * 1024 * 1024) throw new ApiError(413, "attachment_size", "Choose a file smaller than 64 MiB.");
+    const workspace = await options.assistant.workspace();
+    const name = basename(file.absolute), folder = `.legalwork/attachments/${randomUUID()}`;
+    const destination = await launcherDestination(workspace.path, folder, true);
+    await writeFile(resolve(destination, name), await readFile(file.absolute), { flag: "wx", mode: 0o600 });
+    return jsonResponse({ item: { id: `ref_${randomUUID()}`, type: "file", workspaceId: workspace.id, path: `${folder}/${name}`, name,
+      revision: `${file.info.mtimeMs}:${file.info.size}`, sourceLabel: `${file.folder.name} · ${input.path}` } }, 201);
+  });
   const accessible = async () => {
     const candidates = config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && !isMainAssistant(workspace));
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
@@ -56,12 +88,13 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const kinds = input.kinds ? input.kinds.split(",").map(kind => LauncherSearchKindSchema.parse(kind.trim())) : [...LAUNCHER_SEARCH_KINDS];
     const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
     const store = await taskStore(config);
-    const response = await searchLauncher({
+    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since },
+      (folder, signal) => searchFileContents(folder, input.q, signal, options.preparation), ctx.request.signal), searchLauncher({
       workspaces: accessible, projectName, fileIndex, recordings: recordings(),
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
-    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal);
+    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal)]);
     // Remote projects are not searched from here yet: say so per project instead of answering "nothing found".
     for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && (!input.projectId || workspace.id === input.projectId)))
       response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
@@ -76,6 +109,9 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: page.nextCursor ? "partial" : "complete", count: page.items.length, limited: Boolean(page.nextCursor) });
       response.items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en"));
     }
+    response.items.push(...extra.items); response.sources.push(...extra.sources); response.unavailable.push(...extra.unavailable);
+    response.items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
+    response.items = response.items.slice(0, input.limit);
     return jsonResponse(response);
   });
   addRoute(routes, "GET", "/launcher/catalog", "client", async ctx => {
@@ -136,7 +172,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   // Previews read what the result points at; nothing here reaches a model.
   addRoute(routes, "GET", "/launcher/preview", "client", async ctx => {
     read(ctx);
-    const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
+    const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
     const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(15_000)]);
     const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return options.resolveWorkspace(config, input.workspaceId); };
     const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -145,13 +181,14 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       return jsonResponse(assemblePreview({ kind: "projects", id: workspace.id, title: projectName(workspace), meta: [workspace.path], updatedAt: null }, clampPreview(workspace.path), "metadata"));
     }
     if (input.kind === "files") {
-      const workspace = await workspaceOf();
+      const external = input.folderId ? await options.searchFolders.file(input.folderId, input.id) : null;
+      const workspace = external ? { id: external.folder.id, path: external.folder.path, name: external.folder.name } : await workspaceOf();
       const relativePath = normalizeWorkspaceRelativePath(input.id, { allowSubdirs: true });
       const root = await realpath(workspace.path), absolute = await realpath(resolve(root, relativePath)).catch(() => null);
       if (!absolute || (absolute !== root && !absolute.startsWith(root + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
       const info = await stat(absolute).catch(() => null);
       if (!info?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
-      const source = { kind: "files" as const, id: relativePath, title: relativePath.split("/").pop() ?? relativePath, meta: [projectName(workspace), relativePath, size(info.size)], updatedAt: info.mtimeMs };
+      const source = { kind: "files" as const, id: relativePath, title: relativePath.split("/").pop() ?? relativePath, meta: [external?.folder.name ?? workspace.name, relativePath, size(info.size)], updatedAt: info.mtimeMs };
       if (isSupportedWorkspaceTextFilePath(relativePath) && info.size <= 5_000_000) return jsonResponse(assemblePreview(source, clampPreview(await readFile(absolute, "utf8")), "text"));
       try {
         const prepared = await extractCorpusText(workspace.path, relativePath, options.preparation, signal);

@@ -52,3 +52,18 @@ test("slow chat and task providers do not delay local filename results", async (
   finish(); await wait(10);
   expect(session.current().pending).toBe(false);
 });
+
+test("new search folders refresh while indexing, then stop when complete or hidden", async () => {
+  let calls = 0;
+  const session = new LauncherSearchSession(async (): Promise<LauncherSearchResponse> => {
+    calls++;
+    return { items: calls >= 3 ? [item("new-folder.txt", 500)] : [], sources: [{ id: "folder:one", kind: "files", workspaceId: null, label: "New folder", coverage: calls >= 3 ? "filename-only" : "indexing", count: calls >= 3 ? 1 : 0 }], unavailable: [] };
+  }, { debounceMs: 0, contentPass: false, indexingPollMs: 2 });
+  session.search({ query: "new", kinds: ["files"], projectId: null });
+  await wait(30);
+  expect(calls).toBe(3); expect(session.current().items[0]?.id).toBe("new-folder.txt"); expect(session.current().pending).toBe(false);
+  calls = 0;
+  session.search({ query: "other", kinds: ["files"], projectId: null });
+  await wait(2); session.cancel(); const stoppedAt = calls;
+  await wait(20); expect(calls).toBe(stoppedAt);
+});

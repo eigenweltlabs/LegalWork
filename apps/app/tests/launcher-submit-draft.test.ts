@@ -6,6 +6,22 @@ import { useLauncherStore } from "../src/react-app/launcher/launcher-store";
 
 const conversation: AssistantConversation = { id: "one", sessionId: "session", workspaceId: "assistant", title: "One", kind: "conversation", date: null, createdAt: 1, updatedAt: 1, pinned: false, archivedAt: null, origin: "home" };
 
+test("automatic output is durable before dispatch and a journal failure prevents sending", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const drafts = new DraftCoordinator({ read: async () => structuredClone(file), write: async (next, version) => { if (file.version !== version) return false; file = structuredClone(next); return true; } });
+  await drafts.claim("one", "panel"); await drafts.update("one", "panel", { text: "Keep this" });
+  let registered: AssistantSubmitInput | undefined, sends = 0;
+  const client = { submitAssistantMessage: async (_id: string, input: AssistantSubmitInput) => {
+    sends++; expect(registered).toEqual(input);
+    const submission: AssistantSubmission = { ...input, conversationId: "one", workspaceId: "assistant", sessionId: "session", state: "accepted", target: { kind: "assistant" }, preview: input.text, createdAt: 1, updatedAt: 1, error: null };
+    return { conversation, submission };
+  } };
+  await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: "Keep this" }, beforeSend: async () => { throw new Error("disk full"); } })).rejects.toThrow("disk full");
+  expect(sends).toBe(0); expect(drafts.get("one").text).toBe("Keep this");
+  await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: "Keep this" }, beforeSend: async input => { registered = input; } });
+  expect(sends).toBe(1);
+});
+
 test("HTTP success with unconfirmed delivery retains the payload; Home retries the exact Panel operation", async () => {
   let file = structuredClone(EMPTY_DRAFT_FILE);
   const storage = { read: async () => structuredClone(file), write: async (next: typeof file, expected: number) => { if (file.version !== expected) return false; file = structuredClone(next); return true; } };
@@ -57,4 +73,21 @@ test("acknowledging an earlier send preserves edits made during delivery or befo
   await submitAssistantDraft({ client, drafts, owner: "home", conversationId: "one", retry: true, input: { text: "Next question" } });
   expect(sent[1]).toEqual(sent[0]);
   expect(drafts.get("one").text).toBe("Next question");
+});
+
+test("a failed output registration during retry preserves the uncertain send identity", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const drafts = new DraftCoordinator({ read: async () => structuredClone(file), write: async (next, version) => { if (file.version !== version) return false; file = structuredClone(next); return true; } });
+  await drafts.claim("one", "panel");
+  let sends = 0;
+  const client = { submitAssistantMessage: async (_id: string, input: AssistantSubmitInput) => {
+    sends++;
+    const submission: AssistantSubmission = { ...input, conversationId: "one", workspaceId: "assistant", sessionId: "session", state: "unconfirmed", target: { kind: "assistant" }, preview: input.text, createdAt: 1, updatedAt: 1, error: null };
+    return { conversation, submission };
+  } };
+  await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: "Original" } });
+  const original = drafts.get("one").submission;
+  await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", retry: true, input: { text: "Changed" }, beforeSend: async () => { throw new Error("registration unavailable"); } })).rejects.toThrow();
+  expect(drafts.get("one").submission).toEqual(original);
+  expect(sends).toBe(1);
 });

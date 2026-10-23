@@ -1,4 +1,5 @@
 import { enqueueAssistantSubmission, sendAssistantSubmission } from "./assistant-submission-send.js";
+import { LauncherFolders } from "./launcher-folders.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { getMessageQueue, stopMessageQueue } from "./session-message-queue.js";
@@ -1109,7 +1110,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       return status && status.type !== "idle" ? "running" : "accepted";
     },
   });
-  const launcher = { conversations, submissions, quickActions: await QuickActionStore.open(runtimeDbPath(config)), savedSearches: await SavedSearchStore.open(runtimeDbPath(config)), stagedContext: new LauncherContextStore(), fileIndex: new LauncherFileIndex() };
+  const launcher = { conversations, submissions, quickActions: await QuickActionStore.open(runtimeDbPath(config)), savedSearches: await SavedSearchStore.open(runtimeDbPath(config)), searchFolders: await LauncherFolders.open(runtimeDbPath(config)), stagedContext: new LauncherContextStore(), fileIndex: new LauncherFileIndex() };
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue, assistantSessionAccess, launcher);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
     unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
@@ -2094,7 +2095,7 @@ function createRoutes(
   delegations: AssistantDelegations,
   sessionQueue: AssistantSessionQueue,
   sessionAccess: AssistantSessionAccess,
-  launcher: { conversations: AssistantConversations; submissions: AssistantSubmissions; quickActions: QuickActionStore; savedSearches: SavedSearchStore; stagedContext: LauncherContextStore; fileIndex: LauncherFileIndex },
+  launcher: { conversations: AssistantConversations; submissions: AssistantSubmissions; quickActions: QuickActionStore; savedSearches: SavedSearchStore; searchFolders: LauncherFolders; stagedContext: LauncherContextStore; fileIndex: LauncherFileIndex },
 ): Route[] {
   const routes: Route[] = [];
   addRoute(routes, "GET", "/cloud-sync/status", "client", async () => {

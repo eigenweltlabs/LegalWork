@@ -13,7 +13,7 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
-import type { LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
+import type { LauncherOutputIntent, LauncherOutputTask, LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -855,6 +855,9 @@ export type DesktopCommandMap = {
   launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
   launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
   launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
+  launcherOutputRemember: { args: [serverUrl: string, intent: LauncherOutputIntent]; result: void };
+  launcherOutputList: { args: []; result: LauncherOutputTask[] };
+  launcherOutputCancel: { args: [requestId: string]; result: void };
   launcherDraftsRead: { args: []; result: LauncherDraftFile };
   launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number]; result: boolean };
   launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };

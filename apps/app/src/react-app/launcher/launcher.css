@@ -68,3 +68,13 @@
 .launcher-conversation-head { display: flex; align-items: center; gap: 2px; margin-bottom: 4px; font-size: 12px; color: var(--lw-text-secondary); }
 .launcher-conversation-head > span { flex: 1; min-width: 0; }
 .launcher-reply-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+.launcher-drop-status { display: flex; align-items: center; gap: 8px; margin: 10px; padding: 14px; border: 1px dashed var(--lw-text-secondary); border-radius: 10px; font-size: 13px; background: var(--lw-sunken); }
+.launcher-outputs { padding: 8px 14px; font-size: 12px; border-top: 1px solid var(--lw-border); }
+.launcher-outputs summary { cursor: pointer; }
+.launcher-outputs > p { margin: 8px 0; color: var(--lw-text-secondary); }
+.launcher-outputs ul { max-height: 220px; overflow-y: auto; }
+.launcher-outputs li { display: flex; align-items: start; gap: 8px; padding: 8px 0; }
+.launcher-outputs li > div { flex: 1; min-width: 0; }
+.launcher-outputs time { display: block; color: var(--lw-text-secondary); }
+.launcher-output-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 70px; overflow-y: auto; margin-top: 4px; }

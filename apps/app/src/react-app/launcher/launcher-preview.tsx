@@ -9,8 +9,8 @@ import { useLauncherShell } from "./launcher-shell";
 export function LauncherPreviewPane({ result }: { result: LauncherSearchResult }) {
   const { client } = useLauncherShell();
   const preview = useQuery({
-    queryKey: ["launcher-preview", client.baseUrl, result.kind, result.workspaceId ?? "", result.id],
-    queryFn: ({ signal }) => client.launcherPreview({ kind: result.kind, id: result.kind === "chats" ? result.sessionId ?? result.id : result.id, workspaceId: result.workspaceId }, signal),
+    queryKey: ["launcher-preview", client.baseUrl, result.kind, result.workspaceId ?? "", result.folderId ?? "", result.id, result.revision],
+    queryFn: ({ signal }) => client.launcherPreview({ kind: result.kind, id: result.kind === "chats" ? result.sessionId ?? result.id : result.id, workspaceId: result.workspaceId, folderId: result.folderId }, signal),
     staleTime: 30_000, retry: false,
   });
   return <aside className="launcher-preview" aria-label={t("launcher.result_action.preview")} aria-busy={preview.isPending}>

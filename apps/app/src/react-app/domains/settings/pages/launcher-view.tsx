@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { LauncherFoldersSection } from "./launcher-folders-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Keyboard, Loader2, Plus, Trash2 } from "lucide-react";
 import { DEFAULT_LAUNCHER_SETTINGS, LAUNCHER_SEARCH_KINDS, type LauncherDesktopStatus, type LauncherSettings, type QuickAction, type QuickActionInput } from "@legalwork/types/launcher";
@@ -79,6 +80,7 @@ export function LauncherSettingsView({ client }: { client: LegalworkServerClient
         <p className="text-sm text-subtext">{status.data.raycastPairing.enabled && status.data.raycastPairing.path ? t("launcher.settings.raycast_path", { path: status.data.raycastPairing.path }) : t("launcher.settings.raycast_off")}</p>
       </LayoutSectionItem>
     </>}
+    {client && <LauncherFoldersSection client={client} />}
     {client && <QuickActionsSection client={client} platform={status.data?.platform ?? "darwin"} shortcuts={desktop && status.data ? { current: status.data.actionShortcuts, apply: next => apply({ actionShortcuts: next }) } : null} />}
   </LayoutStack>;
 }

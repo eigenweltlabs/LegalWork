@@ -6,6 +6,7 @@ import { isMainAssistant } from "../main-assistant.js";
 import { readAssistantAttention, replyToAssistantAttention } from "../assistant-attention.js";
 import { AssistantAttentionReplySchema } from "../assistant-schema.js";
 import type { SubmissionPart } from "../assistant-submissions.js";
+import { readAssistantOutput } from "../assistant-output.js";
 import { addRoute } from "./registry.js";
 import type { registerMainAssistantRoutes } from "./main-assistant.js";
 
@@ -160,5 +161,12 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
   addRoute(routes, "GET", "/assistant/submissions/:requestId", "client", async ctx => {
     read(ctx);
     return jsonResponse({ submission: await submissions.status(ctx.params.requestId) });
+  });
+  addRoute(routes, "GET", "/assistant/submissions/:requestId/output", "client", async ctx => {
+    read(ctx);
+    const submission = submissions.get(ctx.params.requestId);
+    if (!submission) throw new ApiError(404, "submission_not_found", "This request has not arrived yet.");
+    const target = await options.resolveWorkspace(config, submission.workspaceId);
+    return jsonResponse(await readAssistantOutput(options.client(target), submission));
   });
 }

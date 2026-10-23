@@ -40,6 +40,7 @@ import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { LauncherService } from "./launcher/launcher-service.mjs";
 import { LauncherWindow } from "./launcher/launcher-window.mjs";
+import { LauncherOutputQueue } from "./launcher/output-queue.mjs";
 import { OriginService, execHelper } from "./launcher/origin-service.mjs";
 import { ScreenCapture } from "./launcher/screen-capture.mjs";
 import { RaycastPairing } from "./launcher/raycast-pairing.mjs";
@@ -912,6 +913,21 @@ const originService = new OriginService({
   pasteText: text => systemDictation.pasteText(text),
 });
 const screenCapture = new ScreenCapture({ hiddenWhile: work => launcherWindow.hiddenWhile(work), origin: () => originService.current() });
+const launcherOutputs = new LauncherOutputQueue({
+  path: path.join(app.getPath("userData"), "launcher-outputs.json"),
+  copy: text => clipboard.writeText(text),
+  insert: async (id, text) => { launcherWindow.hide(); return originService.insert(id, text); },
+  read: async task => {
+    const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+    const response = await fetch(`${info.baseUrl}/assistant/submissions/${encodeURIComponent(task.requestId)}/output`, {
+      headers: { Authorization: `Bearer ${info.ownerToken || info.clientToken}`, ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}) },
+      redirect: "error", signal: AbortSignal.timeout(15_000),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Assistant output is temporarily unavailable (${response.status}).`);
+    return response.json();
+  },
+});
 const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), serverInfo: () => runtimeManager.legalworkServerInfo() });
 const launcherService = new LauncherService({
   app, globalShortcut, userDataDir: app.getPath("userData"), window: launcherWindow, origin: originService, capture: screenCapture, pairing: raycastPairing,
@@ -2783,6 +2799,13 @@ const desktopCommandHandlers = {
   "launcherCaptureRegion": async (event, ...args) => {
       return screenCapture.captureRegion();
   },
+  "launcherOutputRemember": async (event, serverUrl, intent) => {
+      const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+      if (new URL(serverUrl).href.replace(/\/$/, "") !== new URL(info.baseUrl).href.replace(/\/$/, "")) throw new Error("Automatic output is available on this desktop's local Assistant. Use Ask for a remote server.");
+      await launcherOutputs.remember(intent);
+  },
+  "launcherOutputList": async (event) => launcherOutputs.list(),
+  "launcherOutputCancel": async (event, requestId) => launcherOutputs.cancel(requestId),
   "launcherDraftsRead": async (event, ...args) => {
       return readLauncherDrafts();
   },
@@ -3297,7 +3320,7 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
-    void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
+    void launcherOutputs.dispose().then(() => Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()])).finally(() => app.quit());
   });
 
   app.on("second-instance", async (_event, argv) => {
@@ -3443,6 +3466,7 @@ if (!app.requestSingleInstanceLock()) {
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
 
     await launcherService.initialize().catch((error) => console.warn("[launcher] initialize failed", error));
+    await launcherOutputs.initialize().catch(error => console.warn("[assistant-output]", error.message));
     queueDeepLinks(await launcherService.handleDeepLinks(forwardedDeepLinks(process.argv)));
     if (process.platform === "darwin" && !startHiddenPending) {
       try {

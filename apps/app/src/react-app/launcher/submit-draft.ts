@@ -8,6 +8,7 @@ export async function submitAssistantDraft(options: {
   client: Pick<LegalworkServerClient, "submitAssistantMessage">;
   drafts: DraftCoordinator; conversationId: string; owner: string;
   input: Omit<AssistantSubmitInput, "requestId" | "messageId">; retry?: boolean;
+  beforeSend?: (input: AssistantSubmitInput) => Promise<void>;
   identity?: { requestId: string; messageId: string };
 }) {
   const { client, drafts, conversationId, owner } = options;
@@ -24,6 +25,14 @@ export async function submitAssistantDraft(options: {
     const draftSnapshot = retrying ? pending?.draftSnapshot : { text: draft.text, context: draft.context };
     const operation = { requestId: input.requestId, messageId: input.messageId, input, draftSnapshot };
     await drafts.update(conversationId, owner, { submission: { ...operation, state: "sending" } });
+    // Record automatic output before dispatch, using the exact frozen identity.
+    try { await options.beforeSend?.(input); }
+    catch (error) {
+      // A failed local preparation must not turn an already dispatched retry
+      // into a new identity: its earlier delivery may still have succeeded.
+      await drafts.update(conversationId, owner, { submission: { ...operation, state: reuse && pending ? pending.state : "failed" } });
+      throw error;
+    }
     try {
       const { submission } = await client.submitAssistantMessage(conversationId, input);
       const accepted = submission.state === "accepted" || submission.state === "running" || submission.state === "completed";

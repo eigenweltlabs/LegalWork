@@ -1,4 +1,5 @@
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
+import type { LauncherFolders } from "../launcher-folders.js";
 import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
 import { join, resolve } from "node:path";
@@ -59,6 +60,7 @@ export function registerMainAssistantRoutes(options: {
   savedSearches: SavedSearchStore;
   stagedContext: LauncherContextStore;
   fileIndex: LauncherFileIndex;
+  searchFolders: LauncherFolders;
   preparation: DocumentPreparation;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;

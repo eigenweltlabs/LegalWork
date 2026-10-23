@@ -192,7 +192,7 @@ export class OriginService {
     const origin = this.origin;
     const value = String(text ?? "");
     /** @param {"no-origin" | "changed" | "unavailable" | "denied" | "failed"} reason @param {string} message @returns {import("@legalwork/types/launcher").LauncherInsertResult} */
-    const copy = (reason, message) => { try { this.clipboard.writeText(value); } catch { /* nothing to restore */ } return { ok: false, reason, message, copied: true, origin }; };
+    const copy = (reason, message) => { try { this.clipboard.writeText(value); } catch { return { ok: false, reason: "failed", message: "The result could not be copied. It remains in the conversation.", copied: false, origin }; } return { ok: false, reason, message, copied: true, origin }; };
     if (!origin || origin.id !== originId) return copy("no-origin", "The destination app was not recorded. The result was copied.");
     if (!origin.supportsInsert || origin.pid === null) return copy("unavailable", "Inserting into this app is not supported. The result was copied.");
     const activated = await this.activate(origin);

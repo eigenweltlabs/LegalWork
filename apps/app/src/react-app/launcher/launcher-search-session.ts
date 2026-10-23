@@ -15,7 +15,7 @@ export class LauncherSearchSession {
   private generation = 0;
   private snapshot: SearchSnapshot = { items: [], sources: [], pending: false, query: "", error: null };
   private listeners = new Set<(snapshot: SearchSnapshot) => void>();
-  constructor(private run: SearchRun, private options: { debounceMs?: number; contentPass?: boolean } = {}) {}
+  constructor(private run: SearchRun, private options: { debounceMs?: number; contentPass?: boolean; indexingPollMs?: number } = {}) {}
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The query whose rows are on screen; only a content pass for the same words keeps their order. */
   private settledQuery = "";
@@ -61,6 +61,18 @@ export class LauncherSearchSession {
         if (this.options.contentPass !== false && kind === "files" && input.query.length >= 2) {
           publish();
           responses.set(kind, await this.run({ ...input, kinds: [kind], content: true }, controller.signal));
+        }
+        // Newly added folders and document preparation finish in the background.
+        // Refresh while coverage settles (bounded); cancel immediately on hide/change.
+        for (let poll = 0; poll < 12 && kind === "files" && responses.get(kind)?.sources.some(source => source.coverage === "indexing") && !controller.signal.aborted && generation === this.generation; poll++) {
+          publish();
+          await new Promise<void>(resolve => {
+            const done = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", done); resolve(); };
+            const timer = setTimeout(done, this.options.indexingPollMs ?? 2500);
+            controller.signal.addEventListener("abort", done, { once: true });
+          });
+          if (controller.signal.aborted || generation !== this.generation) return;
+          responses.set(kind, await this.run({ ...input, kinds: [kind], content: this.options.contentPass !== false && input.query.length >= 2 }, controller.signal));
         }
       } catch (error) {
         if (controller.signal.aborted || generation !== this.generation) return;
