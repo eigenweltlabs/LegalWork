@@ -141,10 +141,10 @@ export function RemoveProjectDialog({ name, workspaceId, remote, client, onConfi
             {busy && <Loader2 className="size-4 animate-spin" />}
             {t("workspace.backup_and_delete")}
           </Button>}
-          <Button variant={removal.deleted ? "default" : "destructive"} disabled={busy || picking || !remote && !removal.deleted && (!review.data || review.isFetching || Boolean(review.error))} aria-busy={busy} onClick={() => void remove()}>
+          {!wantsBackup && <Button variant={removal.deleted ? "default" : "destructive"} disabled={busy || picking || !remote && !removal.deleted && (!review.data || review.isFetching || Boolean(review.error))} aria-busy={busy} onClick={() => void remove()}>
             {busy && <Loader2 className="size-4 animate-spin" />}
             {t(removal.deleted ? "common.retry" : remote ? "sidebar.remove_project" : deletesFiles ? "workspace.delete_with_files" : "workspace.delete_with_chats")}
-          </Button>
+          </Button>}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
