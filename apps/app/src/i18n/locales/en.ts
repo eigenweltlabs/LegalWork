@@ -6469,7 +6469,7 @@ export default {
   "workspace.delete_description": "Delete this project, its chats, tasks and calendar entries, including unsaved dashboards in chats. External files and connected storage are kept. This cannot be undone.",
   "workspace.delete_checking": "Checking project chats and linked files…",
   "workspace.delete_chats": "Chats to delete: {count}",
-  "workspace.delete_folder": "This folder was created by LegalWork and will be deleted with all its files",
+  "workspace.delete_folder": "This project folder will be deleted with all its files",
   "workspace.keep_folder": "This folder and all its files will be kept",
   "workspace.folder_already_removed": "This folder has already been removed",
   "workspace.delete_keep_copies": "Keep independent copies in these projects",

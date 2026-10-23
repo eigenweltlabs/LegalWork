@@ -6839,7 +6839,7 @@ const de = {
   "workspace.delete_description": "Dieses Projekt, seine Chats, Aufgaben und Kalendereinträge löschen, einschließlich ungespeicherter Dashboards in Chats. Externe Dateien und verbundene Speicher bleiben erhalten. Das kann nicht rückgängig gemacht werden.",
   "workspace.delete_checking": "Chats und verknüpfte Dateien werden geprüft…",
   "workspace.delete_chats": "Zu löschende Chats: {count}",
-  "workspace.delete_folder": "Dieser Ordner wurde von LegalWork erstellt und wird mit allen Dateien gelöscht",
+  "workspace.delete_folder": "Dieser Projektordner wird mit allen seinen Dateien gelöscht",
   "workspace.keep_folder": "Dieser Ordner und alle seine Dateien bleiben erhalten",
   "workspace.folder_already_removed": "Dieser Ordner wurde bereits entfernt",
   "workspace.delete_keep_copies": "Eigenständige Kopien in diesen Projekten behalten",

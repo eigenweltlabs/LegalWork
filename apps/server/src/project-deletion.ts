@@ -7,6 +7,7 @@ import type { ProjectDeletionReview } from "@legalwork/types/workspace";
 import { ApiError } from "./errors.js";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { projectFolderOrigin } from "./project-folder-origin.js";
+import { defaultProjectRoot } from "./project-store.js";
 import { readProjectFileLinks, updateProjectFileLinks, projectFileParent, importProjectFile } from "./project-file-links.js";
 import type { ProjectFileLink } from "./project-file-schema.js";
 import { beginSessionDeletion } from "./session-execution-gate.js";
@@ -36,7 +37,9 @@ async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engi
     throw error;
   });
   const folderOrigin = await projectFolderOrigin(config, workspace);
-  const deleteFolder = folderOrigin === "created_by_app";
+  const legacyManagedFolder = folderOrigin === "unknown" && info?.isDirectory() && !info.isSymbolicLink()
+    && inside(await canonicalFilePath(defaultProjectRoot(config.projectsDirectory)), canonical);
+  const deleteFolder = folderOrigin === "created_by_app" || Boolean(legacyManagedFolder);
   if (info && !info.isDirectory() && !info.isSymbolicLink()) throw new ApiError(409, "project_folder_unavailable", "The project folder is unavailable. Reconnect it before deleting the project.");
   if ((await new WikiStore(config).list()).some(wiki => wiki.workspaceId === workspace.id)) throw new ApiError(400, "wiki_deletion_required", "Delete this wiki through Wiki settings.");
   if (deleteFolder) await assertProjectFolderIndependent(canonical, await new WikiStore(config).list());

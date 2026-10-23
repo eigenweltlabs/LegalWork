@@ -26,10 +26,12 @@ import { runtimeDbPath } from "./runtime-db.js";
 const cleanup: Array<() => void | Promise<void>> = [];
 const previousData = process.env.LEGALWORK_DATA_DIR;
 const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+const previousProjects = process.env.LEGALWORK_PROJECTS_DIR;
 afterEach(async () => {
   for (const run of cleanup.splice(0).reverse()) await run();
   if (previousData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = previousData;
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+  if (previousProjects === undefined) delete process.env.LEGALWORK_PROJECTS_DIR; else process.env.LEGALWORK_PROJECTS_DIR = previousProjects;
 });
 type Chat = { id: string; directory: string; parentID?: string; time: { created: number; updated: number; archived?: number } };
 const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), chatCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
@@ -38,6 +40,7 @@ async function fixture(external = false, origin: "created_by_app" | "selected_ex
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   process.env.LEGALWORK_DATA_DIR = join(root, "data");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  delete process.env.LEGALWORK_PROJECTS_DIR;
   const managed = join(root, "projects"), folder = join(external ? root : managed, "source"), other = join(managed, "other"), third = join(managed, "third"), outside = join(root, "external");
   for (const path of [folder, other, third, outside]) await mkdir(path, { recursive: true });
   await writeFile(join(folder, "contract.docx"), "Original contract");
@@ -391,20 +394,81 @@ test("a detached tabular review blocks deletion until results and history have f
 });
 
 
-for (const origin of ["selected_existing", "unknown"] satisfies Array<"selected_existing" | "unknown">) {
-  test(`${origin} folders inside the default project directory are retained, including attachments`, async () => {
-    const f = await fixture(false, origin);
-    await mkdir(join(f.folder, ".legalwork", "attachments"), { recursive: true });
-    await writeFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "Keep this upload");
-    // Project metadata / caller-supplied flags cannot grant recursive deletion.
-    await writeFile(join(f.folder, ".legalwork", "project.json"), JSON.stringify({ folderOrigin: "created_by_app" }));
-    const review = await f.review(); expect(review.deleteFolder).toBe(false);
-    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token, deleteFolder: true, folderOrigin: "created_by_app" })).status).toBe(200);
-    expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
-    expect(await readFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "utf8")).toBe("Keep this upload");
+test("selected source folders inside the default project directory are retained, including attachments", async () => {
+  const f = await fixture(false, "selected_existing");
+  await mkdir(join(f.folder, ".legalwork", "attachments"), { recursive: true });
+  await writeFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "Keep this upload");
+  // Project metadata / caller-supplied flags cannot grant recursive deletion.
+  await writeFile(join(f.folder, ".legalwork", "project.json"), JSON.stringify({ folderOrigin: "created_by_app" }));
+  const review = await f.review(); expect(review.deleteFolder).toBe(false);
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token, deleteFolder: true, folderOrigin: "created_by_app" })).status).toBe(200);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  expect(await readFile(join(f.folder, ".legalwork", "attachments", "uploaded.txt"), "utf8")).toBe("Keep this upload");
+  expect([...f.chats.keys()]).toEqual(["unrelated"]);
+});
+
+for (const backup of [false, true]) {
+  test(`legacy folders inside managed storage are deleted with chats and linked copies, backup=${backup}`, async () => {
+    const f = await fixture(false, "unknown"), destination = join(f.root, "backups");
+    await mkdir(destination); await f.linked(f.other); await f.linked(f.third);
+    const review = await f.review(); expect(review.deleteFolder).toBe(true);
+    const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token, ...(backup ? { backupDirectory: destination } : {}) });
+    expect(response.status).toBe(200);
+    const result = z.object({ backupPath: z.string().nullable() }).parse(await response.json());
+    if (backup) {
+      expect(result.backupPath).not.toBeNull();
+      expect(await readFile(join(result.backupPath!, "contract.docx"), "utf8")).toBe("Original contract");
+    } else expect(result.backupPath).toBeNull();
+    expect(await stat(f.folder).catch(() => null)).toBeNull();
     expect([...f.chats.keys()]).toEqual(["unrelated"]);
+    for (const folder of [f.other, f.third]) {
+      expect(await readProjectFileLinks(folder)).toEqual([]);
+      expect(await readFile(join(folder, "contract.docx"), "utf8")).toBe("Original contract");
+    }
   });
 }
+
+test("legacy folders outside managed storage retain files while chats and registration are removed", async () => {
+  const f = await fixture(true, "unknown"); await f.linked(f.other);
+  const review = await f.review(); expect(review.deleteFolder).toBe(false);
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  expect(await readFile(join(f.other, "contract.docx"), "utf8")).toBe("Original contract");
+  expect(await readProjectFileLinks(f.other)).toEqual([]);
+  expect([...f.chats.keys()]).toEqual(["unrelated"]);
+  expect(f.config.workspaces.some(item => item.id === "source")).toBe(false);
+});
+
+test("a legacy folder reached through an internal directory symlink keeps its external files", async () => {
+  const f = await fixture(true, "unknown"), alias = join(f.managed, "linked");
+  await symlink(f.root, alias);
+  f.config.workspaces[0].path = join(alias, "source");
+  const review = await f.review(); expect(review.deleteFolder).toBe(false);
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+  expect([...f.chats.keys()]).toEqual(["unrelated"]);
+});
+
+test("the managed root itself and similar path prefixes do not grant legacy deletion rights", async () => {
+  const f = await fixture(false, "unknown");
+  f.config.projectsDirectory = f.folder;
+  expect((await f.review()).deleteFolder).toBe(false);
+  f.config.projectsDirectory = join(f.root, "project");
+  expect((await f.review()).deleteFolder).toBe(false);
+});
+
+test("legacy classification resolves the configured root and invalidates confirmation when it changes", async () => {
+  const f = await fixture(false, "unknown"), alias = join(f.root, "projects-alias");
+  await symlink(f.managed, alias);
+  process.env.LEGALWORK_PROJECTS_DIR = alias;
+  f.config.projectsDirectory = join(f.root, "unused-default");
+  const review = await f.review(); expect(review.deleteFolder).toBe(true);
+  delete process.env.LEGALWORK_PROJECTS_DIR;
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(409);
+  expect((await f.review()).deleteFolder).toBe(false);
+  expect(f.state.deleted).toEqual([]);
+  expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
+});
 
 test("creation records provenance and explicitly reattaching a folder treats it as a source folder", async () => {
   const f = await fixture();
