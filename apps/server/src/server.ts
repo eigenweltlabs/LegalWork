@@ -2022,6 +2022,14 @@ function createRoutes(
       if (!resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) throw new ApiError(503, "project_chats_unavailable", "Connect the chat engine before deleting a project.");
       return createWorkspaceOpencodeClient(config, workspace);
     },
+    projectDeletionEffects: async workspaceId => {
+      const [tasks, calendar] = await Promise.all([taskStore(config), calendarStore(config)]);
+      return {
+        taskCount: tasks.listTasks({ projectId: workspaceId, deleted: "include", limit: 10_000 }).tasks.length,
+        calendarEntryCount: calendar.list(workspaceId, true).length,
+        scheduledTaskCount: scheduledTasks.list(workspaceId).length,
+      };
+    },
     cleanupProjectSession: async (workspaceId, sessionId) => {
       await removeQueuedSession(config, workspaceId, sessionId);
       await deleteSessionUsageLimits(config, workspaceId, sessionId);

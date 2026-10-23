@@ -1,6 +1,6 @@
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
-import { deleteProjectData, reviewProjectDeletion } from "../project-deletion.js";
+import { deleteProjectData, reviewProjectDeletion, type ProjectDeletionEffects } from "../project-deletion.js";
 import { withProjectDeletion } from "../project-deletion-gate.js";
 import { recordProjectFolderOrigin, type ProjectFolderOrigin } from "../project-folder-origin.js";
 import type { ProjectFileLink } from "../project-file-schema.js";
@@ -28,6 +28,7 @@ type ParseOptionalBoolean = (value: string | null, name: string) => boolean | un
 
 interface RegisterWorkspaceRoutesOptions {
   createProjectEngine: (workspace: WorkspaceInfo) => ReturnType<typeof createOpencodeClient>;
+  projectDeletionEffects: (workspaceId: string) => Promise<ProjectDeletionEffects>;
   cleanupProjectSession: (workspaceId: string, sessionId: string) => Promise<void>;
   cleanupProjectTasks: (workspaceId: string) => Promise<void>;
   readConnectedLink: (ctx: RequestContext, link: ProjectFileLink) => Promise<Uint8Array>;
@@ -675,7 +676,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "GET", "/workspaces/:id/deletion", "host", async ctx => {
     const workspace = registeredWorkspace(ctx.params.id);
-    return jsonResponse(await reviewProjectDeletion(config, workspace, options.createProjectEngine(workspace)));
+    return jsonResponse(await reviewProjectDeletion(config, workspace, options.createProjectEngine(workspace), options.projectDeletionEffects));
   });
   // An explicit endpoint keeps older clients' "Remove workspace" action and
   // sync's unregister operation non-destructive.
@@ -690,6 +691,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return withProjectDeletion(config, async () => {
       const workspace = registeredWorkspace(ctx.params.id);
       const result = await deleteProjectData({ config, workspace, engine: options.createProjectEngine(workspace), token, backupDirectory,
+        loadEffects: options.projectDeletionEffects,
         readConnected: link => options.readConnectedLink(ctx, link),
         cleanupSession: id => options.cleanupProjectSession(workspace.id, id),
         beforeFiles: async () => {

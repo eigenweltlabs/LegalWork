@@ -15,10 +15,12 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { WikiStore } from "./wiki/store.js";
 import { assertProjectFolderIndependent } from "./wiki/workspace-safety.js";
 import { copyViewRecord } from "./views/repository.js";
+import { reviewSessionViews, savedSessionViews, sessionViewPreviews } from "./views/session-previews.js";
 import { backupProjectFolder } from "./project-backup.js";
 
 type Engine = ReturnType<typeof createOpencodeClient>;
 type Incoming = { workspace: WorkspaceInfo; link: ProjectFileLink };
+export type ProjectDeletionEffects = { taskCount: number; calendarEntryCount: number; scheduledTaskCount: number };
 const inside = (root: string, path: string) => {
   const child = relative(root, path);
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
@@ -29,7 +31,7 @@ const result = <T>(response: { data?: T; response?: Response }): NonNullable<T> 
 };
 const requestOptions = () => ({ signal: AbortSignal.timeout(30_000) });
 
-/** A small, direct-folder preview helps people recognize their files without exposing a filesystem path. */
+/** A direct-folder inventory helps people recognize files that will really be deleted, without exposing paths. */
 async function previewFolder(path: string, info: Awaited<ReturnType<typeof lstat>> | null) {
   if (!info?.isDirectory() || info.isSymbolicLink()) return null;
   try {
@@ -37,7 +39,7 @@ async function previewFolder(path: string, info: Awaited<ReturnType<typeof lstat
     const sorted = entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
     return {
       total: sorted.length,
-      items: sorted.slice(0, 6).map(entry => ({
+      items: sorted.map(entry => ({
         name: entry.name,
         kind: entry.isSymbolicLink() ? "link" as const : entry.isDirectory() ? "folder" as const : "file" as const,
       })),
@@ -48,7 +50,18 @@ async function previewFolder(path: string, info: Awaited<ReturnType<typeof lstat
   }
 }
 
-async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine) {
+async function countUnsavedDashboards(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine, sessions: Array<{ id: string }>) {
+  if (!sessions.length) return 0;
+  const previews = [];
+  for (const session of sessions) {
+    const messages = result(await engine.session.messages({ sessionID: session.id }, requestOptions()));
+    previews.push(...sessionViewPreviews(messages).map(item => ({ ...item, sessionId: session.id })));
+  }
+  if (!previews.length) return 0;
+  return reviewSessionViews(previews, await savedSessionViews(config), workspace.id, sessions[0]!.id).items.length;
+}
+
+async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine, loadEffects?: (workspaceId: string) => Promise<ProjectDeletionEffects>) {
   if (workspace.workspaceType !== "local") throw new ApiError(400, "local_project_required", "Delete the project on its host. This computer can only remove the remote connection.");
   const folder = resolve(workspace.path), canonical = await canonicalFilePath(folder);
   const info = await lstat(folder).catch(error => {
@@ -84,21 +97,26 @@ async function plan(config: ServerConfig, workspace: WorkspaceInfo, engine: Engi
   const statuses = result(await engine.session.status({}, requestOptions()));
   if (sessions.some(session => statuses[session.id] && statuses[session.id].type !== "idle"))
     throw new ApiError(409, "project_chats_busy", "Stop the project's running chats before deleting it.");
-  const folderItems = await previewFolder(folder, info);
+  const [folderItems, unsavedDashboardCount, effects] = await Promise.all([
+    deleteFolder ? previewFolder(folder, info) : Promise.resolve(null),
+    countUnsavedDashboards(config, workspace, engine, sessions),
+    loadEffects?.(workspace.id) ?? Promise.resolve({ taskCount: 0, calendarEntryCount: 0, scheduledTaskCount: 0 }),
+  ]);
   const review: ProjectDeletionReview = {
     token: createHash("sha256").update(JSON.stringify({ id: workspace.id, canonical, inode: info?.ino, device: info?.dev, folderOrigin, deleteFolder,
       sessions: sessions.map(session => [session.id, session.time.updated]).sort(),
+      effects, unsavedDashboardCount,
       incoming: incoming.map(item => [item.workspace.id, item.workspace.path, item.link]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
     })).digest("hex"),
     name: workspace.displayName || workspace.name,
-    folder, folderExists: Boolean(info), deleteFolder, folderItems, chatCount: sessions.length,
+    folder, folderExists: Boolean(info), deleteFolder, folderItems, chatCount: sessions.length, unsavedDashboardCount, ...effects,
     copies: incoming.map(item => ({ projectId: item.workspace.id, projectName: item.workspace.displayName || item.workspace.name, name: item.link.name, folder: item.link.folder })),
   };
   return { review, incoming, sessions, canonical, inode: info?.ino, device: info?.dev };
 }
 
-export async function reviewProjectDeletion(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine) {
-  return (await plan(config, workspace, engine)).review;
+export async function reviewProjectDeletion(config: ServerConfig, workspace: WorkspaceInfo, engine: Engine, loadEffects?: (workspaceId: string) => Promise<ProjectDeletionEffects>) {
+  return (await plan(config, workspace, engine, loadEffects)).review;
 }
 
 async function preserveLink(config: ServerConfig, item: Incoming, readConnected: (link: ProjectFileLink) => Promise<Uint8Array>) {
@@ -142,10 +160,11 @@ export async function deleteProjectData(input: {
   readConnected: (link: ProjectFileLink) => Promise<Uint8Array>;
   cleanupSession: (id: string) => Promise<void>;
   beforeFiles: () => Promise<void>;
+  loadEffects?: (workspaceId: string) => Promise<ProjectDeletionEffects>;
   backupDirectory?: string;
 }) {
   const { config, workspace, engine } = input;
-  const current = await plan(config, workspace, engine);
+  const current = await plan(config, workspace, engine, input.loadEffects);
   if (current.review.token !== input.token) throw new ApiError(409, "project_deletion_changed", "The project changed. Review the deletion again.");
   if (input.backupDirectory && !current.review.deleteFolder) throw new ApiError(400, "project_folder_retained", "This project folder is kept in place. No backup is needed to delete the project.");
   const releases: Array<() => void> = [];

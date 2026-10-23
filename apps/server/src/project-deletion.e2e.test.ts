@@ -34,7 +34,7 @@ afterEach(async () => {
   if (previousProjects === undefined) delete process.env.LEGALWORK_PROJECTS_DIR; else process.env.LEGALWORK_PROJECTS_DIR = previousProjects;
 });
 type Chat = { id: string; directory: string; parentID?: string; time: { created: number; updated: number; archived?: number } };
-const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), folderItems: z.object({ total: z.number(), items: z.array(z.object({ name: z.string(), kind: z.enum(["file", "folder", "link"]) })) }).nullable(), chatCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
+const reviewSchema = z.object({ token: z.string(), deleteFolder: z.boolean(), folderItems: z.object({ total: z.number(), items: z.array(z.object({ name: z.string(), kind: z.enum(["file", "folder", "link"]) })) }).nullable(), chatCount: z.number(), taskCount: z.number(), calendarEntryCount: z.number(), scheduledTaskCount: z.number(), unsavedDashboardCount: z.number(), copies: z.array(z.object({ projectId: z.string() })) });
 async function fixture(external = false, origin: "created_by_app" | "selected_existing" | "unknown" = external ? "selected_existing" : "created_by_app") {
   const root = await mkdtemp(join(tmpdir(), "legalwork-project-deletion-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -48,7 +48,8 @@ async function fixture(external = false, origin: "created_by_app" | "selected_ex
   const chats = new Map<string, Chat>();
   const addChat = (id: string, directory = folder, parentID?: string) => chats.set(id, { id, directory, parentID, time: { created: 1, updated: 1 } });
   addChat("chat"); addChat("child", folder, "chat"); addChat("unrelated", other);
-  const state: { busy: boolean; failDelete: boolean; deleted: string[]; beforeMessages?: () => Promise<void>; beforeDelete?: () => Promise<void> } = { busy: false, failDelete: false, deleted: [] };
+  const state: { busy: boolean; failDelete: boolean; deleted: string[]; unsavedDashboard: boolean; beforeMessages?: () => Promise<void>; beforeDelete?: () => Promise<void> } = { busy: false, failDelete: false, deleted: [], unsavedDashboard: false };
+  const dashboardPreview = { status: "preview", owner: { kind: "workspace", id: "source" }, input: { version: 1, title: "Unsaved dashboard", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Unsaved")', queries: {} } };
   const remove = (id: string) => { for (const child of [...chats.values()].filter(chat => chat.parentID === id)) remove(child.id); chats.delete(id); };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), path = url.pathname;
@@ -58,7 +59,7 @@ async function fixture(external = false, origin: "created_by_app" | "selected_ex
     if (match) {
       const id = match[1];
       if (match[2] === "/children") return Response.json([...chats.values()].filter(chat => chat.parentID === id));
-      if (match[2] === "/message") { await state.beforeMessages?.(); return Response.json([]); }
+      if (match[2] === "/message") { await state.beforeMessages?.(); return Response.json(id === "chat" && state.unsavedDashboard ? [{ parts: [{ type: "tool", tool: "view_create", callID: "dashboard", state: { status: "completed", output: JSON.stringify(dashboardPreview) } }] }] : []); }
       if (!chats.has(id)) return Response.json({ error: "not_found" }, { status: 404 });
       if (request.method === "DELETE") {
         await state.beforeDelete?.();
@@ -104,6 +105,7 @@ test("deletes managed files and all chats; retains external targets and independ
   const archived = f.chats.get("older-0")!; archived.time.archived = 123;
   const review = await f.review();
   expect(review).toMatchObject({ deleteFolder: true, chatCount: 152 });
+  expect(review.folderItems).toMatchObject({ total: 3 });
   expect(review.copies).toHaveLength(2);
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   const payload = await response.json();
@@ -126,7 +128,7 @@ test("deletes managed files and all chats; retains external targets and independ
 test("an external project folder remains intact while its chats and registration are deleted", async () => {
   const f = await fixture(true), review = await f.review();
   expect(review.deleteFolder).toBe(false);
-  expect(review.folderItems).toEqual({ total: 1, items: [{ name: "contract.docx", kind: "file" }] });
+  expect(review.folderItems).toBeNull();
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   expect(response.status).toBe(200); await response.arrayBuffer();
   expect(await readFile(join(f.folder, "contract.docx"), "utf8")).toBe("Original contract");
@@ -140,6 +142,13 @@ test("a project root symlink outside managed storage is retained with its target
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   expect(response.status).toBe(200); await response.arrayBuffer();
   expect(await readFile(join(f.folder, "keep.txt"), "utf8")).toBe("External original");
+});
+
+test("reports an unsaved dashboard only when a project chat actually has one", async () => {
+  const f = await fixture();
+  expect((await f.review()).unsavedDashboardCount).toBe(0);
+  f.state.unsavedDashboard = true;
+  expect((await f.review()).unsavedDashboardCount).toBe(1);
 });
 
 test("new chats invalidate confirmation; active chats and foreign descendants block deletion", async () => {
@@ -244,6 +253,7 @@ test("clears only this project's scheduled tasks, calendar and task records", as
     settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
     confirmed: true, remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false, lastSyncAt: null, lastError: null, report: null });
   const review = await f.review();
+  expect(review).toMatchObject({ taskCount: 1, calendarEntryCount: 1, scheduledTaskCount: 1 });
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   expect(response.status).toBe(200);
   expect(projects.tasksRemoved("remote-source", "firm")).toBe(true);
