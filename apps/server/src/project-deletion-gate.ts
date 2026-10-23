@@ -1,6 +1,9 @@
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 
+// The reservation must include queued work and final writes after cancellation.
+export type BackgroundTaskRunner = (run: () => Promise<void>) => Promise<void>;
+
 const states = new WeakMap<ServerConfig, { deleting: boolean; requests: number }>();
 function state(config: ServerConfig) {
   let value = states.get(config);

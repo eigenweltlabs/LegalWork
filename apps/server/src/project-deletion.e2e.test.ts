@@ -11,6 +11,15 @@ import { deleteProjectData } from "./project-deletion.js";
 import { calendarStore } from "./calendar/store.js";
 import { taskStore } from "./task-store.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
+import { ViewRepository, workspaceViewFiles } from "./views/repository.js";
+import { DocumentPreparation } from "./document-preparation/service.js";
+import { OcrManager } from "./ocr/manager.js";
+import { OcrService } from "./ocr/service.js";
+import { withProjectMutation } from "./project-deletion-gate.js";
+import { ReviewService } from "./reviews/service.js";
+import { ReviewDefaults } from "./reviews/storage.js";
+import { CorpusService } from "./corpus/service.js";
+import { projectSyncStore } from "./project-sync-store.js";
 import { runtimeDbPath } from "./runtime-db.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -223,9 +232,15 @@ test("clears only this project's scheduled tasks, calendar and task records", as
   const actor = { userId: null, name: null, email: null };
   const ownTask = tasks.createTask({ projectId: "source", title: "Remove task" }, actor);
   const keptTask = tasks.createTask({ projectId: "other", title: "Keep task" }, actor);
+  const projects = await projectSyncStore(f.config);
+  projects.saveLink({ workspaceId: "source", projectId: "remote-source", orgId: "firm", origin: "local", role: "owner", ownerUserId: null,
+    settings: { access: "members", memberIds: [], scope: { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: false } },
+    confirmed: true, remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false, lastSyncAt: null, lastError: null, report: null });
   const review = await f.review();
   const response = await f.request("/workspaces/source/delete-project", "POST", { token: review.token });
   expect(response.status).toBe(200);
+  expect(projects.tasksRemoved("remote-source", "firm")).toBe(true);
+  expect(projects.linkByWorkspace("source")).toBeNull();
   expect(scheduled.list("source")).toEqual([]);
   expect(scheduled.runs(own.id)).toEqual([]);
   expect(scheduled.list("other").map(task => task.id)).toEqual([kept.id]);
@@ -247,4 +262,127 @@ test("registration persistence failure remains retryable even after the folder w
   expect(retry.chatCount).toBe(0);
   expect((await f.request("/workspaces/source/delete-project", "POST", { token: retry.token })).status).toBe(200);
   expect(f.config.workspaces.some(workspace => workspace.id === "source")).toBe(false);
+});
+
+
+test("duplicate dashboard links become distinct, readable and editable copies", async () => {
+  const f = await fixture();
+  const repository = new ViewRepository({ kind: "workspace", id: "source" }, workspaceViewFiles(f.folder));
+  const input = { version: 1, title: "Saved dashboard", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Hello")', queries: {},
+    datasets: { source: { rows: [{ title: "Evidence" }], total: 1, revision: "original", asOf: 1, truncated: false } } } satisfies import("@legalwork/types/views").ViewInput;
+  const view = await repository.create(input), path = await repository.location(view.id);
+  await mkdir(join(f.other, "Documents"));
+  // An existing independent copy with the original ID must also remain usable.
+  await writeFile(join(f.other, "original.view.json"), await readFile(join(f.folder, path)));
+  await updateProjectFileLinks(f.other, () => ["", "Documents"].map(folder => ({ id: crypto.randomUUID(), name: folder ? "Dashboard v1.2" : "dashboard.view.json", folder, createdAt: 1,
+    source: { projectId: "source", workspaceId: "source", path, name: "dashboard.view.json" } })));
+  const review = await f.review();
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+  const copies = new ViewRepository({ kind: "workspace", id: "other" }, workspaceViewFiles(f.other));
+  const listed = await copies.list();
+  expect(listed.issues).toEqual([]); expect(listed.items).toHaveLength(3);
+  expect(new Set(listed.items.map(item => item.id)).size).toBe(3);
+  for (const item of listed.items) expect(await copies.read(item.id)).toMatchObject(input);
+  const copied = listed.items.find(item => item.id !== view.id)!;
+  await copies.update(copied.id, { ...input, title: "Edited copy" }, copied.revision);
+  expect((await copies.read(view.id)).title).toBe("Saved dashboard");
+  expect(await readProjectFileLinks(f.other)).toEqual([]);
+});
+
+test("an invalid linked dashboard blocks deletion without discarding the source or link", async () => {
+  const f = await fixture();
+  await writeFile(join(f.folder, "broken.view.json"), "{broken");
+  await f.linked(f.other, "broken.view.json");
+  const review = await f.review();
+  expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(409);
+  expect(f.state.deleted).toEqual([]);
+  expect(await readProjectFileLinks(f.other)).toHaveLength(1);
+  expect(await readFile(join(f.folder, "broken.view.json"), "utf8")).toBe("{broken");
+});
+
+test("queued and cancelled document preparation block deletion until their final writes finish", async () => {
+  const f = await fixture();
+  await writeFile(join(f.folder, "document.pdf"), "fixture rendered by injected renderer");
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const jobs: Promise<void>[] = [];
+  const preparation = new DocumentPreparation(new OcrManager(join(f.root, "ocr")), {
+    runBackground: run => { const job = withProjectMutation(f.config, run); jobs.push(job); return job; },
+    snapshot: async () => ({ fingerprint: "fixture", service: new OcrService([{ info: { id: "test", label: "Test", execution: "local", model: "test", languages: null, regions: true, warnings: [] },
+      recognize: async () => ({ text: "Evidence", regions: [], truncated: false }) }], "test") }),
+    open: async () => ({ pageCount: 1, close: async () => {}, page: async number => {
+      entered(); await held;
+      return { nativeText: "Confidential source text. ".repeat(20), image: { pageNumber: number, mimeType: "image/png", width: 10, height: 10, data: new Uint8Array() } };
+    } }),
+  });
+  try {
+    const first = await preparation.start(f.folder, { files: ["document.pdf"], ocr: "missing-text" });
+    await started;
+    const queued = await preparation.start(f.folder, { files: ["document.pdf"], ocr: "missing-text" });
+    expect(queued.status).toBe("queued");
+    await preparation.cancel(f.folder, first.id); await preparation.cancel(f.folder, queued.id);
+    const review = await f.review();
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(409);
+    expect(f.state.deleted).toEqual([]);
+    release(); await Promise.all(jobs);
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+    expect(await stat(f.folder).catch(() => null)).toBeNull();
+  } finally { release(); await Promise.allSettled(jobs); }
+});
+
+test("background corpus classification blocks deletion through cancellation and final persistence", async () => {
+  const f = await fixture();
+  await writeFile(join(f.folder, "evidence.txt"), "Evidence");
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const jobs: Promise<void>[] = [];
+  const corpus = new CorpusService({
+    selection: async () => ({ providerId: "test", model: "test" }),
+    extract: async () => ({ text: "Evidence", pages: [{ page: 1, text: "Evidence" }], complete: true, extraction: "native", hash: "source" }),
+    infer: async () => { entered(); await held; return { model: "test", answers: { answer: { type: "noul", noul: 1 } } }; },
+  }, run => { const job = withProjectMutation(f.config, run); jobs.push(job); return job; });
+  try {
+    const job = await corpus.query(f.config.workspaces[0], { paths: ["evidence.txt"], question: "Does this contain evidence?", waitSeconds: 0 });
+    await started;
+    await corpus.query(f.config.workspaces[0], { jobId: job.jobId, cancel: true, waitSeconds: 0 });
+    const review = await f.review();
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(409);
+    release(); await Promise.all(jobs);
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+    expect(await stat(f.folder).catch(() => null)).toBeNull();
+  } finally { release(); await Promise.allSettled(jobs); await corpus.stop(); }
+});
+
+
+test("a detached tabular review blocks deletion until results and history have finished saving", async () => {
+  const f = await fixture(), workspace = f.config.workspaces[0];
+  await writeFile(join(f.folder, "evidence.md"), "Assignment is permitted.");
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const jobs: Promise<void>[] = [];
+  const service = new ReviewService({
+    models: async () => ({ settings: { mode: "llm", llm: { providerId: "test", model: "test" }, jev: null }, allowedKinds: ["yes_no"], errors: [],
+      models: [{ backend: "llm", providerId: "test", model: "test", name: "Test", providerName: "Test" }] }),
+    execute: async (_workspace, _review, question, evidence) => {
+      entered(); await held;
+      return { value: "Yes", reason: "", citations: [], confidence: null, evidence: "uncited", backend: "llm", providerId: "test", model: "test", requestedModel: "test",
+        sourceHash: evidence.hash, prompt: question, completedAt: Date.now(), chunks: [] };
+    },
+  }, new DocumentPreparation(new OcrManager(join(f.root, "ocr"))), new ReviewDefaults(join(f.root, "defaults")), undefined,
+  run => { const job = withProjectMutation(f.config, run); jobs.push(job); return job; });
+  try {
+    const saved = await service.create(workspace, { requestId: crypto.randomUUID(), name: "Review", files: ["evidence.md"],
+      columns: [{ key: "assignment", label: "Assignment", question: "Is assignment permitted?", kind: "yes_no", options: [], hint: "" }] });
+    await service.start(workspace, saved.id, { revision: saved.revision });
+    await started;
+    const review = await f.review();
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(409);
+    expect(f.state.deleted).toEqual([]);
+    release(); await Promise.all(jobs);
+    expect((await f.request("/workspaces/source/delete-project", "POST", { token: review.token })).status).toBe(200);
+    expect(await stat(f.folder).catch(() => null)).toBeNull();
+  } finally { release(); await Promise.allSettled(jobs); await service.stop(); }
 });

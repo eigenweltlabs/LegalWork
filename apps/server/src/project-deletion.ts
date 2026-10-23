@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, realpath, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ProjectDeletionReview } from "@legalwork/types/workspace";
@@ -13,6 +13,7 @@ import { beginSessionDeletion } from "./session-execution-gate.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { WikiStore } from "./wiki/store.js";
 import { assertProjectFolderIndependent } from "./wiki/workspace-safety.js";
+import { copyViewRecord } from "./views/repository.js";
 
 type Engine = ReturnType<typeof createOpencodeClient>;
 type Incoming = { workspace: WorkspaceInfo; link: ProjectFileLink };
@@ -89,17 +90,19 @@ async function preserveLink(config: ServerConfig, item: Incoming, readConnected:
     const source = sourceRoot ? await realpath(join(sourceRoot, current.source.path)) : null;
     if (source && sourceRoot && !inside(sourceRoot, source)) throw new ApiError(409, "project_link_external", `Relink ${current.name} directly to its external source before deleting this project.`);
     if (source && !(await stat(source)).isFile()) throw new ApiError(409, "project_link_not_file", `The linked file ${current.name} is unavailable.`);
-    const bytes = source ? null : await readConnected(current);
-    const suffix = current.source.path.endsWith(".view.json") ? ".view.json" : extname(current.source.path);
-    const name = extname(current.name) ? current.name : `${current.name}${suffix}`;
-    const extension = name.endsWith(".view.json") ? ".view.json" : extname(name);
+    const isView = /\.view(?:\.conflict-[a-f0-9]{12})?\.json$/i.test(current.source.path);
+    if (isView && source && (await stat(source)).size > 2 * 1024 * 1024) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
+    const bytes = isView ? copyViewRecord(source ? await readFile(source) : await readConnected(current)) : source ? null : await readConnected(current);
+    const suffix = isView ? ".view.json" : extname(current.source.path);
+    const name = isView && !/\.view\.json$/i.test(current.name) ? `${current.name}.view.json` : extname(current.name) ? current.name : `${current.name}${suffix}`;
+    const extension = /\.view\.json$/i.test(name) ? name.slice(-10) : extname(name);
     const stem = basename(name, extension);
     for (let attempt = 0; attempt < 10000; attempt++) {
       const filename = attempt ? `${stem} (${attempt + 1})${extension}` : name;
       const destination = join(parent, filename);
       try {
-        if (source) await copyFile(source, destination, constants.COPYFILE_EXCL);
-        else await importProjectFile(item.workspace.path, [current.folder, filename].filter(Boolean).join("/"), bytes!);
+        if (bytes) await importProjectFile(item.workspace.path, [current.folder, filename].filter(Boolean).join("/"), bytes);
+        else await copyFile(source!, destination, constants.COPYFILE_EXCL);
         return links.filter(link => link.id !== current.id);
       } catch (error) {
         if (error instanceof ApiError && error.code === "file_exists" || error instanceof Error && "code" in error && error.code === "EEXIST") continue;

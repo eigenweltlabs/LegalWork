@@ -858,7 +858,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
   const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), runtimeOptions.modelDownloadFetch);
-  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  const runBackground = (run: () => Promise<void>) => withProjectMutation(config, run);
+  const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout, runBackground });
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -870,11 +871,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     },
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
-  });
+  }, runBackground);
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
     settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
-  }));
+  }), undefined, runBackground);
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
   const scheduledWorkspace = async (task: ScheduledTask) => {
     assertNoProjectDeletion(config);
@@ -2027,6 +2028,9 @@ function createRoutes(
       revokeWikiAgentSession(config, sessionId);
     },
     cleanupProjectTasks: async workspaceId => {
+      const projects = await projectSyncStore(config);
+      const link = projects.linkByWorkspace(workspaceId);
+      if (link) projects.markTasksRemoved(link.projectId, link.orgId);
       await removeWorkspaceQueue(config, workspaceId);
       scheduledTasks.removeWorkspace(workspaceId);
       (await calendarStore(config)).removeProject(workspaceId);

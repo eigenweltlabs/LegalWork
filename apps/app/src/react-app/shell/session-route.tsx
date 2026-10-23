@@ -1855,20 +1855,17 @@ export function SessionRoute() {
   );
 
   const handleForgetWorkspace = useCallback(
-    async (workspaceId: string, reviewToken?: string) => {
+    async (workspaceId: string, sessionIds: string[]) => {
       try {
         const workspace = workspaces.find(item => item.id === workspaceId);
         if (workspace?.workspaceType !== "remote") {
-          if (!client) throw new Error(t("session_route.create_server_unavailable"));
-          if (!reviewToken) throw new Error(t("workspace.delete_checking"));
-          const deleted = await client.deleteProject(workspaceId, reviewToken);
-          for (const sessionId of deleted.sessionIds) {
+          for (const sessionId of sessionIds) {
             forgetSession(workspaceId, sessionId);
             usePanelTabStore.getState().clearSession(sessionId);
             clearSessionDraft(workspaceId, sessionId);
           }
           clearSessionDraft(workspaceId, null);
-          sessionManagementStore.getState().forgetWorkspace(workspaceId, deleted.sessionIds);
+          sessionManagementStore.getState().forgetWorkspace(workspaceId, sessionIds);
         }
         await forgetWorkspaceHere(workspaceId);
         await refreshRouteState();
@@ -1876,7 +1873,7 @@ export function SessionRoute() {
         throw new Error(describeRouteError(error));
       }
     },
-    [client, workspaces, forgetWorkspaceHere, refreshRouteState, forgetSession],
+    [workspaces, forgetWorkspaceHere, refreshRouteState, forgetSession],
   );
 
 
@@ -2999,11 +2996,12 @@ export function SessionRoute() {
     />
     {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}
     {removeProject && <RemoveProjectDialog
+      key={removeProject.id}
       name={workspaceLabel(removeProject)}
       workspaceId={removeProject.id}
       remote={removeProject.workspaceType === "remote"}
       client={client}
-      onConfirm={token => handleForgetWorkspace(removeProject.id, token)}
+      onConfirm={sessionIds => handleForgetWorkspace(removeProject.id, sessionIds)}
       onClose={() => setRemoveProject(null)}
     />}
     {newChatOpen && <NewChatDialog

@@ -6824,6 +6824,8 @@ const de = {
   "workspace.remove_failed": "Dieses Projekt konnte nicht entfernt werden.",
   "workspace.remove_title": "Projekt „{name}“ entfernen?",
   "sidebar.delete_project": "Projekt löschen",
+  "workspace.finish_removal_title": "„{name}“ vollständig entfernen",
+  "workspace.finish_removal_description": "Das Projekt wurde gelöscht. Erneut versuchen, um auch die Projektliste auf diesem Computer zu aktualisieren.",
   "workspace.delete_title": "Projekt „{name}“ löschen?",
   "workspace.delete_description": "Dieses Projekt, seine Chats, Aufgaben und Kalendereinträge löschen, einschließlich ungespeicherter Dashboards in Chats. Externe Dateien und verbundene Speicher bleiben erhalten. Das kann nicht rückgängig gemacht werden.",
   "workspace.delete_checking": "Chats und verknüpfte Dateien werden geprüft…",

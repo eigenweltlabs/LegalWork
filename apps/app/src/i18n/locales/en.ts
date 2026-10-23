@@ -6454,6 +6454,8 @@ export default {
   "workspace.remove_failed": "Could not remove this project.",
   "workspace.remove_title": "Remove project “{name}”?",
   "sidebar.delete_project": "Delete project",
+  "workspace.finish_removal_title": "Finish removing “{name}”",
+  "workspace.finish_removal_description": "The project has been deleted. Retry to finish updating the project list on this computer.",
   "workspace.delete_title": "Delete project “{name}”?",
   "workspace.delete_description": "Delete this project, its chats, tasks and calendar entries, including unsaved dashboards in chats. External files and connected storage are kept. This cannot be undone.",
   "workspace.delete_checking": "Checking project chats and linked files…",
