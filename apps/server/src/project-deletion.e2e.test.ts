@@ -151,6 +151,15 @@ test("reports an unsaved dashboard only when a project chat actually has one", a
   expect((await f.review()).unsavedDashboardCount).toBe(1);
 });
 
+test("does not list calendar entries or tasks already moved to trash", async () => {
+  const f = await fixture(), calendar = await calendarStore(f.config), tasks = await taskStore(f.config);
+  const entry = calendar.create("source", { title: "Removed deadline", start: "2099-10-16" });
+  calendar.remove("source", entry.id, entry.revision);
+  const task = tasks.createTask({ projectId: "source", title: "Removed task" }, { userId: null, name: null, email: null });
+  tasks.deleteTask(task.id);
+  expect(await f.review()).toMatchObject({ calendarEntryCount: 0, taskCount: 0 });
+});
+
 test("new chats invalidate confirmation; active chats and foreign descendants block deletion", async () => {
   const f = await fixture(), first = await f.review();
   f.addChat("new");

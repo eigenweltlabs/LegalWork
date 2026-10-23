@@ -2025,8 +2025,11 @@ function createRoutes(
     projectDeletionEffects: async workspaceId => {
       const [tasks, calendar] = await Promise.all([taskStore(config), calendarStore(config)]);
       return {
-        taskCount: tasks.listTasks({ projectId: workspaceId, deleted: "include", limit: 10_000 }).tasks.length,
-        calendarEntryCount: calendar.list(workspaceId, true).length,
+        // The confirmation describes the active project data a person can still see.
+        // Items already moved to trash are removed with the project, but should not
+        // look like a second pending deletion.
+        taskCount: tasks.listTasks({ projectId: workspaceId, limit: 10_000 }).tasks.length,
+        calendarEntryCount: calendar.list(workspaceId).length,
         scheduledTaskCount: scheduledTasks.list(workspaceId).length,
       };
     },
