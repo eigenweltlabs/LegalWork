@@ -3,8 +3,54 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 
 import { SystemDictationService } from "./audio/system-dictation.mjs";
+
+async function pasteCommandFixture(output, code = 0) {
+  const source = await readFile(new URL("./main.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("const WINDOWS_PASTE_SCRIPT =");
+  const end = source.indexOf("async function showSupportLogsProgressWindow", start);
+  const calls = [];
+  const context = {
+    setTimeout, clearTimeout,
+    spawn: (executable, args) => {
+      calls.push({ executable, args });
+      const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), kill: () => {} });
+      queueMicrotask(() => {
+        child.stdout.emit("data", output);
+        child.emit("exit", code);
+      });
+      return child;
+    },
+  };
+  runInNewContext(source.slice(start, end) + "\nthis.runPaste = runSystemPasteCommand;", context);
+  return { runPaste: context.runPaste, calls };
+}
+
+test("paste helpers distinguish copied, pasted and unconfirmed results", async () => {
+  for (const platform of ["darwin", "windows"]) {
+    const copied = await pasteCommandFixture("copied\n");
+    assert.equal(await copied.runPaste(platform), false);
+    const pasted = await pasteCommandFixture("pasted\n");
+    assert.equal(await pasted.runPaste(platform), true);
+    const unconfirmed = await pasteCommandFixture("");
+    await assert.rejects(unconfirmed.runPaste(platform), /did not confirm/);
+    const failed = await pasteCommandFixture("", 2);
+    await assert.rejects(failed.runPaste(platform), /exited with code 2/);
+  }
+});
+
+test("the macOS focused-input paste script compiles", { skip: process.platform !== "darwin" }, async t => {
+  const fixture = await pasteCommandFixture("copied\n");
+  await fixture.runPaste("darwin");
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const result = spawnSync("/usr/bin/osacompile", ["-o", path.join(directory, "paste.scpt"), "-e", fixture.calls[0].args[1]], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 class FakeShortcuts {
   constructor(blocked = []) {
@@ -107,7 +153,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => { cancels += 1; },
   });
@@ -163,7 +209,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: restoredShortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -193,7 +239,7 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
       },
     },
     shell: { openExternal: async (url) => { openedUrl = url; } },
-    runPasteCommand: async () => { pasteCount += 1; },
+    runPasteCommand: async () => { pasteCount += 1; return true; },
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -219,6 +265,20 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
+test("without an editable paste target dictation stays on the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => false,
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Keep this dictated text."), { pasted: false, copied: true, error: null });
+  assert.equal(clipboard.readText(), "Keep this dictated text.");
+});
+
 test("native shortcut monitoring supports modifier-only capture and both dictation gestures", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
@@ -234,7 +294,7 @@ test("native shortcut monitoring supports modifier-only capture and both dictati
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -302,7 +362,7 @@ test("a monitor reset releases a latched hold and clears chord state", async (t)
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -346,7 +406,7 @@ async function gestureService(t, platform = "darwin", accelerator = "Fn") {
   const service = new SystemDictationService({
     userDataDir, platform, globalShortcut: shortcuts, keyMonitor,
     clipboard: new FakeClipboard(), systemPreferences: { isTrustedAccessibilityClient: () => true },
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
     onPress: () => { events.push("start"); service.setRuntimeState("starting"); },
     onRelease: () => { events.push("finish"); service.setRuntimeState("transcribing"); },
     onToggle: () => { events.push("toggle"); service.setRuntimeState("starting"); },
@@ -618,7 +678,7 @@ test("an empty dictation is a successful no-op that preserves rich clipboard dat
   let pasteCount = 0;
   const service = new SystemDictationService({
     userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; return true; },
     onToggle: () => {}, onCancel: () => {},
   });
   t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
@@ -639,7 +699,7 @@ test("refreshAfterResume restarts the monitor and re-registers only a lost chord
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -667,7 +727,7 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => {},
   });
@@ -699,7 +759,7 @@ test("overlay appearance defaults to app mode, persists each choice, and rejects
   const updates = [];
   const options = {
     userDataDir, platform: "win32", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
     onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.appearance),
   };
   try {

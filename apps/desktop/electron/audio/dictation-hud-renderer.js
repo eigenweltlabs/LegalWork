@@ -111,7 +111,7 @@ bridge.onState((value) => {
   }
   startLabel.textContent = labels.dictate;
   label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? (value.dock !== "bottom" && value.message) || labels.error : value.message || labels[value.state] || "";
-  bar.setAttribute("aria-label", labels[value.state] || labels.start);
+  bar.setAttribute("aria-label", value.message || labels[value.state] || labels.start);
   const instruction = (value.mode === "hold" ? labels.release : labels.finish).replace("{shortcut}", shortcut);
   notice.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? value.message : value.state === "idle"
     ? value.message || labels.click + (shortcut ? " · " + shortcut : "") : value.state === "listening"

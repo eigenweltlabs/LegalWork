@@ -191,6 +191,7 @@ const WINDOWS_PASTE_SCRIPT = `
 $source = @'
 using System;
 using System.Runtime.InteropServices;
+using System.Windows.Automation;
 
 public static class LegalWorkPaste {
   [StructLayout(LayoutKind.Sequential)]
@@ -242,6 +243,22 @@ public static class LegalWorkPaste {
     };
   }
 
+  public static bool HasEditableFocus() {
+    try {
+      AutomationElement target = AutomationElement.FocusedElement;
+      if (target == null || !target.Current.IsEnabled || !target.Current.HasKeyboardFocus) return false;
+      object pattern;
+      if (target.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
+        return !((ValuePattern)pattern).Current.IsReadOnly;
+      }
+      if (target.TryGetCurrentPattern(TextPattern.Pattern, out pattern)) {
+        object readOnly = ((TextPattern)pattern).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
+        return readOnly is bool && !(bool)readOnly;
+      }
+    } catch { }
+    return false;
+  }
+
   public static bool Paste() {
     INPUT[] inputs = {
       Key(0x11, 0),
@@ -253,13 +270,18 @@ public static class LegalWorkPaste {
   }
 }
 '@
-Add-Type -TypeDefinition $source -ErrorAction Stop
+Add-Type -TypeDefinition $source -ReferencedAssemblies UIAutomationClient,UIAutomationTypes,WindowsBase -ErrorAction Stop
+if (-not [LegalWorkPaste]::HasEditableFocus()) { Write-Output 'copied'; exit 0 }
 if (-not [LegalWorkPaste]::Paste()) { exit 2 }
+Write-Output 'pasted'
 `;
 
+/** @returns {Promise<boolean>} */
 function runChildProcess(executable, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
+    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    let output = "";
+    child.stdout.on("data", chunk => { output += String(chunk); });
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Paste command timed out."));
@@ -270,7 +292,9 @@ function runChildProcess(executable, args) {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolve(undefined);
+      if (code === 0 && output.trim() === "pasted") resolve(true);
+      else if (code === 0 && output.trim() === "copied") resolve(false);
+      else if (code === 0) reject(new Error("Paste command did not confirm a text target."));
       else reject(new Error(`Paste command exited with code ${code ?? "unknown"}.`));
     });
   });
@@ -280,7 +304,32 @@ function runSystemPasteCommand(platform) {
   if (platform === "darwin") {
     return runChildProcess("/usr/bin/osascript", [
       "-e",
-      "tell application \"System Events\" to key code 9 using command down",
+      `tell application "System Events"
+        try
+          set frontProcess to first application process whose frontmost is true
+          set targetElement to value of attribute "AXFocusedUIElement" of frontProcess
+          if exists attribute "AXEnabled" of targetElement then
+            if value of attribute "AXEnabled" of targetElement is false then return "copied"
+          end if
+          set editable to false
+          if exists attribute "AXSelectedText" of targetElement then
+            set editable to settable of attribute "AXSelectedText" of targetElement
+          end if
+          if not editable then
+            set targetRole to value of attribute "AXRole" of targetElement
+            if targetRole is in {"AXTextField", "AXTextArea", "AXComboBox"} then
+              if exists attribute "AXValue" of targetElement then
+                set editable to settable of attribute "AXValue" of targetElement
+              end if
+            end if
+          end if
+          if not editable then return "copied"
+        on error
+          return "copied"
+        end try
+        key code 9 using command down
+        return "pasted"
+      end tell`,
     ]);
   }
   if (platform === "windows") {

@@ -399,7 +399,14 @@ app.whenReady().then(async () => {
     assert.equal(dotMotion.movingDots, dotMotion.reduced ? 0 : 3, "each dot takes a turn across the loop");
     await delay(6_200);
     assert.equal((await state()).slow, "true");
-    await hud.setState("success");
+    for (const [locale, message] of [["en", "Copied to clipboard"], ["de", "In die Zwischenablage kopiert"]]) {
+      await hud.setState("success", message, locale);
+      await delay(350);
+      assert.equal((await state()).label, message, "copy fallback replaces the inserted-text notification");
+      assert.equal(await window.webContents.executeJavaScript("document.getElementById('bar').getAttribute('aria-label')"), message, "screen readers receive the actual copy result");
+      if (output) await writeFile(path.join(output, `copied-${locale}.png`), (await window.webContents.capturePage()).toPNG());
+    }
+    await hud.setState("success", "", "en");
     await delay(1_300);
     assert.equal((await state()).state, "idle");
     await hud.setStatus({ ...status, enabled: false });

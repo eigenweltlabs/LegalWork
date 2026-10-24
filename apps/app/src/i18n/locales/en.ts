@@ -4443,6 +4443,7 @@ export default {
     "Record the microphone and system audio and get a live transcript from a local model. Nothing leaves this device.",
   "recorder.dictation_title": "Dictate anywhere",
   "recorder.dictation_cancelling": "Cancelling…",
+  "recorder.dictation_copied": "Copied to clipboard",
   "recorder.dictation_description":
     "Dictate into Word, Outlook, browsers, and other apps using your selected transcription engine.",
   "recorder.dictation_pane_description":

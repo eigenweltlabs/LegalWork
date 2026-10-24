@@ -4711,6 +4711,7 @@ const de = {
     "Mikrofon und Systemaudio aufnehmen und live mit einem lokalen Modell transkribieren. Nichts verlässt dieses Gerät.",
   "recorder.dictation_title": "Überall diktieren",
   "recorder.dictation_cancelling": "Wird abgebrochen…",
+  "recorder.dictation_copied": "In die Zwischenablage kopiert",
   "recorder.dictation_description":
     "Diktieren Sie in Word, Outlook, Browsern und anderen Apps mit Ihrer gewählten Transkription.",
   "recorder.dictation_pane_description":
