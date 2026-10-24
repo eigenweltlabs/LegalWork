@@ -25,6 +25,20 @@ function locateServerDistDir() {
   return candidates.find((dir) => existsSync(path.join(dir, "word-addin.js"))) ?? null;
 }
 
+function locateEmbeddedServerPath() {
+  const devPath = path.resolve(__runtimeDir, "..", "..", "server", "dist", "embedded.js");
+  const packagedPaths = [
+    path.resolve(__runtimeDir, "..", "server", "dist", "embedded.js"),
+    ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist", "embedded.js")] : []),
+  ];
+  const candidates = process.env.LEGALWORK_DEV_MODE === "1"
+    ? [devPath, ...packagedPaths]
+    : [...packagedPaths, devPath];
+  const embeddedPath = candidates.find((candidate) => existsSync(candidate));
+  if (!embeddedPath) throw new Error(`Cannot find LegalWork embedded server bundle. Checked: ${candidates.join(", ")}`);
+  return embeddedPath;
+}
+
 /** Directory holding the built Office task pane bundle (taskpane.html). */
 function locatePaneDistDir() {
   const candidates = [
@@ -1380,6 +1394,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return snapshotEngineState(engineState, inProcessServer?.managedOpencodeStatus?.() ?? null);
   }
 
+  async function credentialVault() {
+    // Match the local server's profile, environment overrides, module instance and write lock.
+    const env = await buildChildEnv({});
+    Object.assign(process.env, env);
+    const directory = path.dirname(locateEmbeddedServerPath());
+    const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
+    return { vault: new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) })), lock: vaultLock };
+  }
+
   async function startLegalworkServer(options) {
     const currentPort = legalworkServerState.port;
     // Stop any previously running in-process server
@@ -1420,18 +1443,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // One call: resolve config, spawn managed OpenCode, start HTTP server.
     // Dev must prefer apps/server/dist; build output also stages a packaged
     // copy under apps/desktop/server for electron-builder.
-    const devPath = path.resolve(__runtimeDir, "..", "..", "server", "dist", "embedded.js");
-    const packagedPaths = [
-      path.resolve(__runtimeDir, "..", "server", "dist", "embedded.js"),
-      ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist", "embedded.js")] : []),
-    ];
-    const candidates = process.env.LEGALWORK_DEV_MODE === "1"
-      ? [devPath, ...packagedPaths]
-      : [...packagedPaths, devPath];
-    const embeddedPath = candidates.find((candidate) => existsSync(candidate));
-    if (!embeddedPath) {
-      throw new Error(`Cannot find LegalWork embedded server bundle. Checked: ${candidates.join(", ")}`);
-    }
+    const embeddedPath = locateEmbeddedServerPath();
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
@@ -2326,6 +2338,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineDoctor,
     engineInstall,
     legalworkServerInfo,
+    credentialVault,
     legalworkServerRestart: (options) => withRuntimeLifecycle(() => legalworkServerRestart(options)),
     officeAddinStatus: () => officeAddinManager.status(),
     officeAddinInstall: (appId) => officeAddinManager.install(appId),
