@@ -41,7 +41,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
-| Integrations: Connectors | How do I connect an external service? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Connectors | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
 | Integrations: File storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Integrations: Skills / Plugins | How do I install, inspect or share reusable agent capabilities? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

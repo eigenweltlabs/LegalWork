@@ -52,6 +52,8 @@ Upgrading the engine carries over completed MCP connector sign-ins, including th
 
 For Gmail and Outlook setup, connection methods, write permissions and troubleshooting, read [Email setup](email.md). The native catalog also includes Google Calendar, Outlook Calendar, Google Drive, OneDrive and SharePoint. Each connector has its own supported operations and write-access setting. Outlook Email and Calendar share an account but activate separately.
 
+For a new Microsoft connection, open **Settings > Integrations > Add > Plugins**, select **Outlook Email**, **Outlook Calendar**, **OneDrive**, **OneDrive Personal** or **SharePoint**, then select its **Connect** button and complete Microsoft sign-in. LegalWork supplies the app configuration; an Eigenwelt account, Nango and a client secret are not required. Keep **Allow write access** off for a read-only connection. For SharePoint, choose the document library when prompted. A work or school administrator may need to approve access. Saved custom app settings and older managed connections retain their existing method; [Email setup](email.md) explains how to switch.
+
 Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
 
 ## Browser and Computer Use
