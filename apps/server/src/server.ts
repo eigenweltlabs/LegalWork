@@ -1,6 +1,8 @@
+import { enqueueAssistantSubmission, sendAssistantSubmission } from "./assistant-submission-send.js";
+import { LauncherFolders } from "./launcher-folders.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
-import { stopMessageQueue } from "./session-message-queue.js";
+import { getMessageQueue, stopMessageQueue } from "./session-message-queue.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { CloudAssistantSetup } from "./cloud-assistant-setup.js";
 import { AssistantChannelHistory } from "./assistant-channel-history.js";
@@ -19,6 +21,12 @@ import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
 import { createAssistantSessionQueue } from "./assistant-session-executor.js";
 import type { AssistantSessionQueue } from "./assistant-session-queue.js";
 import { AssistantSessionAccess, assertAssistantDispatchAuthority } from "./assistant-session-access.js";
+import { AssistantConversations } from "./assistant-conversations.js";
+import { AssistantSubmissions } from "./assistant-submissions.js";
+import { QuickActionStore } from "./launcher-actions.js";
+import { SavedSearchStore } from "./launcher-saved-searches.js";
+import { LauncherContextStore } from "./launcher-context.js";
+import { LauncherFileIndex } from "./launcher-file-index.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -991,6 +999,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     if (resolve(session.directory) !== resolve(workspace.path)) throw new Error("The delegated chat is outside this project.");
     return { workspace, client, session };
   };
+  // Conversations are explicit and stable; delegated results return to the conversation that started them.
+  const conversations = await AssistantConversations.open(runtimeDbPath(config), workspaceId => mainAssistant.days(workspaceId));
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
     allowed: delegation => !config.workspaces.some(workspace => workspace.id === delegation.sourceWorkspaceId && isMainAssistant(workspace)) || mainAssistant.canAccessProject(delegation.workspaceId),
     result: async delegation => {
@@ -1005,6 +1015,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     destination: async delegation => {
       const source = await resolveWorkspace(config, delegation.sourceWorkspaceId);
       if (isMainAssistant(source)) {
+        // No silent midnight retargeting: the origin conversation receives its results. Only an archived or
+        // deleted origin falls back to the current conversation, which keeps a link back through Work.
+        const origin = await createWorkspaceOpencodeClient(config, source).session.get({ sessionID: delegation.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
+        if (origin.data && !origin.data.time.archived && resolve(origin.data.directory) === resolve(source.path)) return { workspaceId: source.id, sessionId: origin.data.id };
+        const current = conversations.current(source.id);
+        if (current) return { workspaceId: source.id, sessionId: current.sessionId };
         const { workspace, day } = await mainAssistant.current();
         return { workspaceId: workspace.id, sessionId: day.sessionId };
       }
@@ -1041,8 +1057,63 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     available: () => !config.cloudSync || config.cloudSync.canExecute(),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
     config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue, assistantSessionAccess);
-
+  const submissions = await AssistantSubmissions.open(runtimeDbPath(config), {
+    waiting: async (entry, payload) => {
+      if (!payload.queue) return false;
+      const queue = await getMessageQueue(config).read(entry.workspaceId, entry.sessionId);
+      return queue.entries.some(item => item.id === payload.queue?.id && item.messageId === entry.messageId && (item.status === "queued" || item.status === "failed"));
+    },
+    hasMessage: async (target, messageId, payload) => {
+      if (payload.queue) {
+        const queue = await getMessageQueue(config).read(target.workspaceId, target.sessionId);
+        if (queue.entries.some(item => item.id === payload.queue?.id && item.messageId === messageId) || queue.completedIds.includes(payload.queue.id)) return true;
+      }
+      const { client } = await delegationSession(target.workspaceId, target.sessionId);
+      const result = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
+      if (result.response.status === 404) return false;
+      return unwrapOpencodeResult(result, "/session/message").info.id === messageId;
+    },
+    send: async (entry, payload) => {
+      if (payload.queue) {
+        await enqueueAssistantSubmission(getMessageQueue(config), entry, payload);
+        announceSyncChange(config, "sessions");
+        return;
+      }
+      const { client } = await delegationSession(entry.workspaceId, entry.sessionId);
+      await sendAssistantSubmission(client, entry, payload);
+      announceSyncChange(config, "sessions");
+    },
+    outcome: async (target, messageId, payload) => {
+      const { client } = await delegationSession(target.workspaceId, target.sessionId);
+      if (payload.queue) {
+        const queue = await getMessageQueue(config).read(target.workspaceId, target.sessionId);
+        const waiting = queue.entries.find(item => item.id === payload.queue?.id);
+        if (waiting?.messageId && waiting.messageId !== messageId) return "failed";
+        if (waiting?.status === "queued" || waiting?.status === "failed") return "accepted";
+        if (!waiting && queue.completedIds.includes(payload.queue.id)) {
+          const message = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
+          if (message.response.status === 404) return "failed"; // Removed before delivery.
+        }
+      }
+      const [statuses, messages] = await Promise.all([
+        client.session.status({}, { signal: AbortSignal.timeout(10000) }),
+        client.session.messages({ sessionID: target.sessionId, limit: 40 }, { signal: AbortSignal.timeout(10000) }),
+      ]);
+      const list = messages.data ?? [];
+      const reply = [...list].reverse().find(message => message.info.role === "assistant" && message.info.parentID === messageId);
+      if (reply?.info.role === "assistant") {
+        if (reply.info.error || reply.info.finish === "length") return "failed";
+        if (reply.info.time.completed && reply.info.finish === "stop") return "completed";
+        return "running";
+      }
+      const status = statuses.data?.[target.sessionId];
+      return status && status.type !== "idle" ? "running" : "accepted";
+    },
+  });
+  const launcher = { conversations, submissions, quickActions: await QuickActionStore.open(runtimeDbPath(config)), savedSearches: await SavedSearchStore.open(runtimeDbPath(config)), searchFolders: await LauncherFolders.open(runtimeDbPath(config)), stagedContext: new LauncherContextStore(), fileIndex: new LauncherFileIndex() };
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, mainAssistant, delegations, sessionQueue, assistantSessionAccess, launcher);
+  configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
+    unwrapOpencodeResult(await createDirectoryOpencodeClient(config, workspace, directory).session.get({ sessionID }, { signal }), "/session"));
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -1365,6 +1436,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       await stopDelegations();
       await stopSessionQueue();
       await stopMainAssistant();
+      launcher.fileIndex.dispose();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -2023,6 +2095,7 @@ function createRoutes(
   delegations: AssistantDelegations,
   sessionQueue: AssistantSessionQueue,
   sessionAccess: AssistantSessionAccess,
+  launcher: { conversations: AssistantConversations; submissions: AssistantSubmissions; quickActions: QuickActionStore; savedSearches: SavedSearchStore; searchFolders: LauncherFolders; stagedContext: LauncherContextStore; fileIndex: LauncherFileIndex },
 ): Route[] {
   const routes: Route[] = [];
   addRoute(routes, "GET", "/cloud-sync/status", "client", async () => {
@@ -2056,7 +2129,7 @@ function createRoutes(
     await prepareCloudExecution(config, ctx.params.id);
     return jsonResponse({ ready: true });
   });
-  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
+  registerMainAssistantRoutes({ routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), ...launcher, preparation, requireApproval, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { onWorkspacesChanged(); announceSyncChange(config, "projects"); } });
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces.find(workspace => workspace.workspaceType !== "remote");

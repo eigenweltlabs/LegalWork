@@ -38,10 +38,10 @@ export function queuedPromptPayload(execution: z.infer<typeof prompt>) {
 }
 export const queueExecutionSchema = z.discriminatedUnion("kind", [
   prompt,
-  z.object({ kind: z.literal("command"), command: z.string(), arguments: z.string(), model: z.string(), agent: z.string().optional(), variant: z.string().optional() }),
+  z.object({ kind: z.literal("command"), command: z.string(), arguments: z.string(), model: z.string(), agent: z.string().optional(), variant: z.string().optional(), parts: z.array(z.object({ type: z.literal("file"), url: z.string(), mime: z.string(), filename: z.string().optional() })).optional() }),
   z.object({ kind: z.literal("shell"), command: z.string() }),
 ]);
-export const queueInputSchema = z.object({ id: z.string().uuid(), draft: queuedDraftSchema, execution: queueExecutionSchema, editToken: z.string().uuid().optional() });
+export const queueInputSchema = z.object({ id: z.string().uuid(), draft: queuedDraftSchema, execution: queueExecutionSchema, editToken: z.string().uuid().optional(), messageId: z.string().regex(/^msg_[A-Za-z0-9]{10,60}$/).optional() });
 export const queueEditSchema = z.object({ token: z.string().uuid(), expires: z.number() });
 export const queueEntrySchema = queueInputSchema.omit({ editToken: true }).extend({ status: z.enum(["queued", "sending", "failed", "uncertain"]), edit: queueEditSchema.optional(), lastEditToken: z.string().optional(), error: z.string().optional() });
 export const sessionQueueSchema = z.object({ workspaceId: z.string(), sessionId: z.string(), revision: z.number(), paused: z.boolean(), pauseReason: z.enum(["stop", "error"]).optional(), resumeRevision: z.number().optional(), completedIds: z.array(z.string()).default([]), entries: z.array(queueEntrySchema) });

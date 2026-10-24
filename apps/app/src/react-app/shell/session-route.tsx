@@ -1,3 +1,7 @@
+import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
+import { acceptLauncherBrowser, acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
+import { useLauncherStore } from "@/react-app/launcher/launcher-store";
+import { usePublishLauncherContext } from "@/react-app/launcher/workspace-context";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
@@ -8,8 +12,11 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
-import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
-import { resolveAssistantChat } from "./assistant-navigation";
+import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
+import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
+import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
+import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
+import { LauncherDialog } from "@/react-app/launcher/launcher-dialog";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -178,8 +185,6 @@ import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
 import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
-import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
-import type { ContentSearchResult } from "@legalwork/types/search";
 import { useSearchNavigation } from "./search-navigation";
 import {
   eigenweltBillingUrl,
@@ -188,7 +193,6 @@ import {
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { AssistantIntroDialog } from "./assistant-intro";
-import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
   forgetWorkspaceMemory,
@@ -560,20 +564,62 @@ export function SessionRoute() {
     if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
-  const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
+  // The Assistant project is set up once; the current conversation is read without creating sessions.
+  const assistant = useQuery<AssistantShellState>({
+    queryKey: assistantShellQueryKey(client?.baseUrl ?? ""), enabled: Boolean(client) && !isOfficeAddinRuntime(),
+    queryFn: async () => {
+      if (!client) throw new Error("Server unavailable");
+      const setup = await client.ensureAssistantWorkspace(defaultProjectFields(useProjectDefaultsStore.getState()));
+      const current = await client.assistantConversationCurrent();
+      return { workspace: current.workspace ?? setup.workspace, profile: current.profile, conversation: current.conversation, day: current.day };
+    },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
+  usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null, client?.baseUrl);
+  const launcherHandoff = useRef<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), folder = params.get("launcherFolder"), browser = params.get("launcherBrowser");
+    if (!file && folder === null && browser === null) { launcherHandoff.current = null; return; }
+    const request = `${location.pathname}${location.search}`;
+    if (launcherHandoff.current === request) return;
+    if (!client || !selectedWorkspaceId || selectedWorkspaceId !== routeWorkspaceId) return;
+    launcherHandoff.current = request;
+    void (async () => {
+      try {
+        if (file && selectedWorkspaceId) acceptLauncherFile(JSON.parse(file), selectedWorkspaceId);
+        if (folder !== null && selectedWorkspaceId && client) openLauncherFolder(client.baseUrl, selectedWorkspaceId, folder);
+        if (browser !== null) await acceptLauncherBrowser(selectedWorkspaceId, browser || undefined);
+      } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+      if (launcherHandoff.current !== request) return;
+      params.delete("launcherOpen"); params.delete("launcherFolder"); params.delete("launcherBrowser");
+      navigate(`${location.pathname}${params.size ? `?${params}` : ""}`, { replace: true });
+    })();
+  }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate, client]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
-  // Home already knows today's Assistant. Load its transcript in the shared
+  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: Boolean(selectedSessionId && client),
+    queryFn: async () => {
+      if (!client || !selectedSessionId) return null;
+      const found = await client.assistantConversationForSession(selectedSessionId);
+      if (found.conversation || !selectedWorkspaceId || selectedWorkspace?.preset === "main-assistant" || selectedWorkspace?.workspaceType === "remote") return found;
+      // Register an existing chat for shared drafts; this never creates an engine session.
+      return client.launcherProjectChat({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId, operationId: `bind_${selectedSessionId}` });
+    } });
+  const assistantConversationId = useMemo(() => {
+    const requested = new URLSearchParams(location.search).get("conversation");
+    if (requested && assistantSessionConversation.data?.conversation?.id === requested) return requested;
+    return assistant.data?.conversation && assistant.data.conversation.sessionId === selectedSessionId ? assistant.data.conversation.id : assistantSessionConversation.data?.conversation?.id ?? null;
+  }, [location.search, assistant.data?.conversation, selectedSessionId, assistantSessionConversation.data]);
+  useHomeDraftSync({ client, projectTarget: assistantActive ? null : selectedWorkspaceId, active: Boolean(assistantConversationId), conversationId: assistantConversationId, sessionId: selectedSessionId, assistantWorkspaceId: selectedWorkspaceId,
+    projectNames: useMemo(() => new Map(workspaces.map(workspace => [workspace.id, workspace.displayNameResolved])), [workspaces]) });
+  // Home already knows the current conversation. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
   useEffect(() => {
     const current = assistant.data;
-    if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    if (!client || !current?.conversation || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
+    const { workspace, conversation } = current;
     void getReactQueryClient().prefetchQuery({
-      queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
-      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      queryKey: snapshotKey(workspace.id, conversation.sessionId),
+      queryFn: async () => (await client.getSessionSnapshot(workspace.id, conversation.sessionId, { limit: 140 })).item,
       staleTime: 30_000,
     });
   }, [client, assistant.data, location.pathname]);
@@ -594,36 +640,26 @@ export function SessionRoute() {
     const workspace = assistant.data.workspace;
     usePanelTabStore.getState().setAssistantWorkspace(workspace.id);
     setWorkspaces(current => current.some(item => item.id === workspace.id) ? current : [...current, { ...workspace, displayNameResolved: assistant.data?.profile.name ?? t("assistant.title") }]);
-    // Daily sessions are separate engine contexts, displayed as a single chat.
-    if (assistantActive && selectedSessionId && selectedSessionId !== assistant.data.day.sessionId) {
-      carryAssistantDraft(selectedSessionId, assistant.data.day.sessionId);
-      navigate(workspaceSessionRoute(workspace.id, assistant.data.day.sessionId), { replace: true });
-    }
-  }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
+    // A conversation keeps its identity across midnight and window changes; nothing retargets it here.
+  }, [assistant.data, setWorkspaces]);
   const openAssistant = useCallback(async () => {
     if (!client) return;
     try {
-      const current = await resolveAssistantChat(client, getReactQueryClient());
-      getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-      const panels = usePanelTabStore.getState();
-      panels.setAssistantWorkspace(current.workspace.id);
-      panels.adoptChat(workspacePanelKey(current.workspace.id), current.day.sessionId, current.profile.name ?? t("assistant.title"), { preserveLayout: true });
+      const current = await resolveAssistantConversation(client, getReactQueryClient(), "navigation");
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
-      navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
+      navigate(`${workspaceSessionRoute(current.workspace.id, current.sessionId)}?conversation=${encodeURIComponent(current.conversation.id)}`);
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
   }, [client, navigate, setWorkspaces]);
   const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     await client.updateAssistantProfile(profile);
-    const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
   }, [client]);
   const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     const state = await client.answerAssistantOnboarding(answer);
-    const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
   }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
@@ -1542,7 +1578,7 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
-      assistantDate: assistantActive ? assistant.data?.day.date : undefined,
+      assistantDate: assistantActive ? (assistant.data?.conversation?.sessionId === selectedSessionId ? assistant.data.conversation.date ?? localAssistantDate() : assistant.data?.day?.sessionId === selectedSessionId ? assistant.data.day.date : localAssistantDate()) : undefined,
       assistantOnboarding: assistantActive && assistantOnboarding.data ? {
         state: assistantOnboarding.data,
         onIcon: (icon: AssistantAvatarIcon) => answerAssistantOnboarding({ icon }),
@@ -1605,11 +1641,9 @@ export function SessionRoute() {
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         let targetSessionId = sessionId.trim() || selectedSessionId;
         if (selectedWorkspace?.preset === "main-assistant") {
+          // The open conversation receives the message, whatever the date; nothing resolves "today" afresh.
           if (assistantOnboarding.data?.needed && assistantOnboarding.data.step === "name") await client.viewAssistantGreeting();
-          const current = await client.mainAssistantCurrent();
-          targetSessionId = current.day.sessionId;
-          getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-          if (targetSessionId !== selectedSessionId) navigate(workspaceSessionRoute(current.workspace.id, targetSessionId), { replace: true });
+          if (!targetSessionId) targetSessionId = (await resolveAssistantConversation(client, getReactQueryClient())).sessionId;
         }
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1621,6 +1655,29 @@ export function SessionRoute() {
         // fails there with a generic error.
         if (!sendModel) throw new Error(t("session_route.no_model"));
         if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
+
+        if (selectedWorkspace?.preset === "main-assistant" && !assistantConversationId) throw new Error(t("session.loading_detail"));
+        if (assistantConversationId && draft.mode !== "shell") {
+          const drafts = sharedDraftCoordinator();
+          await flushHomeDraft(assistantConversationId);
+          await drafts.flush();
+          const shared = drafts.get(assistantConversationId);
+          const parts = await draftToParts(draft, selectedWorkspaceRoot);
+          const environment = await buildLegalworkEnvSystemContext(client, { cacheKey: targetSessionId, runtimeKey: environmentRuntimeKey });
+          const pluginContext = await loadPluginSelectionContext({ parts: draft.parts, client, workspaceId: selectedWorkspaceId,
+            readStatuses: async () => unwrap(await opencodeClient.mcp.status({ directory: selectedWorkspaceRoot || undefined })) });
+          const context = [environment, draft.modelContext, pluginContext].filter(Boolean).join("\n\n");
+          if (context) parts.push(systemReminderPart(context));
+          const queueIdentity = options?.queue ? options.queue.editToken ?? options.queue.id : null;
+          const submission = await submitAssistantDraft({ client, drafts, owner: windowOwnerId("home"), conversationId: assistantConversationId,
+            identity: queueIdentity ? { requestId: `req_queue_${queueIdentity}`, messageId: `msg_${queueIdentity.replaceAll("-", "")}` } : undefined, input: {
+            text, parts, queue: options?.queue, command: draft.command, model: sendModel, variant: sendVariant ?? undefined, agent: selectedAgent ?? undefined,
+            context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
+          } });
+          if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+          const remaining = drafts.get(assistantConversationId);
+          return { preserveDraft: Boolean(remaining.text || remaining.context.length) };
+        }
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
@@ -1820,7 +1877,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantActive, assistant.data?.day.date, assistantOnboarding.data, answerAssistantOnboarding,
+    assistantActive, assistant.data?.conversation, assistant.data?.day, selectedSessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2167,46 +2224,6 @@ export function SessionRoute() {
   }), [sessionProviderAuthStore]);
   useControlAction(addProviderControlAction);
 
-  const paletteSessionOptions = useMemo<PaletteSessionOption[]>(() => {
-    const out: PaletteSessionOption[] = [];
-    for (const workspace of workspaces) {
-      const workspaceTitle =
-        workspace.displayName?.trim() ||
-        workspace.name?.trim() ||
-        workspace.path?.trim() ||
-        t("session.workspace_fallback");
-      const list = sessionsByWorkspaceId[workspace.id] ?? [];
-      for (const session of list) {
-        if (session.time?.archived) continue;
-        const sessionId = (session as { id?: string }).id?.trim() ?? "";
-        if (!sessionId) continue;
-        const title = getDisplaySessionTitle(
-          (session as { title?: string }).title ?? "",
-        );
-        const updatedAt =
-          (session as { time?: { updated?: number; created?: number } }).time
-            ?.updated ??
-          (session as { time?: { updated?: number; created?: number } }).time
-            ?.created ??
-          0;
-        out.push({
-          workspaceId: workspace.id,
-          sessionId,
-          title,
-          workspaceTitle,
-          updatedAt,
-          searchText: `${title} ${workspaceTitle}`.toLowerCase(),
-          isActive: workspace.id === selectedWorkspaceId,
-        });
-      }
-    }
-    out.sort((a, b) => {
-      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-      return b.updatedAt - a.updatedAt;
-    });
-    return out;
-  }, [sessionsByWorkspaceId, selectedWorkspaceId, workspaces]);
-
   // Refresh the non-tab fields of the nav ref during render. The `options`
   // field is maintained by the `onSessionTabsChange` callback from SessionPage.
   sessionTabNavRef.current = {
@@ -2216,39 +2233,20 @@ export function SessionRoute() {
     navigate: navigateToWorkspaceSession,
   };
 
-  const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
-    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
-    server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
-  })), [sidebarWorkspaces, endpointForWorkspace]);
-
-  const searchContents = useCallback(async (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => {
-    const workspace = workspaces.find(item => item.id === workspaceId);
-    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
-    if (!endpoint) throw new Error("Project is unavailable.");
-    const response = await endpoint.client.searchContents(endpoint.workspaceId, kind, query, signal, options);
-    return { ...response, items: response.items.map(item => ({ ...item,
-      workspaceId: item.workspaceId === endpoint.workspaceId ? workspaceId : item.workspaceId,
-      title: item.kind === "sessions" ? getDisplaySessionTitle(item.title) : item.title,
-    })) };
-  }, [workspaces, endpointForWorkspace]);
-
-  const searchProject = useCallback(async (workspaceId: string) => {
-    const workspace = workspaces.find(item => item.id === workspaceId);
-    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
-    if (!endpoint) throw new Error("Project is unavailable.");
-    return endpoint.client.getProjectDetails(endpoint.workspaceId);
-  }, [workspaces, endpointForWorkspace]);
-
-  const openSearchResult = useCallback((result: ContentSearchResult) => {
-    if (result.kind === "tasks") {
-      setOpenTask({ id: result.id, at: Date.now() });
-      navigate("/tasks");
-      return;
+  // The panel opens files and tasks through routes; the parameters are consumed once.
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const file = search.get("file"), task = search.get("task");
+    if (file && routeWorkspaceId && /\/project\/?$/.test(location.pathname)) {
+      useSearchNavigation.getState().setTarget({ kind: "files", id: file, workspaceId: routeWorkspaceId, title: file.split("/").pop() ?? file, excerpt: "", updatedAt: 0, path: file });
+      search.delete("file");
+      navigate({ pathname: location.pathname, search: search.size ? `?${search}` : "" }, { replace: true });
+    } else if (task && location.pathname === "/tasks") {
+      setOpenTask({ id: task, at: Date.now() });
+      search.delete("task");
+      navigate({ pathname: location.pathname, search: search.size ? `?${search}` : "" }, { replace: true });
     }
-    useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
-    if (result.kind === "sessions") navigateToWorkspaceSession(result.workspaceId, result.id);
-    else navigate(workspaceProjectRoute(result.workspaceId));
-  }, [navigate, navigateToWorkspaceSession]);
+  }, [location.pathname, location.search, routeWorkspaceId, navigate]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -2462,12 +2460,14 @@ export function SessionRoute() {
       const references = attachments.flatMap(({ source }) => source instanceof File ? [] : [source]);
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
       let assistantSessionId: string | null = null;
+      let homeConversationId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const current = await resolveAssistantChat(client, getReactQueryClient());
+        // The first Home message is the explicit action that creates a conversation when none exists.
+        const current = await resolveAssistantConversation(client, getReactQueryClient());
         workspace = mapDesktopWorkspace(current.workspace);
-        assistantSessionId = current.day.sessionId;
-        getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
+        assistantSessionId = current.sessionId;
+        homeConversationId = current.conversation.id;
         const assistantWorkspace = workspace;
         setWorkspaces(previous => previous.some(item => item.id === assistantWorkspace.id) ? previous : [...previous, assistantWorkspace]);
       }
@@ -2510,6 +2510,18 @@ export function SessionRoute() {
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          if (homeConversationId) {
+            const drafts = sharedDraftCoordinator(), owner = windowOwnerId("home");
+            if (!drafts.owns(homeConversationId, owner)) await drafts.claim(homeConversationId, owner);
+            const shared = drafts.get(homeConversationId);
+            const submission = await submitAssistantDraft({ client, drafts, owner, conversationId: homeConversationId,
+              identity: { requestId: `req_home_${message.id}`, messageId: message.id }, input: {
+                text: prompt, model, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined,
+                parts: [{ type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
+                context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
+              } });
+            if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+          } else {
           const result = await workspaceClient.session.promptAsync({
             sessionID: sessionId,
             messageID: message.id,
@@ -2519,6 +2531,7 @@ export function SessionRoute() {
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
           });
           if (result.error) throw new Error(serializeSDKError(result.error));
+          }
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
             role: "user",
@@ -3123,15 +3136,15 @@ export function SessionRoute() {
       onSave={() => void handleSaveRenameWorkspace()}
       onTitleChange={setRenameWorkspaceTitle}
     />
-    <CommandPalette
+    {client && <LauncherDialog
       open={commandPaletteOpen}
+      workspace={selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null}
+      conversationId={assistantConversationId}
       onClose={() => setCommandPaletteOpen(false)}
-      workspaces={searchWorkspaces}
-      sessions={paletteSessionOptions}
-      search={searchContents}
-      project={searchProject}
-      onOpenResult={openSearchResult}
-    />
+      client={client}
+      assistant={assistant.data ? { workspaceId: assistant.data.workspace.id, profile: assistant.data.profile } : null}
+      workspaces={workspaces.filter(workspace => workspace.workspaceType !== "remote" && workspace.preset !== "main-assistant" && workspace.preset !== "wiki")}
+    />}
     <AssistantIntroDialog ready={announcementsReady && Boolean(assistant.data)} onOpenAssistant={() => void openAssistant()} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost

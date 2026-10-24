@@ -149,6 +149,7 @@ export class SystemDictationService {
     this.monitorAvailable = false;
     this.error = null;
     this.escapeRegistered = false;
+    this.escapeSuspended = false;
     this.pasteQueue = Promise.resolve({ pasted: false, copied: false, error: null });
   }
 
@@ -629,7 +630,7 @@ export class SystemDictationService {
     this.runtimeState = state;
     if (!["starting", "listening"].includes(state)) this.clearGesture();
     const cancellable = ["starting", "listening", "transcribing"].includes(state);
-    if (cancellable && !this.escapeRegistered) {
+    if (cancellable && !this.escapeRegistered && !this.escapeSuspended) {
       this.escapeRegistered = registerShortcut(this.globalShortcut, "Escape", () => {
         this.clearGesture();
         this.onCancel();
@@ -640,6 +641,18 @@ export class SystemDictationService {
     }
     this.onState(state, message, locale === "de" ? "de" : "en");
     return this.status();
+  }
+
+  /** While a LegalWork panel has keyboard focus, Escape belongs to that panel's layers; dictation keeps running. */
+  suspendEscape() {
+    this.escapeSuspended = true;
+    if (this.escapeRegistered) { this.globalShortcut.unregister("Escape"); this.escapeRegistered = false; }
+  }
+  resumeEscape() {
+    this.escapeSuspended = false;
+    if (["starting", "listening", "transcribing"].includes(this.runtimeState) && !this.escapeRegistered) {
+      this.escapeRegistered = registerShortcut(this.globalShortcut, "Escape", () => { this.clearGesture(); this.onCancel(); });
+    }
   }
 
   pasteText(text) {

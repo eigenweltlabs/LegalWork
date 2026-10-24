@@ -118,12 +118,12 @@ export class SessionMessageQueue {
           if (!action.editToken) return; // A retried enqueue is idempotent.
           if (entry.lastEditToken === action.editToken) return;
           if (entry.status === "sending" || entry.edit?.token !== action.editToken) throw conflict();
-          Object.assign(entry, { draft: action.draft, execution: action.execution, status: "queued", lastEditToken: action.editToken });
+          Object.assign(entry, { draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued", lastEditToken: action.editToken });
           delete entry.edit; delete entry.error;
         } else {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
-          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued" });
+          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued" });
           if (queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
             queue.paused = false; delete queue.pauseReason;
             queue.resumeRevision = queue.revision + 1;
@@ -262,6 +262,11 @@ export class SessionMessageQueue {
 }
 
 const queues = new WeakMap<ServerConfig, SessionMessageQueue>();
+export function getMessageQueue(config: ServerConfig) {
+  const queue = queues.get(config);
+  if (!queue) throw new Error("The message queue is not ready.");
+  return queue;
+}
 export function registerMessageQueue(config: ServerConfig, transport: QueueTransport) {
   const directory = join(dirname(config.configPath || process.env.LEGALWORK_RUNTIME_DB || join(homedir(), ".config/legalwork/config.json")), "message-queues");
   const queue = new SessionMessageQueue(directory, transport); queues.set(config, queue); return queue;
