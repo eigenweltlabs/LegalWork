@@ -242,7 +242,7 @@ export default {
   "actaport.disconnected": "Actaport disconnected and saved credentials removed.",
   "actaport.desktop_required": "Connect Actaport from the LegalWork desktop app.",
   "actaport.local_worker_required": "Use the local desktop worker to connect Actaport. Remote workers need their own Actaport credentials and MCP setup.",
-  "actaport.secure_storage_required": "Secure credential storage is unavailable. Enable your operating system keychain and restart LegalWork.",
+  "actaport.secure_storage_required": "Secure credential storage is unavailable. Restore access to your saved credentials and restart LegalWork.",
   "actaport.status_failed": "Could not read the Actaport connection status.",
   "actaport.failed": "Could not complete the Actaport action.",
   "actaport.mcp_failed": "Credentials were saved, but the MCP connection failed. Check the worker connection and try connecting the tools again.",

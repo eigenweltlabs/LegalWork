@@ -252,7 +252,7 @@ const de = {
   "actaport.disconnected": "Actaport wurde getrennt und gespeicherte Zugangsdaten wurden entfernt.",
   "actaport.desktop_required": "Verbinden Sie Actaport über die LegalWork-Desktop-App.",
   "actaport.local_worker_required": "Verbinden Sie Actaport über den lokalen Desktop-Worker. Remote-Worker benötigen eigene Actaport-Zugangsdaten und eine eigene MCP-Konfiguration.",
-  "actaport.secure_storage_required": "Sichere Speicherung ist nicht verfügbar. Aktivieren Sie den Schlüsselbund Ihres Betriebssystems und starten Sie LegalWork neu.",
+  "actaport.secure_storage_required": "Sichere Speicherung ist nicht verfügbar. Stellen Sie den Zugriff auf Ihre gespeicherten Zugangsdaten wieder her und starten Sie LegalWork neu.",
   "actaport.status_failed": "Der Actaport-Verbindungsstatus konnte nicht gelesen werden.",
   "actaport.failed": "Die Actaport-Aktion konnte nicht ausgeführt werden.",
   "actaport.mcp_failed": "Zugangsdaten wurden gespeichert, aber die MCP-Verbindung ist fehlgeschlagen. Prüfen Sie die Worker-Verbindung und verbinden Sie die Tools erneut.",
