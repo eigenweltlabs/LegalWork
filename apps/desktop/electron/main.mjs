@@ -307,7 +307,26 @@ function runSystemPasteCommand(platform) {
       `tell application "System Events"
         try
           set frontProcess to first application process whose frontmost is true
-          set targetElement to value of attribute "AXFocusedUIElement" of frontProcess
+          set targetElement to missing value
+          try
+            set targetElement to value of attribute "AXFocusedUIElement" of frontProcess
+          end try
+          if targetElement is missing value then
+            -- Electron defers building its accessibility tree for two seconds.
+            -- A missing tree does not mean the focused editor is read-only.
+            try
+              set value of attribute "AXManualAccessibility" of frontProcess to true
+            end try
+            repeat 30 times
+              delay 0.1
+              if frontmost of frontProcess is false then return "copied"
+              try
+                set targetElement to value of attribute "AXFocusedUIElement" of frontProcess
+                if targetElement is not missing value then exit repeat
+              end try
+            end repeat
+          end if
+          if targetElement is missing value then return "copied"
           if exists attribute "AXEnabled" of targetElement then
             if value of attribute "AXEnabled" of targetElement is false then return "copied"
           end if
@@ -2640,7 +2659,7 @@ const desktopCommandHandlers = {
   },
   "audioMeetingOpen": async (event) => openMeetingRecorder(),
   "audioSystemDictationSetState": async (event, ...args) => {
-      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "cancelled", "error"].includes(args[0])
+      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "copied", "cancelled", "error"].includes(args[0])
         ? args[0]
         : "idle";
       return systemDictation.setRuntimeState(state, String(args[1] ?? ""), args[2] === "de" ? "de" : "en");

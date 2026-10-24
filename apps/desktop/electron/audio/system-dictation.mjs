@@ -623,7 +623,7 @@ export class SystemDictationService {
   }
 
   setRuntimeState(state, message = "", locale = "en") {
-    if (["success", "cancelled", "error"].includes(state) || (state === "idle" && this.runtimeState !== "idle")) {
+    if (["success", "copied", "cancelled", "error"].includes(state) || (state === "idle" && this.runtimeState !== "idle")) {
       this.settledAt = Date.now();
     }
     this.runtimeState = state;

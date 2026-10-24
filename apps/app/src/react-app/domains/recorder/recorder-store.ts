@@ -1444,7 +1444,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const meta = await audioRecordingStop(recording.id);
         const transcriptionError = meta.status === "error" ? meta.error || "Transcription failed." : null;
         let dictationError: string | null = transcriptionError;
-        let dictationMessage = "";
+        let dictationCopied = false;
         let recordingsAfterDictation: AudioRecordingMeta[] | null = null;
         if (isSystemDictation) {
           const detail = await audioRecordingGet(meta.id);
@@ -1457,7 +1457,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
               else {
                 const result = await audioSystemDictationPaste(text);
                 dictationError = result.error;
-                if (result.copied && !result.pasted) dictationMessage = t("recorder.dictation_copied");
+                dictationCopied = result.copied && !result.pasted;
               }
             } catch (error) {
               dictationError = error instanceof Error ? error.message : String(error);
@@ -1469,7 +1469,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
           await (dictationCancelled || suspendEpoch !== stopEpoch
             ? cancelledDictationFeedback()
-            : setDictationFeedback(dictationError ? "error" : text ? "success" : "idle", dictationError ?? dictationMessage)
+            : setDictationFeedback(dictationCopied ? "copied" : dictationError ? "error" : text ? "success" : "idle", dictationCopied ? "" : dictationError ?? "")
           ).catch(() => {});
         }
         if (isSystemDictation) dictationSettleAt = Date.now();

@@ -554,7 +554,7 @@ test("one press cancels hands-free startup and a later dictation can finish norm
 test("paste failure shows the recovery message and clears the dictation", async () => {
   pasteError = "Text copied. Paste it manually.";
   await store.getState().startSystemDictation(); await store.getState().stopRecording();
-  expect(feedback.at(-1)).toBe("error:" + pasteError);
+  expect(feedback.at(-1)).toBe("copied");
   expect(store.getState().error).toBe(pasteError); expect(store.getState().recording).toBeNull();
 });
 
@@ -562,7 +562,7 @@ test("no focused text field reports copied to clipboard instead of text inserted
   pasteCopiedOnly = true;
   await store.getState().startSystemDictation();
   await store.getState().stopRecording();
-  expect(feedback.at(-1)).toBe("success:Copied to clipboard");
+  expect(feedback.at(-1)).toBe("copied");
   expect(store.getState().error).toBeNull();
   expect(store.getState().recording).toBeNull();
   expect(deleted).toBe(1);

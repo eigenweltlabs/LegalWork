@@ -340,6 +340,7 @@ export type AudioSystemDictationRuntimeState =
   | "transcribing"
   | "inserting"
   | "success"
+  | "copied"
   | "cancelled"
   | "error";
 

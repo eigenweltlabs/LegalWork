@@ -23,6 +23,8 @@
     "test:browser-workflow": "electron scripts/browser-workflow-regression.mjs",
     "test:browser-network": "electron scripts/browser-network-regression.mjs",
     "test:native": "electron scripts/native-modules-regression.mjs",
+    "test:dictation-paste": "electron scripts/dictation-paste-regression.mjs",
+    "test:dictation-recovery": "electron scripts/dictation-hud-regression.mjs --clipboard",
     "test:dictation-hud": "electron scripts/dictation-hud-regression.mjs",
     "test:dictation-capture": "electron scripts/dictation-capture-regression.mjs",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
