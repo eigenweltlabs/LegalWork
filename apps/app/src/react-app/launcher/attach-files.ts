@@ -1,5 +1,6 @@
 import type { AssistantContextItem } from "@legalwork/types/launcher";
 import type { DraftCoordinator } from "./draft-coordinator";
+import { persistentContext } from "./launcher-context-lifecycle";
 
 /** Keep uploads attached to the conversation that accepted the drop, even across a handoff. */
 export async function attachFilesToDraft(options: {
@@ -23,7 +24,7 @@ export async function attachFilesToDraft(options: {
         const context = options.context?.() ?? drafts.get(conversationId).context;
         if (context.length >= 50) throw new Error("Maximum 50 attachments per message.");
         const next = [...context, item];
-        await drafts.update(conversationId, owner, { context: next });
+        await drafts.update(conversationId, owner, { context: persistentContext(next) });
         options.onAttached?.(next);
         added++;
       } catch (error) { failures.push({ name: file.name, error: error instanceof Error ? error.message : String(error) }); }

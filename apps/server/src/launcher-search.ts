@@ -1,3 +1,4 @@
+import { isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentSearchResult } from "./search-schema.js";
 import { projectMatch } from "./assistant-project-search.js";
@@ -63,7 +64,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
   const source = (state: LauncherSourceState) => { sources.push(state); };
   if (kinds.has("projects")) {
     let count = 0;
-    for (const workspace of workspaces) {
+    for (const workspace of scoped) {
       const match = projectMatch({ id: workspace.id, name: deps.projectName(workspace), path: workspace.path }, query);
       if (!match) continue;
       const score = match.match === "exact" ? 1000 : match.match === "literal" ? 700 - match.score * 50 : match.match === "all" ? 0 : 150 - match.score * 10;
@@ -108,7 +109,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
           seen.add(found.entry.path);
           items.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
-            revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: FILE_ACTIONS });
+            revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: found.entry.directory ? ["open"] : FILE_ACTIONS });
         }
         const state = deps.fileIndex.state(workspace.id);
         let coverage: LauncherSourceState["coverage"] = state === "indexing" || (index.building && !index.complete) ? "indexing" : "filename-only";
@@ -118,7 +119,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             const response = await withBudget(inner => deps.fileContentSearch(workspace, query, inner), budget, signal);
             preparing = response.preparing ?? 0; limited ||= Boolean(response.limited);
             for (const result of response.items) {
-              if (seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
+              if (isLauncherInternalPath(result.id) || seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
               items.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
                 fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: FILE_ACTIONS, sources: result.sources });
             }
@@ -145,7 +146,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
   }
   for (const id of unavailable) source({ id: `unavailable:${id}`, kind: "projects", workspaceId: id, label: id, coverage: "unavailable", count: 0 });
   items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en") || a.id.localeCompare(b.id, "en"));
-  return { items: items.slice(0, input.limit), sources, unavailable };
+  return { items: items.filter(item => !input.modifiedAfter || item.updatedAt >= input.modifiedAfter).slice(0, input.limit), sources, unavailable };
 }
 
 /** Recording titles match like other titles; the library itself stays the authority on access. */

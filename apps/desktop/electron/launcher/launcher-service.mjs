@@ -173,7 +173,7 @@ export class LauncherService {
   }
   /** @param {import("@legalwork/types/launcher").LauncherInvocation["source"]} source */
   async toggle(source) {
-    if (this.options.window.isVisible() && this.options.window.isFocused()) return this.options.window.hide();
+    if (this.options.window.isVisible()) return this.options.window.hide();
     return this.invoke({ id: `toggle_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: "open", source });
   }
   /**

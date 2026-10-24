@@ -24,6 +24,10 @@ export const LauncherSearchResultSchema = z.object({
   sources: z.array(z.object({ path: z.string(), hash: z.string(), page: z.number().nullable(), source: z.enum(["native", "ocr"]), quote: z.string(), preparationPath: z.string().optional() })).optional(),
 });
 export type LauncherSearchResult = z.infer<typeof LauncherSearchResultSchema>;
+/** Saved dashboard definitions are app metadata, not user documents in the launcher. */
+export function isLauncherInternalPath(path: string) {
+  return path.split(/[\\/]/).some(part => part.startsWith(".")) || /\.view(?:\.conflict-[^.]+)?\.json$/i.test(path);
+}
 export const LauncherSourceStateSchema = z.object({
   id: z.string(), kind: LauncherSearchKindSchema, workspaceId: z.string().nullable(), label: z.string(), coverage: LauncherCoverageSchema,
   count: z.number(), limited: z.boolean().optional(), preparing: z.number().optional(), error: z.string().optional(),
@@ -248,9 +252,4 @@ export type LauncherDesktopEvent = z.infer<typeof LauncherDesktopEventSchema>;
 
 export const launcherOpenSchema = z.object({
   source: projectFileSourceSchema, destination: z.string().min(1), paneId: z.string().optional(),
-});
-export const launcherSearchSchema = z.object({
-  input: z.string().max(200_000), category: LauncherSearchKindSchema.nullable(),
-  scope: z.object({ id: z.string(), name: z.string() }).nullable(),
-  fileFilter: z.object({ types: z.array(z.string()).nullable(), modifiedAfter: z.number().nullable() }),
 });

@@ -1,12 +1,11 @@
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 import { launcherOpenSchema } from "@legalwork/types/launcher";
-export { launcherSearchSchema } from "@legalwork/types/launcher";
-import { workspaceProjectRoute } from "@/react-app/shell/workspace-routes";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { projectFileTab } from "@/react-app/domains/workspace/project-file-tab";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 
 export function launcherFileRoute(source: ProjectFileSource, destination = source.projectId, paneId?: string) {
-  return `${workspaceProjectRoute(destination)}?launcherOpen=${encodeURIComponent(JSON.stringify({ source, destination, paneId }))}`;
+  return `${workspaceSessionRoute(destination)}?view=workspace&launcherOpen=${encodeURIComponent(JSON.stringify({ source, destination, paneId }))}`;
 }
 /** Open a durable tab; the existing store handles pane policy and unsaved editors. */
 export function acceptLauncherFile(value: unknown, workspaceId: string) {

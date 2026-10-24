@@ -2,9 +2,11 @@ import { create } from "zustand";
 import type { LauncherWorkspaceContext, AssistantConversation, AssistantContextItem, AssistantExecutionTarget, LauncherApprovalRequest, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherOrigin, LauncherSearchKind, LauncherSearchResult, LauncherSourceState, LauncherVoiceState } from "@legalwork/types/launcher";
 import type { LauncherSelection } from "./launcher-keyboard";
 import { orderLauncherResults } from "./launcher-keyboard";
+import type { LauncherDetail } from "./launcher-details";
+import { persistentContext } from "./launcher-context-lifecycle";
 
-export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work";
-export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "context-menu" } | null;
+export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work" | "detail" | "hidden" | "history";
+export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "navigation-actions"; id: string } | { kind: "context-menu" } | null;
 export type ProjectScope = { id: string; name: string };
 export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean; pinned: boolean };
 export type StagedPreview = { id: string; dataUrl: string };
@@ -12,6 +14,7 @@ export type StagedPreview = { id: string; dataUrl: string };
 export type LauncherState = {
   workspaceContext: LauncherWorkspaceContext | null;
   view: LauncherView;
+  detail: LauncherDetail | null;
   input: string;
   category: LauncherSearchKind | null;
   /** File finder filters; they narrow files only and show as chips. */
@@ -71,6 +74,7 @@ export type LauncherState = {
 };
 
 const initial = {
+  detail: null as LauncherDetail | null,
   workspaceContext: null as LauncherWorkspaceContext | null,
   view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, positionMoved: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
@@ -94,7 +98,11 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   toggleMultiSelect: key => set(state => { const next = new Set(state.multiSelect); if (next.has(key)) next.delete(key); else next.add(key); return { multiSelect: next }; }),
   clearMultiSelect: () => set({ multiSelect: new Set() }),
   setOverlay: overlay => set({ overlay }),
-  addContext: (items, previews = []) => set(state => ({ context: [...state.context, ...items.filter(item => !state.context.some(existing => existing.id === item.id))], previews: [...state.previews, ...previews] })),
+  addContext: (items, previews = []) => set(state => {
+    const replaceSelection = items.some(item => item.type === "selection");
+    const context = replaceSelection ? persistentContext(state.context) : state.context;
+    return { context: [...context, ...items.filter(item => !context.some(existing => existing.id === item.id))], previews: [...state.previews, ...previews] };
+  }),
   removeContext: id => set(state => ({ context: state.context.filter(item => item.id !== id), previews: state.previews.filter(preview => preview.id !== id) })),
   replaceContext: context => set({ context }),
   bindConversation: conversation => set(state => ({
@@ -108,9 +116,9 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   setApproval: approval => set({ approval }),
   setVoice: voice => set({ voice }),
   notify: notice => set({ notice }),
-  // Dismissal keeps the conversation, its draft and attachments; a search or command typed into the field is transient and clears.
+  // Dismissal keeps drafts and deliberate attachments. Captured selections always expire.
   reset: () => set(state => {
     const keepDraft = state.view === "conversation";
-    return { ...state, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null }, results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
+    return { ...state, detail: null, workspaceContext: state.workspaceContext ? { ...state.workspaceContext, selection: undefined } : null, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", scope: keepDraft ? state.scope : null, target: keepDraft ? state.target : { kind: "assistant" }, category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null }, context: persistentContext(state.context).filter(item => keepDraft || item.type !== "clipboard"), results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
   }),
 }));

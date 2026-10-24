@@ -1,4 +1,5 @@
 import { createLauncherDocument } from "../launcher-document.js";
+import { browseLauncherDirectory } from "../launcher-browse.js";
 import { constants as fsConstants } from "node:fs";
 import { copyFile, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -50,6 +51,17 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     return jsonResponse(result, 201);
   });
   addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
+  addRoute(routes, "GET", "/launcher/browse", "client", async ctx => {
+    read(ctx);
+    const input = parse(z.object({ workspaceId: z.string().min(1).optional(), folderId: z.string().min(1).optional(), path: z.string().max(4096).default("") }), Object.fromEntries(ctx.url.searchParams), "launcher_browse", "Choose a project or search folder.");
+    if (Boolean(input.workspaceId) === Boolean(input.folderId)) throw new ApiError(400, "launcher_browse", "Choose one project or search folder.");
+    const folder = input.folderId ? await options.searchFolders.root(input.folderId) : null;
+    const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : null;
+    if (workspace?.workspaceType === "remote") throw new ApiError(400, "launcher_browse", "Open this remote project in the app.");
+    const root = folder?.path ?? workspace?.path;
+    if (!root) throw new ApiError(404, "launcher_browse", "Folder unavailable.");
+    return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
+  });
   addRoute(routes, "POST", "/launcher/folders", "client", async ctx => {
     options.ensureWritable(config); options.requireClientScope(ctx, "owner");
     const input = parse(z.object({ path: z.string().trim().min(1).max(4096), name: z.string().trim().max(160).optional() }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_input", "Choose a folder to search.");
@@ -114,6 +126,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {
       const page = conversations.list(assistant.id, { query: input.q, limit: 20 });
       for (const conversation of page.items) {
+        if (input.since && conversation.updatedAt < input.since) continue;
         const score = titleScore(conversation.title, input.q) ?? { match: "content" as const, score: 300 };
         response.items.push({ id: conversation.id, kind: "chats", workspaceId: assistant.id, sourceId: "assistant", title: conversation.title, subtitle: projectName(assistant), updatedAt: conversation.updatedAt, sessionId: conversation.sessionId, match: score.match, score: score.score, actions: ["resume", "open"] });
       }

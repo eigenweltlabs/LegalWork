@@ -107,7 +107,7 @@ export function LauncherRoute() {
         seen.current.add(event.invocation.id);
         if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) store.setInvocation(event.invocation); }).catch(() => store.setInvocation(event.invocation));
         else store.setInvocation(event.invocation);
-      } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned);  }
+      } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) store.reset(); }
       else if (event.type === "position") store.setPositionMoved(event.moved);
       else if (event.type === "origin") store.setOrigin(event.origin);
       else if (event.type === "attention") store.setAttentionCount(event.count);

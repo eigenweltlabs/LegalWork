@@ -10,7 +10,7 @@ export type LauncherShellValue = {
   workspaces: LegalworkWorkspaceInfo[];
   drafts: DraftCoordinator;
   owner: string;
-  surface: "panel" | "embedded" | "home";
+  surface: "panel" | "embedded";
   /** The conversation this surface belongs to; null means the server's current one. */
   conversationId: string | null;
   desktop: boolean;

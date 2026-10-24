@@ -1,4 +1,5 @@
-import { acceptLauncherFile, launcherSearchSchema } from "@/react-app/launcher/launcher-handoff";
+import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
+import { acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
 import { useLauncherStore } from "@/react-app/launcher/launcher-store";
 import { usePublishLauncherContext } from "@/react-app/launcher/workspace-context";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
@@ -574,27 +575,23 @@ export function SessionRoute() {
     },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
-  usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null);
+  usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null, client?.baseUrl);
   const launcherHandoff = useRef<string | null>(null);
   useEffect(() => {
-    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), search = params.get("launcherSearch"), draftId = params.get("launcherDraft");
-    if ((!file && !search && !draftId) || launcherHandoff.current === location.search) return;
-    if (file && selectedWorkspaceId !== routeWorkspaceId) return;
+    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), folder = params.get("launcherFolder");
+    if (!file && folder === null) { launcherHandoff.current = null; return; }
+    if (launcherHandoff.current === location.search) return;
+    if ((file || folder !== null) && (!client || selectedWorkspaceId !== routeWorkspaceId)) return;
     launcherHandoff.current = location.search;
     void (async () => {
       try {
         if (file && selectedWorkspaceId) acceptLauncherFile(JSON.parse(file), selectedWorkspaceId);
-        if (draftId) {
-          const drafts = sharedDraftCoordinator(); await drafts.ready(); await drafts.reconcile();
-          const draft = drafts.get(draftId);
-          useLauncherStore.setState({ input: draft.text, context: draft.context, target: draft.target, workspaceContext: null, conversation: null, view: search ? "results" : "conversation", visible: true });
-        }
-        if (search) { const state = launcherSearchSchema.parse(JSON.parse(search)); useLauncherStore.setState({ ...state, view: "results", visible: true }); }
+        if (folder !== null && selectedWorkspaceId && client) openLauncherFolder(client.baseUrl, selectedWorkspaceId, folder);
       } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
-      params.delete("launcherOpen"); params.delete("launcherSearch"); params.delete("launcherDraft");
+      params.delete("launcherOpen"); params.delete("launcherFolder");
       navigate(`${location.pathname}${params.size ? `?${params}` : ""}`, { replace: true });
     })();
-  }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate]);
+  }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate, client]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
   const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: Boolean(selectedSessionId && client),
     queryFn: async () => {
@@ -2850,8 +2847,6 @@ export function SessionRoute() {
             remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
         ) : homePage ? (
           <AppHome
-            entry={client ? <LauncherDialog inline open workspace={homeProjectId ? { id: homeProjectId, name: workspaces.find(item => item.id === homeProjectId)?.name ?? homeProjectId } : null} onClose={() => { const state = useLauncherStore.getState(); if (state.view !== "conversation") { state.setInput(""); state.setCategory(null); state.setScope(null); } }} client={client} conversationId={null} assistant={assistant.data ? { workspaceId: assistant.data.workspace.id, profile: assistant.data.profile } : null} workspaces={workspaces.filter(item => item.workspaceType !== "remote" && item.preset !== "main-assistant")} /> : undefined}
-            onStarterPrompt={text => { const state = useLauncherStore.getState(); state.setInput([state.view === "conversation" ? state.input : "", text].filter(Boolean).join("\n\n")); state.setView("conversation"); }}
             workspaces={sidebarWorkspaces}
             assistantProfile={assistant.data?.profile}
             projectId={homeProjectId}

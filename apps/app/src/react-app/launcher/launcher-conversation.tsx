@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, ArrowUpRight, ClipboardPaste, Copy, Loader2, Pin, PinOff, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
@@ -64,13 +64,16 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
 }
 
 export type PendingOutput = { messageId: string; output: "copy" | "insert"; originId: string | null };
-export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave }: { conversation: LauncherConversationBinding; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
+export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave, onOpenApp }: { conversation: LauncherConversationBinding; onOpenApp: () => void; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
   const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
   const notify = useLauncherStore(state => state.notify);
   const visible = useLauncherStore(state => state.visible);
   const origin = useLauncherStore(state => state.origin);
   const [busy, setBusy] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const wasVisible = useRef(false);
   // A hidden panel stops polling; nothing animates or refreshes off screen.
   const snapshot = useQuery({ queryKey: ["launcher-snapshot", client.baseUrl, conversation.workspaceId, conversation.sessionId], queryFn: () => client.getSessionSnapshot(conversation.workspaceId, conversation.sessionId, { limit: 40 }), refetchInterval: visible ? 2500 : false, refetchOnWindowFocus: true });
   const own = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation.conversationId], queryFn: () => client.assistantConversationAttention(conversation.conversationId), refetchInterval: visible ? 4000 : false });
@@ -78,6 +81,22 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   useEffect(() => onSyncPoke(poke => { if (poke.sessions || poke.approvals || poke.resync) { void snapshot.refetch(); void own.refetch(); void delegated.refetch(); } }), [snapshot, own, delegated]);
   const messages = useMemo(() => snapshot.data ? snapshotToUIMessages(snapshot.data.item) : [], [snapshot.data]);
   const status = snapshot.data?.item.status.type === "busy" ? "streaming" : snapshot.data?.item.status.type === "retry" ? "retrying" : "ready";
+  const lastMessageTextSize = messages.at(-1)?.parts.flatMap(part => part.type === "text" ? [part.text.length] : []).join(",") ?? "";
+  useEffect(() => {
+    const body = rootRef.current?.closest<HTMLElement>(".launcher-body");
+    if (!body) return;
+    const onScroll = () => { followLatest.current = body.scrollHeight - body.scrollTop - body.clientHeight < 56; };
+    body.addEventListener("scroll", onScroll);
+    return () => body.removeEventListener("scroll", onScroll);
+  }, []);
+  useLayoutEffect(() => {
+    if (!visible) { wasVisible.current = false; return; }
+    if (!wasVisible.current) followLatest.current = true;
+    wasVisible.current = true;
+    if (!followLatest.current) return;
+    const frame = requestAnimationFrame(() => { const body = rootRef.current?.closest<HTMLElement>(".launcher-body"); if (body) body.scrollTop = body.scrollHeight; });
+    return () => cancelAnimationFrame(frame);
+  }, [visible, conversation.conversationId, messages.length, lastMessageTextSize, status]);
   const attention = useMemo(() => [...new Map([...(own.data?.items ?? []), ...(delegated.data?.items ?? [])].filter(item => item.kind !== "widget").map(item => [item.id, item])).values()], [own.data, delegated.data]);
   // The last finished reply is what Copy, Insert and a quick action's output policy act on.
   const lastReply = useMemo(() => {
@@ -122,8 +141,9 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : t("assistant.attention_failed") }); }
     finally { setBusy(null); await Promise.all([own.refetch(), delegated.refetch()]); void cache.invalidateQueries({ queryKey: ["launcher-work"] }); }
   };
-  return <div className="launcher-conversation lw-session-typography">
+  return <div ref={rootRef} className="launcher-conversation lw-session-typography">
     <div className="launcher-conversation-head"><span className="truncate">{conversation.title}</span>
+      <Button size="sm" variant="ghost" onClick={onOpenApp}>{t("launcher.result_action.open-in-app")}</Button>
       <Button size="icon-sm" variant="ghost" aria-label={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} title={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} onClick={() => void togglePin()}>{conversation.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}</Button>
       <Button size="icon-sm" variant="ghost" aria-label={t("launcher.conversation.archive")} title={t("launcher.conversation.archive")} onClick={() => void archive()}><Archive className="size-3.5" /></Button>
     </div>

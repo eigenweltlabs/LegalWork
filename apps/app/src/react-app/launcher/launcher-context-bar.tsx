@@ -15,7 +15,7 @@ export function LauncherContextBar() {
       return <span key={item.id} className="launcher-context-item" title={item.type === "selection" || item.type === "clipboard" ? item.text.slice(0, 400) : contextItemDetail(item)}>
         {preview && <img src={preview.dataUrl} alt="" />}
         <span>{contextItemLabel(item)}</span>
-        <span className="launcher-context-detail">{contextItemDetail(item)}</span>
+        {item.type !== "selection" && <span className="launcher-context-detail">{contextItemDetail(item)}</span>}
         <button type="button" aria-label={t("launcher.context.remove", { name: contextItemLabel(item) })} onClick={() => removeContext(item.id)}><X className="size-3.5" /></button>
       </span>;
     })}

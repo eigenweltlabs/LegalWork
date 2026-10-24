@@ -124,12 +124,17 @@ export class LauncherWindow {
     return this.state();
   }
   async resetPosition() {
+    const window = await this.ensure();
+    const display = screen.getDisplayMatching(window.getBounds());
+    this.displayId = display.id;
     this.remembered = null;
-    delete this.positions[String(this.display().id)];
+    delete this.positions[String(display.id)];
     const saved = JSON.stringify({ positions: this.positions });
     this.positionWrite = this.positionWrite.then(() => writeFile(this.positionPath, saved)).catch(() => {});
     await this.positionWrite;
-    return this.show();
+    window.setBounds(placePanel(display.workArea, { width: PANEL_WIDTH, height: this.height }, null));
+    this.send({ type: "position", moved: this.positionMoved() });
+    return this.state();
   }
   hide() {
     if (this.blurTimer) clearTimeout(this.blurTimer);

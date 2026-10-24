@@ -61,12 +61,13 @@ export function catalogArguments(entry: LauncherCatalogEntry, query: string) {
 
 /** The visible primary action of a result row: what Enter does. */
 export function primaryResultAction(result: LauncherSearchResult): LauncherSearchResult["actions"][number] {
-  if (result.kind === "chats") return "resume";
-  if (result.kind === "recordings") return "open";
+  if (["chats", "recordings", "tasks", "projects"].includes(result.kind)) return "open";
   return result.actions[0] ?? "open";
 }
 /** Only advertised actions the provider can execute are offered; the order is stable per kind. */
 export function resultActionMenu(result: LauncherSearchResult, selectedCount: number): LauncherSearchResult["actions"] {
-  const order: LauncherSearchResult["actions"] = ["open", "resume", "reveal", "open-external", "attach", "ask", "compare", "summarize", "play", "complete", "hand-to-assistant", "copy-to-project", "move-to-project", "copy-path", "copy-reference", "pin"];
-  return order.filter(action => result.actions.includes(action) && (action !== "compare" || selectedCount >= 2));
+  const order: LauncherSearchResult["actions"] = ["complete", "attach", "ask", "compare", "summarize", "hand-to-assistant", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-path", "copy-reference", "pin"];
+  return order.filter(action => action !== primaryResultAction(result) && result.actions.includes(action) && (action !== "compare" || selectedCount >= 2));
 }
+
+export function canPreviewResult(result: LauncherSearchResult) { return result.kind === "files" && result.fileType !== "folder"; }

@@ -130,8 +130,9 @@ export class OriginService {
   }
   /** Record the external origin. LegalWork's own windows are never an origin. */
   async capture() {
+    this.prefetched = null;
     const front = await this.frontmost();
-    if (!front?.ok || this.isOwnProcess(Number(front.pid) || null, front.bundleId || null)) return this.origin;
+    if (!front?.ok || this.isOwnProcess(Number(front.pid) || null, front.bundleId || null)) { this.invalidate(); return null; }
     const capabilities = this.capabilities();
     this.origin = { id: `origin_${randomBytes(6).toString("hex")}`, app: front.app || null, window: front.window || null, bundleId: front.bundleId || null, pid: Number.isInteger(front.pid) ? Number(front.pid) : null,
       // Windows can read the selection only while the source still has focus: the selection shortcut prefetches it; a plain open offers nothing it cannot deliver.
@@ -142,6 +143,7 @@ export class OriginService {
   invalidate() { this.origin = null; this.prefetched = null; }
   /** An explicit selection shortcut reads the selection as part of the invocation, before the panel takes focus. */
   async prefetchSelection() {
+    this.prefetched = null;
     const origin = this.origin;
     if (!origin) return null;
     const result = await this.readSelection(origin);

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronDown, Folder, Paperclip, Plus } from "lucide-react";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { AssistantAvatar } from "../sidebar/assistant-appearance";
@@ -22,8 +22,6 @@ import { appendDictatedText, useComposerDictation } from "../surface/composer/us
 import { ComposerDictationBar, ComposerDictationButton, ComposerDictationError } from "../surface/composer/composer-dictation";
 
 export type AppHomeProps = {
-  entry?: ReactNode;
-  onStarterPrompt?: (text: string) => void;
   workspaces: WorkspaceInfo[];
   projectId: string | null;
   assistantProfile?: AssistantProfile;
@@ -132,14 +130,6 @@ export function AppHome(props: AppHomeProps) {
       <Button type="button" size="icon" className="lw-home-send" disabled={!canSend} onClick={() => void send()} aria-label={t("home.send")}><ArrowUp size={20} /></Button>
     </div>
   </div>}<ComposerDictationError dictation={dictation} /></>;
-
-  if (props.entry) return <div className="lw-app-home" data-testid="app-home"><div className="lw-app-home-content launcher-home-content">
-    {props.entry}
-    <div className="lw-home-project-bar"><Button variant="ghost" onClick={props.onCreateProject}><Plus size={16} />{t("home.new_project")}</Button><div className="lw-home-model-controls">
-      {props.selectedModel ? <><ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={props.disabled} /><ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={props.disabled} /></> : <Button variant="ghost" onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
-    </div></div>
-    <TaskSuggestionCards className="lw-home-suggestions" providerConnectedCount={props.providerConnectedCount} onConnect={props.onConnect} onSelect={prompt => props.onStarterPrompt?.(prompt)} />
-  </div></div>;
 
   if (sending) {
     const displayText = replaceHomeAttachmentTokens(text, attachments, ({ source }) => source instanceof File ? source.name : source.file.name);

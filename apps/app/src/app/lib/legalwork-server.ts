@@ -1,5 +1,5 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
-import type { LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, SavedSearch, SavedSearchInput, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
+import type { LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, SavedSearch, SavedSearchInput, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
@@ -2919,6 +2919,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     deleteSavedSearch: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/launcher/searches/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
     recordSavedSearchUse: (id: string) => requestJson<{ search: SavedSearch | null }>(baseUrl, `/launcher/searches/${encodeURIComponent(id)}/used`, { token, hostToken, method: "POST", body: {} }),
     launcherFolders: () => requestJson<{ folders: LauncherSearchFolder[] }>(baseUrl, "/launcher/folders", { token, hostToken }),
+    launcherBrowse: (input: { workspaceId?: string; folderId?: string; path?: string }, signal?: AbortSignal) => requestJson<{ items: LauncherSearchResult[]; truncated: boolean }>(baseUrl, `/launcher/browse?${new URLSearchParams({ ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(input.folderId ? { folderId: input.folderId } : {}), path: input.path ?? "" })}`, { token, hostToken, signal }),
     addLauncherFolder: (input: { path: string; name?: string }) => requestJson<{ folder: LauncherSearchFolder }>(baseUrl, "/launcher/folders", { token, hostToken, method: "POST", body: input }),
     removeLauncherFolder: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/launcher/folders/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
     launcherFolderFile: (id: string, path: string) => requestJson<{ path: string }>(baseUrl, `/launcher/folders/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { token, hostToken }),

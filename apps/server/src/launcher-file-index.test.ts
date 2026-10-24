@@ -16,13 +16,16 @@ test("filename search ranks exact, prefix, word, substring and fuzzy matches and
     await writeFile(join(root, "Notizen Vertrag.md"), "d");
     await writeFile(join(root, "node_modules", "pkg", "mietvertrag.js"), "e");
     await writeFile(join(root, ".hidden-mietvertrag.txt"), "f");
+    await writeFile(join(root, "6f30a62f-78a1-45ba-98f4-2033336f10e0.view.json"), "{}");
     expect(index.state("w")).toBe("unavailable");
     await index.ensure("w", root, true);
     expect(index.state("w")).toBe("ready");
-    expect(index.size("w")).toBe(4);
+    expect(index.size("w")).toBe(6);
+    expect(index.search("w", "", 20, { browse: true }).filter(item => item.entry.directory).map(item => item.entry.path).sort()).toEqual(["Müller", "Müller/Verträge"]);
+    expect(index.search("w", "view.json")).toEqual([]);
     const results = index.search("w", "mietvertrag").map(item => [item.entry.path, item.match]);
     expect(results).toEqual([["Müller/Verträge/Mietvertrag.docx", "exact"], ["Müller/Verträge/Mietvertrag-alt.docx", "prefix"], ["Müller/Untermietvertrag.pdf", "substring"]]);
-    const multi = index.search("w", "müller vertrag").map(item => item.entry.path);
+    const multi = index.search("w", "müller vertrag").filter(item => !item.entry.directory).map(item => item.entry.path);
     expect(multi[0]).toBe("Müller/Verträge/Mietvertrag.docx");
     expect(multi.slice(1).sort()).toEqual(["Müller/Untermietvertrag.pdf", "Müller/Verträge/Mietvertrag-alt.docx"]);
     expect(index.search("w", "vertrag").map(item => item.match)).toContain("word");
@@ -65,7 +68,7 @@ test("filters narrow by extension and modification time, and list recent files w
     expect(index.search("w", "", 10, { types: ["docx"] }).map(match => match.entry.name).sort()).toEqual(["Alt.docx", "Mietvertrag.docx"]);
     expect(index.search("w", "", 10, { types: ["docx"], modifiedAfter: Date.now() - 86_400_000 }).map(match => match.entry.name)).toEqual(["Mietvertrag.docx"]);
     expect(index.search("w", "", 10)).toEqual([]);
-    expect(index.search("w", "", 10, { browse: true }).map(match => match.entry.name)).toHaveLength(4);
+    expect(index.search("w", "", 10, { browse: true }).map(match => match.entry.name).sort()).toEqual(["Alt.docx", "Mietvertrag.docx", "Mietvertrag.pdf", "Notiz.md", "Verträge"]);
     expect(index.search("w", "", 10, { browse: true }).at(-1)?.entry.name).toBe("Alt.docx");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

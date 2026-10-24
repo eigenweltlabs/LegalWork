@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SessionPanelState } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { workspaceContextSnapshot } from "../src/react-app/launcher/workspace-context-model";
-import { launcherOpenSchema, launcherSearchSchema } from "@legalwork/types/launcher";
+import { launcherOpenSchema } from "@legalwork/types/launcher";
 import { namedCategoryQuery, categorySuggestions, normalizeLauncherAliases } from "../src/react-app/launcher/launcher-query";
 
 const panel: Pick<SessionPanelState, "tabs" | "panes" | "focusedPaneId"> = {
@@ -28,8 +28,7 @@ test("focusing a chat keeps the last visible document but never mistakes chat se
   const closed = workspaceContextSnapshot({ workspace: { id: "A", name: "Matter A" }, panel: { ...panel, panes: panel.panes.filter(pane => pane.id !== "right"), focusedPaneId: "bottom" }, lastDocumentId: "foreign", now: 2 });
   expect(closed.context.document?.workspaceId).toBe("A");
 });
-test("search expansion and file handoff validate destination data without changing operation type", () => {
-  expect(launcherSearchSchema.parse({ input: "A question in Files?", category: "files", scope: null, fileFilter: { types: ["docx"], modifiedAfter: null } }).input).toBe("A question in Files?");
+test("file handoff validates destination data and category queries keep their type", () => {
   expect(launcherOpenSchema.safeParse({ source: { projectId: "B", workspaceId: "B", name: "B", path: "../secret" }, destination: "A" }).success).toBe(false);
   expect(namedCategoryQuery("doc Contract")).toEqual({ category: "files", rest: "Contract" });
   expect(categorySuggestions("do", normalizeLauncherAliases(null))).toContain("files");

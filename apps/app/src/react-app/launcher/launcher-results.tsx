@@ -21,26 +21,24 @@ export function coverageLabel(sources: LauncherSourceState[]) {
   if (sources.some(source => source.coverage === "indexing")) return t("launcher.coverage.indexing");
   const unavailable = sources.filter(source => source.coverage === "unavailable" || source.coverage === "offline");
   if (unavailable.length) return t("launcher.coverage.unavailable", { count: unavailable.length, names: unavailable.map(source => source.label).join(", ") });
-  if (sources.some(source => source.coverage === "filename-only")) return t("launcher.coverage.filename_only");
   if (sources.some(source => source.coverage === "partial" || source.limited)) return t("launcher.coverage.partial");
   return "";
 }
-export type LauncherExtraAction = "preview" | "save-search";
+export type LauncherExtraAction = "preview" | "open-in-app" | "hide";
 export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
   items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean; hideEmpty?: boolean;
   onSelect: (key: string) => void; onRun: (result: LauncherSearchResult, action: LauncherResultAction) => void; onToggleMulti: (key: string) => void; onOpenActions: (key: string) => void;
 }) {
-  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length || !props.hideEmpty && group.sources.length);
+  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length);
   if (!groups.length) return props.hideEmpty ? null : <div className="launcher-empty">{props.pending ? t("launcher.coverage.searching") : props.query.length === 1 ? t("content_search.keep_typing") : t("content_search.no_results")}</div>;
   return <>
     {groups.map(group => <section key={group.kind}>
       <div className="launcher-section-title"><span>{t(`launcher.kind.${group.kind}`)}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
-      {!group.items.length && !coverageLabel(group.sources) && <div className="launcher-empty">{t("content_search.no_results")}</div>}
       {group.items.map(item => {
         const key = resultKey(item);
-        const Icon = CATEGORY_ICONS[item.kind];
+        const Icon = item.fileType === "folder" ? Folder : CATEGORY_ICONS[item.kind];
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
         return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
@@ -94,7 +92,10 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
     <button type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => setPick(null)}>{t("launcher.transfer.back")}</button>
   </div>;
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
+    {props.extra.filter(action => action !== "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
+    {actions.length > 0 && <div role="separator" className="launcher-menu-separator" />}
     {actions.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
-    {props.extra.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
+    <div role="separator" className="launcher-menu-separator" />
+    {props.extra.filter(action => action === "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
   </div>;
 }

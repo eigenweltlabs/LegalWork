@@ -2,9 +2,10 @@ import { watch, type FSWatcher } from "node:fs";
 import { opendir, realpath, stat } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 import { setImmediate } from "node:timers/promises";
+import { isLauncherInternalPath } from "@legalwork/types/launcher";
 
 const SKIP_DIRECTORIES = new Set(["node_modules", "vendor", "dist", "build", "coverage", "__pycache__"]);
-export type IndexedFile = { path: string; name: string; folded: string; mtimeMs: number; size: number; ext: string };
+export type IndexedFile = { path: string; name: string; folded: string; mtimeMs: number; size: number; ext: string; directory?: boolean };
 type Index = { root: string; entries: Map<string, IndexedFile>; builtAt: number; building: Promise<void> | null; complete: boolean; limited: boolean; watcher: FSWatcher | null; dirty: boolean; timer: ReturnType<typeof setTimeout> | null };
 export type FileIndexState = "indexing" | "ready" | "limited" | "unavailable";
 export type FileMatch = { entry: IndexedFile; match: "exact" | "prefix" | "word" | "substring" | "fuzzy" | "recent"; score: number };
@@ -49,14 +50,14 @@ export class LauncherFileIndex {
       for await (const entry of handle) {
         if (++visited % 500 === 0) await setImmediate();
         if (entries.size >= max) { limited = true; break; }
-        if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
+        if (isLauncherInternalPath(entry.name) || entry.isSymbolicLink() || SKIP_DIRECTORIES.has(entry.name)) continue;
         const path = join(directory, entry.name);
-        if (entry.isDirectory()) { if (!SKIP_DIRECTORIES.has(entry.name)) await visit(path); continue; }
-        if (!entry.isFile()) continue;
+        if (!entry.isDirectory() && !entry.isFile()) continue;
         const info = await stat(path).catch(() => null);
         if (!info) continue;
         const relativePath = relative(index.root, path).split("\\").join("/");
-        entries.set(relativePath, { path: relativePath, name: entry.name, folded: fold(relativePath), mtimeMs: info.mtimeMs, size: info.size, ext: extname(entry.name).toLowerCase() });
+        entries.set(relativePath, { path: relativePath, name: entry.name, folded: fold(relativePath), mtimeMs: info.mtimeMs, size: info.size, ext: entry.isDirectory() ? "" : extname(entry.name).toLowerCase(), directory: entry.isDirectory() });
+        if (entry.isDirectory()) await visit(path);
       }
     };
     index.dirty = false;
