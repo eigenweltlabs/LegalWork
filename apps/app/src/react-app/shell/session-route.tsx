@@ -1,5 +1,5 @@
 import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
-import { acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
+import { acceptLauncherBrowser, acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
 import { useLauncherStore } from "@/react-app/launcher/launcher-store";
 import { usePublishLauncherContext } from "@/react-app/launcher/workspace-context";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
@@ -578,17 +578,20 @@ export function SessionRoute() {
   usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null, client?.baseUrl);
   const launcherHandoff = useRef<string | null>(null);
   useEffect(() => {
-    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), folder = params.get("launcherFolder");
-    if (!file && folder === null) { launcherHandoff.current = null; return; }
-    if (launcherHandoff.current === location.search) return;
-    if ((file || folder !== null) && (!client || selectedWorkspaceId !== routeWorkspaceId)) return;
-    launcherHandoff.current = location.search;
+    const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), folder = params.get("launcherFolder"), browser = params.get("launcherBrowser");
+    if (!file && folder === null && browser === null) { launcherHandoff.current = null; return; }
+    const request = `${location.pathname}${location.search}`;
+    if (launcherHandoff.current === request) return;
+    if (!client || !selectedWorkspaceId || selectedWorkspaceId !== routeWorkspaceId) return;
+    launcherHandoff.current = request;
     void (async () => {
       try {
         if (file && selectedWorkspaceId) acceptLauncherFile(JSON.parse(file), selectedWorkspaceId);
         if (folder !== null && selectedWorkspaceId && client) openLauncherFolder(client.baseUrl, selectedWorkspaceId, folder);
+        if (browser !== null) await acceptLauncherBrowser(selectedWorkspaceId, browser || undefined);
       } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
-      params.delete("launcherOpen"); params.delete("launcherFolder");
+      if (launcherHandoff.current !== request) return;
+      params.delete("launcherOpen"); params.delete("launcherFolder"); params.delete("launcherBrowser");
       navigate(`${location.pathname}${params.size ? `?${params}` : ""}`, { replace: true });
     })();
   }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate, client]);

@@ -65,6 +65,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
   if (kinds.has("projects")) {
     let count = 0;
     for (const workspace of scoped) {
+      if (workspace.preset === "wiki") continue;
       const match = projectMatch({ id: workspace.id, name: deps.projectName(workspace), path: workspace.path }, query);
       if (!match) continue;
       const score = match.match === "exact" ? 1000 : match.match === "literal" ? 700 - match.score * 50 : match.match === "all" ? 0 : 150 - match.score * 10;

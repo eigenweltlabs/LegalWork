@@ -9,5 +9,5 @@ test("the desktop Node runtime loads launcher schemas and preserves invocation c
   assert.deepEqual(LauncherInvocationSchema.parse({ id: "native", action: "open", source: "home", workspaceContext }).workspaceContext, workspaceContext);
   const parsed = AssistantSubmitInputSchema.parse({ requestId: "request_123", messageId: "msg_12345678901", text: "Explain", context: { items: [], target: { kind: "project", workspaceId: "A" }, searchScope: null, capturedAt: 1, workspaceContext } });
   assert.equal(parsed.context.workspaceContext.document.workspaceId, "B");
-  assert.equal(parsed.context.target.workspaceId, "A");
+  assert.deepEqual(parsed.context.target, { kind: "project", workspaceId: "A" });
 });

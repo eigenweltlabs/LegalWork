@@ -58,8 +58,12 @@ export async function stageFiles(client: Pick<LegalworkServerClient, "writeWorks
 export function fileReferenceItem(result: { id: string; workspaceId: string | null; title: string; path?: string; revision?: string; subtitle?: string }): AssistantContextItem {
   return { id: id("ref"), type: "file", workspaceId: result.workspaceId, path: result.path ?? result.id, name: result.title, revision: result.revision ?? null, sourceLabel: result.subtitle ?? null };
 }
+export function taskReferenceItem(result: { id: string; workspaceId: string | null; title: string }): AssistantContextItem {
+  return { id: `task_${result.id}`, type: "task", taskId: result.id, workspaceId: result.workspaceId, title: result.title };
+}
 export function contextItemLabel(item: AssistantContextItem) {
   switch (item.type) {
+    case "task": return item.title;
     case "selection": return item.sourceApp ? t("launcher.context.selection_from", { app: item.sourceApp }) : t("launcher.context.selection");
     case "clipboard": return t("launcher.context.clipboard");
     case "file": return item.name;
@@ -68,6 +72,7 @@ export function contextItemLabel(item: AssistantContextItem) {
 }
 export function contextItemDetail(item: AssistantContextItem) {
   switch (item.type) {
+    case "task": return t("tasks.column_title");
     case "selection": return item.sourceWindow ?? item.text.slice(0, 80);
     case "clipboard": return item.text.slice(0, 80);
     case "file": return item.sourceLabel ?? item.path;

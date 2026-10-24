@@ -119,7 +119,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
     }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal)]);
     // Remote projects are not searched from here yet: say so per project instead of answering "nothing found".
-    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && (!input.projectId || workspace.id === input.projectId)))
+    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && workspace.preset !== "wiki" && (!input.projectId || workspace.id === input.projectId)))
       response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);

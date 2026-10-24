@@ -99,7 +99,7 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 .launcher-position-reset * { -webkit-app-region: no-drag; }
 .launcher-footer-actions button:disabled { opacity: .5; }
 
-.launcher-root[data-surface="embedded"] { height: min(300px, 70vh); }
+.launcher-root[data-surface="embedded"] { height: min(346px, 70vh); }
 .launcher-root[data-surface="embedded"][data-expanded="true"] { height: min(520px, 70vh); }
 .launcher-context-actions { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px 10px; border-bottom: 1px solid var(--lw-border-subtle); }
 .launcher-context-actions kbd { margin-left: 4px; font: inherit; font-size: 10px; color: var(--lw-text-secondary); }
@@ -131,3 +131,19 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 
 .launcher-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .launcher-chip button { flex-shrink: 0; }
+
+.launcher-root[data-form-active="true"] .launcher-entry,
+.launcher-root[data-form-active="true"] .launcher-footer,
+.launcher-root:has(.launcher-create-form) .launcher-entry,
+.launcher-root:has(.launcher-create-form) .launcher-footer { display: none; }
+.launcher-create-form { outline: none; }
+.launcher-create-form :is(input, select, textarea):focus-visible { outline: 2px solid var(--lw-text-secondary); outline-offset: 2px; }
+.launcher-form-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.launcher-form-heading span { color: var(--lw-text-secondary); font-size: 11px; }
+.launcher-form-actions { position: sticky; bottom: -6px; padding: 10px 0 4px; background: var(--lw-surface); border-top: 1px solid var(--lw-border-subtle); }
+.launcher-form-actions button { min-width: 0; white-space: normal; }
+.launcher-form-actions kbd, .launcher-detail-controls kbd { margin-left: 4px; opacity: .65; font: inherit; font-size: 10px; white-space: nowrap; }
+.launcher-detail-controls { flex-wrap: wrap; }
+.launcher-detail-content { outline: none; }
+.launcher-detail-content button:focus-visible, .launcher-open-choice button:focus-visible,
+.launcher-work-actions button:focus-visible { outline: 2px solid var(--lw-text-secondary); outline-offset: 2px; }

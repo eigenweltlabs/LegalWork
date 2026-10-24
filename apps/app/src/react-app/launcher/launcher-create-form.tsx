@@ -6,11 +6,14 @@ import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
 import { launcherFileRoute } from "./launcher-handoff";
+import type { LegalworkTask } from "@/app/lib/legalwork-server";
+import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
 
 export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; context: AssistantContextItem[] };
-export function LauncherCreateForm({ initial, onClose, onAttach, onDraft }: { initial: LauncherCreate; onClose: () => void;
+export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTaskCreated }: { initial: LauncherCreate; onClose: () => void;
   onAttach: (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[]) => Promise<void>;
   onDraft: (workspaceId: string, folder: string, name: string, format: string, instructions: string) => Promise<void>;
+  onTaskCreated: (task: LegalworkTask, workspaceId: string) => void;
 }) {
   const { client, workspaces, openInApp } = useLauncherShell();
   const [workspaceId, setWorkspace] = useState(initial.workspaceId);
@@ -34,7 +37,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft }: { in
       if (initial.kind === "attach") await onAttach(workspaceId, sessionId || undefined, initial.context);
       else if (initial.kind === "task") {
         const result = await client.createTask(workspaceId, { title: name, description: text, projectId: workspaceId });
-        openInApp(`/tasks?task=${encodeURIComponent(result.task.id)}`);
+        onTaskCreated(result.task, workspaceId);
       } else if (draft) await onDraft(workspaceId, folder, name, format, text);
       else {
         const input = { workspaceId, folder, name, format, text, templatePath: templatePath || undefined };
@@ -47,23 +50,22 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft }: { in
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <form className="launcher-create-form" onSubmit={event => { event.preventDefault(); void submit(); }} aria-label={t(`launcher.flow.create_${initial.kind}`)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } else if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); void submit(); } }}>
-    <strong>{t(`launcher.flow.create_${initial.kind}`)}</strong>
+  return <LauncherForm title={t(`launcher.flow.create_${initial.kind}`)} busy={busy} onClose={onClose} onSubmit={() => void submit()}>
     <fieldset disabled={busy} className="contents">
-      <label>{t("launcher.flow.project")}<select value={workspaceId} autoFocus={initial.kind === "attach" || !initial.workspaceId} onChange={event => { setWorkspace(event.target.value); setFolder(""); setSession(""); setTemplate(""); }} required><option value="" disabled>{t("launcher.flow.choose_project")}</option>{workspaces.filter(item => item.workspaceType !== "remote").map(item => <option key={item.id} value={item.id}>{item.displayName || item.name}</option>)}</select></label>
-      {initial.kind === "attach" ? <label>{t("launcher.kind.chats")}<select value={sessionId} onChange={event => setSession(event.target.value)}><option value="">{t("launcher.flow.new_project_chat")}</option>{sessions.data?.items.filter(item => !item.time.archived).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>{sessions.isError && <span role="alert">{t("launcher.conversation.unavailable")}</span>}</label> : <>
-        <label>{t("launcher.flow.name")}<Input value={name} autoFocus={Boolean(initial.workspaceId)} maxLength={200} required onChange={event => setName(event.target.value)} /></label>
+      {initial.kind !== "attach" && <label>{t(initial.kind === "task" ? "tasks.field_title" : "launcher.flow.name")}<Input value={name} autoFocus maxLength={200} required onChange={event => setName(event.target.value)} /></label>}
+      <label>{t("launcher.flow.project")}<select value={workspaceId} autoFocus={initial.kind === "attach" && !initial.workspaceId} onChange={event => { setWorkspace(event.target.value); setFolder(""); setSession(""); setTemplate(""); }} required><option value="" disabled>{t("launcher.flow.choose_project")}</option>{workspaces.filter(item => item.workspaceType !== "remote").map(item => <option key={item.id} value={item.id}>{item.displayName || item.name}</option>)}</select></label>
+      {initial.kind === "attach" ? <label>{t("launcher.kind.chats")}<select value={sessionId} autoFocus={Boolean(initial.workspaceId)} onChange={event => setSession(event.target.value)}><option value="">{t("launcher.flow.new_project_chat")}</option>{sessions.data?.items.filter(item => !item.time.archived).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>{sessions.isError && <span role="alert">{t("launcher.conversation.unavailable")}</span>}</label> : <>
         {initial.kind !== "task" && <div className="launcher-form-row"><label>{t("launcher.flow.folder")}<Input value={folder} placeholder="/" onChange={event => setFolder(event.target.value)} /></label><label>{t("launcher.flow.format")}<select value={format} onChange={event => { const value = event.target.value; if (value === "md" || value === "txt" || value === "docx") { setFormat(value); setTemplate(""); } }}><option value="md">Markdown</option><option value="txt">Text</option><option value="docx">Word</option></select></label></div>}
         {initial.kind === "document" && <label>{t("launcher.flow.template")}<select value={templatePath} onChange={event => setTemplate(event.target.value)}><option value="">{t("launcher.flow.blank")}</option>{templates.data?.items.filter(item => item.path && item.workspaceId === workspaceId).map(item => <option key={item.id} value={item.path}>{item.path}</option>)}</select></label>}
-        {!templatePath && <label>{t(initial.kind === "document" ? "launcher.flow.initial_text" : "launcher.flow.content")}<textarea rows={6} value={text} onChange={event => setText(event.target.value)} /></label>}
+        {!templatePath && <label>{t(initial.kind === "document" ? "launcher.flow.initial_text" : initial.kind === "task" ? "tasks.field_description" : "launcher.flow.content")}<textarea rows={initial.kind === "task" ? 3 : 5} value={text} onChange={event => setText(event.target.value)} /></label>}
       </>}
       {error && <p role="alert" className="text-destructive text-sm">{error}</p>}
-      <div className="launcher-form-actions"><Button type="button" variant="ghost" onClick={onClose}>{t("common.cancel")}</Button>
+      <div className="launcher-form-actions"><Button type="button" variant="ghost" onClick={onClose}>{t("common.cancel")}<kbd>Esc</kbd></Button>
         {initial.kind === "document" && !templatePath && <Button type="button" variant="outline" disabled={!workspaceId || !name.trim() || !text.trim()} onClick={() => void submit(true)}>{t("launcher.flow.draft_assistant")}</Button>}
-        <Button type="submit" disabled={!workspaceId || (initial.kind !== "attach" && !name.trim())}>{busy ? t("launcher.flow.saving") : initial.kind === "attach" ? t("launcher.flow.stage") : initial.kind === "task" ? t("launcher.flow.create_task") : t("launcher.flow.save_in", { project: project?.displayName || project?.name || "", folder: folder || "/" })}</Button>
+        <Button type="submit" disabled={!workspaceId || (initial.kind !== "attach" && !name.trim())}>{busy ? t("launcher.flow.saving") : initial.kind === "attach" ? t("launcher.flow.stage") : initial.kind === "task" ? t("launcher.flow.create_task") : t("launcher.flow.save_in", { project: project?.displayName || project?.name || "", folder: folder || "/" })}<LauncherSubmitHint /></Button>
       </div>
     </fieldset>
-  </form>;
+  </LauncherForm>;
 }
 
 /** Only metadata actually captured by a provider belongs in an excerpt. */

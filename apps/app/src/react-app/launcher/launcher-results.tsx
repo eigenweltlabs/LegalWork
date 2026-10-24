@@ -1,14 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckSquare, ChevronRight, FileText, Folder, ListTodo, MessageSquare, Mic, Pin, Square } from "lucide-react";
+import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Pin, Presentation, Sheet, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { formatRelativeTime } from "@/app/utils";
 import { searchTerms } from "@legalwork/types/search";
 import { t } from "@/i18n";
 import { primaryResultAction, resultActionMenu } from "./action-catalog";
 import { resultKey } from "./launcher-search-session";
+import { handleLauncherFocusKey } from "./launcher-focus";
+import { FILE_TYPE_PRESETS } from "./launcher-typed-filters";
 
 import { optionId, RESULT_KIND_ORDER } from "./launcher-keyboard";
 export const CATEGORY_ICONS = { projects: Folder, files: FileText, chats: MessageSquare, tasks: ListTodo, recordings: Mic };
+export function fileTypeIcon(extension: string) {
+  const type = extension.toLowerCase().replace(/^\./, "");
+  if (FILE_TYPE_PRESETS.images.includes(type)) return Image;
+  if (FILE_TYPE_PRESETS.spreadsheets.includes(type)) return Sheet;
+  if (FILE_TYPE_PRESETS.presentations.includes(type)) return Presentation;
+  if (FILE_TYPE_PRESETS.emails.includes(type)) return Mail;
+  return FILE_TYPE_PRESETS.documents.includes(type) ? FileText : File;
+}
+export function resultIcon(item: LauncherSearchResult) {
+  return item.fileType === "folder" ? Folder : item.kind === "files" ? fileTypeIcon(item.fileType ?? (item.path ?? item.title).split(".").at(-1) ?? "") : CATEGORY_ICONS[item.kind];
+}
 
 export function Highlight({ text, query }: { text: string; query: string }) {
   const terms = searchTerms(query).map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -24,7 +37,7 @@ export function coverageLabel(sources: LauncherSourceState[]) {
   if (sources.some(source => source.coverage === "partial" || source.limited)) return t("launcher.coverage.partial");
   return "";
 }
-export type LauncherExtraAction = "preview" | "open-in-app" | "hide";
+export type LauncherExtraAction = "preview" | "open-in-app" | "copy-to-clipboard" | "hide";
 export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
@@ -38,7 +51,7 @@ export function LauncherResultList(props: {
       <div className="launcher-section-title"><span>{t(`launcher.kind.${group.kind}`)}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
       {group.items.map(item => {
         const key = resultKey(item);
-        const Icon = item.fileType === "folder" ? Folder : CATEGORY_ICONS[item.kind];
+        const Icon = resultIcon(item);
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
         return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
@@ -73,13 +86,7 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
         if (pick) setPick(null); else propsRef.current.onClose();
         return;
       }
-      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-      const current = buttons.findIndex(button => button === document.activeElement);
-      const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % Math.max(1, buttons.length);
-      buttons[index]?.focus();
-      buttons[index]?.scrollIntoView({ block: "nearest" });
+      if (handleLauncherFocusKey(event, menuRef.current, true)) event.stopImmediatePropagation();
     };
     const onPointer = (event: PointerEvent) => { if (event.target instanceof Node && !menuRef.current?.contains(event.target)) propsRef.current.onClose(); };
     document.addEventListener("keydown", onKey, true);

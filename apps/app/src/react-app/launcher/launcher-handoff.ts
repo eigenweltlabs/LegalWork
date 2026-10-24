@@ -3,6 +3,24 @@ import { launcherOpenSchema } from "@legalwork/types/launcher";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { projectFileTab } from "@/react-app/domains/workspace/project-file-tab";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import { getElectronBrowser } from "@/react-app/domains/session/panel/utils";
+import { t } from "@/i18n";
+
+export function launcherBrowserRoute(workspaceId: string, paneId?: string) {
+  return `${workspaceSessionRoute(workspaceId)}?view=workspace&launcherBrowser=${encodeURIComponent(paneId ?? "")}`;
+}
+/** Create the native tab in the destination window, then place it in that workspace. */
+export async function acceptLauncherBrowser(workspaceId: string, paneId?: string) {
+  const browser = getElectronBrowser();
+  if (!browser?.createTab || !browser.getState) throw new Error(t("side_panel.desktop_only_title"));
+  const { tabId } = await browser.createTab();
+  const state = await browser.getState();
+  const tab = state?.tabs?.find(item => item.id === tabId);
+  if (!tab) throw new Error(t("launcher.browser.failed"));
+  const panels = usePanelTabStore.getState(), scope = workspacePanelKey(workspaceId);
+  const pane = panels.sessions[scope]?.panes.find(item => item.id === paneId);
+  panels.openTab(scope, tab, pane?.id, undefined, { preview: false });
+}
 
 export function launcherFileRoute(source: ProjectFileSource, destination = source.projectId, paneId?: string) {
   return `${workspaceSessionRoute(destination)}?view=workspace&launcherOpen=${encodeURIComponent(JSON.stringify({ source, destination, paneId }))}`;

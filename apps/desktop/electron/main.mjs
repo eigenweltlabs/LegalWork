@@ -42,6 +42,7 @@ import { LauncherService } from "./launcher/launcher-service.mjs";
 import { LauncherWindow } from "./launcher/launcher-window.mjs";
 import { LauncherOutputQueue } from "./launcher/output-queue.mjs";
 import { OriginService, execHelper } from "./launcher/origin-service.mjs";
+import { copyFilesToClipboard } from "./launcher/file-clipboard.mjs";
 import { ScreenCapture } from "./launcher/screen-capture.mjs";
 import { RaycastPairing } from "./launcher/raycast-pairing.mjs";
 import { resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
@@ -2811,6 +2812,11 @@ const desktopCommandHandlers = {
   },
   "launcherClipboardRead": async (event, ...args) => {
       return { text: clipboard.readText(), capturedAt: Date.now() };
+  },
+  "launcherClipboardCopyFiles": async (event, serverUrl, paths) => {
+      const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+      if (new URL(serverUrl).href.replace(/\/$/, "") !== new URL(info.baseUrl).href.replace(/\/$/, "")) throw new Error("Only files on this desktop can be copied to the clipboard.");
+      await copyFilesToClipboard(paths, clipboard);
   },
   "launcherCaptureWindow": async (event, ...args) => {
       return screenCapture.captureWindow();

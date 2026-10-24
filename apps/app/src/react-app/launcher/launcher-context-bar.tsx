@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { ListChecks, X } from "lucide-react";
 import { t } from "@/i18n";
 import { contextItemDetail, contextItemLabel } from "./context-capture";
 import { useLauncherStore } from "./launcher-store";
@@ -14,6 +14,7 @@ export function LauncherContextBar() {
       const preview = previews.find(preview => preview.id === item.id);
       return <span key={item.id} className="launcher-context-item" title={item.type === "selection" || item.type === "clipboard" ? item.text.slice(0, 400) : contextItemDetail(item)}>
         {preview && <img src={preview.dataUrl} alt="" />}
+        {item.type === "task" && <ListChecks aria-hidden className="size-3.5 shrink-0" />}
         <span>{contextItemLabel(item)}</span>
         {item.type !== "selection" && <span className="launcher-context-detail">{contextItemDetail(item)}</span>}
         <button type="button" aria-label={t("launcher.context.remove", { name: contextItemLabel(item) })} onClick={() => removeContext(item.id)}><X className="size-3.5" /></button>

@@ -3,6 +3,7 @@ import { ShieldAlert } from "lucide-react";
 import type { LauncherApprovalRequest } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { handleLauncherFocusKey } from "./launcher-focus";
 
 /**
  * A host approval as system UI inside the panel. Deny is the default; the only
@@ -15,7 +16,7 @@ export function LauncherApprovalCard({ request, onReply }: { request: LauncherAp
   useEffect(() => { denyRef.current?.focus(); }, [request.id]);
   const reply = async (decision: "allow" | "deny") => { setBusy(true); try { await onReply(request.id, decision); } finally { setBusy(false); } };
   const rows: [string, string][] = [[t("launcher.approval.source"), request.source], ...(request.scope ? [[t("launcher.approval.scope"), request.scope] as [string, string]] : []), [t("launcher.approval.workspace"), request.workspaceId], [t("launcher.approval.action"), request.action]];
-  return <section className="launcher-attention launcher-approval" role="alertdialog" aria-labelledby={`approval-${request.id}`} aria-describedby={`approval-${request.id}-summary`}>
+  return <section className="launcher-attention launcher-approval" role="alertdialog" aria-labelledby={`approval-${request.id}`} aria-describedby={`approval-${request.id}-summary`} onKeyDown={event => { handleLauncherFocusKey(event, event.currentTarget, true); if (event.key !== "Escape") event.stopPropagation(); }}>
     <div className="launcher-attention-head"><strong id={`approval-${request.id}`}><ShieldAlert className="mr-1 inline size-4" />{t("launcher.approval.title")}</strong>{request.summary ? <span id={`approval-${request.id}-summary`}>{request.summary}</span> : null}</div>
     <div className="space-y-1 p-3 text-xs">
       {rows.map(([label, value]) => <div key={label} className="flex gap-2"><span className="w-16 shrink-0 text-muted-foreground">{label}</span><span className="break-all">{value}</span></div>)}

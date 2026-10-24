@@ -6,6 +6,7 @@ import { DocumentDiscardDialog } from "../domains/session/artifacts/document-dis
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useLocale } from "../../i18n/use-locale";
+import { initLocale, LANGUAGE_PREF_KEY } from "../../i18n";
 import { captureAnalyticsEvent, initAnalytics } from "../../app/lib/analytics";
 import { captureRelayedAppError, initErrorAnalytics } from "../../app/lib/app-error";
 import { AppErrorBoundary } from "./app-error-boundary";
@@ -35,6 +36,14 @@ export function AppRoot() {
   // `t()` reads a module variable, so subscribing here is what makes a language
   // change in Settings repaint the app instead of waiting for a reload.
   useLocale();
+  useEffect(() => {
+    const refresh = () => { initLocale(); };
+    const storage = (event: StorageEvent) => { if (event.key === LANGUAGE_PREF_KEY || event.key === null) refresh(); };
+    window.addEventListener("storage", storage);
+    window.addEventListener("languagechange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => { window.removeEventListener("storage", storage); window.removeEventListener("languagechange", refresh); window.removeEventListener("focus", refresh); };
+  }, []);
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {

@@ -15,6 +15,7 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "launcher.keyboard.fields": "Nächstes Feld",
   "assistant.settings_load_failed": "Die Assistant-Einstellungen konnten nicht geladen werden.",
   "assistant.instructions": "Zusätzliche Anweisungen",
   "assistant.instructions_hint": "Legen Sie fest, wie Ihr Assistant arbeiten soll. Gespeicherte Änderungen gelten ab seinem nächsten Schritt.",
@@ -65,6 +66,8 @@ const de = {
   "launcher.suggest.summarize_prompt": "Fasse das angehängte Dokument zusammen und hebe die wichtigsten Punkte und offenen Fragen hervor.",
   "launcher.suggest.recent": "Zuletzt geöffnet",
   "launcher.suggest.browse": "{category} anzeigen",
+  "launcher.browser.open": "Browser öffnen",
+  "launcher.browser.failed": "Der Browser-Tab konnte nicht geöffnet werden. Bitte erneut versuchen.",
   "launcher.suggest.create_task_named": "Aufgabe „{name}“ erstellen…",
   "launcher.suggest.record_meeting": "Meeting aufnehmen",
   "launcher.history.empty": "Noch keine Gespräche oder gespeicherten Suchen.",
@@ -1283,7 +1286,7 @@ const de = {
   "content_search.filter": "Suchen in",
   "content_search.files_skipped": "Einige Dateien in {project} konnten nicht durchsucht werden.",
   "content_search.searching": "Suche läuft…",
-  "content_search.no_results": "Keine Treffer. Versuchen Sie andere Wörter.",
+  "content_search.no_results": "Keine Treffer.",
   "content_search.start": "Durchsuchen Sie Ihre Projekte und deren Inhalte.",
   "content_search.refine": "Die besten Treffer werden angezeigt. Grenze die Suche weiter ein.",
   "content_search.results": "{count} Treffer",
@@ -7876,6 +7879,8 @@ const de = {
   "launcher.result_action.compare": "Vergleichen",
   "launcher.result_action.summarize": "Zusammenfassen",
   "launcher.result_action.copy-path": "Pfad kopieren",
+  "launcher.result_action.copy-to-clipboard": "In die Zwischenablage kopieren",
+  "launcher.notice.copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen.",
   "launcher.result_action.copy-reference": "Verweis kopieren",
   "launcher.result_action.pin": "Anheften",
   "launcher.result_action.unpin": "Lösen",

@@ -6,7 +6,7 @@ import { panelWasMoved, placePanel } from "./launcher-placement.mjs";
 const PANEL_WIDTH = 560;
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 720;
-const DEFAULT_HEIGHT = 300;
+const DEFAULT_HEIGHT = 346;
 const EVENT = "legalwork:launcher:event";
 
 /**

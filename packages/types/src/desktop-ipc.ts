@@ -853,6 +853,7 @@ export type DesktopCommandMap = {
   launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
   launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
   launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
+  launcherClipboardCopyFiles: { args: [serverUrl: string, paths: string[]]; result: void };
   launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
   launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
   launcherOutputRemember: { args: [serverUrl: string, intent: LauncherOutputIntent]; result: void };

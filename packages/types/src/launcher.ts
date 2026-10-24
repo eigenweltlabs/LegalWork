@@ -49,6 +49,7 @@ export const AssistantConversationPatchSchema = z.object({ title: z.string().tri
 /** Where captured material came from. Never an instruction source. */
 const contextBase = { id: z.string().min(1).max(100) };
 export const AssistantContextItemSchema = z.discriminatedUnion("type", [
+  z.object({ ...contextBase, type: z.literal("task"), taskId: z.string().regex(/^[\w-]+$/).max(100), workspaceId: z.string().nullable(), title: z.string().max(400) }),
   z.object({ ...contextBase, type: z.literal("selection"), text: z.string().max(200_000), sourceApp: z.string().max(200).nullable(), sourceWindow: z.string().max(400).nullable(), capturedAt: z.number() }),
   z.object({ ...contextBase, type: z.literal("clipboard"), text: z.string().max(200_000), capturedAt: z.number() }),
   z.object({ ...contextBase, type: z.literal("file"), workspaceId: z.string().nullable(), path: z.string().max(4096), name: z.string().max(400), revision: z.string().nullable(), sourceLabel: z.string().max(200).nullable() }),

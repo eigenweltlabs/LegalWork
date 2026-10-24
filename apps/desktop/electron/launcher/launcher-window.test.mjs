@@ -16,8 +16,8 @@ test("the panel centres on the active display and keeps a remembered position on
 
 test("the reset control appears only after the panel leaves its default position", () => {
   const area = { x: 0, y: 25, width: 1440, height: 875 };
-  const compact = placePanel(area, { width: 560, height: 300 }, null);
-  assert.deepEqual(compact, { x: 440, y: 183, width: 560, height: 300 });
+  const compact = placePanel(area, { width: 560, height: 346 }, null);
+  assert.deepEqual(compact, { x: 440, y: 183, width: 560, height: 346 });
   assert.equal(panelWasMoved(area, compact), false);
   assert.equal(panelWasMoved(area, { ...compact, height: 520 }), false);
   assert.equal(panelWasMoved(area, { ...compact, x: compact.x + 20 }), true);

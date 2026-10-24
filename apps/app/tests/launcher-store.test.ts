@@ -35,3 +35,14 @@ test("typing a new search resets selection, while restoring a view keeps its cho
   store.setView("conversation"); store.select({ id: "command:old", source: "user" }); store.setInput("/new");
   expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
 });
+
+test("attached tasks survive a fresh screen selection and dismissal, and remain removable", () => {
+  const store = useLauncherStore.getState();
+  store.replaceContext([]);
+  store.addContext([{ id: "task_one", type: "task", taskId: "one", workspaceId: "project", title: "Review agreement" }]);
+  store.addContext([{ id: "sel_new", type: "selection", text: "New selection", sourceApp: "Safari", sourceWindow: null, capturedAt: 1 }]);
+  store.reset();
+  expect(useLauncherStore.getState().context).toEqual([{ id: "task_one", type: "task", taskId: "one", workspaceId: "project", title: "Review agreement" }]);
+  store.removeContext("task_one");
+  expect(useLauncherStore.getState().context).toEqual([]);
+});

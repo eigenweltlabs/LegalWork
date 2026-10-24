@@ -1,10 +1,13 @@
 import { DEFAULT_LAUNCHER_ALIASES, LAUNCHER_SEARCH_KINDS, type LauncherSearchKind } from "@legalwork/types/launcher";
+import { LANGUAGES, t } from "@/i18n";
 
 export type LauncherAliases = Record<LauncherSearchKind, string>;
 export type LauncherEntryMode = "search" | "command" | "ask";
 export type ParsedLauncherEntry = { mode: LauncherEntryMode; text: string };
 
 const ALIAS_PATTERN = /^[a-z0-9]{1,3}$/;
+const normalize = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase().trim();
+const browseLabels = (kind: LauncherSearchKind) => LANGUAGES.map(lng => t("launcher.suggest.browse", { lng, category: t(`launcher.kind.${kind}`, lng) }));
 export const CATEGORY_WORDS: Record<LauncherSearchKind, string[]> = {
   files: ["files", "file", "dateien", "datei", "doc", "docs", "document", "documents", "dokument", "dokumente"], projects: ["projects", "project", "projekte", "projekt"],
   chats: ["chats", "chat", "conversations", "gespräche"], tasks: ["tasks", "task", "aufgaben", "aufgabe", "todos"],
@@ -13,15 +16,26 @@ export const CATEGORY_WORDS: Record<LauncherSearchKind, string[]> = {
 
 /** Full category names browse immediately; partial names and aliases complete first. */
 export function namedCategoryQuery(raw: string): { category: LauncherSearchKind; rest: string } | null {
-  const [word] = raw.trim().toLocaleLowerCase().split(/\s+/);
+  const text = raw.trim().replace(/^(?:browse|anzeigen|durchsuchen)\s+/i, "").replace(/\s+(?:anzeigen|durchsuchen)$/i, "");
+  const [word] = text.toLocaleLowerCase().split(/\s+/);
   const category = LAUNCHER_SEARCH_KINDS.find(kind => CATEGORY_WORDS[kind].includes(word));
-  return category ? { category, rest: raw.trim().split(/\s+/).slice(1).join(" ") } : null;
+  return category ? { category, rest: text.split(/\s+/).slice(1).join(" ") } : null;
+}
+export function isBrowseActionQuery(raw: string) {
+  const query = normalize(raw);
+  return Boolean(query) && (["browse", "anzeigen", "durchsuchen"].some(word => word.startsWith(query) || query.startsWith(`${word} `)) || /\s+(anzeigen|durchsuchen)$/.test(query));
+}
+export function matchesOpenBrowser(raw: string) {
+  const query = normalize(raw);
+  return Boolean(query) && ["browser", "open browser", "browser öffnen", "browser oeffnen", "öffnen", "oeffnen", ...LANGUAGES.map(lng => t("launcher.browser.open", lng))].some(label => normalize(label).startsWith(query));
 }
 export function categorySuggestions(raw: string, aliases: LauncherAliases): LauncherSearchKind[] {
   const query = raw.trim().toLocaleLowerCase();
   if (!query) return [...LAUNCHER_SEARCH_KINDS];
-  if (namedCategoryQuery(raw)) return [];
-  return LAUNCHER_SEARCH_KINDS.filter(kind => aliases[kind] === query || CATEGORY_WORDS[kind].some(word => word.startsWith(query)))
+  const named = namedCategoryQuery(raw);
+  const labelled = LAUNCHER_SEARCH_KINDS.filter(kind => browseLabels(kind).some(label => normalize(label).startsWith(normalize(query))));
+  if (named && !labelled.length) return named.rest ? [] : [named.category];
+  return LAUNCHER_SEARCH_KINDS.filter(kind => aliases[kind] === query || labelled.includes(kind) || CATEGORY_WORDS[kind].some(word => [word, `browse ${word}`, `anzeigen ${word}`, `durchsuchen ${word}`].some(label => normalize(label).startsWith(normalize(query)))))
     .sort((a, b) => Number(aliases[b] === query) - Number(aliases[a] === query));
 }
 

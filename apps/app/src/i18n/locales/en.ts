@@ -5,6 +5,7 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "launcher.keyboard.fields": "Next field",
   "assistant.settings_load_failed": "Assistant preferences could not be loaded.",
   "assistant.instructions": "Additional instructions",
   "assistant.instructions_hint": "Tell your Assistant how you want it to work. Saved changes apply on its next turn.",
@@ -55,6 +56,8 @@ export default {
   "launcher.suggest.summarize_prompt": "Summarize the attached document, highlighting its key points and any open questions.",
   "launcher.suggest.recent": "Recently opened",
   "launcher.suggest.browse": "Browse {category}",
+  "launcher.browser.open": "Open Browser",
+  "launcher.browser.failed": "The browser tab could not be opened. Please try again.",
   "launcher.suggest.create_task_named": "Create task “{name}”…",
   "launcher.suggest.record_meeting": "Record a meeting",
   "launcher.history.empty": "No conversations or saved searches yet.",
@@ -1279,7 +1282,7 @@ export default {
   "content_search.filter": "Search in",
   "content_search.files_skipped": "Some files in {project} could not be searched.",
   "content_search.searching": "Searching…",
-  "content_search.no_results": "No matches. Try different words.",
+  "content_search.no_results": "No matches.",
   "content_search.start": "Search your projects and their contents.",
   "content_search.refine": "Showing top matches. Narrow your search for more.",
   "content_search.results": "{count} results",
@@ -7502,6 +7505,8 @@ export default {
   "launcher.result_action.compare": "Compare",
   "launcher.result_action.summarize": "Summarize",
   "launcher.result_action.copy-path": "Copy path",
+  "launcher.result_action.copy-to-clipboard": "Copy to Clipboard",
+  "launcher.notice.copy_failed": "Could not copy to the clipboard.",
   "launcher.result_action.copy-reference": "Copy reference",
   "launcher.result_action.pin": "Pin",
   "launcher.result_action.unpin": "Unpin",

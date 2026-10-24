@@ -44,5 +44,14 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     const browseChats = await searchLauncher({ ...deps, sessionSearch: async (workspace, query, signal) => { chatQueries.push(query); return deps.sessionSearch(workspace, query, signal); } }, { query: "", kinds: ["chats"], content: false, limit: 10 }, new AbortController().signal);
     expect(chatQueries).toEqual(["", ""]);
     expect(browseChats.items.map(item => item.id)).toContain("ses-1");
+
+    // Wiki workspaces supply files, but must never masquerade as projects.
+    const wiki: WorkspaceInfo = { ...mueller, id: "wiki", name: "Müller Knowledge", preset: "wiki" };
+    const withWiki: LauncherSearchDeps = { ...deps, workspaces: async () => ({ workspaces: [mueller, wiki], unavailable: [] }) };
+    await fileIndex.ensure(wiki.id, root, true);
+    const wikiResults = await searchLauncher(withWiki, { query: "Müller", kinds: ["projects", "files"], content: false, limit: 50 }, new AbortController().signal);
+    expect(wikiResults.items.filter(item => item.kind === "projects").map(item => item.id)).toEqual([mueller.id]);
+    expect(wikiResults.sources.find(source => source.id === "projects")?.count).toBe(1);
+    expect(wikiResults.items.some(item => item.kind === "files" && item.workspaceId === wiki.id)).toBe(true);
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });
