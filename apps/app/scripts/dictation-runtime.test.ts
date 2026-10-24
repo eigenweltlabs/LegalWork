@@ -43,6 +43,7 @@ let captureStops = 0;
 let captureStarts = 0;
 let pasteError: string | null = null;
 let pasteCopiedOnly = false;
+let pasteUnconfirmed = false;
 let transcript = "A dictated sentence.";
 const capture: CaptureHandle = { readLevels: () => ({ microphone: 0.5 }), stop: async () => { captureStops += 1; } };
 let captureResult = Promise.resolve(capture);
@@ -70,7 +71,7 @@ mock.module("../src/app/lib/opencode", () => ({ unwrap: (value: unknown) => valu
 mock.module("../src/app/lib/desktop", () => ({
   audioRecordingSetProject: async () => retainedRecordings,
   audioSystemDictationSetState: async (state: string, message: string) => { feedback.push(message ? state + ":" + message : state); return status; },
-  audioSystemDictationPaste: async (text: string) => { pasted.push(text); return { pasted: !pasteError && !pasteCopiedOnly, copied: true, error: pasteError }; },
+  audioSystemDictationPaste: async (text: string) => { pasted.push(text); return { pasted: pasteUnconfirmed ? null : !pasteError && !pasteCopiedOnly, copied: true, error: pasteError }; },
   audioRecordingStart: async (input: AudioRecordingStartInput) => { recordingInputs.push(input); return { ...meta, ephemeral: input.ephemeral === true, sources: input.sources ?? ["microphone"] }; },
   audioRecordingStop: async () => { const result = await stopResult; if (!result.ephemeral) retainedRecordings = [result]; return result; },
   audioRecordingCancel: async () => { cancelled += 1; }, audioRecordingDelete: async () => { deleted += 1; return []; },
@@ -106,6 +107,7 @@ beforeEach(async () => {
   await delay(210); // The shortcut intentionally debounces key bounce for 200 ms.
   feedback.length = 0; pasted.length = 0; cancelled = 0; deleted = 0; captureStops = 0; captureStarts = 0; pasteError = null;
   pasteCopiedOnly = false;
+  pasteUnconfirmed = false;
   meterPackets.length = 0; captureCallbacks = null;
   meetingPackets.length = 0; meetingFeedback.length = 0; recordingInputs.length = 0;
   retainedRecordings = []; meetingOpens = 0; liveShareStarts = [];
@@ -556,6 +558,15 @@ test("paste failure shows the recovery message and clears the dictation", async 
   await store.getState().startSystemDictation(); await store.getState().stopRecording();
   expect(feedback.at(-1)).toBe("copied");
   expect(store.getState().error).toBe(pasteError); expect(store.getState().recording).toBeNull();
+});
+
+test("an unconfirmed paste does not show a false failure or insertion message", async () => {
+  pasteUnconfirmed = true;
+  await store.getState().startSystemDictation();
+  await store.getState().stopRecording();
+  expect(pasted).toEqual(["A dictated sentence."]);
+  expect(feedback.at(-1)).toBe("idle");
+  expect(store.getState().error).toBeNull();
 });
 
 test("no focused text field reports copied to clipboard instead of text inserted", async () => {

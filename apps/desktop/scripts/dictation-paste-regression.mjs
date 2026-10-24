@@ -34,8 +34,7 @@ app.whenReady().then(async () => {
     app.focus({ steal: true });
     window.focus();
     await delay(500);
-    // Do not inspect the native accessibility tree before the first paste:
-    // that would enable it and hide the regression this test must catch.
+    // No field eligibility query is allowed to prevent sending the paste.
     assert.equal(app.isAccessibilitySupportEnabled(), false);
     if (output) await mkdir(output, { recursive: true });
     for (const id of ["input", "rich", "button", "readonly"]) {
@@ -45,7 +44,10 @@ app.whenReady().then(async () => {
       const result = await service.pasteText(text);
       assert.equal(window.isFocused(), true, "focus changed during native paste; leave this test window focused and rerun");
       const editable = id === "input" || id === "rich";
-      assert.deepEqual(result, { pasted: editable, copied: true, error: null }, id);
+      assert.equal(result.copied, true);
+      assert.equal(result.error, null);
+      if (editable) assert.notEqual(result.pasted, false, id);
+      else assert.equal(result.pasted, false, id);
       if (editable) {
         const value = await window.webContents.executeJavaScript(`(() => { const el=document.getElementById('${id}'); return el.isContentEditable ? el.innerText : el.value; })()`);
         assert.equal(value.trim(), text, `${id} receives the exact dictated text`);
@@ -53,10 +55,14 @@ app.whenReady().then(async () => {
         assert.equal(clipboard.readText(), text, `${id} leaves the dictation on the clipboard`);
         assert.equal(await window.webContents.executeJavaScript("document.getElementById('readonly').value"), "Read-only content");
       }
+      if (id === "input") {
+        app.setAccessibilitySupportEnabled(true);
+        await delay(250);
+      }
       if (output) await writeFile(path.join(output, `native-${id}.png`), (await window.webContents.capturePage()).toPNG());
       console.log(`PASS: ${id} ${editable ? "receives dictation" : "retains clipboard fallback"}`);
     }
-    console.log("PASS: native dictation paste initializes a missing accessibility tree and preserves clipboard fallback");
+    console.log("PASS: native dictation attempts insertion before checking the Paste command and preserves clipboard fallback");
   } finally {
     service?.dispose();
     window?.destroy();

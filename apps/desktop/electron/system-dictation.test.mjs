@@ -34,6 +34,8 @@ test("paste helpers distinguish copied, pasted and unconfirmed results", async (
   for (const platform of ["darwin", "windows"]) {
     const copied = await pasteCommandFixture("copied\n");
     assert.equal(await copied.runPaste(platform), false);
+    const sent = await pasteCommandFixture("sent\n");
+    assert.equal(await sent.runPaste(platform), null);
     const pasted = await pasteCommandFixture("pasted\n");
     assert.equal(await pasted.runPaste(platform), true);
     const unconfirmed = await pasteCommandFixture("");
@@ -43,7 +45,19 @@ test("paste helpers distinguish copied, pasted and unconfirmed results", async (
   }
 });
 
-test("the macOS focused-input paste script compiles", { skip: process.platform !== "darwin" }, async t => {
+test("paste is attempted without a focused-field eligibility gate", async () => {
+  const mac = await pasteCommandFixture("pasted\n");
+  await mac.runPaste("darwin");
+  const script = mac.calls[0].args[1];
+  assert.ok(script.indexOf("key code 9 using command down") < script.indexOf("AXFocusedUIElement"));
+  assert.doesNotMatch(script, /AXManualAccessibility|AXSelectedText|settable/);
+  const windows = await pasteCommandFixture("pasted\n");
+  await windows.runPaste("windows");
+  assert.match(windows.calls[0].args.at(-1), /LegalWorkPaste\]::Paste\(\)/);
+  assert.doesNotMatch(windows.calls[0].args.at(-1), /HasEditableFocus|AutomationElement|ValuePattern/);
+});
+
+test("the macOS paste-first script compiles", { skip: process.platform !== "darwin" }, async t => {
   const fixture = await pasteCommandFixture("copied\n");
   await fixture.runPaste("darwin");
   const directory = await tempDir();
@@ -265,7 +279,21 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("without an editable paste target dictation stays on the clipboard", async t => {
+test("an unconfirmed paste keeps the transcript without rejecting the editor", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => null,
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Keep this dictated text."), { pasted: null, copied: true, error: null });
+  assert.equal(clipboard.readText(), "Keep this dictated text.");
+});
+
+test("when an attempted paste reports failure dictation stays on the clipboard", async t => {
   const userDataDir = await tempDir();
   const clipboard = new FakeClipboard();
   const service = new SystemDictationService({

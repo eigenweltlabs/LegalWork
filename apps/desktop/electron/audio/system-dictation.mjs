@@ -99,7 +99,7 @@ export class SystemDictationService {
    *   clipboard: { availableFormats: () => string[], readBuffer: (format: string) => Buffer, clear: () => void, writeBuffer: (format: string, data: Buffer) => void, readText: () => string, writeText: (text: string) => void },
    *   systemPreferences?: { isTrustedAccessibilityClient?: (prompt: boolean) => boolean },
    *   shell: { openExternal: (url: string) => Promise<unknown> },
-   *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<boolean>,
+   *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<boolean | null>,
    *   keyMonitor?: { isSupported?: () => boolean, start: (onEvent: (event: { type: "down" | "up"; key: string } | { type: "reset" } | { type: "unavailable"; error: string }) => void | Promise<void>) => Promise<boolean>, stop: () => void, restart?: () => Promise<boolean> },
    *   onToggle: () => void,
    *   onPress?: () => void,
@@ -679,7 +679,10 @@ export class SystemDictationService {
     try {
       await sleep(PASTE_DELAY_MS);
       const pasted = await this.runPasteCommand(this.platform);
-      if (!pasted) return { pasted: false, copied: true, error: null };
+      if (pasted === false) return { pasted: false, copied: true, error: null };
+      // The key was sent but the app cannot confirm delivery. Keep the text
+      // available without falsely reporting a failure for a supported editor.
+      if (pasted === null) return { pasted: null, copied: true, error: null };
     } catch (error) {
       return {
         pasted: false,
