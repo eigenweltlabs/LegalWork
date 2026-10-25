@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Loader2, Package, Search } from "lucide-react";
 import type { ImportedPlugin, ImportedPluginFile } from "@/app/lib/extension-imports";
 import type { SkillCard } from "@/app/types";
@@ -25,14 +25,6 @@ export type PluginDetailsAccess = {
 export function PluginDetailsDialog(props: { plugin: ImportedPlugin; busy: boolean; access?: PluginDetailsAccess; onClose: () => void; imports?: PluginImportStore; onChanged?: () => void }) {
   const [query, setQuery] = useState("");
   const [component, setComponent] = useState<ImportedPluginFile | null>(null);
-  const skillStore = props.access?.skillStore;
-  const readComponent = props.access?.readComponent;
-  const componentPath = component?.path;
-  // The registered component has an exact owned path; opening it need not scan
-  // every workspace and global skill before reading one imported document.
-  const skillExtensions = useMemo(() => skillStore && readComponent && componentPath
-    ? { ...skillStore, readSkill: () => readComponent(props.plugin.pluginId, componentPath) }
-    : skillStore, [skillStore, readComponent, componentPath, props.plugin.pluginId]);
   const body = useRef<HTMLDivElement>(null);
   const scrollTop = useRef(0);
   const [checking, setChecking] = useState(false);
@@ -80,8 +72,8 @@ export function PluginDetailsDialog(props: { plugin: ImportedPlugin; busy: boole
         </div>
       </DialogContent>
     </Dialog>
-    {update && props.imports ? <PluginImportDialog updating store={props.imports} initialSource={update.source} initialRoot={update.root} initialAsWorkflow={update.asWorkflow} onClose={() => setUpdate(null)} onImported={() => { setUpdate(null); props.onChanged?.(); props.onClose(); }} /> : null}
-    {component && props.access ? skill && skillExtensions ? <SkillDetailsDialog key={component.path} skill={skill} extensions={skillExtensions} canEdit={props.access.canEditSkills} busy={props.busy} pluginName={name} onClose={back} /> : component.objectType === "mcp" ? props.access.renderConnector(pluginFileInstalledName(component), back, name) : <PluginDocumentDialog key={component.path} plugin={props.plugin} file={component} read={props.access.readComponent} onBack={back} /> : null}
+    {update && props.imports ? <PluginImportDialog store={props.imports} initialSource={update.source} initialRoot={update.root} initialAsWorkflow={update.asWorkflow} onClose={() => setUpdate(null)} onImported={() => { setUpdate(null); props.onChanged?.(); props.onClose(); }} /> : null}
+    {component && props.access ? skill ? <SkillDetailsDialog key={component.path} skill={skill} extensions={props.access.skillStore} canEdit={props.access.canEditSkills} busy={props.busy} pluginName={name} onClose={back} /> : component.objectType === "mcp" ? props.access.renderConnector(pluginFileInstalledName(component), back, name) : <PluginDocumentDialog key={component.path} plugin={props.plugin} file={component} read={props.access.readComponent} onBack={back} /> : null}
   </>;
 }
 

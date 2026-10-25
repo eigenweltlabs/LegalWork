@@ -50,8 +50,6 @@ export type McpDirectoryInfo = {
   };
   /** Extension category for UI grouping. Defaults to "mcp". */
   kind?: ExtensionKind;
-  /** Install a complete vendor package through the normal plugin importer. */
-  pluginSource?: import("@legalwork/types/plugin-import").PluginImportSource;
   /** Simple Icons slug for brand icon (e.g. "notion", "stripe", "figma"). */
   iconSlug?: string;
   /** Direct icon URL (e.g. local SVG). Takes priority over iconSlug. */
@@ -495,14 +493,13 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   {
     name: "Firecrawl",
     serverName: "firecrawl",
-    pluginSource: { provider: "chatgpt", installedPlugin: "firecrawl" },
     get description() { return t("mcp.quick_connect_firecrawl_desc"); },
     // Account sign-in exposes firecrawl_gov_search; the keyless endpoint
     // offers only the general Search, Scrape and Parse tools.
     url: "https://mcp.firecrawl.dev/v2/mcp-oauth",
     type: "remote",
     oauth: true,
-    kind: "plugin",
+    kind: "mcp",
     get setupNote() { return t("mcp.quick_connect_firecrawl_note"); },
     setupUrl: "https://docs.firecrawl.dev/mcp-server",
   },

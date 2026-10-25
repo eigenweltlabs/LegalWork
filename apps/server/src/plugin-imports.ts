@@ -15,22 +15,17 @@ import { validatePortableManifest, validatePortableMcp, portableEntryError } fro
 import { evaluateImportRequirements, pluginRequirements, instructionRequirements } from "./plugin-import-requirements.js";
 import { githubPluginSource } from "./plugin-import-source.js";
 import { sourceInstallationStates } from "./plugin-import-discovery.js";
-import { rcompare, valid } from "semver";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
 const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional(), pluginRoot: z.string().max(4096).optional() });
-const sourceSchema = z.object({ provider: z.enum(["chatgpt", "claude"]), installedPlugin: z.literal("firecrawl").optional(), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), filename: z.string().max(256).optional(), connector: connectorSchema.optional(), url: z.string().max(2048).optional(), ref: z.string().max(256).optional(), directory: z.string().max(4096).optional() });
+const sourceSchema = z.object({ provider: z.enum(["chatgpt", "claude"]), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), filename: z.string().max(256).optional(), connector: connectorSchema.optional(), url: z.string().max(2048).optional(), ref: z.string().max(256).optional(), directory: z.string().max(4096).optional() });
 const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const parsed = requestSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
   const source = parsed.data.source;
-  if ([source.path, source.zipBase64, source.url, source.installedPlugin].filter(Boolean).length !== 1) throw new ApiError(400, "invalid_plugin_import", "Provide exactly one folder, archive, repository URL or installed plugin.");
-  if (source.installedPlugin) {
-    if (source.provider !== "chatgpt" || source.connector || source.ref || source.directory) fail("Invalid installed plugin source.");
-    return { ...parsed.data, source: { provider: "chatgpt", installedPlugin: source.installedPlugin } };
-  }
+  if ([source.path, source.zipBase64, source.url].filter(Boolean).length !== 1) throw new ApiError(400, "invalid_plugin_import", "Provide exactly one folder, archive or repository URL.");
   if (source.connector && (!source.path || source.provider === "chatgpt" && source.connector.project)) throw new ApiError(400, "invalid_plugin_import", "Choose a connector from a local configuration file.");
   if (source.directory) safePath(source.directory);
   if (source.connector?.pluginRoot !== undefined) {
@@ -125,20 +120,6 @@ function readZip(bytes: Uint8Array): PackageFiles {
   return files;
 }
 async function loadSource(request: PluginImportRequest): Promise<PackageFiles> {
-  if ("installedPlugin" in request.source) {
-    const home = process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME?.trim() || homedir();
-    const codex = process.env.CODEX_HOME?.trim() || join(home, ".codex");
-    const pluginId = "app-6a314a73f8ac819195b0d55e36b9c609";
-    const cache = join(codex, "plugins", "cache", "openai-curated-remote", pluginId);
-    const entries = await readdir(cache, { withFileTypes: true }).catch(() => []);
-    const versions = entries.filter(entry => entry.isDirectory() && valid(entry.name)).sort((a, b) => rcompare(a.name, b.name));
-    const selected = versions[0];
-    if (!selected) throw new ApiError(404, "plugin_source_missing", "Install the official Firecrawl plugin in Codex on this server, or import an exported copy of its package. Its skills are not redistributed with LegalWork.");
-    const files = await readPluginFolder(join(cache, selected.name));
-    const { base } = packageManifest(files, "chatgpt");
-    if (base.name !== pluginId || base.version !== selected.name) fail("The installed Firecrawl package identity or version does not match its official cache entry.");
-    return files;
-  }
   if ("url" in request.source) fail("Repository sources must be resolved to an immutable snapshot first.");
   if ("path" in request.source) {
     const path = resolve(request.source.path);
@@ -274,7 +255,7 @@ function bundledConnectorFiles(files: PackageFiles, request: PluginImportRequest
 
 function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = []): PluginImportPlan {
   const source = request.source;
-  const origin: Omit<PluginImportProvenance, "root" | "digest" | "version"> = { provider: source.provider, kind: "installedPlugin" in source ? "installed-plugin" : "url" in source ? "github" : "path" in source ? source.connector ? "configuration" : /\.(zip|plugin)$/i.test(source.path) ? "archive" : "folder" : "archive", location: "installedPlugin" in source ? source.installedPlugin : "path" in source ? resolve(source.path) : "url" in source ? source.url : source.filename || "uploaded-archive", ...("url" in source && source.ref ? { ref: source.ref } : {}) };
+  const origin: Omit<PluginImportProvenance, "root" | "digest" | "version"> = { provider: source.provider, kind: "url" in source ? "github" : "path" in source ? source.connector ? "configuration" : /\.(zip|plugin)$/i.test(source.path) ? "archive" : "folder" : "archive", location: "path" in source ? resolve(source.path) : "url" in source ? source.url : source.filename || "uploaded-archive", ...("url" in source && source.ref ? { ref: source.ref } : {}) };
   return planPluginFiles(files, root, { provider: source.provider, scope: request.scope, path: "path" in source ? source.path : undefined, connector: "path" in source && Boolean(source.connector), asWorkflow: request.asWorkflow, origin: { ...origin, ...(request.asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot, connectorWarnings);
 }
 
@@ -454,15 +435,8 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
   for (const path of appPaths) {
     const app = jsonFile(files, path);
     if (!record(app.apps)) fail(`Invalid app connection declarations in ${path}.`);
-    for (const name of Object.keys(app.apps)) {
-      // A separately declared portable MCP is usable without the source host's
-      // registered app or account session. Its own connection checks still apply.
-      const portableConnector = portableNames.has(name) && components.some(component => component.type === "mcp" && component.name === name);
-      if (!portableConnector) warnings.push("ChatGPT app connections will not be imported. Provider app IDs are source references, not portable connector definitions.");
-      requirements.push({ kind: "app", name, code: portableConnector ? "portable_app_connector" : "registered_apps", required: true, status: portableConnector ? "setup" : "blocked", message: portableConnector
-        ? `${name} includes a portable MCP connection. Sign in through LegalWork; the ChatGPT app and its account session are not transferred.`
-        : `${name} is a registered ChatGPT app, not a portable connector definition. Its app ID and account session cannot be transferred. Obtain a portable connector configuration before importing this plugin.` });
-    }
+    if (Object.keys(app.apps).length) warnings.push("ChatGPT app connections will not be imported. Provider app IDs are source references, not portable connector definitions.");
+    for (const name of Object.keys(app.apps)) requirements.push({ kind: "app", name, code: "registered_apps", required: true, status: "blocked", message: `${name} is a registered ChatGPT app, not a portable connector definition. Its app ID and account session cannot be transferred. Obtain a portable connector configuration before importing this plugin.` });
   }
   if (target.provider !== "legalwork") for (const [field, label] of Object.entries(unsupported)) if (field !== "dependencies" && (manifest[field] || (field === "hooks" && files.has("hooks/hooks.json")) || (field === "lspServers" && files.has(".lsp.json")) || [...files.keys()].some(path => path.startsWith(`${field}/`)))) requirements.push({ kind: "runtime", name: label, code: `unsupported_${field}`, required: false, status: "changed", message: `${label} will not run in LegalWork. Workflows that depend on this behavior must be adapted.` });
   if (components.length === 0 && !connectorChecks.length) warnings.push("This package has no supported skills, agents, commands or connectors to import.");
@@ -517,7 +491,7 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     const provider = request.detectFormat ? selected.has(".codex-plugin/plugin.json") ? "chatgpt" : selected.has(".claude-plugin/plugin.json") ? "claude" : request.source.provider : request.source.provider;
     return remote
       ? planPluginFiles(selected, root, { provider, scope: request.scope, asWorkflow: request.asWorkflow, origin: { provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(request.asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot)
-      : planPackage(selected, root, { ...request, source: "installedPlugin" in request.source ? request.source : { ...request.source, provider } }, workspaceRoot);
+      : planPackage(selected, root, { ...request, source: { ...request.source, provider } }, workspaceRoot);
   });
 }
 

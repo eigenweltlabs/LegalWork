@@ -3,13 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { getMcpServerName, MCP_QUICK_CONNECT } from "../src/app/constants";
 
 describe("MCP catalog authentication", () => {
-  test("Firecrawl opens the complete official plugin import with hosted OAuth", () => {
-    const entry = MCP_QUICK_CONNECT.find(item => item.serverName === "firecrawl");
-    expect(entry?.pluginSource).toEqual({ provider: "chatgpt", installedPlugin: "firecrawl" });
-    expect(entry?.url).toBe("https://mcp.firecrawl.dev/v2/mcp-oauth");
-    expect(entry?.oauth).toBe(true);
-    expect(entry?.command).toBeUndefined();
-  });
   test("each server has one setup policy, so catalog lookup cannot select a conflicting entry", () => {
     const keys = MCP_QUICK_CONNECT.map((entry) => entry.id ?? getMcpServerName(entry));
     const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);

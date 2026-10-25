@@ -1,11 +1,11 @@
 export type PluginImportProvider = "chatgpt" | "claude";
 export type PluginImportScope = "global" | "project";
 export type PluginImportConnector = { name: string; project?: string; pluginRoot?: string };
-export type PluginImportSource = { provider: PluginImportProvider; path: string; connector?: PluginImportConnector } | { provider: PluginImportProvider; zipBase64: string; filename?: string } | { provider: PluginImportProvider; url: string; ref?: string; directory?: string } | { provider: "chatgpt"; installedPlugin: "firecrawl" };
+export type PluginImportSource = { provider: PluginImportProvider; path: string; connector?: PluginImportConnector } | { provider: PluginImportProvider; zipBase64: string; filename?: string } | { provider: PluginImportProvider; url: string; ref?: string; directory?: string };
 export type PluginImportCandidate = { path: string; name: string; version: string | null; displayName?: string; description?: string | null; kind?: "plugin" | "skill" | "connector"; connector?: PluginImportConnector; bundledIn?: { name: string; displayName?: string }; state?: "installed" | "disabled" | "available" | "synced" };
 export type PluginImportReadiness = "ready" | "setup" | "partial" | "unsupported";
 export type PluginImportRequirement = { kind: "dependency" | "app" | "runtime" | "permission"; name: string; code: string; message: string; required: boolean; status: "setup" | "blocked" | "changed" | "satisfied"; version?: string; marketplace?: string };
-export type PluginImportProvenance = { provider: PluginImportProvider; kind: "folder" | "archive" | "github" | "configuration" | "installed-plugin"; location: string; root: string; ref?: string; directory?: string; revision?: string; asWorkflow?: boolean; digest: string; version: string | null };
+export type PluginImportProvenance = { provider: PluginImportProvider; kind: "folder" | "archive" | "github" | "configuration"; location: string; root: string; ref?: string; directory?: string; revision?: string; asWorkflow?: boolean; digest: string; version: string | null };
 export type PluginImportHistory = { at: number; action: "installed" | "updated" | "rolled_back"; digest: string; version: string | null; revision?: string };
 /** Public assessment only. Authentication secrets never belong in an import preview. */
 export type ConnectorImportCheck = {

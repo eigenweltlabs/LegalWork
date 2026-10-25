@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports } from "./plugin-imports.js";
-import { installPluginImport, rollbackPluginImport } from "./plugin-import-install.js";
+import { installPluginImport } from "./plugin-import-install.js";
 import { pluginNamespace, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
@@ -14,93 +13,6 @@ import { startServer } from "./server.js";
 import { runtimeMcpMapForWorkspace } from "./mcp.js";
 import type { PluginImportRequest } from "@legalwork/types/plugin-import";
 import type { ServerConfig } from "./types.js";
-import { evaluateImportRequirements } from "./plugin-import-requirements.js";
-
-const firecrawlNames = ["brand-identity", "business-contact-research", "design", "enrich-lead", "fantasy-sports", "find-leads", "firecrawl", "firecrawl-deep-research", "get-started", "job-postings", "read-docs", "seo-audit"];
-const firecrawlId = "app-6a314a73f8ac819195b0d55e36b9c609";
-
-async function installedFirecrawl(run: (root: string, config: ServerConfig, files: Record<string, string>) => Promise<void>) {
-  await temp(async (root, config) => {
-    const previous = { codex: process.env.CODEX_HOME, discovery: process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME };
-    process.env.CODEX_HOME = join(root, "codex");
-    process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME = root;
-    // Synthetic package fixtures only. Vendor instructions are never redistributed.
-    const files = {
-      "plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: firecrawlId, version: "2.8.0", extensions: { "com.openai": { interface: { displayName: "Firecrawl" }, apps: "./.app.json" } } }),
-      "mcp.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcpServers: { firecrawl: { type: "streamable-http", url: "https://mcp.firecrawl.dev/v2/mcp-oauth" } } }),
-      ".app.json": '{"apps":{"firecrawl":{"id":"asdk_app_example","required":true}}}',
-      "skills/firecrawl/references/documents.md": "Fixture document reference.",
-      ...Object.fromEntries(firecrawlNames.map(name => [`skills/${name}/SKILL.md`, `---\nname: ${name}\ndescription: Fixture ${name}\n---\nFixture content for ${name}. Read [documents](./references/documents.md).\n`])),
-    };
-    await writeFixture(join(root, "codex/plugins/cache/openai-curated-remote", firecrawlId, "2.8.0"), files);
-    await writeFixture(join(root, "codex/plugins/cache/openai-curated-remote", firecrawlId, "2.7.0"), { ...files, "plugin.json": files["plugin.json"].replace("2.8.0", "2.7.0") });
-    await writeFixture(join(root, ".agents/plugins/spoof"), { ...files, "plugin.json": files["plugin.json"].replace("2.8.0", "99.0.0") });
-    try { await run(root, config, files); } finally {
-      if (previous.codex === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous.codex;
-      if (previous.discovery === undefined) delete process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME; else process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME = previous.discovery;
-    }
-  });
-}
-
-test("Firecrawl selects the latest official installed package and imports its complete MCP bundle", () => installedFirecrawl(async (root, _config, files) => {
-  const request = parsePluginImportRequest({ source: { provider: "chatgpt", installedPlugin: "firecrawl" }, scope: "global" });
-  const [plan] = await resolvePluginImports(request, root);
-  if (!plan) throw new Error("Missing Firecrawl package");
-  expect(plan.preview).toMatchObject({ displayName: "Firecrawl", version: "2.8.0", format: "portable", readiness: "setup", provenance: { kind: "installed-plugin", location: "firecrawl" } });
-  expect(plan.preview.components.filter(item => item.type === "skill").map(item => item.name).sort()).toEqual(firecrawlNames);
-  expect(plan.preview.components.filter(item => item.type === "mcp")).toHaveLength(1);
-  expect(Object.values(plan.connectorConfigs ?? {})).toEqual([expect.objectContaining({ url: "https://mcp.firecrawl.dev/v2/mcp-oauth", enabled: false })]);
-  expect(plan.preview.requirements).toEqual([expect.objectContaining({ name: "firecrawl", code: "portable_app_connector", status: "setup" })]);
-  for (const [path, content] of Object.entries(files)) {
-    const file = plan.resourceFiles.find(item => item.path.endsWith(`/imported-plugins/${pluginNamespace(plan.preview.name, plan.preview.id)}/${path}`));
-    expect(file).toBeDefined();
-    expect(createHash("sha256").update(file!.bytes).digest("hex")).toBe(createHash("sha256").update(content).digest("hex"));
-  }
-  expect(() => parsePluginImportRequest({ source: { provider: "claude", installedPlugin: "firecrawl" }, scope: "global" })).toThrow("Invalid installed");
-  expect(() => parsePluginImportRequest({ source: { provider: "chatgpt", installedPlugin: "firecrawl", path: "/tmp" }, scope: "global" })).toThrow("exactly one");
-  expect(() => parsePluginImportRequest({ source: { provider: "chatgpt", installedPlugin: "unknown" }, scope: "global" })).toThrow();
-  const check = plan.preview.connectors?.[0];
-  if (!check) throw new Error("Missing portable MCP check");
-  check.status = "blocked";
-  evaluateImportRequirements(plan.preview);
-  expect(plan.preview.readiness).toBe("unsupported");
-  expect(plan.preview.requirements?.[0]?.status).toBe("blocked");
-}));
-
-test("Firecrawl package updates, rollback and removal preserve an existing standalone connection", () => installedFirecrawl(async (root, config, files) => {
-  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { firecrawl: { type: "remote", url: "https://mcp.firecrawl.dev/v2/mcp-oauth", enabled: true, oauth: { clientId: "existing-registration" } } } }));
-  const [plan] = await resolvePluginImports({ source: { provider: "chatgpt", installedPlugin: "firecrawl" }, scope: "global" }, root);
-  if (!plan) throw new Error("Missing Firecrawl package");
-  const installed = await installPluginImport(config, "test", root, plan, true);
-  expect(installed.files.filter(file => file.objectType === "skill")).toHaveLength(12);
-  expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[installed.pluginId]?.provenance?.kind).toBe("installed-plugin");
-  const namespace = pluginNamespace(plan.preview.name, plan.preview.id);
-  const reference = resolveWorkspaceInstallPath(root, `.opencode/imported-plugins/${namespace}/skills/firecrawl/references/documents.md`, true);
-  expect(await readFile(reference, "utf8")).toBe("Fixture document reference.");
-  await writeFixture(join(root, "codex/plugins/cache/openai-curated-remote", firecrawlId, "2.9.0"), { ...files, "plugin.json": files["plugin.json"].replace("2.8.0", "2.9.0"), "skills/firecrawl/references/documents.md": "Updated fixture reference." });
-  const [update] = await resolvePluginImports({ source: { provider: "chatgpt", installedPlugin: "firecrawl" }, scope: "global" }, root);
-  if (!update) throw new Error("Missing package update");
-  expect(update.preview.id).toBe(plan.preview.id);
-  expect(update.preview.version).toBe("2.9.0");
-  expect(update.preview.digest).not.toBe(plan.preview.digest);
-  await installPluginImport(config, "test", root, update, true);
-  expect(await readFile(reference, "utf8")).toBe("Updated fixture reference.");
-  await rollbackPluginImport(config, "test", root, installed.pluginId, true);
-  expect(await readFile(reference, "utf8")).toBe("Fixture document reference.");
-  await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: installed.pluginId });
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp).toEqual({ firecrawl: { type: "remote", url: "https://mcp.firecrawl.dev/v2/mcp-oauth", enabled: true, oauth: { clientId: "existing-registration" } } });
-  await expect(readFile(reference)).rejects.toThrow();
-  expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[installed.pluginId]).toBeUndefined();
-}));
-
-test("an absent or mismatched installed Firecrawl package has an actionable failure", () => installedFirecrawl(async (root, _config, files) => {
-  const request: PluginImportRequest = { source: { provider: "chatgpt", installedPlugin: "firecrawl" }, scope: "global" };
-  const cache = join(root, "codex/plugins/cache/openai-curated-remote", firecrawlId);
-  await writeFixture(join(cache, "2.8.0"), { "plugin.json": files["plugin.json"].replace(firecrawlId, "different-plugin") });
-  await expect(resolvePluginImports(request, root)).rejects.toThrow("identity or version");
-  await rm(cache, { recursive: true });
-  await expect(resolvePluginImports(request, root)).rejects.toThrow("Install the official Firecrawl plugin");
-}));
 
 const skill = "---\nname: search\ndescription: Patent search\nmetadata:\n  jurisdiction: EU\n---\nRead [guide](./references/guide.md). Run ${CLAUDE_PLUGIN_ROOT}/bin/tool and ${CLAUDE_SKILL_DIR}/scripts/run.py.\n";
 const fixtures = {
@@ -455,11 +367,6 @@ test("plugin document API reads only registered instructions and protects global
     const allowed = await fetch(`${base}?path=${encodeURIComponent(path)}`, { headers: owner });
     expect(allowed.status).toBe(200);
     expect(await allowed.text()).toContain("Start workflow");
-    const skillPath = plan!.resolved.memberships.find(item => item.configObject?.objectType === "skill")!.configObject!.currentRelativePath!;
-    expect((await fetch(`${base}?path=${encodeURIComponent(skillPath)}`, { headers })).status).toBe(401);
-    const skillRead = await fetch(`${base}?path=${encodeURIComponent(skillPath)}`, { headers: owner });
-    expect(skillRead.status).toBe(200);
-    expect(await skillRead.text()).toContain("Patent search");
     const outside = await fetch(`${base}?path=${encodeURIComponent("../private.md")}`, { headers: owner });
     expect(outside.status).toBe(404);
     const bundle = plan!.resourceFiles[0]!.path;
@@ -519,8 +426,6 @@ test("import API previews, enforces ownership, rejects stale sources and manages
   try {
     const denied = await fetch(`${base}/plugin-imports/preview`, { method: "POST", headers, body: JSON.stringify(payload) });
     expect(denied.status).toBe(401);
-    const installedSource = await fetch(`${base}/plugin-imports/preview`, { method: "POST", headers, body: JSON.stringify({ source: { provider: "chatgpt", installedPlugin: "firecrawl" }, scope: "project" }) });
-    expect(installedSource.status).toBe(401);
     const preview = await fetch(`${base}/plugin-imports/preview`, { method: "POST", headers: ownerHeaders, body: JSON.stringify(payload) });
     expect(preview.status).toBe(200);
     const result = await preview.json();

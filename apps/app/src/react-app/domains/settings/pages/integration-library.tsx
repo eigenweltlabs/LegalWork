@@ -8,13 +8,12 @@ import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
 import type { ConnectorState } from "./connector-status";
-import type { PluginImportSource } from "@legalwork/types/plugin-import";
 
 /** The page owns toolbar positions; each library keeps its own actions and search state. */
 export type IntegrationLibrarySource = "all" | "personal" | "team";
 export type IntegrationLibraryKind = "connector" | "skill" | "storage";
 export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number };
-export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; directoryRequest?: number; directoryActions?: ReactNode; customPluginOpen?: boolean; pluginSearch?: string; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; onImportPlugin?: (source: PluginImportSource, connectOnly?: () => void) => void; importedPackages?: readonly ImportedPlugin[]; connectorState?: (name: string) => ConnectorState | undefined } | null>(null);
+export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; directoryRequest?: number; directoryActions?: ReactNode; customPluginOpen?: boolean; pluginSearch?: string; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[]; connectorState?: (name: string) => ConnectorState | undefined } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
 

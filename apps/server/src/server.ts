@@ -2244,7 +2244,7 @@ function createRoutes(
   });
   for (const action of ["preview", "install"]) addRoute(routes, "POST", `/workspace/:id/plugin-imports/${action}`, "client", async ctx => {
     const request = parsePluginImportRequest(await readJsonBodyLimited(ctx.request, 91 * 1024 * 1024));
-    if ("path" in request.source || "installedPlugin" in request.source || request.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if ("path" in request.source || request.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
     else requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const plans = await resolvePluginImports(request, workspace.path);
@@ -2301,9 +2301,7 @@ function createRoutes(
     else requireClientScope(ctx, "collaborator");
     if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
     if (origin.kind === "configuration" || origin.kind === "archive" && !isAbsolute(origin.location)) throw new ApiError(400, "plugin_source_missing", "Choose the updated connector configuration or archive in Import.");
-    const source = origin.kind === "installed-plugin"
-      ? parsePluginImportRequest({ source: { provider: origin.provider, installedPlugin: origin.location }, scope: plugin.scope === "global" ? "global" : "project" }).source
-      : origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location };
+    const source = origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location };
     const scope = plugin.scope === "global" ? "global" : "project";
     const plans = await resolvePluginImports({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow }, workspace.path);
     const plan = plans.find(item => item.preview.id === plugin.pluginId);
@@ -2343,7 +2341,7 @@ function createRoutes(
     const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
     const plugin = local.plugins[ctx.params.pluginId] ?? global.plugins[ctx.params.pluginId];
     if (!plugin) throw new ApiError(404, "plugin_not_found", "This plugin is no longer installed.");
-    const file = plugin.files.find(file => file.path === ctx.url.searchParams.get("path") && (file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command"));
+    const file = plugin.files.find(file => file.path === ctx.url.searchParams.get("path") && (file.objectType === "agent" || file.objectType === "command"));
     if (!file) throw new ApiError(404, "plugin_file_not_found", "This item is not part of the plugin.");
     const isGlobal = plugin.scope === "global";
     if (isGlobal) ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
