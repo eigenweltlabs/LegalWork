@@ -3216,6 +3216,8 @@ const de = {
   "mcp.quick_connect_courtlistener_desc":
     "Durchsuchen und zitieren Sie frei zugängliche US-Rechtsprechung, Verfahrensregister, PACER-Eingaben und Richterdaten des Free Law Project.",
   "mcp.quick_connect_courtlistener_title": "CourtListener",
+  "mcp.quick_connect_firecrawl_desc": "US-Gesetze, Verordnungen, Gerichtsentscheidungen und amtliche Veröffentlichungen im Government & Legal Index von Firecrawl durchsuchen.",
+  "mcp.quick_connect_firecrawl_note": "Mit Ihrem Firecrawl-Konto anmelden.",
   "mcp.quick_connect_dingduff_desc":
     "Juristische Recherche in natürlicher Sprache mit DingDuff: Millionen Gerichtsentscheidungen, Bundes- und Landesgesetze samt Verfahrensordnungen sowie PACER-Eingaben. Anmeldung mit einem Klick über Ihr DingDuff-Konto.",
   "mcp.quick_connect_dingduff_title": "DingDuff",
