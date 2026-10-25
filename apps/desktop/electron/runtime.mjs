@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
-import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 
@@ -315,15 +314,6 @@ function createOrchestratorState() {
     lastStdout: null,
     lastStderr: null,
   };
-}
-
-async function fileExists(targetPath) {
-  try {
-    await readFile(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 
@@ -1298,41 +1288,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
   }
 
-  async function ensureOpencodeConfig(projectDir) {
-    // First, and regardless of which config wins below: the engine needs
-    // .opencode to be a directory or its instance bootstrap dies, taking every
-    // route for this workspace with it (issue #62). This must run before the
-    // early return — a workspace with a root-level config would otherwise skip
-    // the check entirely and still fail to start.
-    const stateDir = await ensureOpencodeStateDir(projectDir);
-    if (stateDir.movedTo) {
-      console.warn(
-        `[runtime] ${stateDir.path} was a file, not a folder; moved it to ${stateDir.movedTo} so OpenCode can start.`,
-      );
-    }
-
-    // Seed the project config in the hidden .opencode/ directory (the engine
-    // reads it from there too) so the user's workspace folder stays free of
-    // files they didn't create. A config the user already keeps at the
-    // workspace root is respected and left alone.
-    const candidates = [
-      path.join(projectDir, "opencode.jsonc"),
-      path.join(projectDir, "opencode.json"),
-      path.join(projectDir, ".opencode", "opencode.jsonc"),
-      path.join(projectDir, ".opencode", "opencode.json"),
-    ];
-    for (const candidate of candidates) {
-      if (await fileExists(candidate)) return;
-    }
-    const hiddenJsoncPath = path.join(projectDir, ".opencode", "opencode.jsonc");
-    await mkdir(path.dirname(hiddenJsoncPath), { recursive: true });
-    await writeFile(
-      hiddenJsoncPath,
-      `${JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2)}\n`,
-      "utf8",
-    );
-  }
-
   function generateManagedCredentials() {
     return [randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, ""), randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")];
   }
@@ -1703,8 +1658,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       }
     }
 
-    await mkdir(safeProjectDir, { recursive: true });
-    await ensureOpencodeConfig(safeProjectDir);
+    // The engine runs in an app-owned directory. Project files are initialized
+    // by the server so an unavailable selected project cannot block app boot.
     await prepareFreshRuntime();
 
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(

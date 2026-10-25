@@ -91,7 +91,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+      // A disconnected cloud project must not prevent the shared server from
+      // starting. Its requests retry initialization and return the real error.
+      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter").catch((error: unknown) => {
+        console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
   }
   // Drop retired / unparsable provider blocks from the runtime DB BEFORE the

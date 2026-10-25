@@ -361,6 +361,14 @@ export function McpView(props: McpViewProps) {
     setDirectoryOpen(false);
     setDetailEntry(entry);
   };
+  const connectDirectoryEntry = (entry: McpDirectoryInfo) => {
+    // Adding hands off to connection setup and its automatic sign-in flow.
+    // Dismissing the catalogue must not reopen it above the sign-in dialog.
+    setDetailsFromDirectory(false);
+    setDirectoryOpen(false);
+    setDetailEntry(null);
+    return props.connectMcp(entry);
+  };
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
     if (entry.serverName === "legalwork-ui") return legalworkUiMcpCommand ?? undefined;
@@ -426,7 +434,7 @@ export function McpView(props: McpViewProps) {
   }
 
   return (
-    <section className="space-y-6 max-w-5xl w-full animate-in fade-in duration-300">
+    <section className={`space-y-6 w-full animate-in fade-in duration-300${libraryLayout ? "" : " max-w-5xl"}`}>
       <div className="space-y-5 empty:hidden">
         <IntegrationLibraryHeader title={t("extensions.connectors_label")} description={t("integrations.connectors_description")} leadingActions={showLocal ? <Button variant="outline" size="sm" disabled={props.busy} onClick={() => setDirectoryOpen(true)}>{t("mcp.browse_directory")}</Button> : undefined} actions={showLocal ? <>
           {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[
@@ -581,7 +589,7 @@ export function McpView(props: McpViewProps) {
               isConfigured={isEntryConfigured}
               enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
               statusForEntry={quickConnectStatus}
-              onConnect={props.connectMcp}
+              onConnect={connectDirectoryEntry}
               onDetail={openEntryDetails}
               shareRefForEntry={
                 props.canShareWithFirm && props.onShareWithFirm
@@ -644,7 +652,7 @@ export function McpView(props: McpViewProps) {
         open={Boolean(setupEntry)}
         onClose={() => setSetupEntry(null)}
         onCancel={props.cancelPendingMcpAuth}
-        onConnect={props.connectMcp}
+        onConnect={connectDirectoryEntry}
       />
 
       {detailEntry ? (() => {
@@ -697,11 +705,12 @@ export function McpView(props: McpViewProps) {
               setDetailEntry(null);
             } : hasConfigSlot ? undefined : () => {
               if (entryNeedsSetup(detailEntry)) {
+                setDetailsFromDirectory(false);
                 setSetupEntry(detailEntry);
+                setDetailEntry(null);
               } else {
-                props.connectMcp(detailEntry);
+                void connectDirectoryEntry(detailEntry);
               }
-              setDetailEntry(null);
             }}
             onRequestAccess={detailEntry.requestAccessUrl ? () => {
               void openDesktopUrl(detailEntry.requestAccessUrl!);

@@ -162,7 +162,7 @@ import { notifyAlert } from "./notifications";
 import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
-import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import {
@@ -2221,6 +2221,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
             onShareReviewSet={shareReviewSetWithFirm}
+            onManagePlugins={() => navigate(composerSettingsPath("plugins"))}
             onOpenReviewSetShare={canShareWithFirm ? () => {
               setTeamShareKinds(["review_set"]);
               setTeamShareInitial(null);
@@ -2237,6 +2238,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             kind={route.tab === "workflows" ? "workflows" : "skills"}
+            pluginImports={extensionsStore}
             workspaceName={selectedWorkspaceName}
             busy={busy}
             showHeader={props.singleView === true}
@@ -2256,6 +2258,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   legalworkClient={legalworkClient}
                   workspaceId={hubWorkspaceId}
                   kind="workflow"
+                  readSkill={extensionsStore.readFirmSkill}
                   onConfigApplied={() => {
                     void extensionsStore.refreshSkills({ force: true });
                     void reloadWorkspaceEngineFromUi();
@@ -2534,11 +2537,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     <>
       {props.singleView ? (
         // Standalone pages use the same pane-relative gutters and content width.
-        // Workflows owns its frame so its list and editor can scroll independently.
-        <div className={route.tab === "workflows"
+        // Libraries keep their controls fixed while their lists scroll independently.
+        <div className={route.tab === "workflows" || route.tab === "extensions"
           ? "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
-          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
+          {route.tab === "workflows" || route.tab === "extensions" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell
