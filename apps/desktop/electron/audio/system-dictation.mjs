@@ -79,15 +79,22 @@ function acceleratorFromKeys(keys, platform) {
 }
 
 function snapshotClipboard(clipboard) {
-  return clipboard.availableFormats().map((format) => ({
-    format,
-    data: clipboard.readBuffer(format),
-  }));
+  const text = clipboard.readText();
+  const html = clipboard.readHTML();
+  const rtf = clipboard.readRTF();
+  const image = clipboard.readImage();
+  return {
+    ...(text ? { text } : {}),
+    ...(html ? { html } : {}),
+    ...(rtf ? { rtf } : {}),
+    ...(!image.isEmpty() ? { image } : {}),
+  };
 }
 
 function restoreClipboard(clipboard, snapshot) {
-  clipboard.clear();
-  for (const item of snapshot) clipboard.writeBuffer(item.format, item.data);
+  // writeBuffer replaces the pasteboard, so separate writes lose prior formats.
+  if (Object.keys(snapshot).length) clipboard.write(snapshot);
+  else clipboard.clear();
 }
 
 export class SystemDictationService {
@@ -96,10 +103,10 @@ export class SystemDictationService {
    *   userDataDir: string,
    *   platform?: string,
    *   globalShortcut: { register: (accelerator: string, callback: () => void) => boolean, unregister: (accelerator: string) => void, isRegistered?: (accelerator: string) => boolean },
-   *   clipboard: { availableFormats: () => string[], readBuffer: (format: string) => Buffer, clear: () => void, writeBuffer: (format: string, data: Buffer) => void, readText: () => string, writeText: (text: string) => void },
+   *   clipboard: { readText: () => string, readHTML: () => string, readRTF: () => string, readImage: () => { isEmpty: () => boolean }, clear: () => void, write: (data: object) => void, writeText: (text: string) => void },
    *   systemPreferences?: { isTrustedAccessibilityClient?: (prompt: boolean) => boolean },
    *   shell: { openExternal: (url: string) => Promise<unknown> },
-   *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<boolean | null>,
+   *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<boolean>,
    *   keyMonitor?: { isSupported?: () => boolean, start: (onEvent: (event: { type: "down" | "up"; key: string } | { type: "reset" } | { type: "unavailable"; error: string }) => void | Promise<void>) => Promise<boolean>, stop: () => void, restart?: () => Promise<boolean> },
    *   onToggle: () => void,
    *   onPress?: () => void,
@@ -653,7 +660,7 @@ export class SystemDictationService {
   async performPaste(text) {
     if (!text) return { pasted: false, copied: false, error: null };
 
-    let snapshot = [];
+    let snapshot = null;
     try {
       snapshot = snapshotClipboard(this.clipboard);
     } catch {
@@ -680,9 +687,6 @@ export class SystemDictationService {
       await sleep(PASTE_DELAY_MS);
       const pasted = await this.runPasteCommand(this.platform);
       if (pasted === false) return { pasted: false, copied: true, error: null };
-      // The key was sent but the app cannot confirm delivery. Keep the text
-      // available without falsely reporting a failure for a supported editor.
-      if (pasted === null) return { pasted: null, copied: true, error: null };
     } catch (error) {
       return {
         pasted: false,
@@ -692,7 +696,7 @@ export class SystemDictationService {
     }
 
     await sleep(RESTORE_DELAY_MS);
-    if (snapshot.length > 0 && this.clipboard.readText() === text) {
+    if (snapshot !== null && this.clipboard.readText() === text) {
       try {
         restoreClipboard(this.clipboard, snapshot);
       } catch {

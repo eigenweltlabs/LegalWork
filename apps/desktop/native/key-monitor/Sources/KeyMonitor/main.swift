@@ -10,6 +10,7 @@ import IOKit.hid
 // Besides the default long-running monitor, the helper doubles as the app's
 // native probe for the two TCC permissions Electron cannot reach:
 //
+//   --paste               Post Command+V using the active keyboard layout.
 //   --check               Input Monitoring, without prompting. Emits JSON and
 //                         exits 0. `tapEnabled` is the end-to-end truth: a
 //                         stale grant (app updated while the pane toggle stays
@@ -364,6 +365,7 @@ if let mode = modeArguments.first {
     case "--check-automation": runAutomationMode(askUser: false)
     case "--request-automation": runAutomationMode(askUser: true)
     case "--dictation-input": runDictationInputMode()
+    case "--paste": runPasteMode()
     case "--meeting-activity": runMeetingActivityMode()
     case "--watch-focused-display": runFocusedDisplayMode()
     default:

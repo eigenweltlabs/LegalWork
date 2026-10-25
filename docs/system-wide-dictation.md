@@ -6,7 +6,7 @@ Recorder > Dictate anywhere**. It is off by default.
 
 System dictations are ephemeral. LegalWork deletes their temporary audio and
 transcript files after insertion, so they do not appear in Recorder history.
-If insertion is blocked, the transcript stays on the clipboard for manual
+If the paste command fails, the transcript stays on the clipboard for manual
 paste and the bar shows the recovery message. Call and meeting recordings
 continue to use the normal retained history.
 
@@ -326,6 +326,25 @@ Windows blocks synthetic input into applications running as Administrator when
 LegalWork is not elevated. In that case the transcript remains on the clipboard
 and can be pasted manually. Password and secure-desktop fields may also reject
 insertion by design.
+
+### Paste delivery and clipboard recovery
+
+On macOS, the bundled helper posts Command+V with CGEvent, resolving V from the
+active keyboard layout. The System Events keystroke is a fallback when the helper
+cannot run. Neither path inspects the focused field to decide whether to paste.
+The native path requires Accessibility but does not require Automation consent.
+Windows uses SendInput and checks how many keyboard events the OS accepted.
+
+After an accepted command, the previous clipboard contents (text, HTML, RTF, images, or an empty
+clipboard) are restored after 500 ms, provided the user has
+not copied something else. A command error leaves the transcript on the clipboard
+and shows the amber recovery message. The OS does not provide a universal receipt
+that the receiving application inserted the text: a field ignoring a successfully
+posted shortcut cannot reliably be classified as a failed insertion.
+
+This follows [OpenWhispr's clipboard lifecycle](https://github.com/OpenWhispr/openwhispr/blob/main/src/helpers/clipboard.js)
+and [native macOS paste helper](https://github.com/OpenWhispr/openwhispr/blob/main/resources/macos-fast-paste.swift).
+The helper's MIT notice is retained in the source and bundled licenses.
 
 ## Build prerequisites
 

@@ -1445,7 +1445,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const transcriptionError = meta.status === "error" ? meta.error || "Transcription failed." : null;
         let dictationError: string | null = transcriptionError;
         let dictationCopied = false;
-        let dictationUnconfirmed = false;
         let recordingsAfterDictation: AudioRecordingMeta[] | null = null;
         if (isSystemDictation) {
           const detail = await audioRecordingGet(meta.id);
@@ -1459,7 +1458,6 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
                 const result = await audioSystemDictationPaste(text);
                 dictationError = result.error;
                 dictationCopied = result.copied && result.pasted === false;
-                dictationUnconfirmed = result.pasted === null;
               }
             } catch (error) {
               dictationError = error instanceof Error ? error.message : String(error);
@@ -1471,7 +1469,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           recordingsAfterDictation = await audioRecordingDelete(meta.id).catch(() => null);
           await (dictationCancelled || suspendEpoch !== stopEpoch
             ? cancelledDictationFeedback()
-            : setDictationFeedback(dictationCopied ? "copied" : dictationError ? "error" : text && !dictationUnconfirmed ? "success" : "idle", dictationCopied ? "" : dictationError ?? "")
+            : setDictationFeedback(dictationCopied ? "copied" : dictationError ? "error" : text ? "success" : "idle", dictationCopied ? "" : dictationError ?? "")
           ).catch(() => {});
         }
         if (isSystemDictation) dictationSettleAt = Date.now();

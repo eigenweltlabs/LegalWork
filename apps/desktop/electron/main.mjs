@@ -33,7 +33,7 @@ import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
-import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
+import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
@@ -255,15 +255,12 @@ public static class LegalWorkPaste {
 '@
 Add-Type -TypeDefinition $source -ErrorAction Stop
 if (-not [LegalWorkPaste]::Paste()) { exit 2 }
-Write-Output 'sent'
 `;
 
-/** @returns {Promise<boolean | null>} */
+/** @returns {Promise<boolean>} */
 function runChildProcess(executable, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
-    let output = "";
-    child.stdout.on("data", chunk => { output += String(chunk); });
+    const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Paste command timed out."));
@@ -274,47 +271,26 @@ function runChildProcess(executable, args) {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0 && output.trim() === "pasted") resolve(true);
-      else if (code === 0 && output.trim() === "copied") resolve(false);
-      else if (code === 0 && output.trim() === "sent") resolve(null);
-      else if (code === 0) reject(new Error("Paste command did not confirm a text target."));
-      else reject(new Error(`Paste command exited with code ${code ?? "unknown"}.`));
+      if (code === 0) resolve(true);
+      else reject(Object.assign(new Error(`Paste command exited with code ${code ?? "unknown"}.`), { exitCode: code }));
     });
   });
 }
 
-function runSystemPasteCommand(platform) {
+async function runSystemPasteCommand(platform) {
   if (platform === "darwin") {
+    const helper = resolveKeyMonitorPath(app);
+    if (existsSync(helper)) {
+      try {
+        return await runChildProcess(helper, ["--paste"]);
+      } catch (error) {
+        // An unresolved layout must not fall back to a different shortcut.
+        if (error.exitCode === 3) throw error;
+      }
+    }
     return runChildProcess("/usr/bin/osascript", [
       "-e",
-      `tell application "System Events"
-        key code 9 using command down
-        -- Observe the result only after pasting. Unknown metadata is not failure.
-        delay 0.1
-        try
-          set expectedText to the clipboard as text
-          set frontProcess to first application process whose frontmost is true
-          set targetElement to value of attribute "AXFocusedUIElement" of frontProcess
-          set targetRole to value of attribute "AXRole" of targetElement
-          if targetRole is in {"AXTextField", "AXTextArea", "AXComboBox"} then
-            if exists attribute "AXSubrole" of targetElement then
-              if value of attribute "AXSubrole" of targetElement is "AXSecureTextField" then return "sent"
-            end if
-            if exists attribute "AXValue" of targetElement then
-              repeat 5 times
-                set insertedText to value of attribute "AXValue" of targetElement
-                if class of insertedText is not text then return "sent"
-                if insertedText contains expectedText then return "pasted"
-                delay 0.1
-              end repeat
-              return "copied"
-            end if
-          else if targetRole is in {"AXButton", "AXCheckBox", "AXRadioButton", "AXSlider", "AXMenuItem"} then
-            return "copied"
-          end if
-        end try
-        return "sent"
-      end tell`,
+      'tell application "System Events" to keystroke "v" using command down',
     ]);
   }
   if (platform === "windows") {

@@ -345,8 +345,8 @@ export type AudioSystemDictationRuntimeState =
   | "error";
 
 export type AudioSystemDictationPasteResult = {
-  /** null means the paste key was sent but the app cannot confirm delivery. */
-  pasted: boolean | null;
+  /** The OS accepted the paste command; receiving apps provide no universal receipt. */
+  pasted: boolean;
   copied: boolean;
   error: string | null;
 };

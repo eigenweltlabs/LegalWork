@@ -9,20 +9,19 @@ import { runInNewContext } from "node:vm";
 
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 
-async function pasteCommandFixture(output, code = 0) {
+async function pasteCommandFixture(codes = [0], helperAvailable = true) {
   const source = await readFile(new URL("./main.mjs", import.meta.url), "utf8");
   const start = source.indexOf("const WINDOWS_PASTE_SCRIPT =");
   const end = source.indexOf("async function showSupportLogsProgressWindow", start);
   const calls = [];
   const context = {
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, app: {},
+    existsSync: () => helperAvailable,
+    resolveKeyMonitorPath: () => "/helpers/LegalWorkKeyMonitor",
     spawn: (executable, args) => {
       calls.push({ executable, args });
-      const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), kill: () => {} });
-      queueMicrotask(() => {
-        child.stdout.emit("data", output);
-        child.emit("exit", code);
-      });
+      const child = Object.assign(new EventEmitter(), { kill: () => {} });
+      queueMicrotask(() => child.emit("exit", codes.shift() ?? 0));
       return child;
     },
   };
@@ -30,35 +29,40 @@ async function pasteCommandFixture(output, code = 0) {
   return { runPaste: context.runPaste, calls };
 }
 
-test("paste helpers distinguish copied, pasted and unconfirmed results", async () => {
-  for (const platform of ["darwin", "windows"]) {
-    const copied = await pasteCommandFixture("copied\n");
-    assert.equal(await copied.runPaste(platform), false);
-    const sent = await pasteCommandFixture("sent\n");
-    assert.equal(await sent.runPaste(platform), null);
-    const pasted = await pasteCommandFixture("pasted\n");
-    assert.equal(await pasted.runPaste(platform), true);
-    const unconfirmed = await pasteCommandFixture("");
-    await assert.rejects(unconfirmed.runPaste(platform), /did not confirm/);
-    const failed = await pasteCommandFixture("", 2);
-    await assert.rejects(failed.runPaste(platform), /exited with code 2/);
-  }
-});
-
-test("paste is attempted without a focused-field eligibility gate", async () => {
-  const mac = await pasteCommandFixture("pasted\n");
-  await mac.runPaste("darwin");
-  const script = mac.calls[0].args[1];
-  assert.ok(script.indexOf("key code 9 using command down") < script.indexOf("AXFocusedUIElement"));
-  assert.doesNotMatch(script, /AXManualAccessibility|AXSelectedText|settable/);
-  const windows = await pasteCommandFixture("pasted\n");
-  await windows.runPaste("windows");
+test("accepted paste commands succeed without inspecting the focused field", async () => {
+  const mac = await pasteCommandFixture();
+  assert.equal(await mac.runPaste("darwin"), true);
+  assert.equal(mac.calls[0].executable, "/helpers/LegalWorkKeyMonitor");
+  assert.equal(mac.calls[0].args[0], "--paste");
+  const windows = await pasteCommandFixture();
+  assert.equal(await windows.runPaste("windows"), true);
   assert.match(windows.calls[0].args.at(-1), /LegalWorkPaste\]::Paste\(\)/);
   assert.doesNotMatch(windows.calls[0].args.at(-1), /HasEditableFocus|AutomationElement|ValuePattern/);
 });
 
-test("the macOS paste-first script compiles", { skip: process.platform !== "darwin" }, async t => {
-  const fixture = await pasteCommandFixture("copied\n");
+test("macOS falls back when the native paste command fails or is missing", async () => {
+  for (const helperAvailable of [true, false]) {
+    const fixture = await pasteCommandFixture(helperAvailable ? [2, 0] : [0], helperAvailable);
+    assert.equal(await fixture.runPaste("darwin"), true);
+    const fallback = fixture.calls.at(-1);
+    assert.equal(fallback.executable, "/usr/bin/osascript");
+    assert.match(fallback.args[1], /keystroke "v" using command down/);
+    assert.doesNotMatch(fallback.args[1], /AXFocusedUIElement|AXValue|AXRole|settable/);
+  }
+});
+
+test("unresolved keyboard layouts and failed commands preserve the failure result", async () => {
+  const layout = await pasteCommandFixture([3]);
+  await assert.rejects(layout.runPaste("darwin"), /exited with code 3/);
+  assert.equal(layout.calls.length, 1, "do not post a different key as a layout fallback");
+  const mac = await pasteCommandFixture([2, 1]);
+  await assert.rejects(mac.runPaste("darwin"), /exited with code 1/);
+  const windows = await pasteCommandFixture([2]);
+  await assert.rejects(windows.runPaste("windows"), /exited with code 2/);
+});
+
+test("the macOS fallback script compiles", { skip: process.platform !== "darwin" }, async t => {
+  const fixture = await pasteCommandFixture([0], false);
   await fixture.runPaste("darwin");
   const directory = await tempDir();
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -140,6 +144,19 @@ class FakeClipboard {
 
   writeBuffer(format, data) {
     this.formats.set(format, Buffer.from(data));
+  }
+
+  readHTML() { return this.readBuffer("text/html").toString(); }
+
+  readRTF() { return this.readBuffer("text/rtf").toString(); }
+
+  readImage() { return { isEmpty: () => true }; }
+
+  write(data) {
+    this.clear();
+    for (const [name, format] of [["text", "text/plain"], ["html", "text/html"], ["rtf", "text/rtf"]]) {
+      if (data[name] !== undefined) this.formats.set(format, Buffer.from(data[name]));
+    }
   }
 
   readText() {
@@ -279,18 +296,24 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
-test("an unconfirmed paste keeps the transcript without rejecting the editor", async t => {
+test("successful paste restores an empty clipboard and preserves a newly copied value", async t => {
   const userDataDir = await tempDir();
   const clipboard = new FakeClipboard();
+  clipboard.clear();
+  let copyDuringPaste = false;
   const service = new SystemDictationService({
     userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
     systemPreferences: { isTrustedAccessibilityClient: () => true },
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => null,
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { if (copyDuringPaste) clipboard.writeText("New user copy"); return true; },
     onToggle: () => {}, onCancel: () => {},
   });
   t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
-  assert.deepEqual(await service.pasteText("Keep this dictated text."), { pasted: null, copied: true, error: null });
-  assert.equal(clipboard.readText(), "Keep this dictated text.");
+  assert.deepEqual(await service.pasteText("Dictation"), { pasted: true, copied: true, error: null });
+  assert.deepEqual(clipboard.availableFormats(), []);
+  copyDuringPaste = true;
+  await service.pasteText("Second dictation");
+  assert.equal(clipboard.readText(), "New user copy");
 });
 
 test("when an attempted paste reports failure dictation stays on the clipboard", async t => {
