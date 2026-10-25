@@ -585,69 +585,6 @@ test("web search waits before sending the exact query to its provider", async ()
   expect(net.sent).toHaveLength(1);
 });
 
-test("US law search waits for approval and keeps the optional key out of approval history", async () => {
-  const previousKey = process.env.FIRECRAWL_API_KEY;
-  process.env.FIRECRAWL_API_KEY = "fc-private-fixture";
-  try {
-    const f = await fixture({ webfetch: "allow", websearch: "allow" });
-    const net = observedWebNetwork([{ status: 200, headers: {}, bodyBase64: Buffer.from(JSON.stringify({ success: true, data: { web: [] } })).toString("base64") }]);
-    const input = webInputSchema.parse({ kind: "gov", query: "California noncompete agreements", jurisdiction: "us-ca", k: 3, sessionID: "legal-research", agent: "build" });
-    const result = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send);
-    const [approval] = await waitForWebApproval(f.service);
-    expect(approval.description).toBe("Search US law for: California noncompete agreements");
-    expect(approval.network?.url).toBe("https://api.firecrawl.dev/v2/search/gov");
-    expect(JSON.parse(approval.network?.body ?? "")).toEqual({ query: "California noncompete agreements", jurisdiction: "us-ca", k: 3 });
-    expect(approval.network?.headers.authorization).toBe("[redacted]");
-    expect(JSON.stringify(approval)).not.toContain("fc-private-fixture");
-    expect(net.resolved).toEqual([]);
-    expect(net.sent).toEqual([]);
-    f.service.approvals.respond(approval.id, "always");
-    expect((await result).metadata.provider).toBe("firecrawl");
-    expect(net.sent[0].headers.authorization).toBe("Bearer fc-private-fixture");
-    expect(net.sent).toHaveLength(1);
-    process.env.FIRECRAWL_API_KEY = "fc-replaced-fixture";
-    const replaced = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send);
-    const [nextApproval] = await waitForWebApproval(f.service);
-    expect(JSON.stringify(nextApproval)).not.toContain("fc-replaced-fixture");
-    expect(net.sent).toHaveLength(1);
-    f.service.approvals.respond(nextApproval.id, "deny");
-    await expect(replaced).rejects.toThrow("declined");
-  } finally {
-    if (previousKey === undefined) delete process.env.FIRECRAWL_API_KEY;
-    else process.env.FIRECRAWL_API_KEY = previousKey;
-  }
-});
-
-test("US law search cannot bypass chat network settings, search/read denials or subagent rules", async () => {
-  const input = webInputSchema.parse({ kind: "gov", query: "42 USC 1983", sessionID: "legal-research", agent: "build" });
-  for (const permission of [{ webfetch: "deny" }, { websearch: "deny" }, { webfetch: "allow", websearch: "allow" }]) {
-    const f = await fixture(permission);
-    await writeSandboxNetworkMode(f.config, permission.webfetch === "allow" ? "block" : "allow");
-    const net = observedWebNetwork();
-    await expect(f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("blocked");
-    expect(net.resolved).toEqual([]);
-    expect(net.sent).toEqual([]);
-  }
-  const f = await fixture({ webfetch: "allow", websearch: "allow" });
-  await writeSandboxNetworkMode(f.config, "allow");
-  for (const permission of ["webfetch", "websearch"]) {
-    const net = observedWebNetwork();
-    await expect(f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal,
-      [{ permission, pattern: "*", action: "deny" }], undefined, net.send)).rejects.toThrow("blocked");
-    expect(net.sent).toEqual([]);
-  }
-});
-
-test("US law provider redirects cannot forward queries or credentials to another host", async () => {
-  const f = await fixture({ webfetch: "allow", websearch: "allow" });
-  await writeSandboxNetworkMode(f.config, "allow");
-  const net = observedWebNetwork([{ status: 307, headers: { location: "https://other.example/" }, bodyBase64: "" }]);
-  const input = webInputSchema.parse({ kind: "gov", query: "42 USC 1983", sessionID: "legal-research", agent: "build" });
-  await expect(f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send)).rejects.toThrow("No data was forwarded");
-  expect(net.sent).toHaveLength(1);
-  expect(net.resolved).toEqual(["api.firecrawl.dev"]);
-});
-
 test("web requests inherit parent settings and stricter agent permissions", async () => {
   const f = await fixture({ webfetch: "allow" });
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });

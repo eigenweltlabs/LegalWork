@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { convertHtml } from "./web-convert.js";
 import type { OutboundResponse } from "./network.js";
-import { govSearchArgs, govSearchRequest, govSearchResult } from "./firecrawl-gov.js";
 
 export const webFetchArgs = z.object({
   url: z.string().url().max(8192).describe("The HTTP or HTTPS page to read."),
@@ -18,12 +17,10 @@ export const webSearchArgs = z.object({
 export const webInputSchema = z.discriminatedUnion("kind", [
   webFetchArgs.extend({ kind: z.literal("fetch"), sessionID: z.string().min(1).max(200), agent: z.string().min(1).max(200) }).strict(),
   webSearchArgs.extend({ kind: z.literal("search"), sessionID: z.string().min(1).max(200), agent: z.string().min(1).max(200) }).strict(),
-  govSearchArgs.extend({ kind: z.literal("gov"), sessionID: z.string().min(1).max(200), agent: z.string().min(1).max(200) }).strict(),
 ]);
 export type WebInput = z.infer<typeof webInputSchema>;
 
 export function webRequest(input: WebInput): { url: string; method: string; headers: Record<string, string>; bodyBase64: string } {
-  if (input.kind === "gov") return govSearchRequest(input);
   if (input.kind === "fetch") return { url: input.url, method: "GET", headers: {
     accept: input.format === "html" ? "text/html, */*;q=0.5" : "text/markdown, text/plain, text/html;q=0.8, */*;q=0.5",
     "user-agent": "LegalWork", "accept-encoding": "identity",
@@ -42,7 +39,6 @@ export function webRequest(input: WebInput): { url: string; method: string; head
 
 export async function webResult(input: WebInput, url: string, response: OutboundResponse, signal = new AbortController().signal) {
   signal.throwIfAborted();
-  if (input.kind === "gov") return govSearchResult(input, response);
   if (response.status < 200 || response.status >= 300) throw new Error(`Website returned HTTP ${response.status}.`);
   const bytes = Buffer.from(response.bodyBase64, "base64");
   const content = bytes.toString("utf8");
