@@ -67,7 +67,7 @@ import {
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
 import { scanGithubSkills, installGithubSkills, promoteSkillToWorkflow } from "./github-skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
-import { ApiError, formatError } from "./errors.js";
+import { ApiError, formatError, projectFileError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
 import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
@@ -5178,7 +5178,10 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {
     if (!(await stat(resolvedWorkspace)).isDirectory()) throw new Error("Not a directory");
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+      throw projectFileError(resolvedWorkspace, error);
+    }
     throw new ApiError(404, "project_folder_unavailable", "Reconnect the project drive or restore its folder to its original location, then retry.");
   }
   const authorized = await isAuthorizedRoot(resolvedWorkspace, config.authorizedRoots);
@@ -5228,7 +5231,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
       if (bootstraps.get(bootstrapKey) === bootstrap) {
         bootstraps.delete(bootstrapKey);
       }
-      throw error;
+      throw projectFileError(resolvedWorkspace, error);
     }
   }
   return { ...workspace, path: resolvedWorkspace };
