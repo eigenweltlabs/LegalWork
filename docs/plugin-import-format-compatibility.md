@@ -20,7 +20,7 @@ Reviewed on 20 October 2026 against `dev` at `fb40b3ad`. This audit covers the i
 | Registered ChatGPT apps | A nonempty app map still blocks importing the whole plugin as working functionality. An app ID does not provide an endpoint, portable account grant or the original host's runtime. These dependencies are never silently discarded. |
 | Explicit app-file declaration | Overrides `.app.json`, matching OpenAI's loader. An obsolete default file no longer invents an extra dependency. |
 | Provider selection | The server detects Codex, Claude and portable manifests by default. Discovery remains organized by source app; folder/ZIP/repository imports do not require the user to guess the format. An explicitly format-restricted API request remains available. |
-| Workflows import | Uses the shared plugin review and source chooser, including ChatGPT and Claude. Plain skill packages become workflows. Manifested or marketplace plugins retain their complete bundle and are added to Integrations, including their connectors. |
+| Workflows import | Uses the shared plugin review and source chooser, including ChatGPT and Claude. Plain skill packages become workflows. Plugins with skills offer **Convert skills to workflows**, with checkboxes for individual skills, Select all, Clear selection and Cancel. Only the selected skill paths become workflows; the other skills and all plugin components remain installed together. Review shows each destination before import. Source updates preserve the selected paths and leave newly added skills as skills. Conversion keeps plugin identity, connector settings and rollback support. |
 | Local marketplace entries | String paths and OpenAI `source: local` objects resolve from the marketplace root. Claude `metadata.pluginRoot` bare names are supported. Catalog imports keep local plugin roots separate, including manifest-free entries. |
 | Marketplace metadata | Discovery carries the catalog reference into review and update provenance. Review reads only the chosen plugin folder plus bounded catalog metadata, rather than traversing the user's home directory. Catalog-only skills/connectors, display fields and documented Claude supplemental components survive. Relevant entry changes invalidate the reviewed digest. |
 | Marketplace component precedence | Manifest-free entries supply the manifest. Claude entry display fields override plugin display fields; explicit component paths supplement the manifest under default strict mode. Conflicting `strict: false` component overrides fail with a specific error. Commands can combine path and inline forms. |
@@ -54,3 +54,12 @@ The production workflow import button and shared dialog were also exercised agai
 ![Complete Claude bundle review](evidence/import-format-compatibility/complete-claude-bundle.png)
 
 Use CI's pinned Bun **1.4.2** for app unit checks. Local Bun 1.3.14 reproduces three Lexical initialization errors on both this branch and unchanged `dev`; these are runtime-specific baseline failures, not import regressions.
+
+
+### Individual workflow selection verification (25 October 2026)
+
+The production import dialog and API client were exercised against a disposable real server and a three-skill Claude plugin. Selecting Contract Review installed one workflow and two ordinary skills. Reopening the picker retained that choice; Select all, Clear selection and Cancel were checked before installation. This verification did not modify the user's library.
+
+The automated lifecycle checks cover Claude and Codex plugins, source paths with duplicate skill names, empty selections, review-token binding, copied skill resources, tracked updates that add a new skill, and rollback to the original package. Existing all-skill conversion remains supported for saved older imports. Sandbox tests were skipped as requested.
+
+Evidence: `docs/evidence/workflow-skill-selection/choose-skills.png`, `review-selection.png` and `installed-selection.png`.

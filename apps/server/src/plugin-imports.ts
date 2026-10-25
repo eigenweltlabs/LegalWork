@@ -21,7 +21,7 @@ const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
 const connectorSchema = z.object({ name: z.string().min(1).max(256), project: z.string().min(1).max(4096).optional(), pluginRoot: z.string().max(4096).optional() });
 const sourceSchema = z.object({ provider: z.enum(["chatgpt", "claude"]), path: z.string().min(1).optional(), marketplace: z.string().max(4096).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), filename: z.string().max(256).optional(), connector: connectorSchema.optional(), url: z.string().max(2048).optional(), ref: z.string().max(256).optional(), directory: z.string().max(4096).optional() });
-const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional(), workflowSkillsOnly: z.boolean().optional() });
+const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), detectFormat: z.boolean().optional(), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional(), acknowledgePartial: z.boolean().optional(), asWorkflow: z.boolean().optional(), workflowSkillsOnly: z.boolean().optional(), convertPluginSkills: z.boolean().optional(), workflowSkillPaths: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const parsed = requestSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
@@ -29,6 +29,7 @@ export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   if ([source.path, source.zipBase64, source.url].filter(Boolean).length !== 1) throw new ApiError(400, "invalid_plugin_import", "Provide exactly one folder, archive or repository URL.");
   if (source.connector && (!source.path || source.provider === "chatgpt" && source.connector.project)) throw new ApiError(400, "invalid_plugin_import", "Choose a connector from a local configuration file.");
   if (source.directory) safePath(source.directory);
+  if (parsed.data.workflowSkillPaths) parsed.data.workflowSkillPaths = [...new Set(parsed.data.workflowSkillPaths.map(safePath))].sort();
   if (source.connector?.pluginRoot !== undefined) {
     if (source.connector.project !== undefined) fail("Choose either a plugin connector or a project configuration connector.");
     if (source.connector.pluginRoot !== "") safePath(source.connector.pluginRoot);
@@ -257,7 +258,7 @@ function bundledConnectorFiles(files: PackageFiles, request: PluginImportRequest
 function planPackage(files: PackageFiles, root: string, request: PluginImportRequest, workspaceRoot: string, connectorWarnings: string[] = [], marketplaceEntry?: Record<string, unknown>): PluginImportPlan {
   const source = request.source;
   const origin: Omit<PluginImportProvenance, "root" | "digest" | "version"> = { provider: source.provider, kind: "url" in source ? "github" : "path" in source ? source.connector ? "configuration" : /\.(zip|plugin)$/i.test(source.path) ? "archive" : "folder" : "archive", location: "path" in source ? resolve(source.path) : "url" in source ? source.url : source.filename || "uploaded-archive", ...("url" in source && source.ref ? { ref: source.ref } : {}), ...("path" in source && source.marketplace ? { marketplace: source.marketplace } : {}) };
-  return planPluginFiles(files, root, { provider: source.provider, scope: request.scope, path: "path" in source ? source.path : undefined, connector: "path" in source && Boolean(source.connector), asWorkflow: request.asWorkflow, marketplaceEntry, origin: { ...origin, ...(request.asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot, connectorWarnings);
+  return planPluginFiles(files, root, { provider: source.provider, scope: request.scope, path: "path" in source ? source.path : undefined, connector: "path" in source && Boolean(source.connector), asWorkflow: request.asWorkflow, marketplaceEntry, origin: { ...origin, ...(request.asWorkflow ? { asWorkflow: true } : {}), ...(request.convertPluginSkills ? { convertPluginSkills: true } : {}), ...(request.workflowSkillPaths !== undefined ? { workflowSkillPaths: request.workflowSkillPaths } : {}) } }, workspaceRoot, connectorWarnings);
 }
 
 export function planCreatedPlugin(files: PackageFiles, workspaceRoot: string, id: string): PluginImportPlan {
@@ -271,7 +272,7 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
   const presentation = record(manifest.interface) ? manifest.interface : {};
   const displayName = str(presentation.displayName) ?? str(manifest.displayName) ?? undefined;
   const description = str(presentation.shortDescription) ?? str(base.description) ?? str(manifest.description);
-  const sourceIdentity = target.origin ? createHash("sha256").update(JSON.stringify([target.origin.kind, target.origin.location, target.origin.directory, root, target.connector, target.origin.asWorkflow])).digest("hex").slice(0, 16) : undefined;
+  const sourceIdentity = target.origin ? createHash("sha256").update(JSON.stringify([target.origin.kind, target.origin.location, target.origin.directory, root, target.connector, target.origin.convertPluginSkills ? undefined : target.origin.asWorkflow])).digest("hex").slice(0, 16) : undefined;
   const id = target.id ?? `import:${target.provider}:${name}:${sourceIdentity ? `${sourceIdentity}:` : ""}${target.scope}`;
   const namespace = pluginNamespace(name, id);
   const bundlePath = `.opencode/imported-plugins/${namespace}`;
@@ -293,10 +294,11 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
     if (sourceDocuments.has(documentKey)) return;
     sourceDocuments.add(documentKey);
     let installedName = `${slug(name).slice(0, 20)}-${createHash("sha256").update(id).digest("hex").slice(0, 8)}-${slug(originalName).slice(0, 32)}`;
+    const asWorkflow = type === "skill" && Boolean(target.asWorkflow) && (target.origin?.workflowSkillPaths === undefined || target.origin.workflowSkillPaths.includes(sourcePath));
+    if (asWorkflow) installedName = `workflow-assistant-${installedName}`.slice(0, 64).replace(/-+$/, "");
     if (seen.has(`${type}:${installedName}`)) {
       installedName = `${installedName.slice(0, 54).replace(/-+$/, "")}-${createHash("sha256").update(sourcePath).digest("hex").slice(0, 8)}`;
     }
-    if (type === "skill" && target.asWorkflow) installedName = `workflow-assistant-${installedName}`.slice(0, 64).replace(/-+$/, "");
     const key = `${type}:${installedName}`;
     seen.add(key);
     const destination = type === "skill" ? `.opencode/skills/${namespace}/${installedName}/SKILL.md` : `.opencode/${type === "agent" ? "agents" : "commands"}/${namespace}/${installedName}.md`;
@@ -320,7 +322,7 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
     if (target.provider !== "legalwork") requirements.push(...instructionRequirements(originalName, raw, type));
     const content = buildFrontmatter({ ...parsed.data, name: installedName }) + "\n" + body;
     memberships.push({ configObjectId: key, configObject: { id: key, objectType: type, title: installedName, description: str(parsed.data.description) ?? originalName, currentRelativePath: destination, status: "active", updatedAt: null, latestVersion: { id: createHash("sha256").update(raw).digest("hex"), rawSourceText: content, normalizedPayloadJson: null } } });
-    components.push({ type, name: originalName, installedName: type === "agent" ? `${namespace}/${installedName}` : installedName });
+    components.push({ type, name: originalName, installedName: type === "agent" ? `${namespace}/${installedName}` : installedName, ...(type === "skill" ? { sourcePath, asWorkflow } : {}) });
     if (type === "skill" && inline === undefined) {
       const directory = posix.dirname(sourcePath);
       const prefix = directory === "." ? "" : `${directory}/`;
@@ -535,10 +537,13 @@ export async function resolvePluginImports(request: PluginImportRequest, workspa
     const provider = detectFormat ? selected.has(".codex-plugin/plugin.json") || selected.has("plugin.json") ? "chatgpt" : selected.has(".claude-plugin/plugin.json") ? "claude" : marketplace?.provider ?? request.source.provider : request.source.provider;
     // The workflow chooser converts only plain skill packages. Keep the older
     // explicit conversion contract for saved imports and their updates.
-    const asWorkflow = request.asWorkflow && (!request.workflowSkillsOnly || !marketplace && !["plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json"].some(path => selected.has(path)));
+    const plugin = Boolean(marketplace || ["plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json"].some(path => selected.has(path)));
+    const workflowSkillPaths = request.workflowSkillPaths === undefined ? undefined : [...new Set(request.workflowSkillPaths.map(safePath))].sort();
+    const convertPluginSkills = plugin && (request.convertPluginSkills === true || workflowSkillPaths !== undefined);
+    const asWorkflow = workflowSkillPaths !== undefined ? workflowSkillPaths.length > 0 : convertPluginSkills || request.asWorkflow && (!request.workflowSkillsOnly || !plugin);
     return remote
-      ? planPluginFiles(selected, root, { provider, scope: request.scope, asWorkflow, marketplaceEntry: marketplace?.entry, origin: { provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(asWorkflow ? { asWorkflow: true } : {}) } }, workspaceRoot)
-      : planPackage(selected, root, { ...request, asWorkflow, source: { ...request.source, provider } }, workspaceRoot, [], marketplace?.entry);
+      ? planPluginFiles(selected, root, { provider, scope: request.scope, asWorkflow, marketplaceEntry: marketplace?.entry, origin: { provider, kind: "github", location: remote.location, ref: remote.ref, directory: remote.directory, revision: remote.revision, ...(asWorkflow ? { asWorkflow: true } : {}), ...(convertPluginSkills ? { convertPluginSkills: true } : {}), ...(workflowSkillPaths !== undefined ? { workflowSkillPaths } : {}) } }, workspaceRoot)
+      : planPackage(selected, root, { ...request, asWorkflow, convertPluginSkills, workflowSkillPaths, source: { ...request.source, provider } }, workspaceRoot, [], marketplace?.entry);
   });
 }
 

@@ -1,7 +1,7 @@
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
-import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
@@ -2378,7 +2378,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
-    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<{ source: PluginImportRequest["source"]; scope: PluginImportRequest["scope"]; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<PluginImportUpdate>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
     rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),

@@ -2283,7 +2283,7 @@ function createRoutes(
     if (origin.kind === "configuration" || origin.kind === "archive" && !isAbsolute(origin.location)) throw new ApiError(400, "plugin_source_missing", "Choose the updated connector configuration or archive in Import.");
     const source = origin.kind === "github" ? { provider: origin.provider, url: origin.location, ref: origin.ref, directory: origin.directory } : { provider: origin.provider, path: origin.location, marketplace: origin.marketplace };
     const scope = plugin.scope === "global" ? "global" : "project";
-    const plans = await resolvePluginImports({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow }, workspace.path);
+    const plans = await resolvePluginImports({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow, convertPluginSkills: origin.convertPluginSkills, workflowSkillPaths: origin.workflowSkillPaths }, workspace.path);
     const plan = plans.find(item => item.preview.id === plugin.pluginId);
     if (!plan) throw new ApiError(409, "plugin_source_changed", "The source package identity changed. Review it as a new import.");
     if (plan.preview.components.some(item => item.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
@@ -2291,7 +2291,7 @@ function createRoutes(
     await assertPluginUnmodified(workspace.path, plugin, scope === "global");
     const registry = scope === "global" ? GLOBAL_MCP_ID : workspace.id;
     const checked = await preparePluginImport(plan, { workspace: workspace.path, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: plugin, available: Object.values({ ...global.plugins, ...local.plugins }) });
-    return jsonResponse({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow, changed: origin.digest !== checked.preview.digest, preview: checked.preview });
+    return jsonResponse({ source, scope, root: origin.root, asWorkflow: origin.asWorkflow, convertPluginSkills: origin.convertPluginSkills, workflowSkillPaths: origin.workflowSkillPaths, changed: origin.digest !== checked.preview.digest, preview: checked.preview });
   });
   addRoute(routes, "POST", "/workspace/:id/plugin-imports/:pluginId/rollback", "client", async ctx => {
     ensureWritable(config);
