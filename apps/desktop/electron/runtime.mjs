@@ -326,30 +326,6 @@ async function readJsonFile(targetPath, fallback) {
   }
 }
 
-function selectLanAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const entries of Object.values(interfaces)) {
-    for (const entry of entries ?? []) {
-      if (entry && entry.family === "IPv4" && entry.internal === false) {
-        return entry.address;
-      }
-    }
-  }
-  return null;
-}
-
-function buildConnectUrls(port) {
-  const hostname = os.hostname().trim();
-  const mdnsUrl = hostname ? `http://${hostname.replace(/\.local$/i, "")}.local:${port}` : null;
-  const lan = selectLanAddress();
-  const lanUrl = lan ? `http://${lan}:${port}` : null;
-  return {
-    connectUrl: lanUrl ?? mdnsUrl,
-    mdnsUrl,
-    lanUrl,
-  };
-}
-
 function targetTriple() {
   if (process.platform === "darwin") {
     return process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
@@ -771,15 +747,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     store.workspaces[normalized] = next;
     await saveTokenStore(store);
     return next;
-  }
-
-  async function persistWorkspaceOwnerToken(workspaceKey, ownerToken) {
-    const store = await loadTokenStore();
-    const normalized = normalizeWorkspaceKey(workspaceKey);
-    if (!store.workspaces?.[normalized]) return;
-    store.workspaces[normalized].ownerToken = ownerToken;
-    store.workspaces[normalized].updatedAt = nowMs();
-    await saveTokenStore(store);
   }
 
   async function readPreferredLegalworkPort(workspaceKey) {
@@ -1325,23 +1292,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return [randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, ""), randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")];
   }
 
-  async function issueOwnerToken(baseUrl, hostToken) {
-    const payload = await fetchJson(
-      `${baseUrl.replace(/\/+$/, "")}/tokens`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-LegalWork-Host-Token": hostToken,
-        },
-        body: JSON.stringify({ scope: "owner", label: "LegalWork desktop owner token" }),
-      },
-      5000,
-    );
-    const token = typeof payload?.token === "string" ? payload.token.trim() : "";
-    return token || null;
-  }
-
   // In-process server handle. Kept alive across restarts so we can stop it.
   let inProcessServer = null;
 
@@ -1367,7 +1317,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
     await stopChild(legalworkServerState);
 
-    const host = options.remoteAccessEnabled ? "0.0.0.0" : "127.0.0.1";
+    const host = "127.0.0.1";
 
     const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
     legalworkServerState.managedOpencodeBinPath = managedOpencode?.path ?? null;
@@ -1403,6 +1353,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
+    await officeAddinManager.refreshManifests();
     const handle = await startEmbeddedServer({
       modelDownloadFetch,
       opencodeSdkDirectory: bundledOpencodeSdkDirectory({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, desktopRoot }),
@@ -1463,57 +1414,39 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const baseUrl = handle.url;
 
     legalworkServerState.inProcess = true;
-    legalworkServerState.remoteAccessEnabled = options.remoteAccessEnabled;
+    legalworkServerState.remoteAccessEnabled = false;
     legalworkServerState.host = host;
     legalworkServerState.port = boundPort;
     legalworkServerState.baseUrl = baseUrl;
     legalworkServerState.clientToken = tokens.clientToken;
     legalworkServerState.hostToken = tokens.hostToken;
 
-    const connectUrls = options.remoteAccessEnabled ? buildConnectUrls(boundPort) : { connectUrl: null, mdnsUrl: null, lanUrl: null };
-    legalworkServerState.connectUrl = connectUrls.connectUrl;
-    legalworkServerState.mdnsUrl = connectUrls.mdnsUrl;
-    legalworkServerState.lanUrl = connectUrls.lanUrl;
+    legalworkServerState.connectUrl = null;
+    legalworkServerState.mdnsUrl = null;
+    legalworkServerState.lanUrl = null;
+    legalworkServerState.ownerToken = null;
 
     // No health check needed -- startServer() resolves only after the listener is bound.
-    let workspaceList = null;
-    let ownerToken = tokens.ownerToken?.trim() || null;
-    if (ownerToken) {
-      try {
-        workspaceList = await fetchJson(`${baseUrl}/workspaces`, {
-          headers: { Authorization: `Bearer ${ownerToken}` },
-        }, 5000);
-      } catch {
-        ownerToken = null;
+    try {
+      const list = await fetchJson(`${baseUrl}/workspaces`, {
+        headers: { Authorization: `Bearer ${tokens.clientToken}` },
+      }, 5000);
+      const first = Array.isArray(list?.items) ? list.items[0] : undefined;
+      const opencode = first?.opencode;
+      if (opencode?.baseUrl) {
+        engineState.runtime = DIRECT_RUNTIME;
+        engineState.projectDir = opencode.directory ?? activeWorkspace ?? null;
+        engineState.hostname = new URL(opencode.baseUrl).hostname;
+        engineState.port = Number(new URL(opencode.baseUrl).port) || null;
+        engineState.baseUrl = opencode.baseUrl;
+        engineState.opencodeUsername = opencode.username ?? null;
+        engineState.opencodePassword = opencode.password ?? null;
+        engineState.execution = handle.managedOpencodeExecution ?? null;
+        engineState.child = null;
+        engineState.childExited = false;
       }
-    }
-    ownerToken ||= await issueOwnerToken(baseUrl, tokens.hostToken);
-    legalworkServerState.ownerToken = ownerToken;
-    if (ownerToken) {
-      await persistWorkspaceOwnerToken(activeWorkspace, ownerToken);
-    }
-    if (ownerToken) {
-      try {
-        const list = workspaceList ?? await fetchJson(`${baseUrl}/workspaces`, {
-          headers: { Authorization: `Bearer ${ownerToken}` },
-        }, 5000);
-        const first = Array.isArray(list?.items) ? list.items[0] : undefined;
-        const opencode = first?.opencode;
-        if (opencode?.baseUrl) {
-          engineState.runtime = DIRECT_RUNTIME;
-          engineState.projectDir = opencode.directory ?? activeWorkspace ?? null;
-          engineState.hostname = new URL(opencode.baseUrl).hostname;
-          engineState.port = Number(new URL(opencode.baseUrl).port) || null;
-          engineState.baseUrl = opencode.baseUrl;
-          engineState.opencodeUsername = opencode.username ?? null;
-          engineState.opencodePassword = opencode.password ?? null;
-          engineState.execution = handle.managedOpencodeExecution ?? null;
-          engineState.child = null;
-          engineState.childExited = false;
-        }
-      } catch (error) {
-        appendOutput(legalworkServerState, "lastStderr", `LegalWork server workspace probe: ${error instanceof Error ? error.message : String(error)}\n`);
-      }
+    } catch (error) {
+      appendOutput(legalworkServerState, "lastStderr", `LegalWork server workspace probe: ${error instanceof Error ? error.message : String(error)}\n`);
     }
     if (!portSelection.preferredPort || boundPort === portSelection.preferredPort) {
       await persistPreferredLegalworkPort(activeWorkspace, boundPort);
@@ -1711,7 +1644,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // prepareFreshRuntime (killing the freshly bound server) and then rebinds
     // the sticky preferred port, racing the not-yet-released socket into
     // EADDRINUSE and leaving the runtime in error -> boot screen.
-    const requestedRemoteAccess = options.legalworkRemoteAccess === true;
+    const requestedRemoteAccess = false;
     if (
       legalworkServerState.inProcess &&
       lifecycleState === "healthy" &&
@@ -2175,12 +2108,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     child.unref();
 
     await waitForHttpOk(`${legalworkUrl}/health`, wantsDockerSandbox ? 90_000 : 12_000);
-    const ownerToken = await issueOwnerToken(legalworkUrl, hostToken).catch(() => null);
 
     return {
       legalworkUrl,
       token,
-      ownerToken,
+      ownerToken: null,
       hostToken,
       port,
       sandboxBackend: wantsDockerSandbox ? sandboxBackend : null,

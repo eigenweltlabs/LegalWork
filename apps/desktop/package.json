@@ -82,6 +82,5 @@
     "electron-devtools-installer": "^4.0.0",
     "node-addon-api": "8.5.0"
   },
-  "packageManager": "pnpm@10.27.0",
-  "opencodeRouterVersion": "0.0.0"
+  "packageManager": "pnpm@10.27.0"
 }

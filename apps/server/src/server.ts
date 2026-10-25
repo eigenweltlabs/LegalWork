@@ -113,6 +113,7 @@ import { serve, type ServeResult } from "./serve-node.js";
 import { adoptLaunchAnalyticsId } from "./launch-analytics-id.js";
 import { handleWordAddinRequest, loadWordAddinTls, setAnalyticsConsent, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { OfficeToolRelay } from "./office-tools.js";
+import { OfficeConnectionService, loadOfficeConnectionToken } from "./office-connection.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
@@ -805,6 +806,8 @@ export type StartedServer = ServeResult & {
 export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
+  const officeTls = config.wordAddin?.enabled ? await loadWordAddinTls(config.wordAddin) : null;
+  const officeConnection = new OfficeConnectionService(officeTls ? await loadOfficeConnectionToken(officeTls.keyPath) : undefined);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
@@ -998,7 +1001,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       const proxyWorkspaceOpencodeMount = async (mount: { workspaceId: string; restPath: string }) => {
         authMode = "client";
         try {
-          const actor = await requireClient(request, config, tokens);
+          const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
           await guardWikiWorkspace(actor, mount.workspaceId, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
@@ -1025,10 +1028,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
-        const addinResponse = await handleWordAddinRequest({ request, url, config });
+        let addinResponse: Response | null;
+        try {
+          addinResponse = await handleWordAddinRequest({ request, url, config, connection: officeConnection });
+        } catch (error) {
+          const apiError = error instanceof ApiError ? error : new ApiError(500, "internal_error", "Office connection failed");
+          addinResponse = jsonResponse(formatError(apiError), apiError.status);
+        }
         if (addinResponse) {
-          // Deliberately not CORS-wrapped: /word-addin/bootstrap returns the
-          // client token and must only be readable same-origin.
+          // Pairing credentials must only be readable by the add-in origin.
           if (config.logRequests) {
             logRequest({
               logger,
@@ -1073,7 +1081,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         authMode = "client";
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
-          const actor = await requireClient(request, config, tokens);
+          const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
           if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
@@ -1105,9 +1113,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           agentAccess?.actor ?? (route.auth === "host-token"
             ? requireHostToken(request, config)
             : route.auth === "host"
-              ? await requireHost(request, config, tokens)
+              ? officeConnection.actor(request, true) ?? requireHostToken(request, config)
               : route.auth === "client"
-                ? await requireClient(request, config, tokens)
+                ? officeConnection.actor(request) ?? await requireClient(request, config, tokens)
                 : undefined);
         const workspaceId = route.params.id ?? route.params.workspaceId;
         if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
@@ -1171,8 +1179,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   // the task pane talks to a single same-origin base URL. Word requires
   // HTTPS for task pane sources, hence the dedicated TLS listener.
   let wordAddinServer: ServeResult | null = null;
-  if (config.wordAddin?.enabled) {
-    const tlsMaterial = await loadWordAddinTls(config.wordAddin);
+  if (config.wordAddin?.enabled && officeTls) {
+    const tlsMaterial = officeTls;
     if (!tlsMaterial.tls) {
       logger.log(
         "warn",
@@ -1182,7 +1190,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
     } else {
       try {
         wordAddinServer = await serve({
-          hostname: config.host,
+          hostname: "127.0.0.1",
           port: config.wordAddin.port,
           fetch: serverOptions.fetch,
           idleTimeout: 120,
@@ -1209,6 +1217,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
+      officeConnection.dispose();
       stopMessageQueue(config);
       await corpus.stop();
       reviews.stop();
@@ -1578,26 +1587,6 @@ function requireHostToken(request: Request, config: ServerConfig): Actor {
   throw new ApiError(401, "unauthorized", "Invalid host token");
 }
 
-async function requireHost(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
-  const hostToken = request.headers.get("x-legalwork-host-token");
-  if (hostToken && tokensMatch(hostToken, config.hostToken)) {
-    return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
-  }
-
-  const header = request.headers.get("authorization") ?? "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  const bearer = match?.[1];
-  if (!bearer) {
-    throw new ApiError(401, "unauthorized", "Invalid host token");
-  }
-  const scope = await tokens.scopeForToken(bearer);
-  if (scope !== "owner") {
-    throw new ApiError(401, "unauthorized", "Invalid host token");
-  }
-  const clientId = request.headers.get("x-legalwork-client-id") ?? undefined;
-  return { type: "remote", clientId, tokenHash: hashToken(bearer), scope };
-}
-
 function buildCapabilities(config: ServerConfig): Capabilities {
   const writeEnabled = !config.readOnly;
   const schemaVersion = 1;
@@ -1629,7 +1618,7 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     approvals: { mode: config.approval.mode, timeoutMs: config.approval.timeoutMs },
     sandbox: { enabled: sandboxEnabled, backend: sandboxBackend },
     ui: { toy: toyUiEnabled },
-    tokens: { scoped: true, scopes: ["owner", "collaborator", "viewer"] },
+    tokens: { scoped: false, scopes: [] },
     proxy: {
       opencode: opencodeConfigured,
     },
@@ -1985,7 +1974,6 @@ function createRoutes(
   registerCoreRoutes({
     routes,
     config,
-    tokens,
     env,
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
@@ -2244,7 +2232,7 @@ function createRoutes(
   });
   for (const action of ["preview", "install"]) addRoute(routes, "POST", `/workspace/:id/plugin-imports/${action}`, "client", async ctx => {
     const request = parsePluginImportRequest(await readJsonBodyLimited(ctx.request, 91 * 1024 * 1024));
-    if ("path" in request.source || request.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if ("path" in request.source || request.scope === "global") ctx.actor = await requireHostToken(ctx.request, config);
     else requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const plans = await resolvePluginImports(request, workspace.path);
@@ -2297,7 +2285,7 @@ function createRoutes(
     const plugin = local.plugins[ctx.params.pluginId] || global.plugins[ctx.params.pluginId];
     if (!plugin?.provenance) throw new ApiError(404, "plugin_source_missing", "This older import has no tracked source. Choose its package again in Import.");
     const origin = plugin.provenance;
-    if (plugin.scope === "global" || origin.kind !== "github") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if (plugin.scope === "global" || origin.kind !== "github") ctx.actor = await requireHostToken(ctx.request, config);
     else requireClientScope(ctx, "collaborator");
     if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
     if (origin.kind === "configuration" || origin.kind === "archive" && !isAbsolute(origin.location)) throw new ApiError(400, "plugin_source_missing", "Choose the updated connector configuration or archive in Import.");
@@ -2320,7 +2308,7 @@ function createRoutes(
     const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
     const plugin = local.plugins[ctx.params.pluginId] || global.plugins[ctx.params.pluginId];
     if (!plugin) throw new ApiError(404, "plugin_not_found", "This plugin is no longer installed.");
-    if (plugin.scope === "global") ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if (plugin.scope === "global") ctx.actor = await requireHostToken(ctx.request, config);
     else requireClientScope(ctx, "collaborator");
     if (plugin.sourceKind !== "skill" && plugin.sourceKind !== "connector") await requireOrgPolicyAllows(config, "plugins.allowCustom");
     if (plugin.files.some(file => file.objectType === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
@@ -2344,7 +2332,7 @@ function createRoutes(
     const file = plugin.files.find(file => file.path === ctx.url.searchParams.get("path") && (file.objectType === "agent" || file.objectType === "command"));
     if (!file) throw new ApiError(404, "plugin_file_not_found", "This item is not part of the plugin.");
     const isGlobal = plugin.scope === "global";
-    if (isGlobal) ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if (isGlobal) ctx.actor = await requireHostToken(ctx.request, config);
     await assertPluginDestination(workspace.path, file.path, isGlobal);
     const path = resolveWorkspaceInstallPath(workspace.path, file.path, isGlobal);
     const info = await lstat(path).catch(() => null);
@@ -2485,7 +2473,7 @@ function createRoutes(
     const localImports = await readInstalledCloudPlugins(config, workspace.id);
     const globalImports = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
     const globalRemoval = !localImports.plugins[pluginId] && !!globalImports.plugins[pluginId];
-    if (globalRemoval) ctx.actor = await requireHost(ctx.request, config, ctx.tokens);
+    if (globalRemoval) ctx.actor = await requireHostToken(ctx.request, config);
 
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -4981,7 +4969,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/commands", "client", async (ctx) => {
     const scope = ctx.url.searchParams.get("scope") === "global" ? "global" : "workspace";
     if (scope === "global") {
-      await requireHost(ctx.request, config, tokens);
+      requireHostToken(ctx.request, config);
     }
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listCommands(workspace.path, scope);
