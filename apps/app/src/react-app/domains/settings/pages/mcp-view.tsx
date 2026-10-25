@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { packageParts } from "./plugin-package-contents";
+import { toast } from "@/components/ui/sonner";
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
 import { useEffect, useState, type SetStateAction } from "react";
 import { connectorDefinitions } from "@legalwork/types/connectors";
@@ -210,6 +211,16 @@ type ExtensionFilter = "all" | "mcp" | "builtin" | "skill" | "plugin";
 export function McpView(props: McpViewProps) {
   const libraryLayout = useIntegrationLibraryLayout();
   const importedPackages = libraryLayout?.importedPackages;
+  const connectDirectoryEntry = (entry: McpDirectoryInfo) => {
+    if (entry.pluginSource) {
+      if (libraryLayout?.onImportPlugin) {
+        setDirectoryOpen(false);
+        libraryLayout.onImportPlugin(entry.pluginSource, () => { void props.connectMcp({ ...entry, pluginSource: undefined }); });
+      } else toast.error(t("mcp.settings_readonly"));
+      return;
+    }
+    return props.connectMcp(entry);
+  };
   const connectorsForbidden = useOrgPolicyForbids("connectors.allowCustom");
   const policyDisabled = (entry: McpDirectoryInfo) => isBuiltInLegalWorkExtension(entry) && props.builtInExtensionDisabled?.(entry) === true;
   const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
@@ -274,7 +285,11 @@ export function McpView(props: McpViewProps) {
     if (await orgPolicyAllows("connectors.allowCustom")) setAddMcpModalOpen(true);
   });
 
-  const quickConnectList = props.quickConnect.filter((entry) => !connectorDefinitions.some((provider) => provider.kind === "files" && provider.id === entry.id));
+  const quickConnectList = props.quickConnect.filter(entry => {
+    if (connectorDefinitions.some(provider => provider.kind === "files" && provider.id === entry.id)) return false;
+    const source = entry.pluginSource;
+    return !source || !("installedPlugin" in source) || !importedPackages?.some(plugin => plugin.provenance?.kind === "installed-plugin" && plugin.provenance.location === source.installedPlugin);
+  });
 
   useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);
@@ -310,7 +325,7 @@ export function McpView(props: McpViewProps) {
   }, []);
 
   const resolveQuickConnectMatch = (name: string) =>
-    quickConnectList.find((candidate) => {
+    props.quickConnect.find((candidate) => {
       const candidateKey = getMcpIdentityKey(candidate);
       return (
         candidateKey === name ||
@@ -322,10 +337,10 @@ export function McpView(props: McpViewProps) {
   const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? pluginImportConnectorName(name);
 
   const quickConnectStatus = (entry: McpDirectoryInfo) =>
-    props.mcpStatuses[getMcpIdentityKey(entry)];
+    entry.pluginSource ? undefined : props.mcpStatuses[getMcpIdentityKey(entry)];
 
   const isQuickConnectConfigured = (entry: McpDirectoryInfo) =>
-    props.mcpServers.some((server) => server.name === getMcpIdentityKey(entry));
+    !entry.pluginSource && props.mcpServers.some((server) => server.name === getMcpIdentityKey(entry));
 
   const isMcpBackedExtension = (entry: McpDirectoryInfo) =>
     entry.kind === "extension" && Boolean(entry.type || entry.command?.length || entry.url);
@@ -581,7 +596,7 @@ export function McpView(props: McpViewProps) {
               isConfigured={isEntryConfigured}
               enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
               statusForEntry={quickConnectStatus}
-              onConnect={props.connectMcp}
+              onConnect={connectDirectoryEntry}
               onDetail={openEntryDetails}
               shareRefForEntry={
                 props.canShareWithFirm && props.onShareWithFirm
@@ -644,7 +659,7 @@ export function McpView(props: McpViewProps) {
         open={Boolean(setupEntry)}
         onClose={() => setSetupEntry(null)}
         onCancel={props.cancelPendingMcpAuth}
-        onConnect={props.connectMcp}
+        onConnect={connectDirectoryEntry}
       />
 
       {detailEntry ? (() => {
@@ -699,7 +714,7 @@ export function McpView(props: McpViewProps) {
               if (entryNeedsSetup(detailEntry)) {
                 setSetupEntry(detailEntry);
               } else {
-                props.connectMcp(detailEntry);
+                connectDirectoryEntry(detailEntry);
               }
               setDetailEntry(null);
             }}

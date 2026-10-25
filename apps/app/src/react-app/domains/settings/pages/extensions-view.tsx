@@ -1,3 +1,4 @@
+import type { PluginImportSource } from "@legalwork/types/plugin-import";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
@@ -103,6 +104,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         ? "skills"
         : "plugins";
   const [importOpen, setImportOpen] = useState(false);
+  const [importSource, setImportSource] = useState<PluginImportSource | undefined>();
+  const [connectOnly, setConnectOnly] = useState<(() => void) | undefined>();
   const [createPluginOpen, setCreatePluginOpen] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
@@ -170,7 +173,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     disabled={props.busy || !props.pluginCreation || !canImportPlugins || pluginsForbidden || (skillsForbidden && connectorsForbidden)}
     onClick={async () => { if (await orgPolicyAllows("plugins.allowCustom")) setCreatePluginOpen(true); }}
   >{t("integrations.custom")}</Button>;
-  const libraryLayout = { directoryActions, customPluginOpen: createPluginOpen, pluginSearch, actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined, connectorState: props.connectorState };
+  const onImportPlugin = props.pluginImports && canImportPlugins && canImportSkills ? (source: PluginImportSource, connectOnly?: () => void) => { setImportSource(source); setConnectOnly(() => connectOnly); setImportOpen(true); } : undefined;
+  const libraryLayout = { onImportPlugin, directoryActions, customPluginOpen: createPluginOpen, pluginSearch, actions: actionsTarget, search: searchTarget, directoryRequest, onRefresh: refresh, revision: importVersion, source, addRequest, onAddHandled, connectorToOpen, onConnectorOpened, ownsMoreMenu: true, importedPackages: packageLibrary?.target === packageTarget ? packageLibrary.items : undefined, connectorState: props.connectorState };
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={libraryLayout}>
@@ -181,7 +185,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
-            {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => { setImportSource(undefined); setConnectOnly(undefined); setImportOpen(true); }}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <IntegrationAddMenu triggerRef={addButton} disabled={props.busy} actions={[
               { label: t("extensions.filter_plugins"), icon: Package, onClick: () => setDirectoryRequest(value => value + 1) },
               { label: t("skills.title"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
@@ -210,7 +214,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             <PluginsView extensions={props.extensions} busy={props.busy} selectedWorkspaceRoot={props.selectedWorkspaceRoot} canEditPlugins={props.canEditPlugins} canUseGlobalScope={props.canUseGlobalScope} accessHint={props.accessHint} suggestedPlugins={props.suggestedPlugins} />
           </DialogContent>
         </Dialog> : null}
-        {importOpen && props.pluginImports ? <PluginImportDialog store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={async preview => {
+        {importOpen && props.pluginImports ? <PluginImportDialog onConnectOnly={connectOnly ? () => { setImportOpen(false); connectOnly(); } : undefined} initialSource={importSource} store={props.pluginImports} onClose={() => setImportOpen(false)} onImported={async preview => {
           if (props.skillTools) {
             const items = await props.skillTools.importedPackages();
             if (!items.some(item => item.pluginId === preview.id)) throw new Error(t("extensions.import_library_failed"));

@@ -27,6 +27,11 @@ export function instructionRequirements(name: string, source: string, kind: "ski
 
 export function evaluateImportRequirements(preview: PluginImportPreview, installed: CloudImportedPlugin[] = []): void {
   const requirements = (preview.requirements ?? []).map((requirement): PluginImportRequirement => {
+    if (requirement.kind === "app" && requirement.code === "portable_app_connector") {
+      const connector = preview.connectors?.find(item => item.name === requirement.name);
+      if (!connector || connector.status === "blocked") return { ...requirement, status: "blocked", message: `${requirement.name}'s portable MCP connection is unavailable. Correct its connector configuration and check again before importing.` };
+      return { ...requirement, status: connector.status === "compatible" ? "satisfied" : "setup" };
+    }
     if (requirement.kind !== "dependency") return requirement;
     const matches = installed.filter(plugin => plugin.name === requirement.name && plugin.pluginId !== preview.id && (!requirement.marketplace || plugin.marketplaceId === requirement.marketplace) && (!requirement.version || Boolean(valid(plugin.provenance?.version) && validRange(requirement.version) && satisfies(plugin.provenance?.version || "", requirement.version))));
     const match = matches.length === 1 ? matches[0] : undefined;
