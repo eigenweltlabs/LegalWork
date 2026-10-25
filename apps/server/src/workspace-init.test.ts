@@ -5,7 +5,6 @@ import { dirname, join } from "node:path";
 
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { legalworkExtensionsPreviewPluginPath, legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
-import { listSkillsInDir } from "./skills.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-workspace-init-"));
@@ -54,43 +53,6 @@ describe("ensureWorkspaceFiles", () => {
     const plugin = await readFile(pluginPath, "utf8");
     expect(pluginPath).toContain(join("opencode-plugins", "legalwork-extensions-preview.ts"));
     expect(plugin).toContain("legalwork_extension_call");
-  });
-
-  test("makes the Firecrawl companion and its references discoverable in new and upgraded projects", async () => {
-    await withWorkspace(async (root) => {
-      const skillsRoot = join(root, ".opencode", "skills");
-      const custom = join(skillsRoot, "firm-research", "SKILL.md");
-      await mkdir(dirname(custom), { recursive: true });
-      await writeFile(custom, "---\nname: firm-research\ndescription: Firm research conventions.\n---\nKeep our conventions.\n");
-
-      for (const previousBundle of [null, "previous-release-bundle"]) {
-        if (previousBundle) {
-          await rm(join(skillsRoot, "firecrawl"), { recursive: true });
-          await writeFile(join(root, ".opencode", ".legalwork-core"), previousBundle);
-        }
-        const result = await ensureWorkspaceFiles(root, "starter");
-        const skipped: Array<{ path: string; reason: string }> = [];
-        const available = await listSkillsInDir(skillsRoot, "project", skipped);
-        const firecrawl = available.find(skill => skill.name === "firecrawl");
-        expect(firecrawl).toBeDefined();
-        expect(skipped).toEqual([]);
-        const pending = [join(skillsRoot, "firecrawl", "SKILL.md")];
-        const visited = new Set<string>();
-        while (pending.length) {
-          const file = pending.pop()!;
-          if (visited.has(file)) continue;
-          visited.add(file);
-          const body = await readFile(file, "utf8");
-          for (const match of body.matchAll(/\]\(([^():]+\.(?:md|txt))\)/g)) {
-            pending.push(join(dirname(file), match[1]!));
-          }
-        }
-        expect(visited.size).toBeGreaterThan(1);
-        expect(await readFile(custom, "utf8")).toContain("Keep our conventions.");
-        expect(result.reloadReasons).toContain("skills");
-        expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
-      }
-    });
   });
 
   test("uses external resources plugin path in packaged Electron", () => {

@@ -15,10 +15,6 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = "apps/server/resources/core-opencode";
 
 const FILES = [
-  // Firecrawl MCP companion: retrieval, source citations and research workflows.
-  ...["SKILL.md", "references/government.md", "references/retrieval.md", "references/research.md", "references/firecrawl-workflows-license.txt"].map((file) => ({
-    source: `skills/firecrawl/${file}`, path: `.opencode/skills/firecrawl/${file}`,
-  })),
   { source: "skills/author-review-prompts/SKILL.md", path: ".opencode/skills/author-review-prompts/SKILL.md" },
   { source: "skills/start-tabular-review/SKILL.md", path: ".opencode/skills/start-tabular-review/SKILL.md" },
   { source: "agents/document-extractor.md", path: ".opencode/agents/document-extractor.md" },
