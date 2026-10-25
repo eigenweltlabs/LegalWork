@@ -5,18 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import sherpa from "sherpa-onnx-node";
 import { DictationSpeechDetector, dictationSpeechModelPath } from "./audio/dictation-speech.mjs";
 
 function speech(gain) {
-  const samples = new Float32Array(48000);
-  for (let i = 0; i < 32000; i++) {
-    const t = i / 16000;
-    for (let harmonic = 1; harmonic <= 8; harmonic++) {
-      samples[8000 + i] += gain * (.55 + .45 * Math.sin(2 * Math.PI * 3.5 * t))
-        * Math.sin(2 * Math.PI * 120 * harmonic * (1 + .01 * Math.sin(2 * Math.PI * 5 * t)) * t) / harmonic;
-    }
-  }
-  return samples;
+  const { samples } = sherpa.readWave(fileURLToPath(new URL("./fixtures/dictation-speech.wav", import.meta.url)));
+  return samples.map(sample => sample * gain);
 }
 
 function detect(samples) {
@@ -37,8 +31,21 @@ test("real local Silero rejects digital silence and low background noise", () =>
   assert.equal(detect(noise), false);
 });
 
+test("quiet ringing taps are not amplified into speech", () => {
+  let seed = 721;
+  const taps = Float32Array.from({ length: 48000 }, (_, i) => {
+    seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+    const noise = seed / 2 ** 32 * 2 - 1;
+    const t = i / 16000;
+    const decay = Math.exp(-((i + 1800) % 8000) / 300);
+    return .02 * (Math.sin(2 * Math.PI * 1000 * t) + .4 * Math.sin(2 * Math.PI * 3000 * t))
+      * decay + .0001 * noise;
+  });
+  assert.equal(detect(taps), false);
+});
+
 test("local detection recognizes normal and very quiet speech without changing input PCM", () => {
-  for (const gain of [.25, .025, .0025, .00025]) {
+  for (const gain of [1, .1, .01, .001]) {
     const samples = speech(gain);
     const original = samples.slice();
     assert.equal(detect(samples), true, `speech gain ${gain}`);

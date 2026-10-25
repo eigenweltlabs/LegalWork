@@ -32,11 +32,8 @@ export class DictationSpeechDetector {
     let offset = 0;
     while (offset + WINDOW <= joined.length) {
       const frame = joined.slice(offset, offset + WINDOW);
-      // Boost only the detector's copy so quiet speech is not mistaken for
-      // silence. There is no microphone-volume cutoff and cloud PCM stays raw.
-      const rms = Math.sqrt(frame.reduce((sum, value) => sum + value * value, 0) / WINDOW);
-      const gain = rms > 0 ? Math.max(1, Math.min(1000, .1 / rms)) : 1;
-      for (let i = 0; i < frame.length; i++) frame[i] = Math.max(-1, Math.min(1, frame[i] * gain));
+      // Preserve microphone levels: normalizing each frame also amplifies
+      // quiet taps and background noise into false speech detections.
       this.vad.acceptWaveform(frame);
       if (this.vad.isDetected() || !this.vad.isEmpty()) {
         this.detected = true;
