@@ -14,7 +14,9 @@ legalwork-server itself:
 ```
 Word task pane (WebView2 / WKWebView)
   └─ https://localhost:47443/word-addin/taskpane.html   ← HTTPS add-in listener
-       ├─ /word-addin/bootstrap   same-origin pairing (returns client token)
+       ├─ /word-addin/bootstrap   public availability/version metadata
+       ├─ /word-addin/pair        expiring connection challenge
+       ├─ /word-addin/pair/complete  host-approved temporary Office session
        ├─ /workspaces, /sessions… regular LegalWork server API (same origin)
        └─ /opencode/*             existing OpenCode proxy (same origin)
 ```
@@ -25,11 +27,20 @@ Key properties:
   shares the exact same fetch handler as the main HTTP listener, so the page,
   the API, and the OpenCode proxy are all same-origin. No CORS, no mixed
   content (which WKWebView on macOS would block).
-- **Pairing without secrets in URLs.** The pane fetches
-  `/word-addin/bootstrap` (same-origin only; the response is deliberately
-  never CORS-wrapped) and stores the current client token in its own
-  origin-scoped localStorage. Token rotation across server restarts is
-  handled automatically on the next pane load.
+- **Approved pairing without shared desktop credentials.** On first connection,
+  the pane shows a six-digit code. Approve the matching code in LegalWork's
+  native confirmation. This approval is required even when ordinary workspace
+  approvals are automatic. A standalone operator can approve `office.pair`
+  through the host-authenticated `/approvals` API. The challenge is single-use
+  and expires after two minutes; it travels in a request header, never a URL.
+  The resulting Office credential is stored in the pane's origin-scoped
+  localStorage, expires after twelve hours, and is discarded on server restart.
+  Reopening the pane reuses a valid session or asks to connect again.
+- **Limited authority.** Office sessions have collaborator access plus the
+  workspace picker, local workspace creation/activation, and voice operations
+  needed by the pane. They cannot issue tokens, read environment secrets, or
+  approve requests. `DELETE /word-addin/session` revokes the calling session.
+  The HTTPS listener binds to loopback even when the main server is shared.
 - **Word integration.** Office.js is loaded in `taskpane.html`. A floating
   dock (only rendered inside Word) offers: add the current selection or the
   whole document as chat context (`composer.set_text` control action), and
@@ -196,13 +207,14 @@ tells the user to open the pane.
 
 ## Security notes
 
-- The bootstrap endpoint returns the collaborator-scoped client token. It is
-  same-origin readable only: `/word-addin/*` responses are never CORS-wrapped,
-  so a malicious website cannot read it from a victim's browser. Any process
-  on the machine could call it — the same trust boundary as the config file
-  on disk that already contains the token.
-- The listener binds to the configured host (default `127.0.0.1`); the
-  manifest references `https://localhost`, so nothing is exposed on the LAN.
+- Bootstrap returns public connection metadata without credentials. The pane
+  requests a short-lived, single-use challenge and shows a comparison code.
+  The desktop owner must approve the matching code in a native dialog.
+- Office sessions expire after 12 hours and on server restart. They cannot
+  create share tokens or access host-only environment settings.
+- The Office listener always binds to `127.0.0.1`, and pairing requires a
+  loopback Host and matching Origin. The desktop's main API also stays local;
+  guest workspace sharing and persisted guest tokens have been removed.
 - Because the manifest points at localhost, this add-in is distributed by
   sideloading (or your own catalog), not AppSource.
 

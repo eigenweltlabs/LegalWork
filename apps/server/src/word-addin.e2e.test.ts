@@ -72,7 +72,37 @@ describe("word add-in hosting", () => {
     expect(response.status).toBe(404);
   });
 
-  test("serves bootstrap token without CORS headers", async () => {
+  test("workspace sharing endpoints are retired even for the host", async () => {
+    const root = await createTempRoot();
+    const config = baseConfig(root);
+    const { baseUrl } = await startTestServer(config);
+    const headers = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const path = method === "DELETE" ? "/tokens/legacy" : "/tokens";
+      expect((await fetch(`${baseUrl}${path}`, { method, headers,
+        ...(method === "POST" ? { body: JSON.stringify({ scope: "viewer" }) } : {}),
+      })).status).toBe(404);
+    }
+    const capabilities = await (await fetch(`${baseUrl}/capabilities`, { headers: { Authorization: `Bearer ${config.token}` } })).json();
+    expect(capabilities.tokens).toEqual({ scoped: false, scopes: [] });
+    expect((await fetch(`${baseUrl}/workspaces`, { headers: { Authorization: "Bearer owt_retired_viewer" } })).status).toBe(401);
+    expect((await fetch(`${baseUrl}/workspaces`, { headers: { Authorization: `Bearer ${config.token}` } })).status).toBe(200);
+  });
+
+  test("retired messaging endpoints cannot be used even with host credentials", async () => {
+    const root = await createTempRoot();
+    const config = baseConfig(root);
+    const { baseUrl } = await startTestServer(config);
+    const headers = { "X-LegalWork-Host-Token": config.hostToken, Authorization: `Bearer ${config.token}` };
+    for (const path of ["/opencode-router/health", "/opencode-router/identities/telegram", "/w/legacy/opencode-router/health"]) {
+      expect((await fetch(`${baseUrl}${path}`, { headers })).status).toBe(404);
+    }
+    for (const path of ["/opencode-router/config/groups", "/opencode-router/identities/slack", "/opencode-router/send"]) {
+      expect((await fetch(`${baseUrl}${path}`, { method: "POST", headers })).status).toBe(404);
+    }
+  });
+
+  test("anonymous bootstrap contains no reusable credentials", async () => {
     const root = await createTempRoot();
     const dist = await createDistBundle(root);
     const { baseUrl } = await startTestServer(
@@ -89,10 +119,10 @@ describe("word add-in hosting", () => {
       headers: { Origin: "https://evil.example" },
     });
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { token?: string };
-    expect(body.token).toBe("owt_test_client_token");
-    // The bootstrap payload contains the client token; it must never be
-    // readable cross-origin, so no ACAO header even though corsOrigins is *.
+    const body = await response.json();
+    expect(body.token).toBeUndefined();
+    expect(body.hostToken).toBeUndefined();
+    expect(body.pairingRequired).toBe(true);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
 
     // Regular API responses keep their CORS behavior.
@@ -149,6 +179,55 @@ describe("word add-in hosting", () => {
 
     const missingAsset = await fetch(`${baseUrl}/word-addin/assets/nope.js`);
     expect(missingAsset.status).toBe(404);
+  });
+
+  test("pairs only after owner approval and limits the resulting session", async () => {
+    const root = await createTempRoot();
+    const config = baseConfig(root, { enabled: true, port: 0, certPath: join(root, "missing.crt"), keyPath: join(root, "missing.key") });
+    let approvals = 0;
+    config.requestHostApproval = async (request) => {
+      expect(request.action).toBe("office.pair");
+      expect(request.summary).toMatch(/code \d{6}/);
+      approvals++;
+      return "allow";
+    };
+    config.pickDirectory = async () => "/test/office-folder";
+    const { baseUrl } = await startTestServer(config);
+    const start = await fetch(`${baseUrl}/word-addin/pair`, { method: "POST", headers: { Origin: baseUrl } });
+    expect(start.status).toBe(200);
+    const challenge = await start.json();
+    const complete = () => fetch(`${baseUrl}/word-addin/pair/complete`, { method: "POST", headers: { Origin: baseUrl, "X-Legalwork-Office-Challenge": challenge.challenge } });
+    const approved = await complete();
+    expect(approved.status).toBe(200);
+    const session = await approved.json();
+    expect(session.token).not.toBe(config.token);
+    expect(session.hostToken).toBeUndefined();
+    expect(approvals).toBe(1);
+    expect(approved.headers.get("access-control-allow-origin")).toBeNull();
+    expect((await complete()).status).toBe(401);
+    const headers = { Authorization: `Bearer ${session.token}`, Origin: baseUrl };
+    const who = await fetch(`${baseUrl}/whoami`, { headers });
+    expect(who.status).toBe(200);
+    expect((await who.json()).actor.scope).toBe("collaborator");
+    expect((await fetch(`${baseUrl}/tokens`, { headers })).status).toBe(404);
+    expect((await fetch(`${baseUrl}/env`, { headers })).status).toBe(401);
+    const folder = await fetch(`${baseUrl}/workspaces/pick-folder`, { method: "POST", headers });
+    expect(folder.status).toBe(200);
+    expect(await folder.json()).toMatchObject({ path: "/test/office-folder" });
+    expect((await fetch(`${baseUrl}/word-addin/session`, { method: "DELETE", headers })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/whoami`, { headers })).status).toBe(401);
+  });
+
+  test("rejects untrusted origins before displaying a pairing confirmation", async () => {
+    const root = await createTempRoot();
+    const config = baseConfig(root, { enabled: true, port: 0, certPath: join(root, "missing.crt"), keyPath: join(root, "missing.key") });
+    let approvals = 0;
+    config.requestHostApproval = async () => { approvals++; return "allow"; };
+    const { baseUrl } = await startTestServer(config);
+    const response = await fetch(`${baseUrl}/word-addin/pair`, { method: "POST", headers: { Origin: "https://evil.example" } });
+    expect(response.status).toBe(403);
+    expect(approvals).toBe(0);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   test("blocks path traversal out of the bundle directory", async () => {

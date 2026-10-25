@@ -17,7 +17,7 @@ export function createHostApprovalHandler({ getWindow, showMessageBox }) {
         const result = await showMessageBox(window, {
           type: "question",
           title: "LegalWork approval",
-          message: "Allow this workspace change?",
+          message: request.action === "office.pair" ? "Connect this Office add-in?" : "Allow this workspace change?",
           detail: [
             `Source: ${source}`,
             ...(request.actor.scope ? [`Access: ${request.actor.scope}`] : []),

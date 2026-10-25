@@ -2,10 +2,8 @@
  * Word add-in host: serves the built task pane bundle, a same-origin
  * bootstrap endpoint, and the add-in manifest.
  *
- * All responses under /word-addin are intentionally served WITHOUT CORS
- * headers. The bootstrap endpoint hands out the client bearer token so the
- * task pane (same origin -- it is served by this server) can authenticate;
- * cross-origin pages must not be able to read it.
+ * All responses under /word-addin are served WITHOUT CORS headers. Public
+ * bootstrap is metadata only; pairing requires explicit host approval.
  */
 import { readFile, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -13,6 +11,7 @@ import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
+import type { OfficePairingService } from "./office-pairing.js";
 import { launchAnalyticsId } from "./launch-analytics-id.js";
 import type { ServeTlsOptions } from "./serve-node.js";
 import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
@@ -367,23 +366,33 @@ export function getAnalyticsIdentity(): AnalyticsIdentity {
 }
 
 /**
- * Handle a request under /word-addin. Returns null only for non-GET/HEAD
- * methods so the caller can produce its standard 404/405 handling.
+ * Handle static content, public metadata, and host-approved pairing.
+ * Unsupported methods return null for the caller's standard 404 handling.
  */
 export async function handleWordAddinRequest(input: {
   request: Request;
   url: URL;
   config: ServerConfig;
+  pairing: OfficePairingService;
 }): Promise<Response | null> {
-  const { request, url, config } = input;
+  const { request, url, config, pairing } = input;
   const wordAddin = config.wordAddin;
   const method = request.method.toUpperCase();
-  if (method !== "GET" && method !== "HEAD") return null;
   if (!wordAddin?.enabled) {
     return notFound("Word add-in hosting is disabled. Start the server with --word-addin.");
   }
 
   const rest = url.pathname.slice(WORD_ADDIN_PATH_PREFIX.length).replace(/^\/+/, "");
+
+  if (method === "POST" && rest === "pair") return jsonResponse(pairing.challenge(request));
+  if (method === "POST" && rest === "pair/complete") {
+    return jsonResponse(await pairing.pair(request, request.headers.get("x-legalwork-office-challenge") ?? ""));
+  }
+  if (method === "DELETE" && rest === "session") {
+    pairing.revoke(request);
+    return jsonResponse({ ok: true });
+  }
+  if (method !== "GET" && method !== "HEAD") return null;
 
   // The manifest's SourceLocation. Served long-cacheable so the Office
   // webview can render it from its HTTP cache while the server is down
@@ -437,16 +446,10 @@ export async function handleWordAddinRequest(input: {
   }
 
   if (rest === "bootstrap") {
-    // Same-origin only by construction: no CORS headers are attached to
-    // /word-addin responses, so cross-origin scripts cannot read the tokens.
-    // The pane is the server's own UI (same trust as the desktop renderer),
-    // so it also receives the host token — host-scoped routes like workspace
-    // creation and the native folder picker need it.
     const identity = getAnalyticsIdentity();
     return jsonResponse({
       app: "legalwork-server",
-      token: config.token,
-      hostToken: config.hostToken,
+      pairingRequired: true,
       wordAddinPort: wordAddin.port,
       // Analytics identity (per-launch, in-memory); the pane polls this
       // endpoint so consent changes propagate.

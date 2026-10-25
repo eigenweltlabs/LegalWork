@@ -7,7 +7,7 @@ import { HashRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { setAnalyticsConsentOverride, setAnalyticsDistinctId } from "@/app/lib/analytics";
 import { getLegalWorkDeployment } from "@/app/lib/legalwork-deployment";
-import { writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
+import { readLegalworkServerSettings, writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { bootstrapTheme } from "@/app/theme";
 import { initLocale, t } from "@/i18n";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -76,30 +76,43 @@ function startAnalyticsIdentityPoll() {
 }
 
 /**
- * Pair with the server that serves this page. The bootstrap endpoint is
- * same-origin only and hands out the current client token, so the pane
- * survives server restarts with rotated tokens.
+ * Reuse a temporary Office session or pair with explicit host approval.
+ * The shared desktop host and client tokens never enter the Office webview.
  */
-async function connectToServer(): Promise<void> {
+async function connectToServer(onPairingCode: (code: string) => void): Promise<void> {
   const response = await fetch("/word-addin/bootstrap", { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
   const data = (await response.json()) as {
-    token?: unknown;
-    hostToken?: unknown;
     analyticsDistinctId?: unknown;
     analyticsEnabled?: unknown;
   };
-  const token = typeof data.token === "string" ? data.token.trim() : "";
-  if (!token) {
-    throw new Error("Bootstrap response did not include a token");
+  const stored = readLegalworkServerSettings();
+  let token = stored.token?.startsWith("office_") ? stored.token : "";
+  // Remove shared credentials left by older releases from this Office origin.
+  writeLegalworkServerSettings({ urlOverride: window.location.origin, token: token || undefined });
+  if (token) {
+    const check = await fetch("/whoami", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!check.ok) token = "";
   }
-  const hostToken = typeof data.hostToken === "string" ? data.hostToken.trim() : "";
+  if (!token) {
+    const start = await fetch("/word-addin/pair", { method: "POST" });
+    if (!start.ok) throw new Error(t("word_addin.pairing_failed"));
+    const challenge = await start.json();
+    if (typeof challenge.challenge !== "string" || typeof challenge.code !== "string") throw new Error(t("word_addin.pairing_failed"));
+    onPairingCode(challenge.code);
+    const approved = await fetch("/word-addin/pair/complete", {
+      method: "POST", headers: { "X-Legalwork-Office-Challenge": challenge.challenge },
+    });
+    if (!approved.ok) throw new Error(t("word_addin.pairing_failed"));
+    const session = await approved.json();
+    if (typeof session.token !== "string" || !session.token.startsWith("office_")) throw new Error(t("word_addin.pairing_failed"));
+    token = session.token;
+  }
   writeLegalworkServerSettings({
     urlOverride: window.location.origin,
     token,
-    hostToken: hostToken || undefined,
   });
   // Adopt the desktop's analytics identity BEFORE analytics initializes; keep
   // polling for changes.
@@ -112,13 +125,20 @@ async function connectToServer(): Promise<void> {
 
 type ConnectionState =
   | { status: "connecting" }
+  | { status: "pairing"; code: string }
   | { status: "ready" }
   | { status: "error"; message: string };
 
 function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: () => void }) {
   return (
     <div className="flex h-dvh flex-col items-center justify-center gap-3 px-6 text-center">
-      {state.status === "connecting" ? (
+      {state.status === "pairing" ? (
+        <>
+          <p className="text-sm font-medium text-dls-text">{t("word_addin.pairing_title")}</p>
+          <p className="max-w-xs text-xs leading-relaxed text-dls-secondary">{t("word_addin.pairing_body")}</p>
+          <p className="font-mono text-2xl tracking-widest text-dls-text">{state.code}</p>
+        </>
+      ) : state.status === "connecting" ? (
         <p className="text-sm text-dls-secondary">{t("word_addin.connecting")}</p>
       ) : (
         <>
@@ -153,20 +173,31 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
 
 const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
+// React StrictMode can mount twice. Both mounts share one host confirmation.
+let pendingConnection: Promise<void> | null = null;
+const pairingCodeListeners = new Set<(code: string) => void>();
+let currentPairingCode: string | null = null;
 
 function WordAddinApp() {
   const [state, setState] = React.useState<ConnectionState>({ status: "connecting" });
 
   const connect = React.useCallback(() => {
     setState({ status: "connecting" });
-    void connectToServer()
+    const showCode = (code: string) => setState({ status: "pairing", code });
+    pairingCodeListeners.add(showCode);
+    if (currentPairingCode) showCode(currentPairingCode);
+    pendingConnection ??= connectToServer((code) => {
+      currentPairingCode = code;
+      for (const listener of pairingCodeListeners) listener(code);
+    }).finally(() => { pendingConnection = null; currentPairingCode = null; });
+    void pendingConnection
       .then(() => setState({ status: "ready" }))
       .catch((error: unknown) => {
         setState({
           status: "error",
           message: error instanceof Error ? error.message : String(error),
         });
-      });
+      }).finally(() => pairingCodeListeners.delete(showCode));
   }, []);
 
   React.useEffect(() => {
