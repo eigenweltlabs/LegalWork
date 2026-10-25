@@ -236,12 +236,12 @@ export class AgentSandboxService {
 
   async web(workspace: WorkspaceInfo, input: WebInput, actor: Actor, parentSignal: AbortSignal,
     agentRules: AgentPermissionRule[] = [], lineage: string[] = [input.sessionID], send = brokerRequest) {
-    const description = input.kind === "fetch" ? `Read ${input.url}` : `Search the web for: ${input.query}`;
+    const description = input.kind === "fetch" ? `Read ${input.url}` : input.kind === "gov" ? `Search US law for: ${input.query}` : `Search the web for: ${input.query}`;
     return this.withPolicy(workspace, { sessionID: input.sessionID, description }, actor, parentSignal, agentRules, lineage,
       async ({ settings, signal, ask, authorizeNetwork }) => {
         // Block before preparing a provider request or doing DNS/network IO.
         if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "Web access is blocked by this chat's network setting.");
-        if (input.kind === "search") await ask("websearch", input.query, description, []);
+        if (input.kind !== "fetch") await ask("websearch", input.query, description, []);
         let request = webRequest(input);
         const allowPrivate = !settings.enabled || settings.networkMode === "allow";
         for (let redirects = 0; redirects <= 5; redirects++) {
@@ -259,7 +259,7 @@ export class AgentSandboxService {
           if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) {
             if (redirects === 5) throw new Error("Too many website redirects.");
             // Search requests can carry credentials. Never forward them on a redirect.
-            if (input.kind === "search") throw new Error("The search provider redirected the request. No data was forwarded.");
+            if (input.kind !== "fetch") throw new Error("The search provider redirected the request. No data was forwarded.");
             request = { ...request, url: new URL(response.headers.location, prepared.url).href };
             continue;
           }
@@ -310,7 +310,10 @@ export class AgentSandboxService {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
             action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network,
+              // The network summary includes the exact request hash, even when
+              // credential headers are redacted in the displayed request.
+              network ? summary : undefined, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
           if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
         }
         signal.throwIfAborted();
@@ -324,9 +327,13 @@ export class AgentSandboxService {
         const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
         // The approval is bound to the in-memory immutable request. A changed
         // body, URL or header necessarily produces a separate request.
-        const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
+        // Approval stays bound to the exact request/hash, but service credentials
+        // must not enter the approval history or conversation.
+        const headers = Object.fromEntries(Object.entries(request.headers).map(([name, value]) =>
+          [name, /^(authorization|proxy-authorization|cookie|x-api-key)$/i.test(name) ? "[redacted]" : value]));
+        const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
         const action = permissionAction(permissions, "webfetch", request.url);
-        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
+        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers,
           body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
         return true;
       };
