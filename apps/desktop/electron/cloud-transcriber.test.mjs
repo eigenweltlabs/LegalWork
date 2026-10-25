@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -172,6 +172,47 @@ test("shutdown cancels background work and a restart clears the interrupted proc
 test("PCM conversion keeps the sample count and gain; clips non-finite input safely", () => {
   const buffer = pcm16(new Float32Array([-1, -.5, 0, .5, 1, NaN, 2]).buffer);
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => buffer.readInt16LE(i * 2)), [-32768, -16384, 0, 16384, 32767, 0, 32767]);
+});
+
+test("an empty dictation finishes without waiting for connection setup or opening a late socket", async t => {
+  const connection = new EventEmitter();
+  let sockets = 0;
+  const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de",
+    resolveConnection: () => once(connection, "ready").then(([value]) => value),
+    socketFactory: () => { sockets += 1; throw new Error("An empty dictation must not open a socket"); },
+  });
+  t.after(() => worker.kill());
+  const events = [];
+  worker.on("message", event => events.push(event));
+  worker.postMessage({ type: "begin", streamId: "empty", ephemeral: true });
+  worker.postMessage({ type: "finalize", streamId: "empty" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, [{ type: "finalized", streamId: "empty" }]);
+  assert.equal(worker.streams.size, 0);
+  connection.emit("ready", { url: "ws://127.0.0.1/unused", apiKey: "fixture-key" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sockets, 0);
+});
+
+test("quiet nonempty dictation still sends all audio and waits for its final transcript", async t => {
+  const { worker, requests, events } = await fixture(t, { readyDelay: 40 });
+  const samples = new Float32Array(1600).fill(.0001);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: samples.buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  assert.equal(events.some(event => event.type === "finalized"), false);
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(samples.buffer));
+  assert.equal(events.find(event => event.type === "segment").text, "70.388,50 Euro.");
+});
+
+test("an empty dictation on an already ready socket finishes without requesting transcription", async t => {
+  const { worker, requests, events } = await fixture(t);
+  await until(() => worker.streams.get("r")?.ready);
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(requests[0].commands, []);
+  assert.deepEqual(events, [{ type: "finalized", streamId: "r" }]);
+  assert.equal(worker.streams.size, 0);
 });
 
 test("buffers opening audio and release, sends the tail, and uses the subscription key only in headers", async t => {

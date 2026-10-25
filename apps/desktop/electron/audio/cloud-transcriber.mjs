@@ -73,7 +73,10 @@ export class CloudTranscriber extends EventEmitter {
     }
     if (message.type === "finalize" && stream) {
       stream.ending = true;
-      this.flush(stream);
+      // A quick empty dictation has nothing to drain, even if connection
+      // setup is still pending. Never classify quiet PCM as empty audio.
+      if (stream.mode === "dictation" && stream.sentSamples === 0 && stream.queuedBytes === 0) void this.finish(stream);
+      else this.flush(stream);
     }
     if (message.type === "drop" && stream && !stream.cancelled) {
       stream.cancelled = true;

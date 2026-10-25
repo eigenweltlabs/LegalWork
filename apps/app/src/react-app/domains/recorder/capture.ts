@@ -386,7 +386,9 @@ export async function startCapture(
       input.connect(destination);
       const recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 48_000 });
       recorder.ondataavailable = (event) => {
-        if (event.data.size === 0) return;
+        // Dictation is ephemeral: only its PCM reaches transcription. Waiting
+        // for discarded playback bytes can stall an otherwise empty recording.
+        if (options.dictation || event.data.size === 0) return;
         const write = event.data.arrayBuffer()
           .then(buffer => callbacks.onMediaChunk(buffer, source))
           .catch(error => { chunkWriteError = error; })
@@ -488,6 +490,10 @@ export async function startCapture(
             // webm chunk (containing the cues) reaches disk.
             await Promise.all(recorders.map(async recorder => {
               if (recorder.state === "inactive") return;
+              if (options.dictation) {
+                recorder.stop();
+                return;
+              }
               await new Promise<void>(resolve => {
                 recorder.addEventListener("stop", () => resolve(), { once: true });
                 recorder.stop();

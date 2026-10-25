@@ -196,3 +196,20 @@ test("cancel immediately closes the microphone even when the encoder never ackno
   expect(contexts[0].state).toBe("closed");
   expect(await Promise.race([stopping, new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("AbortError");
 });
+
+test("finishing dictation flushes transcription without waiting for the playback encoder", async () => {
+  const pcm: number[] = [];
+  const media: ArrayBuffer[] = [];
+  const capture = await startCapture(["microphone"], { onPcm: chunk => pcm.push(...new Float32Array(chunk)), onMediaChunk: chunk => media.push(chunk), onSourceEnded: () => {} }, { dictation: true });
+  recorders[0].stop = () => { recorders[0].state = "inactive"; };
+  const stopping = capture.stop();
+  try {
+    expect(await Promise.race([stopping.then(() => "stopped"), new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("stopped");
+    expect(pcm).toEqual([.125]);
+    expect(media).toEqual([]);
+    expect(contexts[0].state).toBe("closed");
+  } finally {
+    recorders[0].dispatchEvent(new Event("stop"));
+    await stopping;
+  }
+});
