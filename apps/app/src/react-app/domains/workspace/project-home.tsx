@@ -1,6 +1,7 @@
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
+import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Plus, RefreshCw, Settings2, Square, Pin, StickyNote, SquareCheck, WandSparkles } from "lucide-react";
 import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
@@ -21,6 +22,8 @@ import { ProjectNoteDialog } from "./project-note-dialog";
 import { ProjectTaskDialog } from "./project-task-dialog";
 import { UpcomingDeadlines } from "../calendar/upcoming-deadlines";
 import { ProjectRecordings } from "./project-recordings";
+import { recordingTranscriptTab } from "../recorder/recording-transcript-tabs";
+import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { ProjectFilesDropzone } from "./project-files-dropzone";
 import { useRecorderStore } from "../recorder/recorder-store";
 import { ProjectNoteTile } from "./project-note-tile";
@@ -37,6 +40,8 @@ export function ProjectHome(props: {
   workspaceId: string;
   projectId: string;
   isRemoteWorkspace: boolean;
+  inWorkspace: boolean;
+  active: boolean;
   onStartRecording: () => void;
   name: string;
   onOpenFile: (entry: LegalworkWorkspaceDirectoryEntry) => void;
@@ -47,6 +52,9 @@ export function ProjectHome(props: {
   onRename?: (name: string) => Promise<boolean>;
 }) {
   const { client, workspaceId } = props;
+  const requestTab = useRequestPanelTab({ kind: "workspace", workspaceId: props.projectId });
+  const openRecordingTab = (recording: AudioRecordingMeta, preview = false) => requestTab(recordingTranscriptTab(recording), { preview, besideChat: true });
+  const openRecording = (recording: AudioRecordingMeta) => openRecordingTab(recording, true);
   const openPersonalisation = useProjectPersonalisation();
   const recordingActive = useRecorderStore((state) => Boolean(state.recording && state.recording.id !== state.dictationRecordingId));
   const recordingStarting = useRecorderStore((state) => state.starting || Boolean(state.importing) || Boolean(state.recording && state.recording.id === state.dictationRecordingId));
@@ -230,7 +238,7 @@ export function ProjectHome(props: {
         </ContextMenuContent>
         </ContextMenu>
 
-        <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} />
+        <ProjectRecordings projectId={props.projectId} onStartRecording={props.onStartRecording} onOpenRecording={openRecording} onKeepRecordingOpen={recording => openRecordingTab(recording)} />
       </div>
 
       {noteOpen ? <ProjectNoteDialog client={client} workspaceId={workspaceId} onClose={() => setNoteOpen(false)} onSaved={refreshNotes} /> : null}

@@ -1,19 +1,7 @@
-/**
- * Release-channel concept for LegalWork desktop builds.
- *
- * There are two channels users can opt into:
- *
- * - "stable": the default. The desktop app auto-updates from the rolling
- *   "latest" GitHub release attached to whichever semver tag most recently
- *   finished the Release App workflow. macOS, Linux, Windows.
- *
- * - "alpha": a macOS-only rolling channel that auto-updates on every merge
- *   to `dev`. Alpha builds are published to a fixed GitHub release tag
- *   (`alpha-macos-latest`) so the updater endpoint stays stable while the
- *   underlying artifact is replaced on every dev push.
- *
- * Only the macOS (arm64) build is published to the alpha channel today.
- * Linux and Windows always resolve to the stable channel.
+/** Release is the default; Pre-release also accepts manually marked releases.
+ * Alpha additionally accepts automatic dev builds. Electron resolves the
+ * highest eligible published version, independently of GitHub's Latest badge.
+ * The endpoint helpers below are retained for legacy Tauri clients only.
  */
 
 import type { ReleaseChannel } from "../types";
@@ -61,5 +49,5 @@ export function resolveUpdaterEndpoint(
 
 /** Narrow an arbitrary string to a valid ReleaseChannel, defaulting to stable. */
 export function coerceReleaseChannel(value: unknown): ReleaseChannel {
-  return value === "alpha" ? "alpha" : "stable";
+  return value === "alpha" || value === "prerelease" ? value : "stable";
 }

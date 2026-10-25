@@ -34,7 +34,8 @@ import { useOrgPolicy } from "../../connections/org-policy";
 import { OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const RELEASE_CHANNEL_OPTIONS: { label: string; value: ReleaseChannel }[] = [
-  { label: "Stable", value: "stable" },
+  { label: "Release", value: "stable" },
+  { label: "Pre-release", value: "prerelease" },
   { label: "Alpha", value: "alpha" },
 ];
 
@@ -285,7 +286,7 @@ export function UpdatesView(props: UpdatesViewProps) {
         </Alert>
       ) : (
         <LayoutSection>
-          {props.alphaChannelSupported && props.releaseChannel ? (
+          {props.releaseChannel ? (
             <LayoutSectionItem>
               <LayoutSectionItemHeader>
                 <LayoutSectionItemTitle>{t("updates.release_channel")}</LayoutSectionItemTitle>
@@ -296,9 +297,9 @@ export function UpdatesView(props: UpdatesViewProps) {
                 <LayoutSectionItemHeaderActions>
                   <Select
                     value={props.releaseChannel}
-                    items={RELEASE_CHANNEL_OPTIONS}
+                    items={RELEASE_CHANNEL_OPTIONS.filter((option) => option.value !== "alpha" || props.alphaChannelSupported)}
                     onValueChange={(value) => {
-                      if (value === "stable" || value === "alpha") {
+                      if (value === "stable" || value === "prerelease" || value === "alpha") {
                         props.onReleaseChannelChange?.(value);
                       }
                     }}
@@ -309,7 +310,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {RELEASE_CHANNEL_OPTIONS.map((option) => (
+                        {RELEASE_CHANNEL_OPTIONS.filter((option) => option.value !== "alpha" || props.alphaChannelSupported).map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>

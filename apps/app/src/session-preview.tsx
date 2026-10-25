@@ -32,6 +32,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initLocale, setLocale } from "@/i18n";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
+import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
@@ -69,6 +70,7 @@ if (previewParams.has("theme")) document.documentElement.dataset.theme = preview
 // `?subscription=ended&role=member` previews expiry without connected services.
 const subscriptionPreview = previewParams.get("subscription") === "ended";
 const trialPreview = previewParams.has("trial");
+const fundedTrialPreview = previewParams.get("trial") === "member-limit";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? (trialPreview ? "eigenwelt" : "openai"), modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
@@ -76,7 +78,7 @@ const requestTooLarge = previewParams.has("requestTooLarge");
 const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : null);
-const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
+const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
@@ -116,6 +118,14 @@ if (trialPreview && limitFixture.entitlements.entitlements) {
   limitFixture.usage.me.resetsAt = endsAt;
   limitFixture.usage.extraEnabled = false;
   limitFixture.usage.me.blockedReason = "extra_disabled";
+  if (fundedTrialPreview) {
+    limitFixture.usage.walletCents = 2500;
+    limitFixture.usage.extraEnabled = true;
+    limitFixture.usage.me.baseExtraLimitCents = 1500;
+    limitFixture.usage.me.extraLimitCents = 1500;
+    limitFixture.usage.me.extraUsedCents = 1500;
+    limitFixture.usage.me.blockedReason = "member_limit";
+  }
   limitFixture.entitlements.entitlements.subscriptionStatus = "trialing";
   limitFixture.entitlements.entitlements.trialEndsAt = endsAt;
   queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
@@ -180,6 +190,23 @@ if (emptyChatId) { registerEmptySession(emptyChatId); saveSnapshot(snapshot(empt
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
 saveSnapshot(snapshot("visual-board", "Prepare board meeting notes", "Help me organize the open legal topics for next week's board meeting."));
 saveSnapshot(snapshot("visual-policy", "Update the privacy policy", "Summarize the changes we need to make to the privacy policy."));
+
+// `?statusStates` lines up one chat per sidebar indicator, each named after the
+// state it stands for, so the whole vocabulary can be compared in one look.
+const statusStateRows = ["idle", "thinking", "responding", "waiting", "compacting", "error", "unread"] as const;
+const statusStatesById: Record<string, string> = {};
+if (previewParams.has("statusStates")) {
+  for (const state of statusStateRows) {
+    saveSnapshot(snapshot(`visual-state-${state}`, state));
+    // `idle` draws nothing and `unread` comes from the inbox store below.
+    if (state !== "idle" && state !== "unread") statusStatesById[`visual-state-${state}`] = state;
+  }
+  useSessionInboxStore.setState({
+    trackingStartedAt: 1,
+    entries: { "visual-state-unread": { workspaceId: workspace.id, sessionId: "visual-state-unread", updatedAt: 2, assistantAt: 2 } },
+    readAt: {},
+  });
+}
 if (limitParam) {
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
@@ -721,7 +748,7 @@ function SessionPreview() {
           }}
           sidebar={{
             workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
-            sessionStatusById: {}, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
+            sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
               setSelectedSessionId(id === workspace.id ? welcomeId : null); setShowWorkflows(false);

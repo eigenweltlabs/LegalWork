@@ -1,33 +1,18 @@
 name: Alpha Channel (Windows x64 + ARM64)
 
-# Dispatch this workflow manually (Actions tab) to publish a fresh Windows
-# build to the LegalWork alpha release channel.
-#
-# Mirrors alpha-macos-aarch64.yml: each run publishes an immutable prerelease
-# with the build artifacts and refreshes a small manifest on the fixed
-# `alpha-windows-latest` release so the Electron updater feed stays stable
-# while historical alpha artifacts remain available. The Windows build +
-# SignPath signing steps mirror the stable channel
-# (.github/workflows/release-macos-aarch64.yml).
-#
-# See:
-#   - .github/workflows/alpha-macos-aarch64.yml (macOS alpha channel)
-#   - .github/workflows/release-macos-aarch64.yml (stable channel)
-
+# Every merged dev commit builds an alpha immediately. Required PR checks
+# already ran before merge; packaging does not rerun the sandbox suite.
 on:
-  # Manual-only: dispatch from the GitHub Actions tab to publish a Windows
-  # alpha build to the rolling alpha-windows-latest release. Builds are signed
-  # via SignPath when the SIGNPATH_* configuration is present; otherwise the
-  # installer ships unsigned (SmartScreen warning — acceptable for the
-  # opt-in alpha channel).
+  push:
+    branches: [dev]
   workflow_dispatch:
     inputs:
       sandbox_tests:
-        description: Run sandbox validation tests (adds build time)
+        description: Run sandbox validation tests (manual opt-in only)
         type: boolean
         default: false
       signing_test:
-        description: "Validate SignPath test signing without publishing a release or updating the alpha feed"
+        description: Validate SignPath test signing without publishing
         type: boolean
         default: false
 
@@ -36,15 +21,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: alpha-windows-x64-${{ github.ref }}-${{ inputs.signing_test }}
-  cancel-in-progress: true
+  group: alpha-windows-x64-${{ github.sha }}-${{ inputs.signing_test }}
+  cancel-in-progress: false
 
 jobs:
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: win32-x64,win32-arm64
-      run_tests: ${{ inputs.sandbox_tests }}
+      run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-windows:
     needs: sandbox-runtime
     name: Build + Publish alpha (${{ matrix.target }})
@@ -102,7 +87,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.22.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -308,7 +293,8 @@ jobs:
             --title "LegalWork Alpha ${ALPHA_VERSION} (Windows ${ALPHA_ARCH})" \
             --notes "$body" \
             --target "$GITHUB_SHA" \
-            --prerelease
+            --prerelease \
+            --draft
 
       - name: Upload Electron alpha updater assets
         if: ${{ !inputs.signing_test }}
@@ -318,6 +304,15 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
+          release="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish)"
+          if [ "$(jq -r .targetCommitish <<<"$release")" != "$GITHUB_SHA" ]; then
+            echo "Existing alpha points at a different source commit" >&2
+            exit 1
+          fi
+          if [ "$(jq -r .isDraft <<<"$release")" != true ]; then
+            echo "Alpha is already published; preserve its immutable artifacts."
+            exit 0
+          fi
           shopt -s nullglob
           assets=(
             apps/desktop/dist-electron/*.exe
@@ -332,39 +327,17 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
-      - name: Update alpha updater pointer
+      - name: Publish complete alpha
         if: ${{ !inputs.signing_test }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
-          set -euo pipefail
-          POINTER_MANIFEST="$RUNNER_TEMP/$UPDATER_MANIFEST"
-          export POINTER_MANIFEST
-          node <<'NODE'
-          const fs = require("node:fs");
-          const manifestPath = `apps/desktop/dist-electron/${process.env.UPDATER_MANIFEST}`;
-          const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
-          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
-          const rewritten = fs.readFileSync(manifestPath, "utf8")
-            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
-            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
-          fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
-          NODE
-
-          if ! gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$ALPHA_RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$ALPHA_RELEASE_NAME" \
-              --notes "Stable Electron updater pointer for the newest Windows alpha prerelease." \
-              --target "$GITHUB_SHA" \
-              --prerelease || gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          if [ "$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --tag "$ALPHA_RUN_RELEASE_TAG" --target "$GITHUB_SHA" --draft=false --prerelease --latest=false
           fi
-
-          gh release upload "$ALPHA_RELEASE_TAG" "$POINTER_MANIFEST#$UPDATER_MANIFEST" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
 
       - name: Upload test-signed Windows artifacts
         if: inputs.signing_test
