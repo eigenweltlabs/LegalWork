@@ -85,6 +85,8 @@ func runPasteMode() -> Never {
         exit(1)
     }
 
+    let recipient = pasteRecipient()
+    let expected = NSPasteboard.general.string(forType: .string) ?? ""
     keyDown.flags = .maskCommand
     keyUp.flags = .maskCommand
     keyDown.post(tap: .cgSessionEventTap)
@@ -92,5 +94,7 @@ func runPasteMode() -> Never {
     keyUp.post(tap: .cgSessionEventTap)
     usleep(20000)
 
-    exit(0)
+    // An observed insertion failure is distinct from a command error: never
+    // retry a shortcut that was already delivered to the receiving app.
+    exit(verifyPasteDelivery(recipient, expected: expected) == .notInserted ? 4 : 0)
 }

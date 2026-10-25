@@ -258,7 +258,7 @@ if (-not [LegalWorkPaste]::Paste()) { exit 2 }
 `;
 
 /** @returns {Promise<boolean>} */
-function runChildProcess(executable, args) {
+function runChildProcess(executable, args, notInsertedCode = null) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
     const timeout = setTimeout(() => {
@@ -272,6 +272,7 @@ function runChildProcess(executable, args) {
     child.once("exit", (code) => {
       clearTimeout(timeout);
       if (code === 0) resolve(true);
+      else if (notInsertedCode !== null && code === notInsertedCode) resolve(false);
       else reject(Object.assign(new Error(`Paste command exited with code ${code ?? "unknown"}.`), { exitCode: code }));
     });
   });
@@ -282,7 +283,7 @@ async function runSystemPasteCommand(platform) {
     const helper = resolveKeyMonitorPath(app);
     if (existsSync(helper)) {
       try {
-        return await runChildProcess(helper, ["--paste"]);
+        return await runChildProcess(helper, ["--paste"], 4);
       } catch (error) {
         // An unresolved layout must not fall back to a different shortcut.
         if (error.exitCode === 3) throw error;
@@ -302,6 +303,12 @@ async function runSystemPasteCommand(platform) {
     ]);
   }
   return Promise.reject(new Error("Automatic paste is not available on this platform."));
+}
+
+function prepareSystemPasteCommand() {
+  if (process.platform !== "darwin") return;
+  const helper = resolveKeyMonitorPath(app);
+  if (existsSync(helper)) void runChildProcess(helper, ["--prepare-paste"]).catch(() => {});
 }
 
 async function showSupportLogsProgressWindow(parent) {
@@ -871,6 +878,7 @@ const systemDictation = new SystemDictationService({
   systemPreferences,
   shell,
   runPasteCommand: runSystemPasteCommand,
+  preparePaste: prepareSystemPasteCommand,
   keyMonitor: systemKeyMonitor,
   onToggle: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
   onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),

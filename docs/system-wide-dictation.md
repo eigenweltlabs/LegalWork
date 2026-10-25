@@ -337,10 +337,26 @@ Windows uses SendInput and checks how many keyboard events the OS accepted.
 
 After an accepted command, the previous clipboard contents (text, HTML, RTF, images, or an empty
 clipboard) are restored after 500 ms, provided the user has
-not copied something else. A command error leaves the transcript on the clipboard
-and shows the amber recovery message. The OS does not provide a universal receipt
-that the receiving application inserted the text: a field ignoring a successfully
-posted shortcut cannot reliably be classified as a failed insertion.
+not copied something else. On macOS, delivery is observed after both key events: a readable field containing
+the transcript confirms insertion; a field that stays unchanged, a non-text
+control, or a ready accessibility tree with no focused field triggers clipboard
+recovery. A focused web document without an editing field also triggers recovery.
+Cold Chromium trees and editors with unreadable contents remain unknown: the
+accepted paste keeps its normal clipboard restoration instead of producing a
+false clipboard-only result. The recording-start event prepares accessibility in
+the background; neither capture nor paste waits for preparation.
+
+Command errors also retain the transcript and show the amber recovery message.
+The native result for observed failure is distinct from command errors, so it
+never retries a delivered shortcut. This follows [Flow's documented recovery behavior](https://docs.wisprflow.ai/articles/1621472516-flow-fails-to-detect-text-fields-or-inserts-incorrectly-on-non-qwerty-keyboard-layouts),
+including assuming success in editors that do not report their contents. Windows
+continues to use the SendInput result; the post-paste readback is macOS-specific.
+No text from the receiving field is logged or retained.
+
+The native regression command waits for **Run verification** in its own test
+window before sending real keys. It must only be run when desktop interaction is
+explicitly wanted; normal checks use mocked clipboard/shortcut services and a
+standalone Swift classifier test.
 
 This follows [OpenWhispr's clipboard lifecycle](https://github.com/OpenWhispr/openwhispr/blob/main/src/helpers/clipboard.js)
 and [native macOS paste helper](https://github.com/OpenWhispr/openwhispr/blob/main/resources/macos-fast-paste.swift).

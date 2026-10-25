@@ -32,30 +32,39 @@ app.whenReady().then(async () => {
       globalShortcut: { register: () => false, unregister: () => {} }, shell: { openExternal: async () => {} },
       runPasteCommand: context.runPaste, onToggle: () => {}, onCancel: () => {},
     });
-    window = new BrowserWindow({ title: "Dictation paste verification", width: 680, height: 520, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
-    await window.loadURL("data:text/html," + encodeURIComponent(`<!doctype html><html><style>body{font:16px system-ui;padding:24px}input,textarea,[contenteditable]{display:block;width:95%;min-height:40px;border:1px solid gray;padding:8px;margin:8px 0 16px}</style><h2>Dictation insertion verification</h2><label>Plain input<input id="input"></label><label>Rich editor<div id="rich" contenteditable="true" role="textbox" aria-multiline="true"><p><br></p></div></label><button id="button">Non-editable button</button><label>Read only<textarea id="readonly" readonly>Read-only content</textarea></label></html>`));
-    app.focus({ steal: true });
-    window.focus();
-    await delay(500);
-    // No field eligibility query is allowed to prevent sending the paste.
-    assert.equal(app.isAccessibilitySupportEnabled(), false);
+    window = new BrowserWindow({ title: "Dictation paste verification", show: false, width: 680, height: 520, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    await window.loadURL("data:text/html," + encodeURIComponent(`<!doctype html><html><style>body{font:16px system-ui;padding:24px}input,textarea,[contenteditable]{display:block;width:95%;min-height:40px;border:1px solid gray;padding:8px;margin:8px 0 16px}</style><h2>Dictation insertion verification</h2><button onclick="console.log('LEGALWORK_PASTE_VERIFY')">Run verification</button><label>Plain input<input id="input"></label><label>Rich editor<div id="rich" contenteditable="true" role="textbox" aria-multiline="true"><p><br></p></div></label><button id="button">Non-editable button</button><label>Read only<textarea id="readonly" readonly>Read-only content</textarea></label></html>`));
+    // This test sends real keystrokes. Require explicit activation in its own
+    // window; merely running the command must not take over the desktop.
+    app.setAccessibilitySupportEnabled(true);
+    window.showInactive();
+    console.log("READY: activate Run verification in the test window");
+    await new Promise(resolve => window.webContents.on("console-message", event => { if (event.message === "LEGALWORK_PASTE_VERIFY") resolve(); }));
+    let pasteEvents = 0;
+    window.webContents.on("before-input-event", (_event, input) => { if (input.type === "keyDown" && input.key.toLowerCase() === "v" && input.meta) pasteEvents += 1; });
     if (output) await mkdir(output, { recursive: true });
-    for (const id of ["rich", "input"]) {
-      app.focus({ steal: true });
-      window.focus();
-      window.webContents.focus();
-      await delay(500);
-      await window.webContents.executeJavaScript(`document.getElementById('${id}').focus()`);
+    const targets = process.env.LEGALWORK_PASTE_TARGET ? [process.env.LEGALWORK_PASTE_TARGET] : ["rich", "input", "button", "none", "readonly", "input"];
+    for (const id of targets) {
+      assert.equal(window.isFocused(), true, "leave the test window focused while this regression runs");
+      await window.webContents.executeJavaScript(`(() => { if ('${id}' === 'none') document.activeElement.blur(); else { const el=document.getElementById('${id}'); if ('${id}' === 'input') el.value=''; el.focus(); } })()`);
       await delay(100);
       assert.equal(window.isFocused(), true, "leave the test window focused while this regression runs");
       clipboard.write({ text: "Previous clipboard", html: "<b>Previous clipboard</b>", rtf: String.raw`{\rtf1\ansi Previous clipboard}`, image: nativeImage.createFromBitmap(Buffer.from([255, 0, 0, 255]), { width: 1, height: 1 }) });
       commands.length = 0;
+      pasteEvents = 0;
       const result = await service.pasteText(text);
-      assert.equal(window.isFocused(), true, "focus changed during native paste; leave this test window focused and rerun");
-      assert.equal(result.pasted, true);
+      assert.equal(pasteEvents, 1, "the intended window must receive exactly one Command+V");
+      const editable = id === "rich" || id === "input";
+      assert.equal(result.pasted, editable, id);
       assert.equal(commands.length, 1, "the native helper succeeds without the Apple Events fallback");
       assert.equal(commands[0].args[0], "--paste");
       assert.equal(result.error, null);
+      if (!editable) {
+        assert.equal(clipboard.readText(), text, "failed insertion retains the transcript");
+        assert.equal(await window.webContents.executeJavaScript("document.getElementById('readonly').value"), "Read-only content");
+        console.log(`PASS: ${id} attempts paste and reports clipboard recovery`);
+        continue;
+      }
       const value = await window.webContents.executeJavaScript(`(() => { const el=document.getElementById('${id}'); return el.isContentEditable ? el.innerText : el.value; })()`);
       if (output) await writeFile(path.join(output, `native-${id}.png`), (await window.webContents.capturePage()).toPNG());
       assert.equal(value.trim(), text, `${id} receives the exact dictated text`);
@@ -65,7 +74,7 @@ app.whenReady().then(async () => {
       assert.deepEqual(clipboard.readImage().getSize(), { width: 1, height: 1 });
       console.log(`PASS: ${id} receives dictation and restores the rich clipboard`);
     }
-    console.log("PASS: native dictation inserts without accessibility field inspection and restores the clipboard");
+    console.log("PASS: native dictation pastes first, recovers failed insertion, and preserves working editors");
   } finally {
     service?.dispose();
     window?.destroy();

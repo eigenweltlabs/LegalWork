@@ -6,6 +6,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
 import { runInNewContext } from "node:vm";
+import { fileURLToPath } from "node:url";
 
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 
@@ -38,6 +39,47 @@ test("accepted paste commands succeed without inspecting the focused field", asy
   assert.equal(await windows.runPaste("windows"), true);
   assert.match(windows.calls[0].args.at(-1), /LegalWorkPaste\]::Paste\(\)/);
   assert.doesNotMatch(windows.calls[0].args.at(-1), /HasEditableFocus|AutomationElement|ValuePattern/);
+});
+
+test("observed insertion failure retains clipboard recovery without a second paste", async () => {
+  const mac = await pasteCommandFixture([4]);
+  assert.equal(await mac.runPaste("darwin"), false);
+  assert.equal(mac.calls.length, 1);
+  const unknown = await pasteCommandFixture([0]);
+  assert.equal(await unknown.runPaste("darwin"), true, "unreadable editors retain normal paste and clipboard restoration");
+});
+
+test("native paste observes field contents only after both key events", async () => {
+  const source = await readFile(new URL("../native/key-monitor/Sources/KeyMonitor/Paste.swift", import.meta.url), "utf8");
+  const paste = source.slice(source.indexOf("func runPasteMode()"));
+  assert.ok(paste.indexOf("verifyPasteDelivery(") > paste.indexOf("keyUp.post("));
+  assert.doesNotMatch(paste.slice(0, paste.indexOf("keyDown.post(")), /AXFocusedUIElement|AXValue|AXRole|verifyPasteDelivery/);
+});
+
+test("native delivery distinguishes absent fields, readable failures and unsupported editors", { skip: process.platform !== "darwin" }, async t => {
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const main = path.join(directory, "main.swift");
+  const executable = path.join(directory, "delivery-test");
+  await writeFile(main, `import AppKit
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Before. Hello world. After.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextField", value: "HELLO\\nworld.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXGroup", value: "Hello world.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Unchanged text", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: "AXWebArea", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.", noFocusedElement: true) == .notInserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXGroup", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "CustomEditor", value: "Other", expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "") == .unknown)
+`);
+  const compiled = spawnSync("/usr/bin/swiftc", [fileURLToPath(new URL("../native/key-monitor/Sources/KeyMonitor/PasteDelivery.swift", import.meta.url)), main, "-o", executable], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const run = spawnSync(executable, { encoding: "utf8", timeout: 5_000 });
+  assert.equal(run.status, 0, run.stderr);
 });
 
 test("macOS falls back when the native paste command fails or is missing", async () => {
@@ -314,6 +356,26 @@ test("successful paste restores an empty clipboard and preserves a newly copied 
   copyDuringPaste = true;
   await service.pasteText("Second dictation");
   assert.equal(clipboard.readText(), "New user copy");
+});
+
+test("recording prepares observation once per start and never waits for or requires it", async t => {
+  const userDataDir = await tempDir();
+  let preparations = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    preparePaste: () => { preparations += 1; throw new Error("AX unsupported"); },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  service.setRuntimeState("starting");
+  service.setRuntimeState("starting");
+  service.setRuntimeState("listening");
+  assert.equal(service.runtimeState, "listening");
+  assert.equal(preparations, 1);
+  service.setRuntimeState("cancelled");
+  service.setRuntimeState("starting");
+  assert.equal(preparations, 2);
 });
 
 test("when an attempted paste reports failure dictation stays on the clipboard", async t => {

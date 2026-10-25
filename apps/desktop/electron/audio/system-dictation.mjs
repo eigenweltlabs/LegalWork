@@ -107,6 +107,7 @@ export class SystemDictationService {
    *   systemPreferences?: { isTrustedAccessibilityClient?: (prompt: boolean) => boolean },
    *   shell: { openExternal: (url: string) => Promise<unknown> },
    *   runPasteCommand: (platform: "darwin" | "windows" | "linux") => Promise<boolean>,
+   *   preparePaste?: () => void,
    *   keyMonitor?: { isSupported?: () => boolean, start: (onEvent: (event: { type: "down" | "up"; key: string } | { type: "reset" } | { type: "unavailable"; error: string }) => void | Promise<void>) => Promise<boolean>, stop: () => void, restart?: () => Promise<boolean> },
    *   onToggle: () => void,
    *   onPress?: () => void,
@@ -124,6 +125,7 @@ export class SystemDictationService {
     this.systemPreferences = options.systemPreferences;
     this.shell = options.shell;
     this.runPasteCommand = options.runPasteCommand;
+    this.preparePaste = options.preparePaste ?? (() => {});
     this.keyMonitor = options.keyMonitor;
     this.onToggle = options.onToggle;
     this.onPress = options.onPress ?? options.onToggle;
@@ -630,6 +632,9 @@ export class SystemDictationService {
   }
 
   setRuntimeState(state, message = "", locale = "en") {
+    if (state === "starting" && this.runtimeState !== "starting") {
+      try { this.preparePaste(); } catch { /* Observation must never block recording. */ }
+    }
     if (["success", "copied", "cancelled", "error"].includes(state) || (state === "idle" && this.runtimeState !== "idle")) {
       this.settledAt = Date.now();
     }
