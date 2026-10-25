@@ -1398,6 +1398,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
+    await officeAddinManager.refreshManifests();
     const handle = await startEmbeddedServer({
       modelDownloadFetch,
       opencodeSdkDirectory: bundledOpencodeSdkDirectory({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, desktopRoot }),

@@ -1,18 +1,47 @@
 # Office connection verification — 25 October 2026
 
-The Office pairing flow was exercised in Microsoft Word 16.114.1 and the LegalWork Electron 43.7.5 development app on macOS. The native run used the implementation checkout before integration with the latest `dev` branch; automated checks and a fresh Word add-in build were then run against the PR branch.
+## Automatic connection
 
-## Native checks
+The PR branch was built and run in real Electron 43.7.5 on macOS, with an isolated desktop profile and the Office HTTPS listener on localhost. The updated flow has no code screen or desktop approval dialog. Installation supplies a separate Office credential through a private local manifest.
 
-1. Open the locally served add-in in Word and connect it to the running desktop app.
-2. Confirm that the code shown in the pane matches the desktop approval dialog. Denying the request leaves the pane disconnected; allowing a new request connects it.
-3. Verify that an unpaired bootstrap response contains connection metadata without application or host credentials.
-4. Close and reopen the pane, and verify the temporary pairing flow still works.
-5. With the test app signed into `https://platform.eigenweltlabs.com`, use a synthetic document and the production model connection to read its text, change the payment period from 45 to 60 days as a tracked change, add a comment, and search for the resulting text.
-6. Save and read the document again to verify the edit and comment persisted.
+A native integration probe used Node HTTPS with the local CA explicitly trusted; certificate verification stayed enabled. It verified:
 
-The production model run completed all four Word tools: `word_read_document`, `word_replace_text`, `word_add_comment`, and `word_search`. Claude Opus 5.5 EU completed the run after the initial Gemini request encountered a provider capacity response.
+- Public bootstrap contains no application, host, or installation credential.
+- Anonymous session creation returns 401.
+- The installed Office credential creates a session automatically, and that session can call `/whoami`.
+- The Office credential cannot access host-only environment settings.
+- After stopping and restarting the isolated Electron app, the previous Office credential still works and the automatic exchange returns the same credential.
 
-The screenshot contains synthetic document text and shows the saved Word document and completed tool run.
+The regression tests also cover cross-origin and rebinding requests, credential rotation, concurrent first starts, private file permissions, automatic migration from the previous app credential, and removal of the retired pairing endpoints. An API integration test runs with manual approvals configured to deny and confirms the connection invokes no approval callback. The shell test executes its JavaScript to verify that it captures and removes the fragment before handing off to the app.
 
-![Word document after the production model completed its edit and comment](office-production-word.png)
+Commands:
+
+```sh
+pnpm --filter legalwork-server exec bun test src/office-connection.test.ts src/word-addin-shell.test.ts src/word-addin.e2e.test.ts src/tokens.test.ts
+node --test apps/desktop/electron/office-addin-platform.test.mjs apps/desktop/electron/office-addin-cert-web.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/host-approvals.test.mjs
+pnpm --filter legalwork-server build
+pnpm --filter @legalwork/app typecheck
+pnpm --filter @legalwork/app build:word-addin
+```
+
+## Word UI verification limit
+
+Microsoft Word 16.114.1 was running and recognized the isolated test add-in. The final updated pane could not be exercised end to end: native UI automation returned `noWindowsAvailable` for coordinate actions and subsequently `timeoutReached` when reconnecting to Word. The Electron HTTPS/API checks above passed, but do not establish that Word's current webview completes the new manifest handoff.
+
+To finish that check manually:
+
+1. Build and start this PR's desktop app.
+2. Enable the Word add-in in LegalWork, then open it from Word's Add-ins menu. An already enabled installation refreshes its manifest automatically; restart Word if it caches the previous manifest.
+3. Confirm the pane connects without a code or an approval dialog, and that document read/edit tools work.
+4. Restart LegalWork, then reopen the pane. Confirm it reconnects without prompting.
+5. For an existing pane with a previous application credential, confirm it migrates automatically and still connects.
+
+## Earlier production model regression check
+
+Before the automatic connection revision, a Word tool run completed in real Microsoft Word 16.114.1 and Electron 43.7.5, connected to `https://platform.eigenweltlabs.com`. In a synthetic document, the production model read text, changed the payment period from 45 to 60 days as a tracked change, added a comment, and searched for the resulting text. Saving and reading the document again verified that the edit and comment persisted.
+
+All four tools completed: `word_read_document`, `word_replace_text`, `word_add_comment`, and `word_search`. Claude Opus 5.5 EU completed the run after the initial Gemini request encountered a provider capacity response.
+
+This screenshot is evidence of that earlier document-tool run, not of the new automatic connection handoff.
+
+![Synthetic Word document after the earlier production model edit and comment](office-production-word.png)

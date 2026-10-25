@@ -4480,9 +4480,7 @@ const de = {
     "Die Seitenleiste erkennt, zu welchem Workspace ein Dokument gehört, und öffnet ihn automatisch.",
   "whats_new.office.cta": "Office-Add-ins öffnen",
   "word_addin.connecting": "Verbindung zu LegalWork wird aufgebaut\u2026",
-  "word_addin.pairing_title": "Verbindung in LegalWork bestätigen",
-  "word_addin.pairing_body": "Öffnen Sie LegalWork und bestätigen Sie die Verbindung nur, wenn der angezeigte Code mit diesem übereinstimmt.",
-  "word_addin.pairing_failed": "Die Office-Verbindung wurde nicht bestätigt oder ist abgelaufen. Versuchen Sie es erneut und bestätigen Sie den passenden Code in LegalWork.",
+  "word_addin.connection_failed": "Die Office-Verbindung konnte nicht hergestellt werden. Öffnen Sie das LegalWork-Add-in erneut.",
   "word_addin.connect_error_title": "LegalWork ist nicht erreichbar",
   "word_addin.connect_error_body":
     "Stelle sicher, dass der LegalWork-Server mit aktiviertem Word-Add-in läuft, und versuche es erneut.",

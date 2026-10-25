@@ -76,10 +76,10 @@ function startAnalyticsIdentityPoll() {
 }
 
 /**
- * Reuse a temporary Office session or pair with explicit host approval.
+ * Connect automatically using the credential installed with the Office add-in.
  * The shared desktop host and client tokens never enter the Office webview.
  */
-async function connectToServer(onPairingCode: (code: string) => void): Promise<void> {
+async function connectToServer(): Promise<void> {
   const response = await fetch("/word-addin/bootstrap", { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
@@ -90,26 +90,24 @@ async function connectToServer(onPairingCode: (code: string) => void): Promise<v
   };
   const stored = readLegalworkServerSettings();
   let token = stored.token?.startsWith("office_") ? stored.token : "";
-  // Remove shared credentials left by older releases from this Office origin.
-  writeLegalworkServerSettings({ urlOverride: window.location.origin, token: token || undefined });
   if (token) {
     const check = await fetch("/whoami", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
     if (!check.ok) token = "";
   }
   if (!token) {
-    const start = await fetch("/word-addin/pair", { method: "POST" });
-    if (!start.ok) throw new Error(t("word_addin.pairing_failed"));
-    const challenge = await start.json();
-    if (typeof challenge.challenge !== "string" || typeof challenge.code !== "string") throw new Error(t("word_addin.pairing_failed"));
-    onPairingCode(challenge.code);
-    const approved = await fetch("/word-addin/pair/complete", {
-      method: "POST", headers: { "X-Legalwork-Office-Challenge": challenge.challenge },
+    const launch = localStorage.getItem("legalwork.office.launch");
+    if (!launch && !stored.token) throw new Error(t("word_addin.connection_failed"));
+    const response = await fetch("/word-addin/session", {
+      method: "POST", headers: launch
+        ? { "X-Legalwork-Office-Launch": launch }
+        : { Authorization: `Bearer ${stored.token}` },
     });
-    if (!approved.ok) throw new Error(t("word_addin.pairing_failed"));
-    const session = await approved.json();
-    if (typeof session.token !== "string" || !session.token.startsWith("office_")) throw new Error(t("word_addin.pairing_failed"));
+    if (!response.ok) throw new Error(t("word_addin.connection_failed"));
+    const session = await response.json();
+    if (typeof session.token !== "string" || !session.token.startsWith("office_")) throw new Error(t("word_addin.connection_failed"));
     token = session.token;
   }
+  // Replace older shared credentials only after the automatic handoff succeeds.
   writeLegalworkServerSettings({
     urlOverride: window.location.origin,
     token,
@@ -125,20 +123,13 @@ async function connectToServer(onPairingCode: (code: string) => void): Promise<v
 
 type ConnectionState =
   | { status: "connecting" }
-  | { status: "pairing"; code: string }
   | { status: "ready" }
   | { status: "error"; message: string };
 
 function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: () => void }) {
   return (
     <div className="flex h-dvh flex-col items-center justify-center gap-3 px-6 text-center">
-      {state.status === "pairing" ? (
-        <>
-          <p className="text-sm font-medium text-dls-text">{t("word_addin.pairing_title")}</p>
-          <p className="max-w-xs text-xs leading-relaxed text-dls-secondary">{t("word_addin.pairing_body")}</p>
-          <p className="font-mono text-2xl tracking-widest text-dls-text">{state.code}</p>
-        </>
-      ) : state.status === "connecting" ? (
+      {state.status === "connecting" ? (
         <p className="text-sm text-dls-secondary">{t("word_addin.connecting")}</p>
       ) : (
         <>
@@ -173,23 +164,15 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
 
 const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
-// React StrictMode can mount twice. Both mounts share one host confirmation.
+// React StrictMode mounts share one automatic connection request.
 let pendingConnection: Promise<void> | null = null;
-const pairingCodeListeners = new Set<(code: string) => void>();
-let currentPairingCode: string | null = null;
 
 function WordAddinApp() {
   const [state, setState] = React.useState<ConnectionState>({ status: "connecting" });
 
   const connect = React.useCallback(() => {
     setState({ status: "connecting" });
-    const showCode = (code: string) => setState({ status: "pairing", code });
-    pairingCodeListeners.add(showCode);
-    if (currentPairingCode) showCode(currentPairingCode);
-    pendingConnection ??= connectToServer((code) => {
-      currentPairingCode = code;
-      for (const listener of pairingCodeListeners) listener(code);
-    }).finally(() => { pendingConnection = null; currentPairingCode = null; });
+    pendingConnection ??= connectToServer().finally(() => { pendingConnection = null; });
     void pendingConnection
       .then(() => setState({ status: "ready" }))
       .catch((error: unknown) => {
@@ -197,7 +180,7 @@ function WordAddinApp() {
           status: "error",
           message: error instanceof Error ? error.message : String(error),
         });
-      }).finally(() => pairingCodeListeners.delete(showCode));
+      });
   }, []);
 
   React.useEffect(() => {

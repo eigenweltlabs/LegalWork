@@ -113,7 +113,7 @@ import { serve, type ServeResult } from "./serve-node.js";
 import { adoptLaunchAnalyticsId } from "./launch-analytics-id.js";
 import { handleWordAddinRequest, loadWordAddinTls, setAnalyticsConsent, WORD_ADDIN_PATH_PREFIX } from "./word-addin.js";
 import { OfficeToolRelay } from "./office-tools.js";
-import { OfficePairingService } from "./office-pairing.js";
+import { OfficeConnectionService, loadOfficeConnectionToken } from "./office-connection.js";
 import { registerOfficeToolRoutes } from "./routes/office-tools.js";
 import { BenchmarkRunner, type BenchmarkOpencodeClient } from "./benchmarks/runner.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
@@ -806,7 +806,8 @@ export type StartedServer = ServeResult & {
 export async function startServer(config: ServerConfig, runtimeOptions: { modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch; documentLayout?: import("./document-preparation/structure.js").DocumentLayout; onListening?: (port: number) => Promise<void> } = {}): Promise<StartedServer> {
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
   const agentSandbox = new AgentSandboxService(config, approvals);
-  const officePairing = new OfficePairingService(approvals);
+  const officeTls = config.wordAddin?.enabled ? await loadWordAddinTls(config.wordAddin) : null;
+  const officeConnection = new OfficeConnectionService(officeTls ? await loadOfficeConnectionToken(officeTls.keyPath) : undefined);
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
@@ -1000,7 +1001,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       const proxyWorkspaceOpencodeMount = async (mount: { workspaceId: string; restPath: string }) => {
         authMode = "client";
         try {
-          const actor = officePairing.actor(request) ?? await requireClient(request, config, tokens);
+          const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
           await guardWikiWorkspace(actor, mount.workspaceId, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
@@ -1029,7 +1030,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
         let addinResponse: Response | null;
         try {
-          addinResponse = await handleWordAddinRequest({ request, url, config, pairing: officePairing });
+          addinResponse = await handleWordAddinRequest({ request, url, config, connection: officeConnection });
         } catch (error) {
           const apiError = error instanceof ApiError ? error : new ApiError(500, "internal_error", "Office connection failed");
           addinResponse = jsonResponse(formatError(apiError), apiError.status);
@@ -1080,7 +1081,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
         authMode = "client";
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
-          const actor = officePairing.actor(request) ?? await requireClient(request, config, tokens);
+          const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
           if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
           await guardWikiDirectory(actor, request, url);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
@@ -1112,9 +1113,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
           agentAccess?.actor ?? (route.auth === "host-token"
             ? requireHostToken(request, config)
             : route.auth === "host"
-              ? officePairing.actor(request, true) ?? requireHostToken(request, config)
+              ? officeConnection.actor(request, true) ?? requireHostToken(request, config)
               : route.auth === "client"
-                ? officePairing.actor(request) ?? await requireClient(request, config, tokens)
+                ? officeConnection.actor(request) ?? await requireClient(request, config, tokens)
                 : undefined);
         const workspaceId = route.params.id ?? route.params.workspaceId;
         if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
@@ -1178,8 +1179,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
   // the task pane talks to a single same-origin base URL. Word requires
   // HTTPS for task pane sources, hence the dedicated TLS listener.
   let wordAddinServer: ServeResult | null = null;
-  if (config.wordAddin?.enabled) {
-    const tlsMaterial = await loadWordAddinTls(config.wordAddin);
+  if (config.wordAddin?.enabled && officeTls) {
+    const tlsMaterial = officeTls;
     if (!tlsMaterial.tls) {
       logger.log(
         "warn",
@@ -1216,7 +1217,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { modelD
       stopSandboxSettingsSync();
       agentSandbox.stop();
       approvals.dispose();
-      officePairing.dispose();
+      officeConnection.dispose();
       stopMessageQueue(config);
       await corpus.stop();
       reviews.stop();

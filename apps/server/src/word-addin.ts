@@ -3,7 +3,7 @@
  * bootstrap endpoint, and the add-in manifest.
  *
  * All responses under /word-addin are served WITHOUT CORS headers. Public
- * bootstrap is metadata only; pairing requires explicit host approval.
+ * bootstrap is metadata only; installed manifests carry the Office credential.
  */
 import { readFile, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -11,7 +11,10 @@ import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ServerConfig, WordAddinConfig } from "./types.js";
-import type { OfficePairingService } from "./office-pairing.js";
+import type { OfficeConnectionService } from "./office-connection.js";
+import { ApiError } from "./errors.js";
+import { tokensMatch } from "./utils.js";
+export { loadOfficeConnectionToken } from "./office-connection.js";
 import { launchAnalyticsId } from "./launch-analytics-id.js";
 import type { ServeTlsOptions } from "./serve-node.js";
 import { buildWordAddinRedirectorHtml, buildWordAddinShellHtml, WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
@@ -226,8 +229,12 @@ export function buildWordAddinManifest(input: {
   baseUrl: string;
   version?: string;
   host?: WordAddinHost;
+  connectionToken?: string;
 }): string {
   const base = xmlEscape(input.baseUrl.replace(/\/+$/, ""));
+  const taskpane = input.connectionToken
+    ? `${base}/word-addin/shell-v${WORD_ADDIN_SHELL_VERSION}.html#office_launch=${encodeURIComponent(input.connectionToken)}`
+    : `${base}/word-addin/taskpane.html`;
   const version = /^\d+\.\d+\.\d+\.\d+$/.test(input.version ?? "") ? input.version : "1.0.0.0";
   const manifestId = WORD_ADDIN_MANIFEST_IDS[input.host ?? "all"];
   const hostDeclarations = HOST_DECLARATIONS.filter(
@@ -263,7 +270,7 @@ export function buildWordAddinManifest(input: {
 ${hostDeclarations}
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="${base}/word-addin/taskpane.html"/>
+    <SourceLocation DefaultValue="${taskpane}"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
@@ -277,7 +284,7 @@ ${versionOverrideHosts}
         <bt:Image id="LegalWork.Icon80" DefaultValue="${base}/word-addin/favicon-80x80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${base}/word-addin/taskpane.html"/>
+        <bt:Url id="LegalWork.Taskpane.Url" DefaultValue="${taskpane}"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="LegalWork.GroupLabel" DefaultValue="LegalWork"/>
@@ -366,16 +373,16 @@ export function getAnalyticsIdentity(): AnalyticsIdentity {
 }
 
 /**
- * Handle static content, public metadata, and host-approved pairing.
+ * Handle static content, public metadata, and the installed Office connection.
  * Unsupported methods return null for the caller's standard 404 handling.
  */
 export async function handleWordAddinRequest(input: {
   request: Request;
   url: URL;
   config: ServerConfig;
-  pairing: OfficePairingService;
+  connection: OfficeConnectionService;
 }): Promise<Response | null> {
-  const { request, url, config, pairing } = input;
+  const { request, url, config, connection } = input;
   const wordAddin = config.wordAddin;
   const method = request.method.toUpperCase();
   if (!wordAddin?.enabled) {
@@ -384,13 +391,10 @@ export async function handleWordAddinRequest(input: {
 
   const rest = url.pathname.slice(WORD_ADDIN_PATH_PREFIX.length).replace(/^\/+/, "");
 
-  if (method === "POST" && rest === "pair") return jsonResponse(pairing.challenge(request));
-  if (method === "POST" && rest === "pair/complete") {
-    return jsonResponse(await pairing.pair(request, request.headers.get("x-legalwork-office-challenge") ?? ""));
-  }
-  if (method === "DELETE" && rest === "session") {
-    pairing.revoke(request);
-    return jsonResponse({ ok: true });
+  if (method === "POST" && rest === "session") {
+    // Seamlessly migrate panes that already hold the former app credential.
+    const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+    return jsonResponse(connection.connect(request, Boolean(bearer && tokensMatch(bearer, config.token))));
   }
   if (method !== "GET" && method !== "HEAD") return null;
 
@@ -449,7 +453,6 @@ export async function handleWordAddinRequest(input: {
     const identity = getAnalyticsIdentity();
     return jsonResponse({
       app: "legalwork-server",
-      pairingRequired: true,
       wordAddinPort: wordAddin.port,
       // Analytics identity (per-launch, in-memory); the pane polls this
       // endpoint so consent changes propagate.
@@ -476,7 +479,10 @@ export async function handleWordAddinRequest(input: {
   }
 
   if (rest === "manifest.xml") {
-    const manifest = buildWordAddinManifest({ baseUrl: `https://localhost:${wordAddin.port}` });
+    if (!tokensMatch(request.headers.get("x-legalwork-host-token") ?? "", config.hostToken)) {
+      throw new ApiError(401, "unauthorized", "The installed Office manifest requires host authentication");
+    }
+    const manifest = buildWordAddinManifest({ baseUrl: `https://localhost:${wordAddin.port}`, connectionToken: connection.installationCredential() });
     return new Response(manifest, {
       status: 200,
       headers: {
