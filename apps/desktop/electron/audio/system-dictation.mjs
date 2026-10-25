@@ -150,6 +150,7 @@ export class SystemDictationService {
     this.controlPressedAt = null;
     this.shortcutPressedAt = 0;
     this.settledAt = 0;
+    this.pasteEpoch = 0;
     this.shortcutCaptureActive = false;
     this.capturePrevious = null;
     this.captureChord = new Set();
@@ -365,7 +366,7 @@ export class SystemDictationService {
     this.clearGesture();
     this.shortcutTriggered = false;
     if (release && gesture === "hold") this.onRelease();
-    if (release && gesture === "tap-pending") this.onCancel();
+    if (release && gesture === "tap-pending") this.cancel();
   }
 
   clearGesture() {
@@ -397,8 +398,7 @@ export class SystemDictationService {
         // A modified Control press belongs to the foreground app. Cancel
         // a tentative hold quietly, but leave hands-free dictation running.
         if (this.gesture === "hold" || this.gesture === "tap-pending") {
-          this.clearGesture();
-          this.onCancel();
+          this.cancel();
         }
         return;
       }
@@ -473,14 +473,14 @@ export class SystemDictationService {
     }
     if (heldMs >= TAP_MAX_PRESS_MS) {
       this.gesture = "finishing";
-      this.onCancel("short-press");
+      this.cancel("short-press");
       return;
     }
     this.gesture = "tap-pending";
     this.gestureTimer = setTimeout(() => {
       this.gestureTimer = null;
       this.gesture = "finishing";
-      this.onCancel("short-press");
+      this.cancel("short-press");
     }, DOUBLE_TAP_GAP_MS);
   }
 
@@ -635,16 +635,16 @@ export class SystemDictationService {
     if (state === "starting" && this.runtimeState !== "starting") {
       try { this.preparePaste(); } catch { /* Observation must never block recording. */ }
     }
-    if (["success", "copied", "cancelled", "error"].includes(state) || (state === "idle" && this.runtimeState !== "idle")) {
+    if (state === "cancelled") this.settledAt = 0;
+    else if (["success", "copied", "error"].includes(state) || (state === "idle" && !["idle", "cancelled"].includes(this.runtimeState))) {
       this.settledAt = Date.now();
     }
     this.runtimeState = state;
     if (!["starting", "listening"].includes(state)) this.clearGesture();
-    const cancellable = ["starting", "listening", "transcribing"].includes(state);
+    const cancellable = ["starting", "listening", "transcribing", "inserting"].includes(state);
     if (cancellable && !this.escapeRegistered) {
       this.escapeRegistered = registerShortcut(this.globalShortcut, "Escape", () => {
-        this.clearGesture();
-        this.onCancel();
+        this.cancel();
       });
     } else if (!cancellable && this.escapeRegistered) {
       this.globalShortcut.unregister("Escape");
@@ -654,16 +654,25 @@ export class SystemDictationService {
     return this.status();
   }
 
+  cancel(reason) {
+    this.pasteEpoch += 1;
+    this.clearGesture();
+    this.setRuntimeState("idle");
+    this.settledAt = 0;
+    this.onCancel(reason);
+  }
+
   pasteText(text) {
     const value = String(text ?? "").trim();
+    const epoch = this.pasteEpoch;
     this.pasteQueue = this.pasteQueue
       .catch(() => ({ pasted: false, copied: false, error: null }))
-      .then(() => this.performPaste(value));
+      .then(() => this.performPaste(value, epoch));
     return this.pasteQueue;
   }
 
-  async performPaste(text) {
-    if (!text) return { pasted: false, copied: false, error: null };
+  async performPaste(text, epoch) {
+    if (!text || epoch !== this.pasteEpoch) return { pasted: false, copied: false, error: null };
 
     let snapshot = null;
     try {
@@ -690,6 +699,10 @@ export class SystemDictationService {
 
     try {
       await sleep(PASTE_DELAY_MS);
+      if (epoch !== this.pasteEpoch) {
+        if (snapshot !== null && this.clipboard.readText() === text) restoreClipboard(this.clipboard, snapshot);
+        return { pasted: false, copied: false, error: null };
+      }
       const pasted = await this.runPasteCommand(this.platform);
       if (pasted === false) return { pasted: false, copied: true, error: null };
     } catch (error) {

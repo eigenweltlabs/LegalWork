@@ -793,7 +793,7 @@ const callOverlay = new CallOverlay({
 const dictationHud = new DictationHud({
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
-  onCancel: () => recorderService().broadcast({ type: "system-dictation-cancel" }),
+  onCancel: () => systemDictation.cancel(),
   onMeetingStart: () => {
     if (["starting", "listening", "transcribing", "inserting"].includes(systemDictation.runtimeState)) return;
     meetingMonitor.requestStart();
@@ -883,14 +883,21 @@ const systemDictation = new SystemDictationService({
   onToggle: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
   onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),
   onRelease: () => recorderService().broadcast({ type: "system-dictation-release" }),
-  onCancel: (reason) => recorderService().broadcast({ type: "system-dictation-cancel", reason }),
+  onCancel: (reason) => {
+    const recorder = recorderService();
+    recorder.broadcast({ type: "system-dictation-cancel", reason });
+    // Reset and release native work even if the dev renderer is reloading.
+    for (const [id, recording] of recorder.activeRecordings) {
+      if (recording.meta.ephemeral) void recorder.cancelRecording(id).catch(() => {});
+    }
+  },
   onStatus: (status) => {
     recorderService().broadcast({ type: "system-dictation-status", status });
     syncBackgroundPresence();
   },
   onState: (state, message, locale) => {
     if (state !== "listening") dictationMicrophones.setActive(null);
-    void dictationHud.setState(state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
+    void dictationHud.setState(state === "cancelled" ? "idle" : state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
   },
 });
 

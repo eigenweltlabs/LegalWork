@@ -266,7 +266,9 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   shortcuts.callbacks.get("Escape")?.();
   assert.equal(cancels, 3);
   service.setRuntimeState("inserting");
-  assert.equal(shortcuts.callbacks.has("Escape"), false);
+  assert.equal(shortcuts.callbacks.has("Escape"), true);
+  shortcuts.callbacks.get("Escape")?.();
+  assert.equal(cancels, 4);
   service.setRuntimeState("idle");
   assert.equal(shortcuts.callbacks.has("Escape"), false);
 
@@ -292,6 +294,25 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   assert.equal(restoredStatus.registered, true);
   restored.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("cancelling before native paste dispatch skips the shortcut and restores the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  clipboard.writeText("Previous copy");
+  let commands = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true }, shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { commands += 1; return true; }, onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  const paste = service.pasteText("Cancelled transcript");
+  await new Promise(resolve => setTimeout(resolve, 10));
+  service.cancel();
+  assert.equal((await paste).pasted, false);
+  assert.equal(commands, 0);
+  assert.equal(clipboard.readText(), "Previous copy");
 });
 
 test("macOS dictation requires Accessibility and preserves the clipboard after paste", async () => {
@@ -743,6 +764,19 @@ test("a press during completion debounce cannot latch or restart dictation", asy
   t.mock.timers.tick(500);
   await keyMonitor.emit("up", "Fn");
   assert.deepEqual(events, ["start", "finish", "start", "finish"]);
+});
+
+test("cancel frees every busy state before the renderer responds and allows an immediate restart", async t => {
+  const { service, shortcuts, events } = await gestureService(t);
+  service.onCancel = () => { events.push("cancel"); };
+  for (const state of ["starting", "listening", "transcribing", "inserting"]) {
+    service.setRuntimeState(state);
+    shortcuts.callbacks.get("Escape")();
+    assert.equal(service.runtimeState, "idle");
+    service.pressShortcut();
+    assert.equal(events.at(-1), "start");
+    assert.equal(service.runtimeState, "starting");
+  }
 });
 
 test("Escape, monitor reset, and disposal clear a pending double-tap", async (t) => {

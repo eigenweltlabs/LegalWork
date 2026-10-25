@@ -315,7 +315,7 @@ test("canceling while the final transcript is pending does not insert into a dep
   const finish = store.getState().stopRecording();
   await delay(10); await store.getState().cancelRecording();
   pending.resolve(meta); await finish;
-  expect(inserted).toEqual([]); expect(deleted).toBe(1); expect(feedback).toEqual([]);
+  expect(inserted).toEqual([]); expect(cancelled).toBe(1); expect(feedback).toEqual([]);
   expect(store.getState().composerDictation).toBeNull();
 });
 
@@ -444,12 +444,13 @@ test("cancel during capture startup rolls back without ever pasting", async () =
   expect(store.getState().dictationState).toBe("idle"); expect(feedback.at(-1)).toBe("cancelled");
 });
 
-test("cancel during transcription waits for the flush and suppresses insertion", async () => {
+test("cancel during transcription releases the session without waiting for the flush", async () => {
   await store.getState().startSystemDictation();
   const pending = deferred<AudioRecordingMeta>(); stopResult = pending.promise;
   const stop = store.getState().stopRecording(); await delay(10);
   await store.getState().cancelRecording();
-  expect(cancelled).toBe(0); // No deletion under a running flush.
+  expect(cancelled).toBe(1);
+  expect(store.getState().finalizing).toBe(false);
   pending.resolve(meta); await stop;
   expect(pasted).toEqual([]); expect(deleted).toBe(1); expect(feedback.at(-1)).toBe("cancelled");
   expect(store.getState().error).toBeNull(); expect(store.getState().finalizing).toBe(false);
@@ -500,6 +501,73 @@ test("an isolated quick tap cancels capture startup without inserting", async ()
   pending.resolve(capture); await delay(20);
   expect(pasted).toEqual([]); expect(feedback.at(-1)).toBe("cancelled");
   expect(captureStops).toBe(1); expect(cancelled).toBe(1);
+});
+
+test("cancel releases a stalled startup immediately and its late capture cannot replace the next dictation", async () => {
+  const pending = deferred<CaptureHandle>(); captureResult = pending.promise;
+  const starting = store.getState().startSystemDictation();
+  await delay(10);
+  try {
+    await store.getState().cancelRecording();
+    expect(store.getState().starting).toBe(false);
+    expect(store.getState().dictationState).toBe("idle");
+    captureResult = Promise.resolve(capture);
+    await store.getState().startSystemDictation();
+    expect(store.getState().dictationState).toBe("listening");
+    pending.resolve(capture); await starting;
+    expect(store.getState().dictationState).toBe("listening");
+    expect(store.getState().recording).not.toBeNull();
+    expect(pasted).toEqual([]);
+  } finally { pending.resolve(capture); await starting; }
+});
+
+test("cancel releases stalled transcription immediately and its late result cannot finish a new dictation", async () => {
+  const pending = deferred<AudioRecordingMeta>(); stopResult = pending.promise;
+  await store.getState().startSystemDictation();
+  const stopping = store.getState().stopRecording();
+  await delay(10);
+  try {
+    await store.getState().cancelRecording();
+    expect(store.getState().finalizing).toBe(false);
+    expect(store.getState().recording).toBeNull();
+    await store.getState().startSystemDictation();
+    expect(store.getState().dictationState).toBe("listening");
+    pending.resolve(meta); await stopping;
+    expect(store.getState().dictationState).toBe("listening");
+    expect(store.getState().recording).not.toBeNull();
+    expect(pasted).toEqual([]);
+    expect(feedback.at(-1)).toBe("listening");
+  } finally { pending.resolve(meta); await stopping; }
+});
+
+test("cancel during a stalled capture flush permits a new dictation before the flush resolves", async () => {
+  const pending = deferred<void>();
+  captureResult = Promise.resolve({ readLevels: () => ({}), stop: () => pending.promise });
+  await store.getState().startSystemDictation();
+  const stopping = store.getState().stopRecording(); await delay(10);
+  try {
+    await store.getState().cancelRecording();
+    expect(store.getState().finalizing).toBe(false);
+    captureResult = Promise.resolve(capture);
+    await store.getState().startSystemDictation();
+    pending.resolve(); await stopping;
+    expect(store.getState().dictationState).toBe("listening");
+    expect(pasted).toEqual([]);
+  } finally { pending.resolve(); await stopping; }
+});
+
+test("a cancelled shortcut still initializing cannot overwrite a new dictation's feedback", async () => {
+  const pending = deferred<AudioRecorderBootstrap>(); bootstrapResult = () => pending.promise;
+  store.setState({ initialized: false });
+  handleEvent({ type: "system-dictation-press" }); await delay(10);
+  try {
+    handleEvent({ type: "system-dictation-cancel" });
+    handleEvent({ type: "system-dictation-press" }); await delay(10);
+    expect(store.getState().dictationState).toBe("listening");
+    pending.resolve(bootstrap); await delay(10);
+    expect(feedback.at(-1)).toBe("listening");
+    expect(store.getState().dictationState).toBe("listening");
+  } finally { pending.resolve(bootstrap); await delay(10); }
 });
 
 test("a short press during startup shows the shortcut hint without an error", async () => {

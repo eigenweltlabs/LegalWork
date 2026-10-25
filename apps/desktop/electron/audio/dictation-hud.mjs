@@ -62,7 +62,7 @@ export class DictationHud {
       if (action === "start" && this.state === "idle" && this.status.enabled && this.status.registered) this.actions.onStart();
       if (action === "stop" && this.state === "listening") this.actions.onStop();
       if (action === "stop" && this.state === "starting") this.actions.onCancel();
-      if (action === "cancel" && ["starting", "listening", "transcribing"].includes(this.state)) this.actions.onCancel();
+      if (action === "cancel" && ["starting", "listening", "transcribing", "inserting"].includes(this.state)) this.actions.onCancel();
       if (action === "dismiss" && ["error", "success", "copied", "cancelled"].includes(this.state)) void this.setState("idle");
     };
     this.onPointer = (event, interactive) => {

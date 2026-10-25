@@ -264,10 +264,21 @@ export async function startCapture(
   let meterTimer: number | null = null;
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
+  const signal = options.signal;
+  const interruptible = <T>(operation: Promise<T>): Promise<T> => {
+    if (!signal) return operation;
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      void operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+  };
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
+    signal?.removeEventListener("abort", abortCapture);
     if (meterTimer !== null) window.clearInterval(meterTimer);
     for (const recorder of recorders) {
       if (recorder.state !== "inactive") recorder.stop();
@@ -282,12 +293,10 @@ export async function startCapture(
     streams.clear();
     await context.close().catch(() => {});
   };
+  const abortCapture = () => { void cleanup().catch(() => {}); };
+  signal?.addEventListener("abort", abortCapture, { once: true });
 
   try {
-    // A context created while every window is hidden/unfocused can start out
-    // suspended; the graph would build fine and record silence.
-    if (context.state === "suspended") await context.resume().catch(() => {});
-
     const loadWorklet = async () => {
       const workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: "text/javascript" }));
       try {
@@ -316,16 +325,7 @@ export async function startCapture(
       // Cancel startup without waiting for an OS microphone request. A late
       // stream is released above, and both preparation failures are observed.
       const preparation = Promise.allSettled([loadWorklet(), openMicrophone()]);
-      const signal = options.signal;
-      const results = signal ? await new Promise<Awaited<typeof preparation>>((resolve, reject) => {
-        const abort = () => reject(signal.reason);
-        signal.addEventListener("abort", abort, { once: true });
-        if (signal.aborted) abort();
-        void preparation.then(results => {
-          signal.removeEventListener("abort", abort);
-          resolve(results);
-        });
-      }) : await preparation;
+      const results = await interruptible(preparation);
       for (const result of results) {
         if (result.status === "rejected") throw result.reason;
       }
@@ -340,7 +340,7 @@ export async function startCapture(
 
     // Build every branch while paused, then start on one shared clock. This
     // keeps timestamps aligned even when opening the second device took time.
-    await context.suspend();
+    await interruptible(context.suspend());
     const inputs = new Map<AudioCaptureSourceKind, MediaStreamAudioSourceNode>();
     const mix = context.createGain();
     for (const [kind, stream] of streams) {
@@ -419,7 +419,9 @@ export async function startCapture(
     } else {
       transcribeAudio(bus);
     }
-    await context.resume();
+    // Open the microphone before resuming. A background context can otherwise
+    // wait for capture/user activation while preventing capture from starting.
+    await interruptible(context.resume());
     options.signal?.throwIfAborted();
 
     const onMicrophone = callbacks.onMicrophone;
@@ -504,7 +506,7 @@ export async function startCapture(
             await cleanup();
           }
         })();
-        return stopPromise;
+        return interruptible(stopPromise);
       },
     };
   } catch (error) {

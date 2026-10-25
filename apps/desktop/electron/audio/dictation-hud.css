@@ -260,7 +260,8 @@ body[data-state=listening] #cancel,
 body[data-state=listening] #stop,
 body[data-state=starting] #cancel,
 body[data-state=starting] #stop,
-body[data-state=transcribing] #cancel {
+body[data-state=transcribing] #cancel,
+body[data-state=inserting] #cancel {
   display:flex
 }
 
@@ -277,7 +278,8 @@ body[data-state=starting] #waveform i {
   will-change:transform
 }
 
-body[data-state=transcribing] #bar {
+body[data-state=transcribing] #bar,
+body[data-state=inserting] #bar {
   width:160px;
   gap:7px
 }
