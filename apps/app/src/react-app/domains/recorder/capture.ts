@@ -444,20 +444,27 @@ export async function startCapture(
     }
 
     const flushPcm = async () => {
-      if (context.state === "suspended") await context.resume();
-      await Promise.all(worklets.map(async node => {
-        let timeout: number | undefined;
-        try {
-          await new Promise<void>((resolve, reject) => {
-            pcmFlushes.set(node, resolve);
+      let timeout: number | undefined;
+      try {
+        // Resuming can itself stall. The deadline covers the entire flush,
+        // including that wait, so Stop always releases the microphone.
+        await Promise.race([
+          new Promise<never>((_resolve, reject) => {
             timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 1500);
-            node.port.postMessage("flush");
-          });
-        } finally {
-          pcmFlushes.delete(node);
-          if (timeout !== undefined) window.clearTimeout(timeout);
-        }
-      }));
+          }),
+          (async () => {
+            if (context.state === "suspended") await context.resume();
+            if (stopped) return;
+            await Promise.all(worklets.map(node => new Promise<void>(resolve => {
+              pcmFlushes.set(node, resolve);
+              node.port.postMessage("flush");
+            })));
+          })(),
+        ]);
+      } finally {
+        for (const node of worklets) pcmFlushes.delete(node);
+        if (timeout !== undefined) window.clearTimeout(timeout);
+      }
     };
 
     const onMeter = callbacks.onMeter;

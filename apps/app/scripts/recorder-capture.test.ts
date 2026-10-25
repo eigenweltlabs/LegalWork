@@ -213,3 +213,22 @@ test("finishing dictation flushes transcription without waiting for the playback
     await stopping;
   }
 });
+
+test("finishing dictation bounds a suspended audio context even when resume never acknowledges", async () => {
+  const capture = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} }, { dictation: true });
+  let releaseResume = () => {};
+  const pending = new Promise<void>(resolve => { releaseResume = resolve; });
+  contexts[0].state = "suspended";
+  contexts[0].resume = () => pending;
+  Object.assign(window, { setTimeout: (callback: () => void, ms: number) => setTimeout(callback, Math.min(ms, 10)) });
+  const stopping = capture.stop();
+  try {
+    const outcome = stopping.then(() => "stopped", error => error.message);
+    expect(await Promise.race([outcome, new Promise(resolve => setTimeout(() => resolve("pending"), 50))])).toBe("recorder.capture_finish_failed");
+    expect(contexts[0].inputs[0].source.track.readyState).toBe("ended");
+    expect(contexts[0].state).toBe("closed");
+  } finally {
+    releaseResume();
+    await stopping.catch(() => {});
+  }
+});
