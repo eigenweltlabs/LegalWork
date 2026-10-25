@@ -24,17 +24,28 @@ pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/app build:word-addin
 ```
 
-## Word UI verification limit
+## Word UI and document tools
 
-Microsoft Word 16.114.1 was running and recognized the isolated test add-in. The final updated pane could not be exercised end to end: native UI automation returned `noWindowsAvailable` for coordinate actions and subsequently `timeoutReached` when reconnecting to Word. The Electron HTTPS/API checks above passed, but do not establish that Word's current webview completes the new manifest handoff.
+The updated pane was successfully exercised in Microsoft Word 16.114.1 against the PR checkout's Electron 43.7.5 app. The test used an isolated desktop profile, a private test manifest, and a synthetic document named `Seamless Word Connection Test.docx`.
 
-To finish that check manually:
+1. Opened the document in real Word and loaded the installed add-in. It advanced to the workspace list and displayed **Ready** without a code or desktop approval dialog.
+2. Opened the test workspace and created a conversation from the Word pane.
+3. Called the authenticated Office tool relay. The real Word pane executed `word_read_document`, `word_replace_text`, `word_add_comment`, and `word_search` through Office.js. The replacement changed the payment period from **60 to 75 days** and reported `trackedChange: true`; search found the new sentence once.
+4. Saved the document in Word. The title displayed **Saved to my Mac**. Reading the saved DOCX confirmed that the replacement text and the new comment were present.
+5. Closed all test add-in panes, stopped the isolated Electron process, and launched the same PR checkout again.
+6. Reopened the installed add-in from Word's **Open LegalWork** button. It displayed the workspace/session list and **Ready** without a code or approval dialog.
+7. Resumed the conversation and repeated document read and search successfully through the real Word pane. The earlier Office credential also remained valid after the Electron restart.
+
+[Sanitized native test results](office-automatic-connection-results.json) record the checked revision, versions, and outcomes. Word UI screenshots were captured during the run in the accompanying chat.
+
+The isolated profile had no model provider connected. This run tested the actual Word webview, automatic authentication, Electron restart, and live Office.js document operations directly through LegalWork's relay; it did not make a new model inference request. The earlier production model run below covers that separate path.
+
+To reproduce manually:
 
 1. Build and start this PR's desktop app.
 2. Enable the Word add-in in LegalWork, then open it from Word's Add-ins menu. An already enabled installation refreshes its manifest automatically; restart Word if it caches the previous manifest.
-3. Confirm the pane connects without a code or an approval dialog, and that document read/edit tools work.
-4. Restart LegalWork, then reopen the pane. Confirm it reconnects without prompting.
-5. For an existing pane with a previous application credential, confirm it migrates automatically and still connects.
+3. Confirm the pane connects without a code or an approval dialog, and exercise document read/edit/comment/search tools on a synthetic document.
+4. Save the document, close the pane, restart LegalWork, and reopen the pane. Confirm it reconnects without prompting and document tools still work.
 
 ## Earlier production model regression check
 
