@@ -57,7 +57,9 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   let unavailable = true;
   // Preserve readFile's encoding-dependent overloads while injecting this OS failure.
   const readCloudFile = async (path: Parameters<typeof read>[0], options: Parameters<typeof read>[1]) => {
-    if (path === stamp && unavailable) throw Object.assign(new Error("Unknown system error -81, read"), { errno: -81 });
+    if (path === stamp && unavailable) throw Object.assign(new Error("Unknown system error -81, read"), {
+      code: process.platform === "darwin" ? "Unknown system error -81" : "ENEEDAUTH", errno: -81,
+    });
     return read(path, options);
   };
   const spy = spyOn(fs, "readFile").mockImplementation(readCloudFile as typeof read);
@@ -80,7 +82,10 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   }
   const failed = await fetch(`${server.url}/workspace/${cloudId}/project`, { headers });
   expect(failed.status).toBe(503);
-  expect(await failed.json()).toMatchObject({ code: "cloud_auth_required", message: expect.stringContaining("sign in") });
+  const failure = await failed.json();
+  expect(failure.code).toBe("cloud_auth_required");
+  expect(failure.message).toContain("sign in");
+  expect(failure.message).toContain(`Folder: ${cloud}\n`);
   unavailable = false;
   expect((await fetch(`${server.url}/workspace/${cloudId}/project`, { headers })).status).toBe(200);
 }, 30_000);
