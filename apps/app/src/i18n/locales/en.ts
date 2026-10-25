@@ -3091,6 +3091,8 @@ export default {
   "mcp.quick_connect_box_title": "Box",
   "mcp.quick_connect_courtlistener_desc": "Search and cite free US case law, dockets, PACER filings, and judge data from Free Law Project.",
   "mcp.quick_connect_courtlistener_title": "CourtListener",
+  "mcp.quick_connect_firecrawl_desc": "Search US statutes, regulations, court opinions and government publications with Firecrawl's Government & Legal Index.",
+  "mcp.quick_connect_firecrawl_note": "Sign in with your Firecrawl account.",
   "mcp.quick_connect_dingduff_desc": "Plain-English legal research from DingDuff — millions of court opinions, federal and state statutes and rules, and PACER filings. One-click sign-in with your DingDuff account.",
   "mcp.quick_connect_dingduff_title": "DingDuff",
   "mcp.quick_connect_dropbox_desc": "Search, read, and manage matter files in the firm's Dropbox using your Dropbox account.",
