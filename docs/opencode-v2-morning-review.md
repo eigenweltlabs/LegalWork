@@ -1,33 +1,63 @@
 # Review when you return
 
-The migration is unfinished. The last reconciled spend snapshot is **€15.01
-across558 calls**; newer completed calls have not yet been reconciled.
+The migration is unfinished. Confirmed model charges are **€17.12 across 638 calls**,
+checked twice on 26 October at 19:44–19:47 UTC. All 80 newer calls match full
+response IDs. The conservative ledger still holds €57.76 because its existing
+settlement API cannot update those already settled estimates; originals and two
+uncertain historical holds are preserved. This is distinct from actual charges.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 The migration branch is pushed for CI; no release or default-engine switch has occurred.
 
-## Current checkpoint — 26 October, 19:45 UTC
+## Current checkpoint — 26 October, 20:35 UTC
 
-Approximately 80% remains an engineering estimate. The second CI run reused and
-verified all 12 engine artifacts; three sandbox targets passed, while both
-Windows hosts panicked on the temporary old Bun version and Mac Intel retained
-capacity/guest/proxy failures. The actual six-platform desktop jobs did not run.
-Current fixes restore Bun 1.4.4, update the existing HTTP transport dependency to
-supported 8.12.3, repair clean-checkout fixtures and fix a managed-engine startup
-race. Original full proxy tests pass 2/128; raw transport 33/191; lifecycle focused
-10/35 and actual-engine1/33. No task assertion, output cap or timeout was relaxed.
-The 27.6s proxy test remains close to its existing 30s budget. New TMP capacity
-diagnostics will distinguish Mac Intel disk pressure from runtime reporting.
+Repeated percentage estimates have been retired: they did not communicate the
+remaining work reliably. The concrete gates are actual app/engine execution on
+all six configurations, context and scheduled execution, and signed derivative
+adoption. Three autonomous subagents own platform CI, Mac signing/distribution,
+and context/scheduling; the orchestrator handles integration and final review.
 
-The real native queue completed Send, pause, enqueue, edit, remove, reorder and
-Stop. Its recorder then failed before restart; full stopped state is preserved.
-Continuation uses that same paused queue without replaying the initial message.
-Restart/Resume, context and scheduling still require acceptance. One remaining
-VM is safely extended to 21:55 UTC; completed Windows/Linux evidence is cloud-safe.
+The third run40389826731 passed five sandbox configurations. Intel Mac failed
+only the proxy test's aggregate30s allowance; capacity diagnostics showed about
+100.8GiB free. Its original per-mode checks are now separate tests with the same
+30s allowance each (4pass/134 assertions; all128 original checks retained).
+Linux unit tests exposed a selected-engine layout assumption in a desktop fixture;
+Mac unit tests lacked the normal server/plugin build. Both are corrected. Actual
+packaged-app jobs were skipped, so the additional three configurations remain open.
 
-Optional pre-pin Mac Developer ID signing is implemented and 25 focused tests
-pass. This Mac has no valid signing identity currently, so production signed
-engine execution remains unverified. Existing artifacts/default selection are
-unchanged; no publication has occurred.
+The next [six-platform run40395337521](https://github.com/eigenweltlabs/legalwork/actions/runs/40395337521)
+uses the unchanged verified12-target producer. A Windows test preload used a raw
+filesystem path instead of a file URL; the narrow correction is committed while
+the other jobs continue. Original failed runs remain retained. Diagnostic packaging is being decoupled
+from sandbox-test success, while failed sandbox tests still fail the overall run.
+No successful six-platform packaged-app execution is claimed yet.
+
+The native queue has completed pause, enqueue, edit, remove, reorder, Stop,
+restart and Resume with exact history/paused-queue recovery, exactly-once native
+admission and saved task outputs. The original controller/recorder failures remain
+failed; the separately labelled continuation uses the same chat/profile and never
+replays initial Send. It used a recorded synthetic provider and proves functional
+queue behavior, not legal reasoning quality or model performance.
+
+Context testing found ordinary /compact was rejected before queue admission:
+OpenCode exposes it through a separate native API. The server dispatch correction
+and real UI retest are in progress. The originally frozen scheduler task requests
+capabilities that both v1 and v2 scheduled profiles forbid; it stays a negative
+permission case. A separate useful task using ordinary scheduled permissions is
+required. One remaining VM has a finite21:55UTC deletion lease.
+
+The [Mac signing run40395265646](https://github.com/eigenweltlabs/legalwork/actions/runs/40395265646)
+now passes exact identity import and both signing-context preflights after its
+owned temporary keychain was added to the CI user's search list. Earlier failures
+are retained. All three Mac binaries have compiled and signed; independent ARM
+engine/restart/auth/Code Mode/JIT/native-module runtime checks pass. Intel runtime
+checks and complete distribution pins still await results. No artifact/default selection was
+mutated, and nothing has been published.
+
+Canonical Bun1.4.4 bundle generation also exposed an installed deadline-skill
+compatibility issue. Exact reviewed earlier compiler outputs remain accepted only
+for their unchanged rule version; edited files remain refused and receipts record
+the actual executed code hash. Both earlier bundles and the new bundle pass all88
+existing legal-rule tests. No rules, dependencies or agent output limits change.
 
 Read-only PostHog inspection at 19:43 UTC found 1,626 SG app openings in the previous
 24h: 1,613 version 0.2.9 and 13 version 0.2.17, all Linux x86_64 with distinct IDs.
