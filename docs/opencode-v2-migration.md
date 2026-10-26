@@ -4,15 +4,20 @@
 
 The implementation checkout, `codex/opencode-v2-migration`, now includes
 `eigenweltlabs/legalwork` dev commit
-`ab624cb265ee6bc6c825ae7ea0b02a131b4fbe9b`, fetched and integrated on
-2026-10-25. Its Firecrawl and Office pairing changes and retirement of unused
-sharing/messaging are preserved. Frozen paid comparison packages retain their
-common `fdb89d9e06990fd7fa9517c59b5709d8857453a7` source; final packages add
-the reviewed migration fixes to current dev. The original detached v1
+`3b214a80c6df6739d34e5c14506406e2c75cd149`, fetched again on
+2026-10-26. Firecrawl, Office pairing, retirement of unused sharing/messaging,
+checkout/sign-in expiry and Mac updater shutdown changes are preserved. Earlier
+comparison packages retain their frozen `fdb89d9e06990fd7fa9517c59b5709d8857453a7`
+source; final7 and final8 retain their exact later `9c278ff0` base and captured
+migration changes. Current CI uses the latest-dev integration. The original detached v1
 baseline at `4cd058941a96752ce7aca97ea71c97341f56a84b` and all earlier receipts
 remain immutable historical evidence. Comparison-source differences must be
 reported explicitly; passing an older comparison does not close final-package
 acceptance. Existing user working copies are not migration inputs.
+
+For current results and remaining gates, use the
+[acceptance register](opencode-v2-capability-status.md). Historical test
+checkpoints below retain their original failures and do not override that register.
 
 - **D1, approved:** released local OpenCode v2 server with `@opencode/client`,
   following upstream's desktop/server integration. Target stable version 2.1.4.
@@ -211,6 +216,10 @@ metered, and the reservation is not an unconditional cloud-invoice ceiling.
   These local fixture tests submit no paid model requests.
 
 ## Remaining implementation and decision gates
+
+Historical implementation checkpoint: subsequent patched-engine builds,
+cross-platform tests and runtime corrections are recorded in the
+[current acceptance register](opencode-v2-capability-status.md).
 
 - **Native MCP tool-readiness race:** the unmodified 2.1.4 engine can accept an
   immediate prompt after reconnection before the connector's tools enter that
