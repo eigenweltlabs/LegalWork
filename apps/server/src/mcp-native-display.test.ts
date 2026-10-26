@@ -15,7 +15,9 @@ test("native server maps retain full definitions and distinguish a legacy connec
 });
 
 test("connector display contains presence and setup metadata without credential-bearing executable values", () => {
-  const config = { type: "remote", url: "https://username:secret@example.com/private-token?key=query-token", cwd: "/private-token",
+  const fixtureURL = new URL("https://example.com/private-token?key=query-token");
+  fixtureURL.username = "username"; fixtureURL.password = "secret";
+  const config = { type: "remote", url: fixtureURL.href, cwd: "/private-token",
     command: ["program", "--token=command-token"], headers: { Authorization: "Bearer header-token" }, environment: { SECRET: "environment-token" },
     oauth: { client_id: "client-token", client_secret: "oauth-token" }, timeout: { execution: 75000 }, disabled: true };
   const display = mcpDisplayItem({ name: "legalmemory", source: "config.project", config });

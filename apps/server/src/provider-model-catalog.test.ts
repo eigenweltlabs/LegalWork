@@ -33,7 +33,9 @@ test("uses Eigenwelt's catalog when the override is blank", () => {
 });
 
 test("rejects third-party overrides, credentials, queries, and insecure remote URLs", () => {
-  for (const url of ["https://models.opencode.ai", "https://platform.eigenweltlabs.com.other.example", "http://platform.eigenweltlabs.com", "https://user:secret@platform.eigenweltlabs.com", "https://platform.eigenweltlabs.com/?user=123"]) {
+  const fixtureURL = new URL("https://platform.eigenweltlabs.com");
+  fixtureURL.username = "user"; fixtureURL.password = "secret";
+  for (const url of ["https://models.opencode.ai", "https://platform.eigenweltlabs.com.other.example", "http://platform.eigenweltlabs.com", fixtureURL.href, "https://platform.eigenweltlabs.com/?user=123"]) {
     process.env.OPENCODE_MODELS_URL = url;
     expect(modelCatalogBaseURL).toThrow();
   }
