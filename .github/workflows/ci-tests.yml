@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       package_desktop:
-        description: Build and launch desktop packages on Linux and Windows
+        description: Build and execute desktop and reviewed engine on all six shipped OS/CPU configurations
         type: boolean
         default: false
 
@@ -47,10 +47,15 @@ jobs:
       needs.sandbox-changes.outputs.required == 'true' &&
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
+  opencode-derivative:
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+    uses: ./.github/workflows/ci-opencode-derivative.yml
   desktop-packaging:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-derivative]
     uses: ./.github/workflows/ci-desktop-packaging.yml
+    with:
+      derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   windows-meetings:
     runs-on: windows-latest
     timeout-minutes: 5
@@ -81,6 +86,8 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 
   legalwork-tests:
+    needs: opencode-derivative
+    if: always() && (needs.opencode-derivative.result == 'success' || needs.opencode-derivative.result == 'skipped')
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -102,9 +109,19 @@ jobs:
         with:
           version: 11.4.0
 
+      - uses: actions/download-artifact@v4
+        if: needs.opencode-derivative.result == 'success'
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Select the reviewed acceptance engine
+        if: needs.opencode-derivative.result == 'success'
+        env:
+          MANIFEST_SHA256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+        run: node scripts/ci/select-opencode-derivative.mjs "$RUNNER_TEMP/opencode-derivative/derivative-release.json" "$MANIFEST_SHA256"
       - uses: ./.github/actions/setup-opencode
         with:
-          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
+          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -131,6 +148,11 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
+      - name: Verify released engine authentication, native plugin modules, and shutdown
+        run: |
+          node --test apps/desktop/electron/opencode-release.test.mjs
+          bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
+
       - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build
@@ -138,6 +160,9 @@ jobs:
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
+
+      - name: Verify Node development-server history and restart
+        run: node --test apps/server/scripts/dev-node.test.mjs
 
       - name: Verify whole-agent prompt cache contract
         env:
@@ -211,8 +236,6 @@ jobs:
         with:
           bun-version: 1.4.2
       - uses: ./.github/actions/setup-opencode
-        with:
-          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:

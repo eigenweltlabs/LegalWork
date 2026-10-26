@@ -74,3 +74,7 @@ apps/server/resources/agent-sandbox/runtime/
 
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/
+
+# Digest-verified OpenCode download archives used by local builds/tests.
+/.cache/opencode/
+/.cache/opencode-v2-release/

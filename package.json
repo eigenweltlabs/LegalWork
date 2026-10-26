@@ -27,7 +27,7 @@
     "test:session-switch": "pnpm --filter @legalwork/app test:session-switch",
     "test:fs-engine": "pnpm --filter @legalwork/app test:fs-engine",
     "test:e2e": "pnpm --filter @legalwork/app test:e2e",
-    "test:orchestrator": "pnpm --filter legalwork-orchestrator test:router",
+    "test:orchestrator": "pnpm --filter legalwork-orchestrator test:cli",
     "release:review": "node scripts/release/review.mjs",
     "release:prepare": "node scripts/release/prepare.mjs",
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",

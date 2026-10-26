@@ -21,6 +21,7 @@ import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
 import { ProjectHome } from "../../workspace/project-home";
 import { ProjectPersonalisationProvider } from "../../workspace/project-personalisation-modal";
+import { EngineProjectApproval } from "../../workspace/engine-project-approval";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -214,6 +215,7 @@ export type SessionPageProps = {
   clientConnected: boolean;
   legalworkServerStatus: LegalworkServerStatus;
   legalworkServerClient: LegalworkServerClient | null;
+  onEngineProjectApproved?: () => void;
   environmentClient?: LegalworkServerClient | null;
   legalworkServerToken?: string | null;
   developerMode: boolean;
@@ -611,7 +613,7 @@ export function SessionPage(props: SessionPageProps) {
       }
       return;
     }
-    if (options?.external && target.kind === "file" && props.selectedWorkspaceDisplay.workspaceType !== "remote") {
+    if (options?.external && target.kind === "file") {
       const path = absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value);
       if (path && isElectronRuntime()) {
         void (async () => {
@@ -640,9 +642,7 @@ export function SessionPage(props: SessionPageProps) {
 
     if (!isCollectibleArtifactTarget(target)) {
       if (isOpenableFileTarget(target)) {
-        if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
-          void downloadOpenTarget(target).catch(() => undefined);
-        } else if (isElectronRuntime()) {
+        if (isElectronRuntime()) {
           void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value)).catch(() => undefined);
         }
       }
@@ -679,7 +679,7 @@ export function SessionPage(props: SessionPageProps) {
   const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry, permanent = false) => {
     const preview = classifyOpenTarget(entry.name, "file");
     if (preview === "external" || preview === "browser") {
-      if (props.selectedWorkspaceDisplay.workspaceType !== "remote" && isElectronRuntime()) {
+      if (isElectronRuntime()) {
         void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, entry.path)).catch(() => undefined);
       } else {
         void downloadOpenTarget({
@@ -884,10 +884,7 @@ export function SessionPage(props: SessionPageProps) {
       <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
     </div>
   ) : null;
-  const selectedWorkspaceErrorTitle =
-    props.selectedWorkspaceDisplay.workspaceType === "remote"
-      ? "Remote workspace unavailable"
-      : "OpenCode unavailable";
+  const selectedWorkspaceErrorTitle = "OpenCode unavailable";
 
   const reactSessionBaseUrl = props.opencodeBaseUrl?.trim() ?? "";
   const reactSessionToken =
@@ -1043,7 +1040,7 @@ export function SessionPage(props: SessionPageProps) {
   ) : view === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : view === "files" ? <ProjectFilesPage
-    local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: props.selectedWorkspaceRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: props.selectedWorkspaceDisplay.workspaceType === "remote", active, onOpenFile: openWorkspaceFileEntry }}
+    local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: props.selectedWorkspaceRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: false, active, onOpenFile: openWorkspaceFileEntry }}
     connected={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, onOpenFile: openLegalMemoryFile, onOpenStorageFile: openStorageFile, onConnectStorage: props.sidebar.onShowFileStorage }}
   /> : view === "sessions" ? <ProjectSessionsPage
     workspaceId={props.selectedWorkspaceId}
@@ -1061,7 +1058,7 @@ export function SessionPage(props: SessionPageProps) {
       client={props.legalworkServerClient}
       workspaceId={props.runtimeWorkspaceId}
       projectId={props.selectedWorkspaceId}
-      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+      isRemoteWorkspace={false}
       onStartRecording={props.onStartProjectRecording}
       inWorkspace={inWorkspace}
       active={active}
@@ -1099,7 +1096,7 @@ export function SessionPage(props: SessionPageProps) {
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
           workspaceRoot={props.selectedWorkspaceRoot}
-          isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+          isRemoteWorkspace={false}
           projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}
           onOpenFile={openWorkspaceFileEntry}
           onClose={closeFileSidebar}
@@ -1268,6 +1265,7 @@ export function SessionPage(props: SessionPageProps) {
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               {workspaceErrorNotice}
+              {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectApproval client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onApproved={props.onEngineProjectApproved} /> : null}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
@@ -1303,8 +1301,8 @@ export function SessionPage(props: SessionPageProps) {
                       client={props.legalworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
-                      projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
-                      isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+                      projects={props.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
+                      isRemoteWorkspace={false}
                       onClose={closeRightPane}
                       renderWikiTab={renderWikiTab}
                     /></div>
@@ -1359,7 +1357,7 @@ export function SessionPage(props: SessionPageProps) {
             </> : null}
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-
+                {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectApproval client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onApproved={props.onEngineProjectApproved} /> : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
@@ -1481,7 +1479,7 @@ export function SessionPage(props: SessionPageProps) {
                 <ResizablePanel defaultSize="280px" minSize="160px" maxSize="55%" className="min-h-0">
                   <TerminalDock
                     workspaceRoot={props.selectedWorkspaceRoot}
-                    isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
+                    isRemoteWorkspace={false}
                     onClose={() => props.onTerminalOpenChange?.(false)}
                   />
                 </ResizablePanel>
@@ -1559,7 +1557,7 @@ export function SessionPage(props: SessionPageProps) {
             workspaceId={props.runtimeWorkspaceId}
             workspaceRoot={props.selectedWorkspaceRoot}
             isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-            projects={props.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
+            projects={props.workspaces.map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
             visible={!hasMainView}
             onClose={closeRightPane}
             projectId={props.selectedWorkspaceId}

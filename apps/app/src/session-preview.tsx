@@ -4,7 +4,7 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "@/app/lib/opencode-view";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */

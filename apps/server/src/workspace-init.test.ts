@@ -51,7 +51,7 @@ describe("ensureWorkspaceFiles", () => {
   test("uses shipped extension preview plugin", async () => {
     const pluginPath = legalworkExtensionsPreviewPluginPath();
     const plugin = await readFile(pluginPath, "utf8");
-    expect(pluginPath).toContain(join("opencode-plugins", "legalwork-extensions-preview.ts"));
+    expect(pluginPath).toContain(join("opencode-plugins", "legalwork-extensions-preview", "index.js"));
     expect(plugin).toContain("legalwork_extension_call");
   });
 
@@ -65,7 +65,7 @@ describe("ensureWorkspaceFiles", () => {
         join(resourcesPath, "app.asar", "server", "dist"),
       );
 
-      expect(pluginPath).toBe(join(resourcesPath, "opencode-plugins", "legalwork-extensions-preview.js"));
+      expect(pluginPath).toBe(join(resourcesPath, "opencode-plugins", "legalwork-extensions-preview", "index.js"));
       expect(pluginPath).not.toContain("app.asar");
     } finally {
       if (previousResourcesPath) {

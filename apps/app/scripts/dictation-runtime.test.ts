@@ -67,6 +67,8 @@ mock.module("../src/react-app/domains/recorder/capture", () => ({
 }));
 mock.module("../src/react-app/domains/recorder/model-tiers", () => ({ MODEL_TIERS: [], isPremiumEntitled: () => true, isPremiumEntitlementKnown: () => true, tierForModelId: () => null }));
 mock.module("../src/app/lib/opencode", () => ({ unwrap: (value: unknown) => value }));
+mock.module("../src/app/lib/opencode-read", () => ({ createSessionView: noop, readMessages: noop }));
+mock.module("../src/app/lib/system-reminder", () => ({ sendSessionPrompt: noop }));
 mock.module("../src/app/lib/desktop", () => ({
   audioRecordingSetProject: async () => retainedRecordings,
   audioSystemDictationSetState: async (state: string, message: string) => { feedback.push(message ? state + ":" + message : state); return status; },

@@ -12,8 +12,8 @@
     "build:bin:bundled": "node scripts/clean-dist.mjs && node ../desktop/scripts/prepare-sidecar.mjs --outdir dist && bun ./script/build.ts --outdir dist --filename legalwork && bun scripts/build-bin.ts",
     "build:sidecars": "node scripts/build-sidecars.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "test:router": "pnpm build && node scripts/router.mjs",
-    "test:files": "pnpm build && node scripts/files-session.mjs",
+    "test:cli": "bun test src/developer-launcher-retirement.test.ts",
+    "test:files": "pnpm --filter legalwork-server build && pnpm build && node scripts/files-session.mjs",
     "prepublishOnly": "node -e \"console.error('legalwork-orchestrator is published via apps/orchestrator/scripts/publish-npm.mjs (meta + platform packages)'); process.exit(1);\"",
     "test:messaging-removal": "pnpm build && node --test scripts/messaging-removal.test.mjs"
   },
@@ -45,11 +45,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.18.29",
+    "@opencode/client": "2.1.4",
     "@opentui/core": "0.1.77",
     "@opentui/solid": "0.1.77",
     "legalwork-server": "0.0.0",
-    "solid-js": "1.9.9"
+    "solid-js": "1.9.9",
+    "@legalwork/opencode-release": "workspace:*"
   },
   "devDependencies": {
     "@opentui/core-darwin-arm64": "0.1.77",

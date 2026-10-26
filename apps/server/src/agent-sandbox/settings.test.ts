@@ -69,9 +69,14 @@ test("network settings API authenticates, validates, persists and respects read-
     await mkdir(folder);
     config.workspaces.push({ id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local" });
     config.authorizedRoots.push(folder);
-    const engine = Bun.serve({ port: 0, fetch: (request) => new URL(request.url).pathname === "/agent"
-      ? Response.json([{ name: "build", permission: [{ permission: "*", pattern: "*", action: "allow" }] }])
-      : Response.json({ id: new URL(request.url).pathname.split("/").pop(), directory: folder }) });
+    const engine = Bun.serve({ port: 0, fetch(request) {
+      const path = new URL(request.url).pathname, location = { directory: folder };
+      if (path === "/api/agent") return Response.json({ location, data: [{ id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] }] });
+      if (path === "/api/model") return Response.json({ location, data: [] });
+      if (path === "/api/config") return Response.json([]);
+      if (path.startsWith("/api/session/")) return Response.json({ data: { id: path.split("/").pop(), agent: "build", location } });
+      return new Response("Unknown native fixture route", { status: 404 });
+    } });
     config.opencodeBaseUrl = engine.url.origin;
     const sessionPath = base + "/workspace/matter/sandbox/session/chat-1";
     expect((await fetch(sessionPath, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ settings: { enabled: true, networkMode: "block" } }) })).status).toBe(401);

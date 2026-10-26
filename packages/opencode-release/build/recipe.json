@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "kind": "legalwork-patched-source-build",
+  "baseVersion": "2.1.4",
+  "version": "2.1.4-legalwork.http-policy.3",
+  "channel": "legalwork",
+  "upstream": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+  },
+  "toolchain": {
+    "bun": "1.4.4",
+    "executables": {
+      "darwin-arm64": {
+        "package": "@oven/bun-darwin-aarch64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-darwin-aarch64/-/bun-darwin-aarch64-1.4.4.tgz",
+        "integrity": "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw==",
+        "sha256": "0a2237cdcfa0d16ef501d9acca9f0026309ef348bea7393a64e8d1e3609565cc"
+      }
+    }
+  },
+  "targets": [
+    "darwin-arm64",
+    "darwin-x64",
+    "darwin-x64-baseline",
+    "linux-arm64",
+    "linux-arm64-musl",
+    "linux-x64",
+    "linux-x64-baseline",
+    "linux-x64-musl",
+    "linux-x64-baseline-musl",
+    "windows-arm64",
+    "windows-x64",
+    "windows-x64-baseline"
+  ],
+  "inputs": {
+    "patch": {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+      "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0"
+    },
+    "lockfile": {
+      "path": "packages/opencode-release/build/inputs/bun.lock",
+      "sha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2"
+    },
+    "rootPackage": {
+      "path": "packages/opencode-release/build/inputs/root-package.json",
+      "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
+    },
+    "testReceipt": {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json",
+      "sha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae"
+    }
+  },
+  "buildStatus": "tested-source-lock",
+  "testEvidence": {
+    "receiptSha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae",
+    "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
+    "patchSha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0",
+    "bun": "1.4.4",
+    "focusedTests": 188,
+    "randomizedHttpExecutions": 90,
+    "fullCodeModePassed": 1416,
+    "fullCorePassed": 6766,
+    "fullCoreSkipped": 43,
+    "fullCorePreexistingMacShellFailures": 7,
+    "fullCoreNewFailures": 0,
+    "canonicalCheckTasks": 34,
+    "rootSourceReviewSha256": "e585f41c07806ea7c000a720268fa2782144b1585f4b0120fdbff3f6552d44f1"
+  }
+}

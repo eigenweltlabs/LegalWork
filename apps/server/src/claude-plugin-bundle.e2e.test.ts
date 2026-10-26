@@ -97,6 +97,7 @@ function startMockOpencode() {
     fetch(request) {
       const url = new URL(request.url);
       requests.push({ method: request.method, pathname: url.pathname });
+      if (url.pathname === "/api/config" && request.method === "GET") return Response.json([]);
       return Response.json({});
     },
   }) as Served;
@@ -108,6 +109,7 @@ async function startLegalwork(options?: { branch?: string }) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "legalwork-claude-plugin-"));
   roots.push(workspaceRoot);
   setEnv("LEGALWORK_RUNTIME_DB", join(workspaceRoot, "runtime.sqlite"));
+  setEnv("XDG_CONFIG_HOME", join(workspaceRoot, "global"));
 
   const github = startMockGithub(options);
   setEnv("LEGALWORK_GITHUB_API_BASE", `http://127.0.0.1:${github.port}`);
@@ -238,6 +240,7 @@ describe("claude plugin bundles use the shared import lifecycle", () => {
     const connectorName = preview.review.connectors?.find(item => item.name === "slack")?.installedName;
     const list = await (await fetch(`${legalwork.base}/workspace/ws_1/mcp`, { headers: legalwork.headers })).json();
     expect(list.items.some((item: { name: string }) => item.name === connectorName)).toBe(true);
+    expect(legalwork.engine.requests).toContainEqual({ method: "GET", pathname: "/api/config" });
     const removal = await fetch(`${legalwork.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(body.item.pluginId)}`, { method: "DELETE", headers: legalwork.headers });
     expect(removal.status).toBe(200);
     expect(existsSync(skillPath)).toBe(false);

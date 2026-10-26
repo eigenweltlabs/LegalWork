@@ -27,7 +27,7 @@ export function registerScheduledTaskRoutes(options: {
       // Task records stay manageable when the project's drive is disconnected.
       const workspace = config.workspaces.find(item => item.id === ctx.params.id);
       if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
-      if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks run in a local project on this computer.");
+
       try { return options.jsonResponse(await action(ctx, workspace)); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "scheduled_task_input", "Check the task title, instructions and schedule.", { issues: error.issues }); throw error; }
     });
@@ -40,13 +40,13 @@ export function registerScheduledTaskRoutes(options: {
   };
   addRoute(options.routes, "GET", "/scheduled-tasks", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    const local = new Set(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
+    const local = new Set(config.workspaces.map(workspace => workspace.id));
     return options.jsonResponse({ tasks: store.list().filter(task => local.has(task.workspaceId)) });
   });
   addRoute(options.routes, "GET", "/scheduled-tasks/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const projects = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+    for (const item of config.workspaces) {
       try { const workspace = await options.resolveWorkspace(config, item.id); projects.push({ id: workspace.id, name: workspace.name, path: workspace.path }); }
       catch { /* Unavailable or unauthorized projects are not accessible to scheduled work. */ }
     }
@@ -55,7 +55,7 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspaces = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+    for (const item of config.workspaces) {
       try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
     }
     return options.jsonResponse({ sessions: await readSessionInbox(config, workspaces, store.sessionActivity()) });

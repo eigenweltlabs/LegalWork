@@ -151,6 +151,46 @@ echo approved > allowed.txt`, true);
     expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
   }, 180_000);
 
+  test("command expansion preserves complete output without an execution deadline and still supports Stop", async () => {
+    const source = "Complete legal automation output: " + "§".repeat(600_000) + "END-OF-OUTPUT";
+    const result = await sandbox.run({
+      command: "python3 -c \"import sys; sys.stdout.write('Complete legal automation output: ' + '§' * 600000 + 'END-OF-OUTPUT')\"",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: null, capture: "complete", signal: new AbortController().signal, authorizeNetwork: async () => false,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(false);
+    expect(result.output).toBe(source);
+
+    const controller = new AbortController();
+    let started: () => void = () => {};
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const pending = sandbox.run({
+      command: "echo unfinished > complete-command-cancelled.txt; curl -s https://example.com/complete-command-cancelled",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: null, capture: "complete", signal: controller.signal,
+      authorizeNetwork: async () => {
+        started();
+        await new Promise<void>(resolve => {
+          controller.signal.addEventListener("abort", () => resolve(), { once: true });
+          if (controller.signal.aborted) resolve();
+        });
+        return false;
+      },
+    });
+    const settled = pending.then(() => null, (error: unknown) => error);
+    try {
+      await Promise.race([ready, settled.then(() => { throw new Error("Command exited before its permission check"); })]);
+      controller.abort(new Error("Stop command expansion"));
+      const error = await settled;
+      expect(error instanceof Error && error.message).toBe("Stop command expansion");
+      expect(await readFile(join(workspace, "complete-command-cancelled.txt")).catch(() => null)).toBeNull();
+    } finally {
+      controller.abort();
+      await settled;
+    }
+  }, 180_000);
+
   test("large binary transfers and installed read-only helpers survive transport backpressure", async () => {
     const skill = await mkdtemp(join(tmpdir(), "sandbox-skill-"));
     const requests = spyOn(SandboxFilesystem.prototype, "request");

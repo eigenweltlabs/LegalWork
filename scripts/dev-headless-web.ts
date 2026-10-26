@@ -128,7 +128,7 @@ const legalworkToken = process.env.LEGALWORK_TOKEN ?? randomUUID();
 const legalworkHostToken = process.env.LEGALWORK_HOST_TOKEN ?? randomUUID();
 const legalworkServerBin = path.join(
   cwd,
-  "apps/server/dist/bin/legalwork-server",
+  "apps/server/dist/cli.js",
 );
 
 const ensureLegalworkServer = async () => {
@@ -137,13 +137,13 @@ const ensureLegalworkServer = async () => {
   } catch {
     if (!autoBuildEnabled) {
       logLine(
-        `[dev:headless-web] Missing LegalWork server binary at ${legalworkServerBin}`,
+        `[dev:headless-web] Missing LegalWork server build at ${legalworkServerBin}`,
       );
       logLine(
         "[dev:headless-web] Auto-build disabled (LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)",
       );
       logLine(
-        "[dev:headless-web] Run: pnpm --filter legalwork-server build:bin",
+        "[dev:headless-web] Run: pnpm --filter legalwork-server build",
       );
       logLine(
         "[dev:headless-web] Or unset/enable LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.",
@@ -152,13 +152,13 @@ const ensureLegalworkServer = async () => {
     }
 
     logLine(
-      `[dev:headless-web] Missing LegalWork server binary at ${legalworkServerBin}`,
+      `[dev:headless-web] Missing LegalWork server build at ${legalworkServerBin}`,
     );
     logLine(
-      "[dev:headless-web] Auto-building: pnpm --filter legalwork-server build:bin",
+      "[dev:headless-web] Auto-building: pnpm --filter legalwork-server build",
     );
     try {
-      await runCommand("pnpm", ["--filter", "legalwork-server", "build:bin"]);
+      await runCommand("pnpm", ["--filter", "legalwork-server", "build"]);
       await access(legalworkServerBin);
     } catch (error) {
       logLine(

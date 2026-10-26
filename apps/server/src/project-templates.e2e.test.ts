@@ -1,3 +1,5 @@
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+const LegalWorkProjectTools = (context = {}) => nativePluginTools(LegalWorkProjectToolsDefinition, context);
 import type { ProjectField } from "@legalwork/types/workspace";
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
@@ -8,7 +10,7 @@ import type { ServerConfig } from "./types.js";
 import { projectTemplateCatalogSchema } from "./project-schema.js";
 import { readProjectDetails } from "./project-store.js";
 import { readProjectTemplates, localizeProjectTemplates } from "./project-templates.js";
-import { LegalWorkProjectTools } from "./opencode-plugins/legalwork-project-tools.js";
+import LegalWorkProjectToolsDefinition from "./opencode-plugins/legalwork-project-tools.js";
 
 test("humans and agents create projects from the same edited catalog, with custom fields or no template", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-template-api-"));
