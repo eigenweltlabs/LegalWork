@@ -65,6 +65,7 @@ test("reviewed source comparison includes added patch files and rejects a dirty 
     await assert.rejects(applyReviewedPatch(root, patch), /failed/);
     await assert.rejects(readFile(path.join(root, "added.txt")), { code: "ENOENT" });
     await writeFile(path.join(root, "existing.txt"), "before\n");
+    await git("add", "existing.txt");
     await applyReviewedPatch(root, patch);
     const changed = (await git("diff", "--name-only", "HEAD")).stdout.trim().split("\n").sort();
     assert.deepEqual(changed, ["added.txt", "existing.txt"]);
