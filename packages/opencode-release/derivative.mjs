@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import release from "./release.json" with { type: "json" };
 import recipe from "./build/recipe.json" with { type: "json" };
-import { opencodeReleaseTarget } from "./index.mjs";
+import { opencodeArchiveTarExecutable, opencodeReleaseTarget } from "./index.mjs";
 import { verifyOpencodeCandidate } from "./candidate.mjs";
 
 const distributions = new WeakMap();
@@ -77,7 +77,7 @@ async function checkArchive(filename, pin) {
 }
 
 async function tar(args) {
-  const child = spawn("tar", args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(opencodeArchiveTarExecutable(), args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   let output = "", errors = "";
   child.stdout.on("data", bytes => { output += bytes.toString(); });
   child.stderr.on("data", bytes => { errors += bytes.toString(); });

@@ -23,6 +23,10 @@ on:
         description: Test six-platform packages using the published engine pinned in committed selection.json, without a candidate override
         type: boolean
         default: false
+      windows_archive_acceptance:
+        description: Verify normal Windows x64 and ARM64 engine archive installation only, with exact producer reuse
+        type: boolean
+        default: false
       engine_reuse_run_id:
         description: Optional same-repository producer run ID (requires independent manifest SHA256)
         type: string
@@ -36,7 +40,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && !inputs.committed_selection && format('-windows-archive-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -49,9 +53,10 @@ jobs:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
           COMMITTED_SELECTION: ${{ inputs.committed_selection }}
+          WINDOWS_ARCHIVE_ACCEPTANCE: ${{ inputs.windows_archive_acceptance }}
         run: |
-          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
-            echo 'mac_signing_acceptance cannot be combined with package_desktop, unit_acceptance or committed_selection.' >&2
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ] || [ "$WINDOWS_ARCHIVE_ACCEPTANCE" = true ]; then
+            echo 'mac_signing_acceptance cannot be combined with package_desktop, unit_acceptance, committed_selection or windows_archive_acceptance.' >&2
             exit 1
           fi
   unit-inputs:
@@ -63,11 +68,12 @@ jobs:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
           COMMITTED_SELECTION: ${{ inputs.committed_selection }}
+          WINDOWS_ARCHIVE_ACCEPTANCE: ${{ inputs.windows_archive_acceptance }}
           ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
           ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
-          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
-            echo 'unit_acceptance cannot be combined with package_desktop, mac_signing_acceptance or committed_selection.' >&2
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ] || [ "$WINDOWS_ARCHIVE_ACCEPTANCE" = true ]; then
+            echo 'unit_acceptance cannot be combined with package_desktop, mac_signing_acceptance, committed_selection or windows_archive_acceptance.' >&2
             exit 1
           fi
           if [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
@@ -87,10 +93,11 @@ jobs:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
           UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          WINDOWS_ARCHIVE_ACCEPTANCE: ${{ inputs.windows_archive_acceptance }}
           ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
           ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
-          if [ "$PACKAGE_DESKTOP" != true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ -n "$ENGINE_REUSE_RUN_ID" ] || [ -n "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+          if [ "$PACKAGE_DESKTOP" != true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$WINDOWS_ARCHIVE_ACCEPTANCE" = true ] || [ -n "$ENGINE_REUSE_RUN_ID" ] || [ -n "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
             echo 'committed_selection requires package_desktop only, without candidate reuse inputs.' >&2
             exit 1
           fi
@@ -110,15 +117,38 @@ jobs:
           assert.ok(url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname.endsWith('/'), 'The committed selection requires a plain public HTTPS download directory');
           console.log(JSON.stringify({ selectionSha256: createHash('sha256').update(text).digest('hex'), manifestSha256: selection.manifestSha256, version: selection.version, downloadBaseUrl: selection.downloadBaseUrl }));
           NODE
+  windows-archive-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require only Windows archive acceptance and exact engine reuse
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          COMMITTED_SELECTION: ${{ inputs.committed_selection }}
+          ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
+          ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ] || [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+            echo 'windows_archive_acceptance requires exact reuse inputs and cannot be combined with other manual modes.' >&2
+            exit 1
+          fi
+  windows-archive-acceptance:
+    needs: [windows-archive-inputs, opencode-derivative]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success'
+    uses: ./.github/workflows/ci-windows-opencode-install.yml
+    with:
+      manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   mac-signing-acceptance:
     needs: signing-inputs
-    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.committed_selection
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.committed_selection && !inputs.windows_archive_acceptance
     uses: ./.github/workflows/mac-engine-signing-acceptance.yml
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-changes:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.changes.outputs.required }}
@@ -148,8 +178,9 @@ jobs:
   opencode-derivative:
     if: >-
       github.event_name == 'workflow_dispatch' && !inputs.mac_signing_acceptance && !inputs.committed_selection &&
-      ((inputs.package_desktop && !inputs.unit_acceptance) ||
-      (inputs.unit_acceptance && !inputs.package_desktop && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))
+      ((inputs.package_desktop && !inputs.unit_acceptance && !inputs.windows_archive_acceptance) ||
+      (inputs.unit_acceptance && !inputs.package_desktop && !inputs.windows_archive_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != '') ||
+      (inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))
     permissions:
       contents: read
       actions: read
@@ -162,7 +193,7 @@ jobs:
     # assertion fails. The failed sandbox workflow still keeps the run red.
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
-      inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance &&
+      inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance &&
       (!inputs.committed_selection || needs.committed-inputs.result == 'success') &&
       (needs.opencode-derivative.result == 'success' ||
       (inputs.committed_selection && needs.opencode-derivative.result == 'skipped' && needs.committed-inputs.result == 'success')) &&
@@ -172,7 +203,7 @@ jobs:
     with:
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   windows-meetings:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -184,7 +215,7 @@ jobs:
         run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
 
   windows-drafts:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -204,7 +235,7 @@ jobs:
 
   legalwork-tests:
     needs: [opencode-derivative, committed-inputs]
-    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (!(github.event_name == 'workflow_dispatch' && inputs.committed_selection) || needs.committed-inputs.result == 'success') && (needs.opencode-derivative.result == 'success' || (needs.opencode-derivative.result == 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.unit_acceptance)))
+    if: always() && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance)) && (!(github.event_name == 'workflow_dispatch' && inputs.committed_selection) || needs.committed-inputs.result == 'success') && (needs.opencode-derivative.result == 'success' || (needs.opencode-derivative.result == 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.unit_acceptance)))
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -339,7 +370,11 @@ jobs:
         run: pnpm --filter @legalwork/app test:e2e
 
   sandbox-engine:
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-derivative, committed-inputs]
+    if: >-
+      always() && !cancelled() && needs.sandbox-runtime.result == 'success' &&
+      (needs.opencode-derivative.result == 'success' || needs.opencode-derivative.result == 'skipped') &&
+      (!(github.event_name == 'workflow_dispatch' && inputs.committed_selection) || needs.committed-inputs.result == 'success')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -356,7 +391,19 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - uses: actions/download-artifact@v4
+        if: needs.opencode-derivative.result == 'success'
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Select the reviewed acceptance engine for protected execution
+        if: needs.opencode-derivative.result == 'success'
+        env:
+          MANIFEST_SHA256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+        run: node scripts/ci/select-opencode-derivative.mjs "$RUNNER_TEMP/opencode-derivative/derivative-release.json" "$MANIFEST_SHA256"
       - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
       - run: pnpm install --frozen-lockfile
       - name: Prepare checksum-pinned Node for worker tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
