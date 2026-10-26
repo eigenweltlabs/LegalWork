@@ -33,6 +33,7 @@ import type {
   EigenweltSignInPayload,
   CustomProviderModelRefreshStatus,
 } from "../../../../app/lib/legalwork-server";
+import { LegalworkServerError } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
 import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
 
