@@ -399,8 +399,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
       shell.showItemInFolder(filePath);
       return filePath;
     }
-    // Give the progress window one paint before the synchronous diagnostics
-    // snapshot starts probing binaries and reading log tails.
+    // Give the progress window one paint before collecting diagnostics.
     await new Promise((resolve) => setTimeout(resolve, 80));
     // The embedded server's own requests (e.g. to GitHub) ignore the system
     // proxy that the app window uses, so record it to tell a proxy network
@@ -416,7 +415,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
       ),
     };
     // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager, network }), "utf8");
+    writeFileSync(filePath, await buildSupportBundleText({ app, runtimeManager, network }), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -732,6 +731,8 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, BaseWindow, WebContentsView, clipboard, session,
+  resolveEngine: () => runtimeManager.engineInfo(),
+  resolveLegalworkServer: () => runtimeManager.legalworkServerInfo(),
   authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
   resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
     context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
@@ -1268,11 +1269,11 @@ function assertLegalworkServerReady(info) {
 // log and (partly) display. We also drop the same payload into a log file so a
 // failing machine can be diagnosed by sending one file — the on-screen message
 // alone is a generic catch-all that hides the real cause.
-function describeRuntimeBootFailure(error) {
+async function describeRuntimeBootFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
   let diagnostics = null;
   try {
-    diagnostics = runtimeManager.collectRuntimeDiagnostics();
+    diagnostics = await runtimeManager.collectRuntimeDiagnostics();
   } catch {
     /* diagnostics are best-effort */
   }
@@ -1836,12 +1837,6 @@ const desktopCommandHandlers = {
       const server = await runtimeManager.legalworkServerInfo();
       const root = await resolveProjectFolder(input.workspaceId, state.workspaces, server);
       return copyFilesIntoProject(root, input.paths, undefined, input.folder, dashboardFileImporter(server, input.workspaceId));
-  },
-  "workspaceCreateRemote": async (event, ...args) => {
-      return workspaceStore.createRemoteWorkspace(args[0] ?? {});
-  },
-  "workspaceUpdateRemote": async (event, ...args) => {
-      return workspaceStore.updateRemoteWorkspace(args[0] ?? {});
   },
   "workspaceUpdateDisplayName": async (event, ...args) => {
       return workspaceStore.updateWorkspaceDisplayName(args[0] ?? {});

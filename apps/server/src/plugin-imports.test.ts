@@ -253,6 +253,18 @@ describe("complete plugin imports", () => {
     expect(Object.keys((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins)).toHaveLength(0);
     await expect(stat(path)).rejects.toThrow();
   }));
+  test("package removal retains independent connectors and a same-named connection in another scope", async () => temp(async (root, config) => {
+    const [plan] = await resolvePluginImports(request(), root);
+    await installPluginImport(config, "test", root, plan!, false);
+    const [ownedName] = Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp ?? {});
+    if (!ownedName) throw new Error("Missing imported connector fixture");
+    const independent = { type: "remote", url: "https://independent.example/mcp", headers: { Authorization: "synthetic-private-value" } };
+    await writeRuntimeOpencodeConfig(config, "test", current => ({ ...current, mcp: { ...current.mcp, independent } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { ...current.mcp, [ownedName]: independent } }));
+    await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: plan!.preview.id, scope: "workspace" });
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp).toEqual({ independent });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp).toEqual({ [ownedName]: independent });
+  }));
   test("preserves exact MCP arguments, empty environment values and headers", async () => temp(async (root, config) => {
     const files = { ".claude-plugin/plugin.json": '{"name":"arguments"}', ".mcp.json": JSON.stringify({ mcpServers: { local: { command: "node", args: ["script.js", "", "  a b  "], env: { EMPTY: "", PADDED: "  value  " } }, remote: { url: "https://example.com/mcp", headers: { "X-Value": "  value  " } } } }), "script.js": "console.log('test')" };
     const [plan] = await resolvePluginImports(request(files), root);

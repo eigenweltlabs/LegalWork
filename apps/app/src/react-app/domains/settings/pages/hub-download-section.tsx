@@ -20,6 +20,7 @@ import { Badge, Button, Card, Row, Spinner } from "@legalwork/ui/react";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
+import { presetConfiguration } from "@/app/native-preset";
 import type {
   EigenweltHubInstall,
   EigenweltHubItem,
@@ -228,10 +229,12 @@ export function HubDownloadSection({
     setBusyId(item.id);
     try {
       const detail = await legalworkClient.hubGet(workspaceId, item.id);
-      if (!detail.payload || typeof detail.payload !== "object") {
+      if (!detail.payload || typeof detail.payload !== "object" || Array.isArray(detail.payload)) {
         throw new Error(t("firm_hub.preset_invalid"));
       }
-      await legalworkClient.patchConfig(workspaceId, { opencode: detail.payload as Record<string, unknown> });
+      const current = await legalworkClient.getConfig(workspaceId);
+      const prepared = presetConfiguration(Object.fromEntries(Object.entries(detail.payload)), current.providerDisplay);
+      await legalworkClient.patchConfig(workspaceId, { opencode: prepared.configuration });
       // Presets apply from settings (not the install route), so record the pulled
       // version here to power "update available" on the next visit.
       await legalworkClient.hubRecordInstall(workspaceId, {
@@ -241,6 +244,7 @@ export function HubDownloadSection({
         name: item.name,
       });
       toast.success(t(wasInstalled ? "firm_hub.updated" : "firm_hub.preset_applied", { name: item.name }));
+      if (prepared.requiresSetup.length) toast.info(t("firm_hub.preset_setup_required"));
       await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {

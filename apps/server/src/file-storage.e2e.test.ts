@@ -1,6 +1,8 @@
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+const LegalWorkStorageTools = (context = {}) => nativePluginTools(LegalWorkStorageToolsDefinition, context);
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { LegalWorkStorageTools } from "./opencode-plugins/legalwork-storage-tools.js";
+import LegalWorkStorageToolsDefinition from "./opencode-plugins/legalwork-storage-tools.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";

@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { opencodeRelease } from "../../packages/opencode-release/index.mjs";
+import { opencodeEngineSelection } from "../../packages/opencode-release/selection.mjs";
+import { verifyDerivativeDistributionContent } from "../../packages/opencode-release/derivative.mjs";
+import selection from "../../packages/opencode-release/selection.json" with { type: "json" };
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const args = process.argv.slice(2);
@@ -15,7 +19,7 @@ const desktopPkg = readJson(resolve(root, "apps", "desktop", "package.json"));
 const orchestratorPkg = readJson(
   resolve(root, "apps", "orchestrator", "package.json"),
 );
-const pinnedOpencodeVersion = String(
+const pinnedOpencodeBaseVersion = String(
   readJson(resolve(root, "constants.json")).opencodeVersion ?? "",
 )
   .trim()
@@ -27,7 +31,10 @@ const versions = {
   desktop: desktopPkg.version ?? null,
   server: serverPkg.version ?? null,
   orchestrator: orchestratorPkg.version ?? null,
-  opencode: pinnedOpencodeVersion || null,
+  opencode: opencodeEngineSelection.version,
+  opencodeKind: opencodeEngineSelection.kind,
+  opencodeBaseVersion: opencodeEngineSelection.baseVersion,
+  opencodeManifestSha256: selection.kind === "derivative" ? selection.manifestSha256 : null,
   orchestratorLegalworkServerRange:
     orchestratorPkg.dependencies?.["legalwork-server"] ?? null,
 };
@@ -69,8 +76,25 @@ if (versions.opencode) {
   );
 } else {
   addWarning(
-    "OpenCode version is not pinned in constants.json.",
+    "OpenCode version is not pinned in selection.json.",
   );
+}
+addCheck(
+  "OpenCode selection matches its base ABI",
+  pinnedOpencodeBaseVersion === versions.opencodeBaseVersion && versions.opencodeBaseVersion === opencodeRelease.version,
+  `${versions.opencodeKind} ${versions.opencode}; base ABI ${versions.opencodeBaseVersion} vs constants ${pinnedOpencodeBaseVersion || "?"}`,
+);
+if (versions.opencodeKind === "derivative") {
+  try {
+    const distribution = await verifyDerivativeDistributionContent({ manifestContent: selection.manifestContent, manifestSha256: selection.manifestSha256 });
+    addCheck(
+      "OpenCode derivative manifest matches its independent pin and selection",
+      distribution.version === versions.opencode && distribution.baseVersion === versions.opencodeBaseVersion,
+      `${distribution.version}; base ABI ${distribution.baseVersion}; SHA256 ${distribution.manifestSha256}`,
+    );
+  } catch (error) {
+    addCheck("OpenCode derivative manifest matches its independent pin and selection", false, error.message);
+  }
 }
 
 const legalworkServerRange = versions.orchestratorLegalworkServerRange ?? "";
