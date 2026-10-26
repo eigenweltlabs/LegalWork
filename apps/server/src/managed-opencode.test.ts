@@ -195,23 +195,24 @@ test("a foreign reported version cannot replace the verified engine identity", a
   const { bin, counter, candidateBuild } = await fakeBin();
   let published = false;
   await expect(createManagedOpencodeServer({
-    bin, candidateBuild, cwd: dir!, timeoutMs: 500, onAuthenticated: () => { published = true; },
-    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_VERSION: "2.1.4-legalwork.mcp-ready.1" },
+    // Reach the identity check even when starting the child is slow on CI.
+    bin, candidateBuild, cwd: dir!, timeoutMs: 5000, onAuthenticated: () => { published = true; },
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_VERSION: "2.1.4-legalwork.mcp-ready.1", FAKE_OPENCODE_LISTEN_DELAY_MS: "650" },
   })).rejects.toThrow(/spawned OpenCode .* process/);
   expect(published).toBe(false);
   expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
-});
+}, 10000);
 
 test("matching version from another PID cannot mark the managed process ready", async () => {
   const { bin, counter, candidateBuild } = await fakeBin();
   let published = false;
   await expect(createManagedOpencodeServer({
-    bin, candidateBuild, cwd: dir!, timeoutMs: 500, onAuthenticated: () => { published = true; },
-    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_WRONG_PID: "1" },
+    bin, candidateBuild, cwd: dir!, timeoutMs: 5000, onAuthenticated: () => { published = true; },
+    env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_WRONG_PID: "1", FAKE_OPENCODE_LISTEN_DELAY_MS: "650" },
   })).rejects.toThrow(/spawned OpenCode .* process/);
   expect(published).toBe(false);
   expect(() => process.kill(Number(readFileSync(counter + ".pid", "utf8")), 0)).toThrow();
-});
+}, 10000);
 
 test("waits for history migration beyond the HTTP startup watchdog", async () => {
   const { bin, counter, candidateBuild } = await fakeBin();
