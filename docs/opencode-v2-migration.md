@@ -140,9 +140,12 @@ results, artifacts, timing, tokens/cache/reasoning and cost evidence.
 
 Use Gemini 3.8 Flash initially and occasional Claude checks through the production
 gateway. A dedicated restricted, expiring credential is stored outside Git; never
-copy keys into traces. One durable **EUR 100 aggregate** reservation ledger covers
-all runs, variants, judges and explicit infrastructure holds. Do not reset it per
-suite or provider. Notify on budget exhaustion or an accounting-related pause.
+copy keys into traces. The initial durable **EUR 100 aggregate** reservation ledger
+covers all runs, variants and judges. The user subsequently authorized up to
+**EUR 250 for justified fixes and retests**, with VM spending accounted separately.
+Preserve original records and reservations; do not reset the ledger per suite or
+provider. Confirmed charges and conservative reservations are separate figures.
+Notify on budget exhaustion or an accounting-related pause.
 The ordinary gateway key budget alone is not a strict in-flight spending gate.
 
 See [budget operation and every introduced accounting limit](../scripts/benchmarks/budget.md).
