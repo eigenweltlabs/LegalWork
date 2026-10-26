@@ -116,7 +116,8 @@ export function createNodeRawHttpTransport(executable: () => string): NodeRawHtt
       const error = generation.failure ?? new Error(`HTTP worker exited before cleanup (code ${code}, signal ${signal}).`);
       for (const call of generation.calls.values()) {
         call.signal.removeEventListener("abort", call.abort);
-        call.reject(Object.assign(call.failure ?? error, { workerStderr: stderr, ...(generation.terminationErrors.length ? { workerTerminationErrors: generation.terminationErrors } : {}) }));
+        call.reject(Object.assign(call.failure ?? error, { workerStderr: stderr, workerExitCode: code, workerSignal: signal,
+          ...(generation.terminationErrors.length ? { workerTerminationErrors: generation.terminationErrors } : {}) }));
       }
       if (!generation.calls.size && (generation.failure || code !== 0 || !generation.shutdown) && stderr) console.warn("[raw-http-node] Worker stderr:", stderr);
       generation.calls.clear(); generations.delete(generation); generation.finish();
