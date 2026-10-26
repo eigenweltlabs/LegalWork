@@ -13,7 +13,7 @@ import { grantWikiAgentSession, revokeWikiAgentSession } from "../wiki/agent-acc
 import type { OpenCodeClient } from "@opencode/client";
 import { createEngineClient, getWorkspaceEngineSession, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "../engine-client.js";
 import { nativeQueueTransport } from "../native-queue-transport.js";
-import { assertManagedCommandIntegration, interruptEngineSession } from "../native-command-control.js";
+import { assertRunnableCommand, interruptEngineSession, runNativeCommand } from "../native-command-control.js";
 import { ApiError, findApiError } from "../errors.js";
 import { toolImageOriginalStore } from "../tool-image-original-store.js";
 import { assertOriginalImageCommitted } from "../tool-image-original-access.js";
@@ -84,9 +84,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     if (!config.agentSandboxEnabled && !(await new WikiStore(config).list()).length) return;
     if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
     if (execution.kind === "command") {
-      await assertManagedCommandIntegration(client, workspaceEngineLocation(workspace));
-      const commands = (await client.command.list({ location: workspaceEngineLocation(workspace) })).data;
-      if (!commands.some(item => item.name === execution.command)) throw new ApiError(404, "command_not_found", "Command not found.");
+      await assertRunnableCommand(client, workspaceEngineLocation(workspace), execution.command);
       // Definitions and argument interpolation execute only through the
       // verified managed adapter, which applies normal sandbox permissions.
     }
@@ -127,7 +125,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         if (input.model) await client.session.switchModel({ sessionID, model: input.model });
         await client.session.update({ sessionID, archived: false });
         if (input.kind === "command") {
-          await client.session.command({ sessionID, name: input.command, text: input.args, files: input.files, agents: input.agents, skills: input.skills, delivery: "steer" });
+          await runNativeCommand(client, { sessionID, name: input.command, text: input.args, files: input.files, agents: input.agents, skills: input.skills, delivery: "steer" });
           return undefined;
         }
         const { kind, model, agent, draft, waitForCompletion, ...prompt } = input;
