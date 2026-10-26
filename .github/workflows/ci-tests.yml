@@ -15,6 +15,10 @@ on:
         description: Build and execute desktop and reviewed engine on all six shipped OS/CPU configurations
         type: boolean
         default: false
+      unit_acceptance:
+        description: Run the full Linux and Mac unit jobs against an exact reused engine; does not validate six-platform packages
+        type: boolean
+        default: false
       engine_reuse_run_id:
         description: Optional same-repository producer run ID (requires independent manifest SHA256)
         type: string
@@ -28,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -39,20 +43,40 @@ jobs:
       - name: Reject contradictory manual modes
         env:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
         run: |
-          if [ "$PACKAGE_DESKTOP" = true ]; then
-            echo 'mac_signing_acceptance and package_desktop cannot both be enabled.' >&2
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ]; then
+            echo 'mac_signing_acceptance, package_desktop and unit_acceptance are mutually exclusive.' >&2
+            exit 1
+          fi
+  unit-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an exclusive focused mode and exact engine reuse
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
+          ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ]; then
+            echo 'unit_acceptance cannot be combined with package or signing acceptance.' >&2
+            exit 1
+          fi
+          if [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+            echo 'unit_acceptance requires an engine producer run and independent manifest SHA256.' >&2
             exit 1
           fi
   mac-signing-acceptance:
     needs: signing-inputs
-    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance
     uses: ./.github/workflows/mac-engine-signing-acceptance.yml
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-changes:
-    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.changes.outputs.required }}
@@ -80,7 +104,10 @@ jobs:
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
   opencode-derivative:
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance
+    if: >-
+      github.event_name == 'workflow_dispatch' && !inputs.mac_signing_acceptance &&
+      ((inputs.package_desktop && !inputs.unit_acceptance) ||
+      (inputs.unit_acceptance && !inputs.package_desktop && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))
     permissions:
       contents: read
       actions: read
@@ -93,7 +120,7 @@ jobs:
     # assertion fails. The failed sandbox workflow still keeps the run red.
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
-      inputs.package_desktop && !inputs.mac_signing_acceptance &&
+      inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance &&
       needs.opencode-derivative.result == 'success' &&
       (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'failure')
     needs: [sandbox-runtime, opencode-derivative]
@@ -101,7 +128,7 @@ jobs:
     with:
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   windows-meetings:
-    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -113,7 +140,7 @@ jobs:
         run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
 
   windows-drafts:
-    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -137,7 +164,7 @@ jobs:
 
   legalwork-tests:
     needs: opencode-derivative
-    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (needs.opencode-derivative.result == 'success' || needs.opencode-derivative.result == 'skipped')
+    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (needs.opencode-derivative.result == 'success' || (needs.opencode-derivative.result == 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.unit_acceptance)))
     runs-on: ${{ matrix.os }}
 
     strategy:
