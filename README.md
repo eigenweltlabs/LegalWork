@@ -2,6 +2,8 @@
 
 A local computer-use agent for law firms, from Eigenwelt Labs. Point it at a folder of documents and ask in plain English — it reads, drafts, and redlines them on your own machine, using the model you connect. Everything stays owned by the firm.
 
+User documentation: [LegalWork guide](docs/user-guide/index.md), including settings, integrations, email, calendar and recorder help. The bundled `legalwork-help` skill makes this guide available to the agent.
+
 ## Download
 
 **[macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=readme)** · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=readme) · **[Windows](https://eigenweltlabs.com/legalwork/download/win?src=readme)** · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=readme) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=readme)
