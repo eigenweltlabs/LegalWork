@@ -5661,7 +5661,7 @@ const de = {
     "Die Provider-Konfiguration konnte für diesen Workspace nicht gespeichert werden.",
   "providers.no_gateway_url": "Die Eigenwelt-Plattform hat keine Gateway-URL zurückgegeben.",
   "providers.eigenwelt_signin_timeout":
-    "Zeitüberschreitung bei der Eigenwelt-Anmeldung. Versuchen Sie es erneut über die Provider-Liste.",
+    "Die Verbindung zu LegalWork ist abgelaufen. Falls der Bezahlvorgang im Browser noch offen ist, schließen Sie ihn zuerst ab. Kehren Sie dann zu LegalWork zurück und starten Sie die Anmeldung erneut. Einen bereits abgeschlossenen Bezahlvorgang müssen Sie nicht wiederholen.",
   "mcp.fill_all_fields": "Füllen Sie alle Felder aus, bevor Sie sich verbinden.",
   "mcp.oauth_client_id_label": "OAuth-Client-ID",
   "mcp.oauth_client_secret_label": "OAuth-Client-Secret",

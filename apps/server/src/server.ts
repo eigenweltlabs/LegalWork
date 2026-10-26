@@ -178,6 +178,7 @@ import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
 import { modelCatalogFor, modelCatalogResponse, modelCatalogSettingsSchema } from "./model-catalog.js";
 import {
+  EigenweltSignInTimeoutError,
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
   isEigenweltSignInPlan,
@@ -2784,7 +2785,7 @@ function createRoutes(
     } catch (error) {
       throw new ApiError(
         410,
-        "eigenwelt_signin_failed",
+        error instanceof EigenweltSignInTimeoutError ? "eigenwelt_signin_timeout" : "eigenwelt_signin_failed",
         error instanceof Error ? error.message : "Eigenwelt sign-in failed.",
       );
     }

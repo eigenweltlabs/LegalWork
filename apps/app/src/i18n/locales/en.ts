@@ -5356,7 +5356,7 @@ export default {
   "providers.output_limit_hint": "Longest single response, in tokens. A response that needs more is cut off. Leave blank for the default.",
   "providers.save_config_failed": "Could not save the provider configuration for this workspace.",
   "providers.no_gateway_url": "The Eigenwelt platform did not return a gateway URL.",
-  "providers.eigenwelt_signin_timeout": "Eigenwelt sign-in timed out. Try again from the provider list.",
+  "providers.eigenwelt_signin_timeout": "This sign-in timed out. If checkout is still open in your browser, finish it first. Then return to LegalWork and restart sign-in. You do not need to repeat a completed checkout.",
   "mcp.fill_all_fields": "Fill in every field before connecting.",
   "mcp.oauth_client_id_label": "OAuth client ID",
   "mcp.oauth_client_secret_label": "OAuth client secret",
