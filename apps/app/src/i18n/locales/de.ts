@@ -4925,6 +4925,10 @@ const de = {
     "Melden Sie sich bei Eigenwelt an, um mit den KI-Modellen Ihrer Kanzlei weiterzuarbeiten.",
   "ai_plans.welcome_account": "Zuletzt angemeldet als {account}",
   "ai_plans.sign_in_cta": "Mit Eigenwelt anmelden",
+  "ai_plans.sign_in_expired_title": "Erneut verbinden.",
+  "ai_plans.sign_in_expired_body": "Der Anmeldelink ist abgelaufen. Schließen Sie einen noch offenen Bezahlvorgang im Browser ab und melden Sie sich dann erneut an.",
+  "ai_plans.sign_in_expired_checkout": "Einen bereits abgeschlossenen Bezahlvorgang müssen Sie nicht wiederholen.",
+  "ai_plans.sign_in_again": "Erneut anmelden",
   "ai_plans.other_options": "Tarife und weitere Optionen ansehen",
   "ai_plans.waiting_title": "Im Browser abschließen",
   "ai_plans.waiting_body_plan":

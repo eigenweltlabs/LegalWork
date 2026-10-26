@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { EIGENWELT_SIGN_IN_TIMEOUT_MS, type EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { useSyncProviderSetupState } from "./sync-provider-setup-state";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
 import type {
@@ -1319,7 +1320,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (error instanceof LegalworkServerError && error.code === "eigenwelt_signin_timeout") {
         const message = t("providers.eigenwelt_signin_timeout");
         setStateField("providerAuthError", message);
-        throw new Error(message);
+        throw new EigenweltSignInTimeoutError(message);
       }
       const message = describeProviderError(error, t("providers.oauth_failed"));
       setStateField("providerAuthError", message);
@@ -1327,7 +1328,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
     const message = t("providers.eigenwelt_signin_timeout");
     setStateField("providerAuthError", message);
-    throw new Error(message);
+    throw new EigenweltSignInTimeoutError(message);
   }
 
   /** A provider's name as the member sees it, for the messages after connecting or disconnecting. */

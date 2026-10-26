@@ -1,15 +1,15 @@
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { setLocale, t } from "../src/i18n";
+import { EigenweltSignInTimeoutError } from "../src/app/lib/eigenwelt-sign-in";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   cleanups.splice(0).forEach((cleanup) => cleanup());
   getReactQueryClient().clear();
-  setSystemTime();
   setLocale("en");
 });
 
@@ -84,10 +84,12 @@ test("a failed account save fails sign-in before attempting any engine reload", 
 
 test("checkout can continue past ten minutes and still connect", async () => {
   const startedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+  cleanups.push(() => clock.mockRestore());
   let polls = 0;
   const fixture = signInFixture(200, 200, 0, () => {
     if (++polls === 1) {
-      setSystemTime(new Date(startedAt + 11 * 60 * 1000));
+      clock.mockReturnValue(startedAt + 11 * 60 * 1000);
       return Response.json({ pending: true });
     }
     return Response.json({ apiKey: "test-key", baseURL: "https://example.test/v1", models: [] });
@@ -98,11 +100,15 @@ test("checkout can continue past ten minutes and still connect", async () => {
 
 test("the app explains how to restart when its hour-long wait expires", async () => {
   const startedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+  cleanups.push(() => clock.mockRestore());
   const fixture = signInFixture(200, 200, 0, () => {
-    setSystemTime(new Date(startedAt + 60 * 60 * 1000 + 1));
+    clock.mockReturnValue(startedAt + 60 * 60 * 1000 + 1);
     return Response.json({ pending: true });
   });
-  await expect(fixture.store.completeEigenweltSignIn("expired-checkout")).rejects.toThrow(t("providers.eigenwelt_signin_timeout"));
+  const expired = fixture.store.completeEigenweltSignIn("expired-checkout");
+  await expect(expired).rejects.toBeInstanceOf(EigenweltSignInTimeoutError);
+  await expect(expired).rejects.toThrow(t("providers.eigenwelt_signin_timeout"));
   expect(fixture.store.getSnapshot().providerAuthError).toContain("restart");
   expect(fixture.requests).toEqual(["GET /api/eigenwelt/oauth/wait/expired-checkout"]);
 });
@@ -114,7 +120,9 @@ test.each(languages)("server expiry displays the customer restart instructions i
     code: "eigenwelt_signin_timeout", message: "Raw server timeout",
   }, { status: 410 }));
   const message = t("providers.eigenwelt_signin_timeout");
-  await expect(fixture.store.completeEigenweltSignIn("expired-checkout")).rejects.toThrow(message);
+  const expired = fixture.store.completeEigenweltSignIn("expired-checkout");
+  await expect(expired).rejects.toBeInstanceOf(EigenweltSignInTimeoutError);
+  await expect(expired).rejects.toThrow(message);
   expect(fixture.store.getSnapshot().providerAuthError).toBe(message);
   expect(message).toContain("LegalWork");
   expect(message).not.toContain("Provider");
