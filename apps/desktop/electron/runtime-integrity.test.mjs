@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { verifyOpencodeCandidate } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
+import { opencodeReleaseTarget } from "./opencode-release.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 
 const digest = value => createHash("sha256").update(value).digest("hex");
@@ -12,12 +14,14 @@ const digest = value => createHash("sha256").update(value).digest("hex");
 test("doctor and boot diagnostics never execute a candidate rejected after verification", { skip: process.platform === "win32" && "POSIX sentinel fixture; Windows executable acceptance is separate" }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-runtime-integrity-"));
   try {
-    const directory = path.join(root, "resources", "sidecars");
+    const target = opencodeReleaseTarget();
+    const directory = opencodeEngineSelection.kind === "derivative"
+      ? path.join(root, "resources", "opencode-engine", opencodeEngineSelection.version, target)
+      : path.join(root, "resources", "sidecars");
     await mkdir(directory, { recursive: true });
     const recipe = JSON.parse(await readFile(new URL("../../../packages/opencode-release/build/recipe.json", import.meta.url), "utf8"));
     const release = JSON.parse(await readFile(new URL("../../../packages/opencode-release/release.json", import.meta.url), "utf8"));
     const binary = path.join(directory, "opencode");
-    const target = `${process.platform}-${process.arch}`;
     const bytes = `#!/bin/sh\nprintf '%s\\n' '${recipe.version}'\n`;
     await writeFile(binary, bytes);
     await chmod(binary, 0o700);
