@@ -1,10 +1,63 @@
 # Review when you return
 
-The migration is unfinished. Confirmed model spend is **€15.01 across558 calls**.
+The migration is unfinished. The last reconciled spend snapshot is **€15.01
+across558 calls**; newer completed calls have not yet been reconciled.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
-No release, push or default-engine switch has occurred.
+The migration branch is pushed for CI; no release or default-engine switch has occurred.
 
-## Current checkpoint — 26 October, 14:53 UTC
+## Current checkpoint — 26 October, 17:05 UTC
+
+The matched Office/legal/delegation/large-MCP cases have completed with exact
+functional review; original strict failures and legal-quality limitations remain.
+Large MCP matches all3 assertions with complete2MB tool results. NDA coverage is
+55/56 versus v1 53/56, with a frozen source/rubric conflict and six additional
+quality concerns. Delegation strict8/9 versus v1 9/9 reflects three citation
+capitalizations; both versions retain external-law sourcing concerns. Windows
+Claude tracked editing qualifies4/4 after read-only recovery from a collector
+path error. No model reruns, shortened outputs or changed task assertions.
+
+Queue recovery, context, scheduling and actual execution on all six platforms
+remain the main gates. The first CI producer successfully built all12 engine
+targets. Its six sandbox jobs found the same missing Node worker preparation;
+the fix is pushed, with13 CI controls passing. The corrected run can reuse the
+exact verified engine artifact. CI test hosts use Bun1.3.14 for a reproduced
+layered-TLS regression; production Node22 and compiler1.4.4 are unchanged.
+
+Latest dev3b214a80c is merged, preserving the new checkout/sign-in and Mac updater
+fixes. Affected sign-in tests29pass; desktop437pass/4platform skips; both
+typechecks pass. Earlier actual task runs keep their sealed final7 identity.
+The newer final8 Mac build/package/security/engine startup also pass with the
+private credential boundary. No public release or default-engine switch.
+See [the acceptance register](opencode-v2-capability-status.md).
+
+## Previous checkpoint — 26 October, 16:32 UTC
+
+Approximately **80% complete** remains an engineering estimate, not a completed-test percentage.
+The user requires actual execution on all six shipped OS/CPU configurations.
+The [six-platform CI run](https://github.com/eigenweltlabs/legalwork/actions/runs/40359354246)
+started at16:27:48UTC from the pushed migration checkpoint. Its reviewed engine
+producer and sandbox prerequisites are running; the three additional configurations
+have no completed result yet.
+
+The newer final8 Mac package passes its normal build, packaging, security and
+actual-engine startup. Workspace metadata exposes no engine credentials. Its
+source tests pass13 HTTP cases/98 assertions and435 desktop tests with4 platform
+skips; exact runtime selection/rotation checks pass29 tests. No new output cap.
+
+Delegation completed with two actual completed reviewers; strict8/9 differs from
+v1 strict9/9 only in three Section/section citation labels. An additive exact
+functional qualification remains under review. Both memos introduce claims beyond
+the supplied files; this inherited quality issue stays explicit. Windows Claude
+completed its in-app DOCX task; subsequent collector-path failure is preserved
+while the unchanged document/wires are recovered. No model rerun or new hints.
+Native queue/restart, context, scheduling and the large connector task remain open.
+See [the acceptance register](opencode-v2-capability-status.md).
+
+The prior confirmed model-spend snapshot below is **not current**: newer real
+calls await charge reconciliation. VM costs remain separate, with finite deletion
+leases at17:55UTC. No release or default engine switch has occurred.
+
+## Previous checkpoint — 26 October, 14:53 UTC
 
 Approximately **80% complete**, an engineering estimate. The user's priority is
 working engines, complete migration and preserved agent/tool behavior. Inherited
