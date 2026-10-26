@@ -8,7 +8,7 @@ LegalWork is a practical control surface for agentic work:
 
 * Run local and remote agent workflows from one place.
 * Use OpenCode capabilities directly through LegalWork.
-* Compose desktop app, server, and messaging connectors without lock-in.
+* Compose desktop app and server without lock-in.
 * Treat the LegalWork app as a client of the LegalWork server API surface.
 * Connect to hosted workers through a simple user flow: `Add a worker` -> `Connect remote`.
 
@@ -16,9 +16,8 @@ LegalWork is a practical control surface for agentic work:
 
 * **Local-first, cloud-ready**: LegalWork runs on your machine in one click and can connect to cloud workflows when needed.
 * **Server-consumption first**: the app should consume LegalWork server surfaces (self-hosted or hosted), not invent parallel behavior.
-* **Composable**: use the desktop app, WhatsApp/Slack/Telegram connectors, or server mode based on the task.
+* **Composable**: use the desktop app or server mode based on the task.
 * **Ejectable**: LegalWork is powered by OpenCode, so anything OpenCode can do is available in LegalWork, even before a dedicated UI exists.
-* **Sharing is caring**: start solo, then share quickly; one CLI or desktop command can spin up an instantly shareable instance.
 
 
 ## Pull Request Expectations (Fast Merge)

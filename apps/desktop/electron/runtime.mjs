@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
-import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 
@@ -23,6 +22,20 @@ function locateServerDistDir() {
     ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist")] : []),
   ];
   return candidates.find((dir) => existsSync(path.join(dir, "word-addin.js"))) ?? null;
+}
+
+function locateEmbeddedServerPath() {
+  const devPath = path.resolve(__runtimeDir, "..", "..", "server", "dist", "embedded.js");
+  const packagedPaths = [
+    path.resolve(__runtimeDir, "..", "server", "dist", "embedded.js"),
+    ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist", "embedded.js")] : []),
+  ];
+  const candidates = process.env.LEGALWORK_DEV_MODE === "1"
+    ? [devPath, ...packagedPaths]
+    : [...packagedPaths, devPath];
+  const embeddedPath = candidates.find((candidate) => existsSync(candidate));
+  if (!embeddedPath) throw new Error(`Cannot find LegalWork embedded server bundle. Checked: ${candidates.join(", ")}`);
+  return embeddedPath;
 }
 
 /** Directory holding the built Office task pane bundle (taskpane.html). */
@@ -303,15 +316,6 @@ function createOrchestratorState() {
   };
 }
 
-async function fileExists(targetPath) {
-  try {
-    await readFile(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 
 async function readJsonFile(targetPath, fallback) {
   try {
@@ -320,30 +324,6 @@ async function readJsonFile(targetPath, fallback) {
   } catch {
     return fallback;
   }
-}
-
-function selectLanAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const entries of Object.values(interfaces)) {
-    for (const entry of entries ?? []) {
-      if (entry && entry.family === "IPv4" && entry.internal === false) {
-        return entry.address;
-      }
-    }
-  }
-  return null;
-}
-
-function buildConnectUrls(port) {
-  const hostname = os.hostname().trim();
-  const mdnsUrl = hostname ? `http://${hostname.replace(/\.local$/i, "")}.local:${port}` : null;
-  const lan = selectLanAddress();
-  const lanUrl = lan ? `http://${lan}:${port}` : null;
-  return {
-    connectUrl: lanUrl ?? mdnsUrl,
-    mdnsUrl,
-    lanUrl,
-  };
 }
 
 function targetTriple() {
@@ -767,15 +747,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     store.workspaces[normalized] = next;
     await saveTokenStore(store);
     return next;
-  }
-
-  async function persistWorkspaceOwnerToken(workspaceKey, ownerToken) {
-    const store = await loadTokenStore();
-    const normalized = normalizeWorkspaceKey(workspaceKey);
-    if (!store.workspaces?.[normalized]) return;
-    store.workspaces[normalized].ownerToken = ownerToken;
-    store.workspaces[normalized].updatedAt = nowMs();
-    await saveTokenStore(store);
   }
 
   async function readPreferredLegalworkPort(workspaceKey) {
@@ -1317,60 +1288,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
   }
 
-  async function ensureOpencodeConfig(projectDir) {
-    // First, and regardless of which config wins below: the engine needs
-    // .opencode to be a directory or its instance bootstrap dies, taking every
-    // route for this workspace with it (issue #62). This must run before the
-    // early return — a workspace with a root-level config would otherwise skip
-    // the check entirely and still fail to start.
-    const stateDir = await ensureOpencodeStateDir(projectDir);
-    if (stateDir.movedTo) {
-      console.warn(
-        `[runtime] ${stateDir.path} was a file, not a folder; moved it to ${stateDir.movedTo} so OpenCode can start.`,
-      );
-    }
-
-    // Seed the project config in the hidden .opencode/ directory (the engine
-    // reads it from there too) so the user's workspace folder stays free of
-    // files they didn't create. A config the user already keeps at the
-    // workspace root is respected and left alone.
-    const candidates = [
-      path.join(projectDir, "opencode.jsonc"),
-      path.join(projectDir, "opencode.json"),
-      path.join(projectDir, ".opencode", "opencode.jsonc"),
-      path.join(projectDir, ".opencode", "opencode.json"),
-    ];
-    for (const candidate of candidates) {
-      if (await fileExists(candidate)) return;
-    }
-    const hiddenJsoncPath = path.join(projectDir, ".opencode", "opencode.jsonc");
-    await mkdir(path.dirname(hiddenJsoncPath), { recursive: true });
-    await writeFile(
-      hiddenJsoncPath,
-      `${JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2)}\n`,
-      "utf8",
-    );
-  }
-
   function generateManagedCredentials() {
     return [randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, ""), randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")];
-  }
-
-  async function issueOwnerToken(baseUrl, hostToken) {
-    const payload = await fetchJson(
-      `${baseUrl.replace(/\/+$/, "")}/tokens`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-LegalWork-Host-Token": hostToken,
-        },
-        body: JSON.stringify({ scope: "owner", label: "LegalWork desktop owner token" }),
-      },
-      5000,
-    );
-    const token = typeof payload?.token === "string" ? payload.token.trim() : "";
-    return token || null;
   }
 
   // In-process server handle. Kept alive across restarts so we can stop it.
@@ -1378,6 +1297,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   function engineSnapshot() {
     return snapshotEngineState(engineState, inProcessServer?.managedOpencodeStatus?.() ?? null);
+  }
+
+  async function credentialVault() {
+    // Match the local server's profile, environment overrides, module instance and write lock.
+    const env = await buildChildEnv({});
+    Object.assign(process.env, env);
+    const directory = path.dirname(locateEmbeddedServerPath());
+    const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
+    return { vault: new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) })), lock: vaultLock };
   }
 
   async function startLegalworkServer(options) {
@@ -1389,7 +1317,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
     await stopChild(legalworkServerState);
 
-    const host = options.remoteAccessEnabled ? "0.0.0.0" : "127.0.0.1";
+    const host = "127.0.0.1";
 
     const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
     legalworkServerState.managedOpencodeBinPath = managedOpencode?.path ?? null;
@@ -1420,22 +1348,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // One call: resolve config, spawn managed OpenCode, start HTTP server.
     // Dev must prefer apps/server/dist; build output also stages a packaged
     // copy under apps/desktop/server for electron-builder.
-    const devPath = path.resolve(__runtimeDir, "..", "..", "server", "dist", "embedded.js");
-    const packagedPaths = [
-      path.resolve(__runtimeDir, "..", "server", "dist", "embedded.js"),
-      ...(process.resourcesPath ? [path.resolve(process.resourcesPath, "server", "dist", "embedded.js")] : []),
-    ];
-    const candidates = process.env.LEGALWORK_DEV_MODE === "1"
-      ? [devPath, ...packagedPaths]
-      : [...packagedPaths, devPath];
-    const embeddedPath = candidates.find((candidate) => existsSync(candidate));
-    if (!embeddedPath) {
-      throw new Error(`Cannot find LegalWork embedded server bundle. Checked: ${candidates.join(", ")}`);
-    }
+    const embeddedPath = locateEmbeddedServerPath();
     const { startEmbeddedServer } = await import(pathToFileURL(embeddedPath).href);
     // startEmbeddedServer falls back to an OS-assigned port if `port` races
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
+    await officeAddinManager.refreshManifests();
     const handle = await startEmbeddedServer({
       modelDownloadFetch,
       opencodeSdkDirectory: bundledOpencodeSdkDirectory({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, desktopRoot }),
@@ -1496,57 +1414,39 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const baseUrl = handle.url;
 
     legalworkServerState.inProcess = true;
-    legalworkServerState.remoteAccessEnabled = options.remoteAccessEnabled;
+    legalworkServerState.remoteAccessEnabled = false;
     legalworkServerState.host = host;
     legalworkServerState.port = boundPort;
     legalworkServerState.baseUrl = baseUrl;
     legalworkServerState.clientToken = tokens.clientToken;
     legalworkServerState.hostToken = tokens.hostToken;
 
-    const connectUrls = options.remoteAccessEnabled ? buildConnectUrls(boundPort) : { connectUrl: null, mdnsUrl: null, lanUrl: null };
-    legalworkServerState.connectUrl = connectUrls.connectUrl;
-    legalworkServerState.mdnsUrl = connectUrls.mdnsUrl;
-    legalworkServerState.lanUrl = connectUrls.lanUrl;
+    legalworkServerState.connectUrl = null;
+    legalworkServerState.mdnsUrl = null;
+    legalworkServerState.lanUrl = null;
+    legalworkServerState.ownerToken = null;
 
     // No health check needed -- startServer() resolves only after the listener is bound.
-    let workspaceList = null;
-    let ownerToken = tokens.ownerToken?.trim() || null;
-    if (ownerToken) {
-      try {
-        workspaceList = await fetchJson(`${baseUrl}/workspaces`, {
-          headers: { Authorization: `Bearer ${ownerToken}` },
-        }, 5000);
-      } catch {
-        ownerToken = null;
+    try {
+      const list = await fetchJson(`${baseUrl}/workspaces`, {
+        headers: { Authorization: `Bearer ${tokens.clientToken}` },
+      }, 5000);
+      const first = Array.isArray(list?.items) ? list.items[0] : undefined;
+      const opencode = first?.opencode;
+      if (opencode?.baseUrl) {
+        engineState.runtime = DIRECT_RUNTIME;
+        engineState.projectDir = opencode.directory ?? activeWorkspace ?? null;
+        engineState.hostname = new URL(opencode.baseUrl).hostname;
+        engineState.port = Number(new URL(opencode.baseUrl).port) || null;
+        engineState.baseUrl = opencode.baseUrl;
+        engineState.opencodeUsername = opencode.username ?? null;
+        engineState.opencodePassword = opencode.password ?? null;
+        engineState.execution = handle.managedOpencodeExecution ?? null;
+        engineState.child = null;
+        engineState.childExited = false;
       }
-    }
-    ownerToken ||= await issueOwnerToken(baseUrl, tokens.hostToken);
-    legalworkServerState.ownerToken = ownerToken;
-    if (ownerToken) {
-      await persistWorkspaceOwnerToken(activeWorkspace, ownerToken);
-    }
-    if (ownerToken) {
-      try {
-        const list = workspaceList ?? await fetchJson(`${baseUrl}/workspaces`, {
-          headers: { Authorization: `Bearer ${ownerToken}` },
-        }, 5000);
-        const first = Array.isArray(list?.items) ? list.items[0] : undefined;
-        const opencode = first?.opencode;
-        if (opencode?.baseUrl) {
-          engineState.runtime = DIRECT_RUNTIME;
-          engineState.projectDir = opencode.directory ?? activeWorkspace ?? null;
-          engineState.hostname = new URL(opencode.baseUrl).hostname;
-          engineState.port = Number(new URL(opencode.baseUrl).port) || null;
-          engineState.baseUrl = opencode.baseUrl;
-          engineState.opencodeUsername = opencode.username ?? null;
-          engineState.opencodePassword = opencode.password ?? null;
-          engineState.execution = handle.managedOpencodeExecution ?? null;
-          engineState.child = null;
-          engineState.childExited = false;
-        }
-      } catch (error) {
-        appendOutput(legalworkServerState, "lastStderr", `LegalWork server workspace probe: ${error instanceof Error ? error.message : String(error)}\n`);
-      }
+    } catch (error) {
+      appendOutput(legalworkServerState, "lastStderr", `LegalWork server workspace probe: ${error instanceof Error ? error.message : String(error)}\n`);
     }
     if (!portSelection.preferredPort || boundPort === portSelection.preferredPort) {
       await persistPreferredLegalworkPort(activeWorkspace, boundPort);
@@ -1744,7 +1644,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // prepareFreshRuntime (killing the freshly bound server) and then rebinds
     // the sticky preferred port, racing the not-yet-released socket into
     // EADDRINUSE and leaving the runtime in error -> boot screen.
-    const requestedRemoteAccess = options.legalworkRemoteAccess === true;
+    const requestedRemoteAccess = false;
     if (
       legalworkServerState.inProcess &&
       lifecycleState === "healthy" &&
@@ -1758,8 +1658,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       }
     }
 
-    await mkdir(safeProjectDir, { recursive: true });
-    await ensureOpencodeConfig(safeProjectDir);
+    // The engine runs in an app-owned directory. Project files are initialized
+    // by the server so an unavailable selected project cannot block app boot.
     await prepareFreshRuntime();
 
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(
@@ -2208,12 +2108,11 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     child.unref();
 
     await waitForHttpOk(`${legalworkUrl}/health`, wantsDockerSandbox ? 90_000 : 12_000);
-    const ownerToken = await issueOwnerToken(legalworkUrl, hostToken).catch(() => null);
 
     return {
       legalworkUrl,
       token,
-      ownerToken,
+      ownerToken: null,
       hostToken,
       port,
       sandboxBackend: wantsDockerSandbox ? sandboxBackend : null,
@@ -2326,6 +2225,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineDoctor,
     engineInstall,
     legalworkServerInfo,
+    credentialVault,
     legalworkServerRestart: (options) => withRuntimeLifecycle(() => legalworkServerRestart(options)),
     officeAddinStatus: () => officeAddinManager.status(),
     officeAddinInstall: (appId) => officeAddinManager.install(appId),

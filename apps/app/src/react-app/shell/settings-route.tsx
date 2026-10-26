@@ -98,12 +98,10 @@ import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/m
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
-import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
-import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { loadUpdatePreferences, saveUpdatePreferences, type UpdatePreferences } from "@/react-app/domains/settings/state/update-preferences";
 import { changeOrgPolicySetting, useOrgPolicy, useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
@@ -164,7 +162,7 @@ import { notifyAlert } from "./notifications";
 import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
-import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { composerSettingsPath, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import {
@@ -1970,14 +1968,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   };
 
 
-  const handleReconnectMessagingServer = useCallback(async () => {
-    const ok = await legalworkServerStore.reconnectLegalworkServer();
-    if (ok) {
-      await refreshRouteState();
-    }
-    return ok;
-  }, [legalworkServerStore, refreshRouteState]);
-
   const restartLegalworkServerAndRefresh = useCallback(async () => {
     if (!isDesktopRuntime()) return false;
     try {
@@ -1994,21 +1984,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [legalworkServerStore, refreshRouteState]);
 
   const handleRestartLocalServer = restartLegalworkServerAndRefresh;
-  const handleRestartMessagingWorker = restartLegalworkServerAndRefresh;
-
-  const messagingViewProps = useMessagingViewProps({
-    busy,
-    legalworkServerStatus: legalworkServerSnapshot.legalworkServerStatus,
-    legalworkServerUrl: legalworkServerSnapshot.legalworkServerUrl,
-    legalworkServerClient:
-      legalworkClient ?? legalworkServerSnapshot.legalworkServerClient,
-    legalworkReconnectBusy: legalworkServerSnapshot.legalworkReconnectBusy,
-    reconnectLegalworkServer: handleReconnectMessagingServer,
-    restartMessagingWorker: handleRestartMessagingWorker,
-    workspaceId: runtimeWorkspaceId,
-    selectedWorkspaceRoot,
-  });
-
   if (route.redirectPath && !props.embedded) {
     const target = selectedWorkspaceId
       ? workspaceSettingsRoute(selectedWorkspaceId, route.redirectPath)
@@ -2246,6 +2221,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
             onShareReviewSet={shareReviewSetWithFirm}
+            onManagePlugins={() => navigate(composerSettingsPath("plugins"))}
             onOpenReviewSetShare={canShareWithFirm ? () => {
               setTeamShareKinds(["review_set"]);
               setTeamShareInitial(null);
@@ -2262,6 +2238,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               />
             }
             kind={route.tab === "workflows" ? "workflows" : "skills"}
+            pluginImports={extensionsStore}
             workspaceName={selectedWorkspaceName}
             busy={busy}
             showHeader={props.singleView === true}
@@ -2281,6 +2258,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   legalworkClient={legalworkClient}
                   workspaceId={hubWorkspaceId}
                   kind="workflow"
+                  readSkill={extensionsStore.readFirmSkill}
                   onConfigApplied={() => {
                     void extensionsStore.refreshSkills({ force: true });
                     void reloadWorkspaceEngineFromUi();
@@ -2559,11 +2537,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     <>
       {props.singleView ? (
         // Standalone pages use the same pane-relative gutters and content width.
-        // Workflows owns its frame so its list and editor can scroll independently.
-        <div className={route.tab === "workflows"
+        // Libraries keep their controls fixed while their lists scroll independently.
+        <div className={route.tab === "workflows" || route.tab === "extensions"
           ? "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
-          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
+          {route.tab === "workflows" || route.tab === "extensions" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell

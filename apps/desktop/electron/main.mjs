@@ -119,6 +119,7 @@ function actaportBundlePath(file) {
 let actaportConnection;
 function getActaportConnection() {
   actaportConnection ??= createActaportConnection({ directory: app.getPath("userData"), safeStorage,
+    loadVault: () => runtimeManager.credentialVault(),
     loadAuth: () => import(pathToFileURL(actaportBundlePath("auth.mjs")).href) });
   return actaportConnection;
 }
