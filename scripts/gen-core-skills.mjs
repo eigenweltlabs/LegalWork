@@ -10,7 +10,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { generateHelpI18n, generateHelpScreens, helpDocFiles } from "./help-docs.mjs";
+import { generateHelpI18n, generateHelpScreens, helpDocFiles, readNormalizedText } from "./help-docs.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -55,7 +55,7 @@ const screens = generateHelpScreens();
 const files = [
   ...FILES.map((file) => ({
     path: file.path,
-    content: readFileSync(join(repoRoot, sourceRoot, file.source), "utf8"),
+    content: readNormalizedText(join(repoRoot, sourceRoot, file.source)),
   })),
   ...helpDocFiles(),
   { path: i18nReferencePath, content: i18n },
@@ -72,7 +72,8 @@ const WORKFLOW_FILES = [
 ].map((file) => ({ path: `workflow-assistant-due-diligence/${file}`, encoding: file.endsWith(".docx") ? "base64" : "utf8" }));
 WORKFLOW_FILES.push({ path: "workflow-firm-knowledge/SKILL.md", encoding: "utf8" });
 const workflowEntries = WORKFLOW_FILES.map((file) => {
-  const content = readFileSync(join(repoRoot, sourceRoot, "skills", file.path)).toString(file.encoding);
+  const path = join(repoRoot, sourceRoot, "skills", file.path);
+  const content = file.encoding === "utf8" ? readNormalizedText(path) : readFileSync(path).toString(file.encoding);
   return `  { path: ${JSON.stringify(file.path)}, encoding: ${JSON.stringify(file.encoding)}, content: ${JSON.stringify(content)} },`;
 }).join("\n");
 
@@ -124,7 +125,7 @@ const outputs = [
   { path: dest, content: out },
 ];
 for (const output of outputs) {
-  const current = existsSync(output.path) ? readFileSync(output.path, "utf8") : null;
+  const current = existsSync(output.path) ? readNormalizedText(output.path) : null;
   if (current === output.content) continue;
   if (process.argv.includes("--check")) {
     console.error(`Out of date: ${output.path}. Run pnpm docs:generate.`);

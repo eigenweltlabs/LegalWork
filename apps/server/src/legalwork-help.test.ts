@@ -84,7 +84,7 @@ describe("bundled LegalWork help", () => {
   test("packages every manual page exactly and resolves links without the source checkout", async () => {
     const docs = await readdir(join(repoRoot, "docs/user-guide"));
     for (const file of docs.filter((file) => file.endsWith(".md") || file.endsWith(".json"))) {
-      expect(bundled(`references/${file}`)).toBe(await readFile(join(repoRoot, "docs/user-guide", file), "utf8"));
+      expect(bundled(`references/${file}`)).toBe((await readFile(join(repoRoot, "docs/user-guide", file), "utf8")).replace(/\r\n/g, "\n"));
       if (file !== "index.md" && file.endsWith(".md")) {
         expect(bundled("references/index.md")).toContain(`](${file})`);
       }

@@ -9,8 +9,14 @@ const require = createRequire(join(repoRoot, "apps/app/package.json"));
 const ts = require("typescript");
 const localeDirectory = "apps/app/src/i18n/locales";
 
+// Git may check text out with CRLF on Windows. Bundled text and source hashes
+// use LF so checkout formatting does not change the generated resources.
+export function readNormalizedText(path) {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
 function parse(path, root = repoRoot) {
-  return ts.createSourceFile(path, readFileSync(join(root, path), "utf8"), ts.ScriptTarget.Latest, true);
+  return ts.createSourceFile(path, readNormalizedText(join(root, path)), ts.ScriptTarget.Latest, true);
 }
 
 const routeGuides = {
@@ -175,7 +181,7 @@ export function generateHelpI18n() {
     locales[code] = {
       shipped: shippedLocales.includes(code),
       source,
-      sha256: createHash("sha256").update(readFileSync(join(repoRoot, source))).digest("hex"),
+      sha256: createHash("sha256").update(readNormalizedText(join(repoRoot, source))).digest("hex"),
       entryCount: Object.keys(entries).length,
       entries,
     };
@@ -199,6 +205,6 @@ export function helpDocFiles() {
     .sort()
     .map((file) => ({
       path: `.opencode/skills/legalwork-help/references/${file}`,
-      content: readFileSync(join(repoRoot, "docs/user-guide", file), "utf8"),
+      content: readNormalizedText(join(repoRoot, "docs/user-guide", file)),
     }));
 }
