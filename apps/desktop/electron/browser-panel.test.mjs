@@ -7,6 +7,7 @@ import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 
+/** @param {(contents: EventEmitter, url: string) => Promise<void>} [load] */
 function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}, load = async () => {}) {
   const views = [];
   class View {
@@ -331,8 +332,10 @@ test("destroying a tab during capture never restores visibility on its destroyed
 
 
 function initialLoadBarrier() {
-  let release, started;
+  let release = () => {}, started = () => {};
+  /** @type {Promise<void>} */
   const promise = new Promise(resolve => { release = resolve; });
+  /** @type {Promise<void>} */
   const entered = new Promise(resolve => { started = resolve; });
   return { promise, entered, release, load: () => { started(); return promise; } };
 }
