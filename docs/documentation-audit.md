@@ -30,13 +30,13 @@ Paths below are repository-relative implementation references for maintainers. T
 | Word, Excel and PowerPoint live add-ins | `settings/pages/office-addins-view.tsx`, `apps/server/src/opencode-plugins/legalwork-{word,excel,powerpoint}-tools.ts`, `docs/word-addin.md` | [Office Add-ins](user-guide/office-addins.md) |
 | Every visible global/workspace settings category | `settings/shell/settings-page.tsx`, `settings/pages/general-view.tsx`, `shell/settings-route.tsx` | [Settings and privacy](user-guide/settings-privacy.md) |
 | Updates, diagnostics and recovery | `settings/pages/updates-view.tsx`, `advanced-view.tsx`, `recovery-view.tsx`, `debug-view.tsx` | [Troubleshooting](user-guide/troubleshooting.md) |
-| Language resolution and exact button/UI labels | `apps/app/src/i18n/index.ts`, every `locales/*.ts`, `settings/appearance/language-section.tsx` | [Localization](user-guide/localization.md), generated [i18n.json](user-guide/i18n.json) |
+| Language resolution and exact button/UI labels | `apps/app/src/i18n/index.ts`, every `locales/*.ts`, `settings/appearance/language-section.tsx` | [Localization](user-guide/localization.md), bundled `references/i18n.json` |
 | Hidden/legacy routes and planned features | Current settings routing/visibility, extension platform manifests, source inventory | [Feature availability](user-guide/feature-availability.md) |
 
 
 ## Localization and packaging
 
-The generated reference includes every runtime-exported key/value in all 11 locale files, including shared project-template strings. English and German are selectable; nine archived tables are marked unshipped. Missing translations remain missing. The lookup script runs from the seeded workspace without the source repository or network.
+The generated reference includes every runtime-exported key/value in all 11 locale files, including shared project-template strings. English and German are selectable; nine archived tables are marked unshipped. Missing translations remain missing. The full reference and its runtime module are generated during builds and ignored by Git. The lookup script runs from the seeded workspace without the source repository or network.
 
 The `legalwork-help` skill is embedded in `CORE_OPENCODE_FILES`, seeded/refreshed through `ensureWorkspaceFiles`, and named by the fixed capabilities prompt. It loads only the relevant manual topic and uses exact localized labels. Existing skills and shared workflow resources remain included. Builds regenerate the bundle; CI checks freshness before building.
 
@@ -45,6 +45,8 @@ The `legalwork-help` skill is embedded in `CORE_OPENCODE_FILES`, seeded/refreshe
 Current-checkout checks passed: 19 focused server tests, 31 desktop runtime/SDK packaging tests, `pnpm docs:check`, skill validation, `git diff --check` and the server build used by `pnpm dev`. The inventory maps 28 routes and 16 settings. The i18n bundle contains 24,783 values across 11 locale files, including 6,893 entries each in English and German. The running Electron window was inspected on 26 October: current navigation, signed-in account and saved projects loaded successfully. Process working directories point to this checkout at `9c278ff02`, the renderer uses the standard development profile, and Vite serves `http://localhost:5173`. Automated checks cover route/settings mappings, page and translation parity, reference resolution, skill discovery, workspace refresh and preservation of custom skills. These checks do not prove every prose statement or live external account behavior. No mailbox connection or message sending was performed for the audit.
 
 The development launcher also prepares the bundled Node runtime and OpenCode SDK needed by a fresh checkout. The standard testing profile and `http://localhost:5173` origin are preserved.
+
+After removing both ignored translation outputs, the server test preload recreated them and all 19 focused server tests passed. A server build also recreated them from scratch. Copying only the compiled core bundle and generated translation module outside the repository preserved all 11 locales and 24,783 values, and the seeded German label lookup succeeded there.
 
 ## Help lookup and app links
 

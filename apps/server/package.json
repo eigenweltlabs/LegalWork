@@ -15,7 +15,7 @@
     "build:bin": "node ../../scripts/gen-core-skills.mjs && bun build --compile src/cli.ts --external cpu-features --outfile dist/bin/legalwork-server",
     "build:bin:all": "node ../../scripts/gen-core-skills.mjs && bun ./script/build.ts --outdir dist/bin --target bun-darwin-arm64 --target bun-darwin-x64 --target bun-linux-x64 --target bun-linux-arm64 --target bun-windows-x64",
     "start": "bun dist/cli.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "node ../../scripts/gen-core-skills.mjs --check && tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "pnpm build:bin",
     "test:deadline-oracles": "TZ=Europe/Berlin bun scripts/check-deadline-oracles.ts"
   },
