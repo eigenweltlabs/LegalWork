@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
