@@ -29,9 +29,13 @@ test("proxy environment matches native Bun NO_PROXY precedence/domain/IP/CIDR/po
 
 const outcomeSchema = z.union([z.object({ ok: z.literal(true), result: rawHttpOutputSchema }), z.object({ ok: z.literal(false), error: z.string() })]);
 
-test("Node22 and Bun use pinned proxy targets, enterprise CA, NO_PROXY and Stop without direct fallback", async () => {
+const node = resolve(import.meta.dir, "../../../desktop/resources/node", process.platform === "win32" ? "node.exe" : "node");
+// Each runtime owns its fixture and original 30s test budget; cold starts from
+// other runtimes must not consume this mode's TLS/Stop assertion time.
+for (const mode of [{ name: "Node22", binary: node, worker: false }, { name: "Bun", binary: process.execPath, worker: false },
+  ...(process.platform === "win32" ? [] : [{ name: "Node22 worker", binary: node, worker: true }])])
+test(`${mode.name} uses pinned proxy targets, enterprise CA, NO_PROXY and Stop without direct fallback`, async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-raw-http-proxy-"));
-  const node = resolve(import.meta.dir, "../../../desktop/resources/node", process.platform === "win32" ? "node.exe" : "node");
   const sockets = new Set<Socket>();
   const track = (socket: Socket) => { sockets.add(socket); socket.once("close", () => sockets.delete(socket)); };
   const originRequests: Array<{ target: string; host?: string; authenticated: boolean }> = [];
@@ -122,58 +126,56 @@ test("Node22 and Bun use pinned proxy targets, enterprise CA, NO_PROXY and Stop 
     });
   };
   try {
-    for (const mode of [{ binary: node, worker: false }, { binary: process.execPath, worker: false }, ...(process.platform === "win32" ? [] : [{ binary: node, worker: true }])]) {
-      const binary = mode.binary;
-      const execute = (input: RawHttpInput, options: Parameters<typeof run>[2] = {}) => run(binary, input, { ...options, worker: mode.worker });
-      originRequests.length = 0; proxyRequests.length = 0;
-      const proxied = await execute({ url: `http://localhost:${originPort}/path`, method: "GET", headers: {} });
-      expect(proxied.ok && Buffer.from(proxied.result.bodyBase64, "base64").toString()).toBe("proxy-positive");
-      expect(originRequests).toHaveLength(0); expect(proxyRequests).toHaveLength(1);
-      expect(proxyRequests[0].target).toMatch(/^http:\/\/(127\.0\.0\.1|\[::1\]):/); expect(proxyRequests[0].host).toBe(`localhost:${originPort}`); expect(proxyRequests[0].authenticated).toBe(true);
-      if (proxied.ok) expect(proxied.result.statusText).toBe("Proxy custom status");
-      const tlsForwarded = await execute({ url: `http://localhost:${originPort}/tls-proxy-forward`, method: "GET", headers: {} }, { secureProxy: true });
-      expect(tlsForwarded.ok && Buffer.from(tlsForwarded.result.bodyBase64, "base64").toString()).toBe("proxy-positive");
-      expect(originRequests).toHaveLength(0); expect(proxyRequests).toHaveLength(2);
-      const bypassed = await execute({ url: `http://localhost:${originPort}/path`, method: "GET", headers: {} }, { noProxy: "localhost" });
-      expect(bypassed.ok && Buffer.from(bypassed.result.bodyBase64, "base64").toString()).toBe("origin-positive");
-      // The driver resolves ::1 first; only the prevalidated second IPv4 address accepts connections.
-      const fallback = await execute({ url: `http://localhost:${ipv4Address.port}/fallback`, method: "GET", headers: {} }, { noProxy: "*" });
-      expect(fallback.ok && Buffer.from(fallback.result.bodyBase64, "base64").toString()).toBe("validated-address-fallback");
-      const secureInput = { url: `https://localhost:${securePort}/path`, method: "GET", headers: { authorization: "origin-secret" } };
-      const accepted = await execute(secureInput);
-      expect(accepted.ok && Buffer.from(accepted.result.bodyBase64, "base64").toString()).toBe("secure-positive");
-      expect(connections.at(-1)).toMatch(/^(127\.0\.0\.1|\[::1\]):/); expect(originRequests.at(-1)?.authenticated).toBe(true);
-      const secureTunnel = await execute(secureInput, { secureProxy: true });
-      expect(secureTunnel.ok && Buffer.from(secureTunnel.result.bodyBase64, "base64").toString()).toBe("secure-positive");
-      // Both independent origin/proxy roots in the native startup bundle are
-      // necessary; supplying only one never broadens the other connection.
-      expect((await execute(secureInput, { extraCaFile: certPath, secureProxy: true })).ok).toBe(false);
-      expect((await execute(secureInput, { extraCaFile: proxyCertPath, noProxy: "*" })).ok).toBe(false);
-      expect((await execute(secureInput, { extraCaFile: keyPath, noProxy: "*" })).ok).toBe(false);
-      const untrusted = await execute(secureInput, { trusted: false }); expect(untrusted.ok).toBe(false);
-      // Explicit verification defeats an inherited disable-verification switch
-      // on direct origin TLS, proxy CONNECT and TLS to the proxy itself.
-      for (const options of [{ noProxy: "*" }, {}, { secureProxy: true }])
-        expect((await execute(secureInput, { ...options, trusted: false, verificationDisabled: true })).ok).toBe(false);
-      expect((await execute({ url: `http://localhost:${originPort}/untrusted-tls-proxy`, method: "GET", headers: {} }, { secureProxy: true, trusted: false, verificationDisabled: true })).ok).toBe(false);
-      rejectTunnel = true;
-      const denied = await execute(secureInput); expect(denied.ok).toBe(false);
-      rejectTunnel = false;
-      const ready = new Promise<void>(resolve => { bodyReady = resolve; });
-      const cancelled = await execute({ ...secureInput, url: `https://localhost:${securePort}/wait` }, { stop: ready });
-      expect(cancelled.ok).toBe(false); if (!cancelled.ok) expect(cancelled.error).toContain("Fixture Stop");
-      bodyReady = undefined;
-      holdTunnel = true;
-      const tunnelReady = new Promise<void>(resolve => { connectionReady = resolve; });
-      const cancelledTunnel = await execute(secureInput, { stop: tunnelReady });
-      expect(cancelledTunnel.ok).toBe(false); if (!cancelledTunnel.ok) expect(cancelledTunnel.error).toContain("Fixture Stop");
-      holdTunnel = false;
-      connectionReady = undefined;
-      const custom = await execute({ url: `http://localhost:${rawAddress.port}/wire`, method: "A".repeat(80), headers: {} }, { noProxy: "*" });
-      expect(wire.at(-1)).toBe(`${"A".repeat(80)} /wire HTTP/1.1`);
-      expect(custom.ok).toBe(true);
-      if (custom.ok) { expect(custom.result.statusText).toBe("Custom complete reason"); expect(Object.keys(custom.result.headers).length).toBe(2202); expect(custom.result.headers["x-repeat"]).toBe("one, two"); expect(custom.result.bodyBase64).toBe("AAH/"); }
-    }
+    const binary = mode.binary;
+    const execute = (input: RawHttpInput, options: Parameters<typeof run>[2] = {}) => run(binary, input, { ...options, worker: mode.worker });
+    originRequests.length = 0; proxyRequests.length = 0;
+    const proxied = await execute({ url: `http://localhost:${originPort}/path`, method: "GET", headers: {} });
+    expect(proxied.ok && Buffer.from(proxied.result.bodyBase64, "base64").toString()).toBe("proxy-positive");
+    expect(originRequests).toHaveLength(0); expect(proxyRequests).toHaveLength(1);
+    expect(proxyRequests[0].target).toMatch(/^http:\/\/(127\.0\.0\.1|\[::1\]):/); expect(proxyRequests[0].host).toBe(`localhost:${originPort}`); expect(proxyRequests[0].authenticated).toBe(true);
+    if (proxied.ok) expect(proxied.result.statusText).toBe("Proxy custom status");
+    const tlsForwarded = await execute({ url: `http://localhost:${originPort}/tls-proxy-forward`, method: "GET", headers: {} }, { secureProxy: true });
+    expect(tlsForwarded.ok && Buffer.from(tlsForwarded.result.bodyBase64, "base64").toString()).toBe("proxy-positive");
+    expect(originRequests).toHaveLength(0); expect(proxyRequests).toHaveLength(2);
+    const bypassed = await execute({ url: `http://localhost:${originPort}/path`, method: "GET", headers: {} }, { noProxy: "localhost" });
+    expect(bypassed.ok && Buffer.from(bypassed.result.bodyBase64, "base64").toString()).toBe("origin-positive");
+    // The driver resolves ::1 first; only the prevalidated second IPv4 address accepts connections.
+    const fallback = await execute({ url: `http://localhost:${ipv4Address.port}/fallback`, method: "GET", headers: {} }, { noProxy: "*" });
+    expect(fallback.ok && Buffer.from(fallback.result.bodyBase64, "base64").toString()).toBe("validated-address-fallback");
+    const secureInput = { url: `https://localhost:${securePort}/path`, method: "GET", headers: { authorization: "origin-secret" } };
+    const accepted = await execute(secureInput);
+    expect(accepted.ok && Buffer.from(accepted.result.bodyBase64, "base64").toString()).toBe("secure-positive");
+    expect(connections.at(-1)).toMatch(/^(127\.0\.0\.1|\[::1\]):/); expect(originRequests.at(-1)?.authenticated).toBe(true);
+    const secureTunnel = await execute(secureInput, { secureProxy: true });
+    expect(secureTunnel.ok && Buffer.from(secureTunnel.result.bodyBase64, "base64").toString()).toBe("secure-positive");
+    // Both independent origin/proxy roots in the native startup bundle are
+    // necessary; supplying only one never broadens the other connection.
+    expect((await execute(secureInput, { extraCaFile: certPath, secureProxy: true })).ok).toBe(false);
+    expect((await execute(secureInput, { extraCaFile: proxyCertPath, noProxy: "*" })).ok).toBe(false);
+    expect((await execute(secureInput, { extraCaFile: keyPath, noProxy: "*" })).ok).toBe(false);
+    const untrusted = await execute(secureInput, { trusted: false }); expect(untrusted.ok).toBe(false);
+    // Explicit verification defeats an inherited disable-verification switch
+    // on direct origin TLS, proxy CONNECT and TLS to the proxy itself.
+    for (const options of [{ noProxy: "*" }, {}, { secureProxy: true }])
+      expect((await execute(secureInput, { ...options, trusted: false, verificationDisabled: true })).ok).toBe(false);
+    expect((await execute({ url: `http://localhost:${originPort}/untrusted-tls-proxy`, method: "GET", headers: {} }, { secureProxy: true, trusted: false, verificationDisabled: true })).ok).toBe(false);
+    rejectTunnel = true;
+    const denied = await execute(secureInput); expect(denied.ok).toBe(false);
+    rejectTunnel = false;
+    const ready = new Promise<void>(resolve => { bodyReady = resolve; });
+    const cancelled = await execute({ ...secureInput, url: `https://localhost:${securePort}/wait` }, { stop: ready });
+    expect(cancelled.ok).toBe(false); if (!cancelled.ok) expect(cancelled.error).toContain("Fixture Stop");
+    bodyReady = undefined;
+    holdTunnel = true;
+    const tunnelReady = new Promise<void>(resolve => { connectionReady = resolve; });
+    const cancelledTunnel = await execute(secureInput, { stop: tunnelReady });
+    expect(cancelledTunnel.ok).toBe(false); if (!cancelledTunnel.ok) expect(cancelledTunnel.error).toContain("Fixture Stop");
+    holdTunnel = false;
+    connectionReady = undefined;
+    const custom = await execute({ url: `http://localhost:${rawAddress.port}/wire`, method: "A".repeat(80), headers: {} }, { noProxy: "*" });
+    expect(wire.at(-1)).toBe(`${"A".repeat(80)} /wire HTTP/1.1`);
+    expect(custom.ok).toBe(true);
+    if (custom.ok) { expect(custom.result.statusText).toBe("Custom complete reason"); expect(Object.keys(custom.result.headers).length).toBe(2202); expect(custom.result.headers["x-repeat"]).toBe("one, two"); expect(custom.result.bodyBase64).toBe("AAH/"); }
   } finally {
     for (const socket of sockets) socket.destroy();
     await Promise.all([origin, secure, proxy, secureProxy, raw, ipv4Only].map(server => new Promise<void>(resolve => server.close(() => resolve()))));
