@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { macSigningIdentity, macTargets, validateMacAcceptanceManifest } from "./mac-engine-signing-acceptance.mjs";
+import { macSigningIdentity, macTargets, parseKeychainSearchList, validateMacAcceptanceManifest } from "./mac-engine-signing-acceptance.mjs";
+
+test("native keychain paths preserve spaces and quoted entries without shell splitting", () => {
+  assert.deepEqual(parseKeychainSearchList('    "/Users/runner/Library/Keychains/login.keychain-db"\n    "/private/owned signing/identity.keychain-db"\n'), ["/Users/runner/Library/Keychains/login.keychain-db", "/private/owned signing/identity.keychain-db"]);
+});
+for (const text of ['"relative.keychain"', '"/private/one\\ntwo"', '/unquoted/keychain', 'null']) test(`native keychain paths reject ${JSON.stringify(text)}`, () => {
+  assert.throws(() => parseKeychainSearchList(text));
+});
 
 const hash = "a".repeat(64);
 function fixture() {
