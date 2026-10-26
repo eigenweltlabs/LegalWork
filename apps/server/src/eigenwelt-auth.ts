@@ -1,5 +1,6 @@
 import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
-import { EIGENWELT_SIGN_IN_TIMEOUT_MS, type EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import { EIGENWELT_SIGN_IN_TIMEOUT_MS } from "./eigenwelt-checkout.js";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
