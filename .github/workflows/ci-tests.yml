@@ -7,6 +7,10 @@ on:
       - codex/projects-akte-workspace
   workflow_dispatch:
     inputs:
+      mac_signing_acceptance:
+        description: Only compile, production-sign and execute the three Mac engine targets without publishing
+        type: boolean
+        default: false
       package_desktop:
         description: Build and execute desktop and reviewed engine on all six shipped OS/CPU configurations
         type: boolean
@@ -24,11 +28,31 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}
   cancel-in-progress: true
 
 jobs:
+  signing-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject contradictory manual modes
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ]; then
+            echo 'mac_signing_acceptance and package_desktop cannot both be enabled.' >&2
+            exit 1
+          fi
+  mac-signing-acceptance:
+    needs: signing-inputs
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance
+    uses: ./.github/workflows/mac-engine-signing-acceptance.yml
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-changes:
+    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.changes.outputs.required }}
@@ -56,7 +80,7 @@ jobs:
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
   opencode-derivative:
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance
     permissions:
       contents: read
       actions: read
@@ -65,12 +89,13 @@ jobs:
       reuse-run-id: ${{ inputs.engine_reuse_run_id }}
       reuse-manifest-sha256: ${{ inputs.engine_reuse_manifest_sha256 }}
   desktop-packaging:
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance
     needs: [sandbox-runtime, opencode-derivative]
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   windows-meetings:
+    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -82,6 +107,7 @@ jobs:
         run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
 
   windows-drafts:
+    if: github.event_name != 'workflow_dispatch' || !inputs.mac_signing_acceptance
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -105,7 +131,7 @@ jobs:
 
   legalwork-tests:
     needs: opencode-derivative
-    if: always() && (needs.opencode-derivative.result == 'success' || needs.opencode-derivative.result == 'skipped')
+    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (needs.opencode-derivative.result == 'success' || needs.opencode-derivative.result == 'skipped')
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -157,11 +183,12 @@ jobs:
       - name: Prepare checksum-pinned Node for worker tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
 
-      - name: Typecheck app and build server
+      - name: Typecheck app
         if: runner.os == 'Linux'
-        run: |
-          pnpm --filter @legalwork/app typecheck
-          pnpm --filter legalwork-server build
+        run: pnpm --filter @legalwork/app typecheck
+
+      - name: Build server and native plugins
+        run: pnpm --filter legalwork-server build
 
       - name: Check packaged OpenCode plugins are self-contained
         if: runner.os == 'Linux'
