@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 26 October 2026, 16:09 UTC. Migration remains unfinished. The
+Checkpoint: 26 October 2026, 17:05 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -10,15 +10,23 @@ regression from v1 remains required. See [the separate browser issues](opencode-
 | Configuration tested | Verified | Still running or remaining |
 |---|---|---|
 | macOS ARM64 | Normal final7 Electron startup, patched v2 engine, retained project/document, native tool calls and original visible-browser scenario; full build/package/security. | Remaining shared real-agent regression cases and final adoption. |
-| Linux x64 | Normal final7 engine/Electron startup and live native registry; prior final6 real PowerPoint task4/4, saved artifact and observer qualification. Final7 real Excel completes reading, edits, recalculation and same-workbook checks; root independently verifies the saved workbook and exact trace qualification. | Excel strict score remains3/4: the original-file assertion detects a style XML CRLF→LF change also present in v1. Legal/delegation/large-connector comparisons remain. |
-| Windows x64 Server VM | Final7 normal build/package/security/unsigned installer and installed upgrade pass. All2620 installed package files match; all15 chats/75 messages and empty queue remain exact in SQL and accessible through public APIs. Actual licensed Word read/tracked edit/comment/save/reopen passed on final6. Actual final7 engine direct/CodeMode MCP reconnect/recovery component passes2 tests/26 original assertions. | Real-model cross-provider in-app DOCX acceptance preparation. External Microsoft Word and controller-hosted MCP component evidence retain their separate scopes. |
+| Linux x64 | Normal final7 engine/Electron startup and live native registry; prior final6 PowerPoint4/4. Final7 actual Excel, NDA, delegation and large-MCP tasks completed; root independently verifies their files, complete wires and exact trace qualifications. | Excel strict3/4 matches v1's style XML CRLF→LF change. NDA55/56 versus v1 53/56 retains the frozen rubric/source conflict and additional legal-quality concerns. Delegation strict8/9 versus v1 9/9 differs in three citation capitalizations. Large MCP3/3 preserves the full2,024,587-byte result. Queue/context/scheduling remain. |
+| Windows x64 Server VM | Final7 normal build/package/security/unsigned installer and installed upgrade pass. All2620 installed package files match; all15 chats/75 messages and empty queue remain exact in SQL and accessible through public APIs. Actual licensed Word read/tracked edit/comment/save/reopen passed on final6. Actual final7 engine MCP recovery component passes2 tests/26 original assertions. Actual final7 Claude in-app DOCX editing qualifies4/4 after root verifies the saved tracked30→45 edit, full wires and exact zero-argument tool traces. | Original Claude controller-path failure remains unchanged; read-only recovery adds separate evidence without a model rerun. In-app DOCX, external Microsoft Word and controller-hosted MCP component evidence retain their separate scopes. |
 
 These are the actual tested configurations, not a claim that every CPU/OS
 combination was executed. All twelve upstream engine target artifacts were
 built and statically verified. Intel Mac, Linux ARM64 and Windows ARM64 app
 execution is not yet established. The user explicitly requires all six app/engine
-configurations before migration completion. The CI producer and six-runner
-acceptance workflow are drafted but have not executed. They build the reviewed
+configurations before migration completion. The first migration checkpoint was pushed at `d35228ebb9c44d2827e3d1b8c7bf7f925917d253`.
+The [six-platform CI acceptance](https://github.com/eigenweltlabs/legalwork/actions/runs/40359354246)
+started at16:27:48UTC. Its reviewed twelve-target engine producer passed; all six
+sandbox jobs stopped because CI had not prepared the Node worker runtime.
+Commit43f80e46 adds the existing checksum-pinned runtime preparation. It also
+keeps complete layered-TLS tests on verified Bun1.3.14 because1.4.2/1.4.4 stall
+in that test-host path; production Node22 and engine compiler1.4.4 are unchanged.
+Thirteen CI controls pass. An explicit run ID plus independently verified manifest
+allows reuse of the unchanged producer rather than recompiling twelve targets.
+No successful six-platform app execution is claimed yet. The workflows build the reviewed
 engine from its original frozen upstream dependency graph and transfer it through
 Actions artifacts, without publishing it or granting access to private traces.
 Windows11 hardware
@@ -52,35 +60,47 @@ The full mapping retains exact source files/lines and observed native IDs.
 
 ## Remaining acceptance
 
-1. Finish matched legal/Office tasks, delegation and the large connector task
-   with unchanged prompts, original files/assertions and complete traces.
-2. Complete native-v2 queue/restart, context and scheduled execution. Existing
+1. Complete native-v2 queue/restart, context and scheduled execution. Existing
    deterministic queue controls pass. Further v1 harness reruns are deferred
    while the native-v2 lane takes priority. The latest v1 control restored its
    chat correctly but a normal feature announcement obscured the Deny button;
    no denied-permission or model-quality verdict is claimed for that attempt.
-3. Finish exact connector-recovery and cross-provider checks, then finalize the
+2. Finalize the
    pinned derivative's adoption/distribution metadata after functional acceptance.
-4. Execute the six-platform CI acceptance and verify the latest private-auth
+3. Execute the six-platform CI acceptance and verify the latest private-auth
    runtime change in an actual package. Public workspace/status metadata now
    omits both flat and nested native engine credentials. The desktop reads the
    live embedded-server config privately, matches the exact selected project and
    follows credential rotation. Real HTTP tests pass13 cases/98 assertions;
    desktop tests pass435 with4 platform skips; app/server typechecks pass. These
-   source checks do not establish packaged acceptance for this newer change.
+   source checks are now supplemented by an actual final8 Mac normal build/package/security and real engine startup. It verifies the exact native version and credential-free workspace metadata; browser connection acceptance remains separate.
+
+Latest dev3b214a80c is merged at80d34a95, including checkout/sign-in expiry and
+Mac updater shutdown fixes. Migration-specific import integration is corrected
+at43969414. All437 desktop tests pass with4 platform skips;29 affected sign-in
+tests and app/server typechecks pass. Earlier real task results retain their
+sealed9c278ff0/final7 identities rather than claiming execution of this newer source.
 
 The final7 NDA run completed18 real EU Gemini requests and saved its report;
-both original mechanical assertions pass. A full56-criterion substantive
-assessment proposes55/56 versus the previous v1 result53/56. Root has reviewed
-the summary and independently adjudicated the borderline non-solicit item and
-the two previous omissions, but full independent acceptance remains open. The
+both original mechanical assertions pass. Root independently accepts the full
+56-criterion coverage assessment:55/56 versus v1 53/56, including354 exact cited
+source/report passages and all retained evidence. The
 unchanged C045 rubric/source conflict and six additional quality concerns remain
 recorded, including compelled-disclosure severity and unsupported factual claims.
 This is not a blind quality estimate. The original trace-incomplete result is
-retained; its one internal-search gap has a proposed exact qualification, not a
-general tracing waiver. Complete closed-state archives are verified in private
-EU cloud storage. Delegation is now executing; the large-connector and native
-queue/context/scheduler cases remain separate outstanding checks.
+retained; its one internal-search gap has a root-accepted exact qualification,
+not a general tracing waiver. Complete closed-state archives are verified in
+private EU cloud storage. Delegation completed with two distinct actual
+parent-linked reviewers and complete22-pair tool traces. Literal v2 strict8/9
+versus v1 strict9/9 remains: exactly three citation labels use source-identical
+capitalized Section. Root accepts the exact additive functional qualification;
+both memos retain external-statute/fixed48h-buffer claims outside the supplied
+sources. Large MCP passes all3 original assertions, matching v1's parsed decision.
+All4 native connector calls contain the complete2,024,587-byte text and ordered
+structured result; the actual digest tool consumes the entire source. Root
+accepts its exact two-search qualification and verifies all11 full GeminiEU/medium
+wires. Native search has no separate child event/timing; originals remain
+trace-incomplete. Request roles and controlled cost/speed comparisons are not claimed.
 
 The first final7 Excel attempt stopped before inference because the fresh UI had
 no selected model. That zero-call failure and original workbook are retained.
@@ -101,4 +121,4 @@ exception; full search results and outer-call timings remain. Do not claim
 controlled speed/cost improvements when request roles, source baselines or
 provider cache state differ.
 
-No release, push or default derivative selection has occurred.
+The migration branch is pushed for CI; no release or default derivative selection has occurred.
