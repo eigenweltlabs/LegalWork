@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 26 October 2026, 17:05 UTC. Migration remains unfinished. The
+Checkpoint: 26 October 2026, 19:45 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -22,8 +22,7 @@ The [six-platform CI acceptance](https://github.com/eigenweltlabs/legalwork/acti
 started at16:27:48UTC. Its reviewed twelve-target engine producer passed; all six
 sandbox jobs stopped because CI had not prepared the Node worker runtime.
 Commit43f80e46 adds the existing checksum-pinned runtime preparation. It also
-keeps complete layered-TLS tests on verified Bun1.3.14 because1.4.2/1.4.4 stall
-in that test-host path; production Node22 and engine compiler1.4.4 are unchanged.
+temporarily used Bun 1.3.14; that rollback is superseded below.
 Thirteen CI controls pass. An explicit run ID plus independently verified manifest
 allows reuse of the unchanged producer rather than recompiling twelve targets.
 No successful six-platform app execution is claimed yet. The workflows build the reviewed
@@ -31,6 +30,43 @@ engine from its original frozen upstream dependency graph and transfer it throug
 Actions artifacts, without publishing it or granting access to private traces.
 Windows11 hardware
 performance and automatic update delivery retain the user's separate release checks.
+
+The second run, [40365700557](https://github.com/eigenweltlabs/legalwork/actions/runs/40365700557),
+verified the reused twelve-target producer. Sandbox tests passed Linux x64,
+Linux ARM64 and Mac ARM64. The old Bun host panicked on both Windows targets;
+Mac Intel retained filesystem-capacity, guest-execution and proxy-test failures.
+The unit jobs found old-host UI initialization failures. Desktop package jobs
+therefore did not run; the three additional app configurations remain unverified.
+
+The current correction restores Bun 1.4.4. The TLS failure was traced to an
+unconditional optional socket-QoS call in the existing Undici 7 dependency;
+upstream Undici 8.12.3 fixes it through its supported implementation. Both existing
+aliases, their exact lock entries and the generated worker are updated. The
+unchanged proxy suite passes 2 tests/128 assertions, and Node/raw transport passes
+33/191. No HTTP result cap, policy bypass or test timeout change was added.
+The proxy suite took 27.6s against its existing 30s test budget, so CI timing remains
+a caveat. TMP diagnostics now retain Node/Bun filesystem capacity before the
+platform tests; the original Mac Intel failures alone do not prove a full disk.
+
+Clean-checkout fixtures now create their scratch parent and actual fake-engine
+database, use prepared Node/native image resources, and settle stream cancellation
+before abort. Scheduler tests wait for actual HTTP dispatch rather than queue
+admission. A real startup race is fixed: managed requests remain held until the
+engine's database binding has finished. Its focused 10/35 and real-engine 1/33
+tests pass. A worker-death diagnostic now preserves both the original transport
+error and actual process exit status. These fixes are committed for the next run.
+
+Native queue actions have reached initial Send, pause, enqueue, edit, remove,
+reorder and Stop. The controller then failed on an existing evidence-directory
+name before restart. The stopped app state and full evidence are preserved;
+recovery will continue from the same paused queue, without replaying Send.
+Restart/Resume acceptance is still open. The remaining VM has a finite 21:55 UTC
+deletion lease; earlier completed Windows/Linux states are privately cloud-safe.
+
+Mac distribution preparation adds an optional Developer ID signing path before
+artifact hashes are fixed; 25 focused tests pass. Actual production signing is
+still open: this Mac currently has no valid signing identity in its keychain.
+No existing artifact was re-signed, published or selected by default.
 
 ## Tool registration
 
