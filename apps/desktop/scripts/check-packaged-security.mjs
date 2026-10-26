@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
-import { assertPackagedOpencodeSelection } from "./packaged-opencode-selection.mjs";
 import { checkOpencodeRuntime } from "./check-opencode-runtime.mjs";
 import { opencodeRelease, opencodeReleaseTarget } from "@legalwork/opencode-release";
 import { verifyDerivativeDistributionContent, verifyInstalledDerivativeEngine } from "@legalwork/opencode-release/derivative";
@@ -40,7 +39,7 @@ assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, el
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
 assertPackagedOpencodeSdk(resources);
 const packagedSelection = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join("node_modules", "@legalwork", "opencode-release", "selection.json")).toString("utf8"));
-assertPackagedOpencodeSelection(packagedSelection, JSON.parse(await readFile(new URL("../../../packages/opencode-release/selection.json", import.meta.url), "utf8")));
+assert.deepEqual(packagedSelection, JSON.parse(await readFile(new URL("../../../packages/opencode-release/selection.json", import.meta.url), "utf8")), "Packaged OpenCode selection must exactly match its reviewed build input");
 assert.equal(packagedSelection.schemaVersion, 1);
 assert.equal(packagedSelection.baseVersion, opencodeRelease.version);
 const engineTarget = opencodeReleaseTarget(process.platform, expectedArch);
