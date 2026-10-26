@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const require = createRequire(join(repoRoot, "apps/app/package.json"));
 
 function setLineEndings(directory, newline) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -33,7 +35,10 @@ test("help generation accepts CRLF checkouts without hiding stale content", () =
       mkdirSync(dirname(destination), { recursive: true });
       cpSync(join(repoRoot, path), destination, { recursive: true });
     }
-    symlinkSync(join(repoRoot, "apps/app/node_modules"), join(root, "apps/app/node_modules"), "junction");
+    // Resolve the package itself: linking pnpm's node_modules directory leaves
+    // its relative package links pointing outside the fixture on Windows.
+    mkdirSync(join(root, "apps/app/node_modules"), { recursive: true });
+    symlinkSync(dirname(require.resolve("typescript/package.json")), join(root, "apps/app/node_modules/typescript"), "junction");
     const generated = ["docs/user-guide/i18n.json", "apps/server/src/help-i18n.generated.ts"];
     for (const path of generated) rmSync(join(root, path), { force: true });
     const run = (...args) => spawnSync(process.execPath, [join(root, "scripts/gen-core-skills.mjs"), ...args], { cwd: root, encoding: "utf8" });
