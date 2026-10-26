@@ -182,6 +182,14 @@ export function RecorderSettingsView(props: {
           <p className="text-xs text-subtext">{t("recorder.meeting_recording_location")}</p>
           {store.transcriptionSource === "cloud" ? <div className="space-y-4 border-t border-subtle pt-4">
             <div>
+              <label className="flex items-center justify-between gap-4 text-sm">
+                {t("recorder.identify_additional_speakers")}
+                <Switch checked={store.identifyAdditionalSpeakers} onCheckedChange={store.setIdentifyAdditionalSpeakers}
+                  aria-label={t("recorder.identify_additional_speakers")} />
+              </label>
+              <p className="mt-1 text-xs text-subtext">{t("recorder.identify_additional_speakers_description")}</p>
+            </div>
+            <div>
               <div className="text-xs font-medium text-ink">{t("recorder.meeting_notes_title")}</div>
               <p className="mt-1 text-sm text-subtext">{t("recorder.meeting_notes_description")}</p>
             </div>

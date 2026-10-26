@@ -1123,7 +1123,7 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   const modelId = "gemini-transcribe-live-eu";
   service.loadedModel = { modelId, language: "de" };
   t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); await fsp.rm(workspace, { recursive: true, force: true }); });
-  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true });
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true, identifyAdditionalSpeakers: true });
   const system = `${meta.id}:system`;
   const mic = `${meta.id}:microphone`;
   assert.equal(worker.messages.find(message => message.type === "begin").diarize, true);
@@ -1187,7 +1187,7 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   const modelId = "gemini-transcribe-live-eu";
   service.loadedModel = { modelId, language: "de" };
   t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); });
-  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true });
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true, identifyAdditionalSpeakers: true });
   const mic = `${meta.id}:microphone`;
   const text = "Ich prüfe den Vertrag. Danke, ich übernehme.";
   service.handleWorkerMessage({ type: "segment", streamId: mic, id: "mixed", startMs: 0, endMs: 9000, text });
@@ -1241,6 +1241,24 @@ async function notesFixture(t, generateMeetingNotes) {
   return { service, settings, record, userDataDir };
 }
 
+test("separate-input meetings keep stable source labels despite provider voice splits while refining timing", async t => {
+  const { service } = await notesFixture(t, async () => ({}));
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
+  for (const source of meta.sources) {
+    const streamId = `${meta.id}:${source}`;
+    service.handleWorkerMessage({ type: "segment", streamId, id: "words", startMs: 0, endMs: 10000, text: "One person continues speaking." });
+    service.handleWorkerMessage({ type: "speaker-turns", streamId, startMs: 0, endMs: 10000,
+      turns: [{ startMs: 2000, endMs: 4000, speaker: 0 }, { startMs: 4000, endMs: 6000, speaker: 1 }],
+      words: ["One", "person", "continues", "speaking"].map((text, i) => ({ text, startMs: 2000+i*1000, endMs: 2900+i*1000, speaker: i<2 ? 0 : 1 })) });
+  }
+  await service.stopRecording(meta.id);
+  const detail = await service.getRecording(meta.id);
+  assert.deepEqual(detail.meta.speakerNames, { 0: "Microphone", 1: "System audio" });
+  assert.equal(detail.segments.length, 2);
+  assert.deepEqual(detail.segments.map(s => s.speaker), [0, 1]);
+  assert.ok(detail.segments.every(s => s.startMs === 2000 && s.endMs === 5900));
+});
+
 test("cloud meeting notes update title, summary, JSON, Markdown and the workspace copy after Stop", async t => {
   const calls = [];
   const { service, record, userDataDir, settings } = await notesFixture(t, async input => {
@@ -1277,7 +1295,8 @@ test("local recordings, ephemeral dictation and disabled notes never call a clou
 });
 
 test("manual title edits survive a pending notes response", async t => {
-  let release;
+  /** @type {(value: { title: string, summary: string }) => void} */
+  let release = (_value) => { assert.fail("the notes request must be waiting for its response"); };
   let entered;
   const started = new Promise(resolve => { entered = resolve; });
   const { service, record } = await notesFixture(t, async () => {
@@ -1330,14 +1349,17 @@ test("the capture worklet advances both input clocks even when one track has no 
   const samples = Number(source.match(/const PCM_BATCH_SAMPLES = (\d+)/)?.[1]);
   const code = source.match(/const PCM_WORKLET_SOURCE = `([\s\S]*?)`;/)?.[1];
   assert.ok(samples && code);
-  let Processor;
+  /** @type {{ processor?: new () => { process(inputs: Float32Array[][]): boolean, port: { onmessage(event: { data: string }): void }, messages: unknown[] } }} */
+  const registered = {};
   runInNewContext(code.replaceAll("${PCM_BATCH_SAMPLES}", String(samples)), {
     Float32Array,
     AudioWorkletProcessor: class {
       constructor() { this.messages = []; this.port = { postMessage: message => this.messages.push(message) }; }
     },
-    registerProcessor: (_name, constructor) => { Processor = constructor; },
+    registerProcessor: (_name, constructor) => { registered.processor = constructor; },
   });
+  const Processor = registered.processor;
+  assert.ok(Processor, "the worklet must register its processor");
   const mic = new Processor();
   const system = new Processor();
   mic.process([[new Float32Array(128).fill(.25)]]);

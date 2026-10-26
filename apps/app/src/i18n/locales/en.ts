@@ -4320,6 +4320,8 @@ export default {
   "recorder.dictation_title": "Dictate anywhere",
   "recorder.dictation_smart": "Cloud dictation uses Smart mode to remove fillers, apply spoken corrections and format your text.",
   "recorder.meeting_notes_title": "Cloud meeting notes",
+  "recorder.identify_additional_speakers": "Identify additional voices",
+  "recorder.identify_additional_speakers_description": "Off: keep separate Microphone and System audio labels for one-to-one calls. Turn on for a shared microphone or multiple remote participants. Detected voices may need correction.",
   "recorder.meeting_notes_description": "Generate a title and summary after a cloud recording ends. Uses an enabled model in the same region and counts toward your usage. Local recordings stay on this device.",
   "recorder.meeting_auto_title": "Automatically name meetings",
   "recorder.meeting_auto_summary": "Automatically summarize meetings",

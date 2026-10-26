@@ -1,8 +1,8 @@
 # Recorder: app audio, speaker identification, and transcription quality
 
-This covers three parts of the local Recorder pipeline: per-application audio
-capture on macOS, on-device speaker diarization, and the audio front-end that
-feeds the ASR model. All processing stays on the device.
+This covers Recorder capture, speaker labels, transcription timing and meeting
+notes. Local transcription stays on the device. The cloud path described below
+uses the organisation's enabled regional providers.
 
 ## Finding recordings from chat
 
@@ -195,19 +195,33 @@ model that keeps up with the input still determine practical recording length.
 
 Cloud meetings retain known Microphone, System audio and App audio labels for
 separate inputs from the start. They identify sources, not verified people.
-After Stop, the independent speaker pass refines these labels and word timings;
-its first detected voice reuses the input label and additional voices get their
-own IDs. Unmatched words keep their input label. A failed live socket preserves
+By default each separate input keeps its label, including after the provider
+returns multiple voice IDs. **Identify additional voices** opts into individual
+voice detection for shared microphones or multiple remote participants. In that
+mode the first detected voice reuses the input label and additional voices get
+their own IDs. Source labels and detected identities are different guarantees:
+voice detection can still require correction.
+
+After Stop, the independent speaker pass refines word timings in both modes.
+Unmatched words keep their input label. A failed live socket preserves
 captured speaker-pass audio for the saved transcript. Speaker windows are
 30 seconds with overlap to reduce per-request latency.
+Transient connection setup is retried once before audio is sent. A recoverable
+provider failure skips that window and continues with later audio, preserving
+input labels for the gap. Three consecutive failures stop the pass. Paid audio
+requests are not retried after an uncertain response.
 
 The capture worklet emits silence when an input has no samples so both input
 clocks keep advancing together. The gateway uses provider speech activity
 offsets instead of response arrival times. Desktop persistence sorts incoming
 segments by capture time and rewrites a shared live mirror on late arrivals.
 Improved word timings are applied even when text and speaker stay unchanged.
-The gateway commits long authoritative meeting text incrementally; the viewer
-also bounds same-speaker grouping by time, silence gap and text length.
+The gateway commits long authoritative meeting text incrementally. If Google
+returns a long utterance in one final packet, confident word alignment splits it
+into paragraphs targeting 600 characters and 30 seconds, using recognized word
+times. Unmatched text is retained, so these are not hard limits on every segment.
+The viewer also bounds same-speaker grouping by time, silence gap and text length.
+The alignment cache retains four minutes of words to cover delayed long packets.
 
 With a cloud transcription model selected, **Settings > Recorder > Meetings**
 offers independent automatic title and summary switches, an enabled chat model

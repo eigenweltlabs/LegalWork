@@ -173,6 +173,7 @@ export class RecorderService {
      *   diarize?: boolean,
      *   cloudSpeakers?: Map<string, { ids: Map<number, number>, turns: { startMs: number, endMs: number, speaker: number | null }[], words: { text?: string, startMs: number, endMs: number, speaker: number | null }[], endMs: number }>,
      *   cloudDiarize?: boolean,
+     *   identifyAdditionalSpeakers?: boolean,
      *   meetingNotes?: import("@legalwork/types/audio").AudioMeetingNotesSettings,
      *   speakerPasses?: import("./deferred-cloud-speakers.mjs").DeferredCloudSpeakerPass[],
      *   cloudSegments?: Map<string, { streamId: string, original: import("@legalwork/types/audio").AudioTranscriptSegment, parts: import("@legalwork/types/audio").AudioTranscriptSegment[] }>,
@@ -622,6 +623,7 @@ export class RecorderService {
         }
         const names = recording.meta.speakerNames ??= {};
         const turns = message.turns.map(turn => {
+          if (input && !recording.identifyAdditionalSpeakers) return { ...turn, speaker: input.speaker };
           if (turn.speaker == null) return turn;
           if (!detected.ids.has(turn.speaker)) {
             // Reuse the input's first label. Further voices on that input get
@@ -637,7 +639,8 @@ export class RecorderService {
         detected.turns = mergeSpeakerTurns(detected.turns, { startMs: message.startMs, endMs: message.endMs, turns })
           .filter(turn => turn.endMs >= detected.endMs - 120_000);
         detected.words = mergeSpeakerWords(detected.words, { startMs: message.startMs, endMs: message.endMs,
-          words: (message.words ?? []).map(word => ({ ...word, speaker: word.speaker == null ? null : detected.ids.get(word.speaker) ?? null })) });
+          words: (message.words ?? []).map(word => ({ ...word, speaker: input && !recording.identifyAdditionalSpeakers
+            ? input.speaker : word.speaker == null ? null : detected.ids.get(word.speaker) ?? null })) });
         const changed = [];
         const replacedIds = [];
         for (const [id, entry] of recording.cloudSegments ?? []) {
@@ -857,6 +860,7 @@ export class RecorderService {
       diarize,
       cloudSpeakers: new Map(),
       cloudDiarize,
+      identifyAdditionalSpeakers: input?.identifyAdditionalSpeakers === true,
       meetingNotes: meta.transcriptionSource === "cloud" && !meta.ephemeral && input?.meetingNotes
         ? { title: input.meetingNotes.title === true, summary: input.meetingNotes.summary === true,
           model: String(input.meetingNotes.model ?? "").slice(0, 200), instructions: String(input.meetingNotes.instructions ?? "").slice(0, 1000) } : undefined,

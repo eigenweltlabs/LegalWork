@@ -4564,6 +4564,8 @@ const de = {
   "recorder.dictation_title": "Überall diktieren",
   "recorder.dictation_smart": "Cloud-Diktate verwenden den Smart-Modus, um Füllwörter zu entfernen, gesprochene Korrekturen zu übernehmen und den Text zu formatieren.",
   "recorder.meeting_notes_title": "Cloud-Besprechungsnotizen",
+  "recorder.identify_additional_speakers": "Weitere Stimmen erkennen",
+  "recorder.identify_additional_speakers_description": "Aus: Mikrofon und Systemaudio bleiben für Zweiergespräche getrennt beschriftet. Für ein gemeinsam genutztes Mikrofon oder mehrere zugeschaltete Personen einschalten. Erkannte Stimmen müssen gegebenenfalls korrigiert werden.",
   "recorder.meeting_notes_description": "Nach einer Cloud-Aufnahme Titel und Zusammenfassung erstellen. Verwendet ein freigeschaltetes Modell derselben Region und zählt zu Ihrem Verbrauch. Lokale Aufnahmen bleiben auf diesem Gerät.",
   "recorder.meeting_auto_title": "Besprechungen automatisch benennen",
   "recorder.meeting_auto_summary": "Besprechungen automatisch zusammenfassen",

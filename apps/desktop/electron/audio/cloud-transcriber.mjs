@@ -185,7 +185,15 @@ export class CloudTranscriber extends EventEmitter {
   }
 
   async recognizeSpeakers(audio, signal) {
-    const connection = await this.resolveConnection(this.modelId);
+    let connection;
+    try { connection = await this.resolveConnection(this.modelId); }
+    catch {
+      // Retry a transient settings/connection lookup before sending any audio.
+      // Do not replay a paid recognition request after an uncertain response.
+      await new Promise(resolve => setTimeout(resolve, 500));
+      signal.throwIfAborted();
+      connection = await this.resolveConnection(this.modelId);
+    }
     if (signal.aborted) throw new Error("Speaker detection cancelled");
     const url = new URL(connection.url);
     if (!url.pathname.endsWith("/transcription/live")) throw new Error("Cloud speaker detection is unavailable.");
@@ -205,12 +213,15 @@ export class CloudTranscriber extends EventEmitter {
         else resolve(words);
       };
       const abort = () => finish(new Error("Speaker detection cancelled"));
-      const timer = setTimeout(() => finish(new Error("Cloud speaker detection took too long. The transcript will be kept.")), SPEAKER_TIMEOUT_MS);
+      const timer = setTimeout(() => finish(Object.assign(new Error("Cloud speaker detection took too long. The transcript will be kept."), { recoverable: true })), SPEAKER_TIMEOUT_MS);
       signal.addEventListener("abort", abort, { once: true });
       socket.on("open", () => { if (!settled) socket.send(audio); });
       socket.on("message", raw => {
         try {
           const event = JSON.parse(String(raw));
+          if (event.type === "error" && typeof event.error === "string") {
+            throw Object.assign(new Error(event.error), { recoverable: event.error.startsWith("Cloud speaker detection is unavailable.") });
+          }
           if (event.type !== "speakers" || !Array.isArray(event.words) || event.words.length > 5000 || event.words.some(word =>
             !Number.isFinite(word.startMs) || !Number.isFinite(word.endMs) || word.startMs < 0 || word.endMs <= word.startMs ||
             word.endMs > audio.length / 32 + 100 || typeof word.speaker !== "string" || word.speaker.length > 64 ||
@@ -220,8 +231,8 @@ export class CloudTranscriber extends EventEmitter {
           finish(null, event.words);
         } catch (error) { finish(error); }
       });
-      socket.on("error", () => finish(new Error("Cloud speaker detection is unavailable. The transcript will be kept.")));
-      socket.on("close", () => finish(new Error("Cloud speaker detection disconnected. The transcript will be kept.")));
+      socket.on("error", error => finish(Object.assign(new Error("Cloud speaker detection is unavailable. The transcript will be kept."), { recoverable: !/\b(?:401|403)\b/.test(error.message) })));
+      socket.on("close", code => finish(Object.assign(new Error("Cloud speaker detection disconnected. The transcript will be kept."), { recoverable: code !== 1008 })));
     });
   }
 

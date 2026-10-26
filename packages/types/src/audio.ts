@@ -356,6 +356,8 @@ export type AudioSystemDictationPasteResult = {
 };
 
 export type AudioRecordingStartInput = {
+  /** Cloud recordings keep one label per separate input unless enabled. */
+  identifyAdditionalSpeakers?: boolean;
   meetingNotes?: AudioMeetingNotesSettings;
   title?: string;
   projectId?: string;

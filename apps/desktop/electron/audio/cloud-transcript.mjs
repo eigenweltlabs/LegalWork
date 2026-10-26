@@ -16,7 +16,7 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const tokens = [...segment.text.matchAll(/\S+/gu)].map(match => ({ text: match[0], index: match.index, key: normalized(match[0]) }));
   const candidates = words.filter(word => word.text && word.endMs > segment.startMs - 4000 && word.startMs < segment.endMs + 1000)
     .flatMap(word => (word.text.match(/\S+/gu) ?? []).map(text => ({ ...word, key: normalized(text) })));
-  if (!candidates.length || tokens.length > 512 || candidates.length > 1024) {
+  if (!candidates.length || tokens.length > 1024 || candidates.length > 2048) {
     if (!words.some(word => word.text) && segment.endMs <= coveredEnd) {
       const speaker = dominantSpeaker(segment, turns);
       if (speaker != null) return [{ ...segment, speaker }];
@@ -74,7 +74,17 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const parts = [];
   for (let begin = 0; begin < tokens.length;) {
     let end = begin + 1;
-    while (end < tokens.length && assigned[end] === assigned[begin]) end++;
+    let firstTimed = matched.get(begin) ?? inferred.get(begin);
+    let lastTimed = firstTimed;
+    while (end < tokens.length && assigned[end] === assigned[begin]) {
+      const word = matched.get(end) ?? inferred.get(end);
+      if (tokens[end].index + tokens[end].text.length - tokens[begin].index > 600
+        || (word && firstTimed && word.endMs - firstTimed.startMs > 30000)
+        || (word && lastTimed && word.startMs - lastTimed.endMs > 3000)) break;
+      firstTimed ??= word;
+      lastTimed = word ?? lastTimed;
+      end++;
+    }
     const timed = [...matched, ...inferred].filter(([index]) => index >= begin && index < end)
       .sort((a, b) => a[0] - b[0]).map(([, word]) => word);
     const before = [...matched].filter(([index]) => index < begin).at(-1)?.[1];
@@ -98,5 +108,5 @@ export function mergeSpeakerWords(previous, update) {
       if (word.speaker != null) return word;
       const known = previous.find(old => old.speaker != null && normalized(old.text ?? "") === normalized(word.text ?? "") && Math.abs(old.startMs - word.startMs) < 500);
       return known ? { ...word, speaker: known.speaker } : word;
-    })].filter(word => word.endMs >= update.endMs - 120_000).sort((a, b) => a.startMs - b.startMs);
+    })].filter(word => word.endMs >= update.endMs - 240_000).sort((a, b) => a.startMs - b.startMs);
 }

@@ -176,6 +176,19 @@ test("PCM conversion keeps the sample count and gain; clips non-finite input saf
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => buffer.readInt16LE(i * 2)), [-32768, -16384, 0, 16384, 32767, 0, 32767]);
 });
 
+test("speaker recognition retries one failed connection lookup before sending audio", async t => {
+  const { worker, requests, resolveConnection } = await fixture(t, { begin: false });
+  let attempts = 0;
+  worker.resolveConnection = async model => {
+    if (++attempts === 1) throw new Error("Settings request timed out");
+    return resolveConnection(model);
+  };
+  const words = await worker.recognizeSpeakers(Buffer.alloc(64000), new AbortController().signal);
+  assert.equal(attempts, 2);
+  assert.equal(words.length, 1);
+  assert.equal(requests.length, 1, "retry connection setup without duplicating a paid audio request");
+});
+
 test("silent dictation finishes locally without resolving a cloud connection", async t => {
   let connections = 0;
   const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de",

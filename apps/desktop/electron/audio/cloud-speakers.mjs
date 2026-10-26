@@ -29,6 +29,7 @@ export class CloudSpeakerPass {
     this.ending = false;
     this.stopped = false;
     this.pending = null;
+    this.consecutiveFailures = 0;
     this.controller = new AbortController();
   }
 
@@ -103,7 +104,18 @@ export class CloudSpeakerPass {
         parts.push(clip);
         for (const anchor of present) references.push({ speaker: anchor.speaker,
           startMs: prefixMs + anchor.startMs - startMs, endMs: prefixMs + anchor.endMs - startMs, inWindow: true });
-        const words = await this.recognize(Buffer.concat(parts), this.controller.signal);
+        let words;
+        try {
+          words = await this.recognize(Buffer.concat(parts), this.controller.signal);
+          this.consecutiveFailures = 0;
+        } catch (error) {
+          if (this.stopped) return;
+          if (!error.recoverable || ++this.consecutiveFailures >= 3) throw error;
+          // Keep source labels for this window and continue with later audio.
+          // Never replay a paid request whose response may have been lost.
+          this.onError("Speaker detection missed part of the recording. Those words keep their input labels.", true);
+          words = [];
+        }
         if (this.stopped) return;
         const turns = this.match(words, references, clip, prefixMs, startMs);
         const alignedWords = words.filter(word => word.startMs >= prefixMs && word.endMs <= prefixMs + clip.length / BYTES_PER_MS + 1)
@@ -192,7 +204,11 @@ export class CloudSpeakerPass {
       conflicts.delete(match.label);
     }
     const identified = new Set(known.values());
-    const canEnroll = references.every(reference => identified.has(reference.speaker));
+    // A replayed reference can be labelled differently from the same person's
+    // current speech. A new identity needs a known voice in the actual window,
+    // not just in the prepended references, so that difference is observable.
+    const canEnroll = references.every(reference => identified.has(reference.speaker))
+      && (!this.anchors.length || current.some(word => known.has(word.speaker)));
     const runs = [];
     for (const word of current) {
       const previous = runs.at(-1);

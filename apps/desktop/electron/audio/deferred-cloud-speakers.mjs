@@ -18,7 +18,8 @@ export class DeferredCloudSpeakerPass {
     this.ending = false;
     this.cleanup = null;
     this.onError = onError;
-    this.pass = new CloudSpeakerPass({ recognize, onTurns, onError: error => this.fail(error), chunkMs: SPEAKER_BATCH_MS });
+    this.pass = new CloudSpeakerPass({ recognize, onTurns,
+      onError: (error, recoverable) => recoverable ? this.onError(error) : this.fail(error), chunkMs: SPEAKER_BATCH_MS });
     this.writer.on("error", error => this.fail(error));
   }
 
