@@ -72,9 +72,8 @@ jobs:
         with:
           node-version: 24.22.1
       - uses: oven-sh/setup-bun@v2
-        # Keep layered-TLS tests on the verified host; oven-sh/bun#40401.
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.4
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
@@ -137,6 +136,16 @@ jobs:
       - name: Test macOS compatibility audit
         if: inputs.run_tests
         run: node --test scripts/sandbox/macos-compatibility.test.mjs
+      - name: Record temporary filesystem capacity
+        if: inputs.run_tests
+        shell: bash
+        run: |
+          for runtime in node bun; do
+            "$runtime" -e 'const fs = require("node:fs"), os = require("node:os"); const temporary = os.tmpdir(), space = fs.statfsSync(temporary); console.log(JSON.stringify({ kind: "sandbox-tmp-capacity", node: process.versions.node, bun: process.versions.bun, platform: process.platform, arch: process.arch, temporary, statfs: space, availableBytes: space.bavail * space.bsize }));'
+            temporary="$("$runtime" -e 'process.stdout.write(require("node:os").tmpdir())')"
+            if [ "$RUNNER_OS" = Windows ]; then temporary="$(cygpath -u "$temporary")"; fi
+            df -Pk "$temporary"
+          done
       - name: Exercise real isolation and permission enforcement
         if: inputs.run_tests
         timeout-minutes: 30
