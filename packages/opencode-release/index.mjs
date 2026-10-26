@@ -1,11 +1,27 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { statSync } from "node:fs";
 import releaseMetadata from "./release.json" with { type: "json" };
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 export const opencodeRelease = releaseMetadata;
+
+/** Git's GNU tar interprets a Windows drive letter as a remote archive host.
+ * Use the OS archive tool for both official and derivative installations. */
+export function opencodeArchiveTarExecutable() {
+  if (process.platform !== "win32") return "tar";
+  const root = process.env.SystemRoot || "C:\\Windows";
+  if (!path.isAbsolute(root)) throw new Error("Windows SystemRoot must be an absolute directory for archive extraction.");
+  const executable = path.join(root, "System32", "tar.exe");
+  try {
+    if (!statSync(executable).isFile()) throw new Error("Not a regular file");
+  } catch (cause) {
+    throw new Error(`Windows system tar is required for OpenCode archive extraction: ${executable}`, { cause });
+  }
+  return executable;
+}
 
 /** Prefer the baseline x64 build, which also works on CPUs without AVX2.
  * @param {string} [platform]
@@ -46,7 +62,7 @@ export async function downloadOpencodeBinary({ destination, cacheDirectory, targ
   const extracted = await mkdtemp(path.join(tmpdir(), "legalwork-opencode-release-"));
   try {
     const binary = target.startsWith("windows-") ? "opencode.exe" : "opencode";
-    const result = spawnSync("tar", ["-xzf", archive, "-C", extracted, "package/package.json", `package/bin/${binary}`], { encoding: "utf8", windowsHide: true });
+    const result = spawnSync(opencodeArchiveTarExecutable(), ["-xzf", archive, "-C", extracted, "package/package.json", `package/bin/${binary}`], { encoding: "utf8", windowsHide: true });
     if (result.status !== 0) throw new Error(`Cannot extract OpenCode: ${result.error?.message || result.stderr}`);
     const manifest = JSON.parse(await readFile(path.join(extracted, "package", "package.json"), "utf8"));
     if (manifest.name !== artifact.name || manifest.version !== version) throw new Error("OpenCode archive package identity does not match its pinned release");
