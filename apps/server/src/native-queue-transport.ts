@@ -5,6 +5,7 @@ import { QueuePreparationError } from "./session-message-queue.js";
 import { queuedPromptPayload } from "./session-queue-schema.js";
 import { withSessionDispatch } from "./session-execution-gate.js";
 import type { ServerConfig } from "./types.js";
+import { isCompactionCommand, runNativeCommand } from "./native-command-control.js";
 
 export const queueMessageID = (entry: Pick<QueueEntry, "id" | "execution">) => entry.execution.kind === "prompt" && entry.execution.id || `msg_${entry.id.replaceAll("-", "")}`;
 
@@ -16,20 +17,27 @@ export function nativeQueueTransport(config: ServerConfig, input: {
 }): QueueTransport {
   return {
     async confirmed(workspaceId, sessionID, entry) {
-      if (entry.execution.kind !== "prompt") return false;
+      const compaction = entry.execution.kind === "command" && isCompactionCommand(entry.execution.command);
+      if (entry.execution.kind !== "prompt" && !compaction) return false;
       const client = await input.client(workspaceId, sessionID);
       const id = queueMessageID(entry);
-      const pending = (await client.session.inbox.list({ sessionID })).find(item => item.id === id && item.type === "user");
+      const type = compaction ? "compaction" : "user";
+      const pending = (await client.session.inbox.list({ sessionID })).find(item => item.id === id && item.type === type);
       if (pending) {
         // Admission reconciliation is idempotent. Wake work accepted before a
         // server crash without re-running prompt hooks or creating a new turn.
-        if (!(await client.session.active())[sessionID]) await client.session.prompt({ sessionID, id, ...queuedPromptPayload(entry.execution), delivery: "queue" });
+        if (!(await client.session.active())[sessionID]) {
+          if (compaction) {
+            const admitted = await client.session.compact({ sessionID, id, delivery: "queue" });
+            if (admitted.id !== id) throw new Error("The engine did not confirm the queued compaction identity.");
+          } else if (entry.execution.kind === "prompt") await client.session.prompt({ sessionID, id, ...queuedPromptPayload(entry.execution), delivery: "queue" });
+        }
         return true;
       }
       // The queue may already have promoted the item to durable history. A
       // missing/erroring read remains uncertain; the staging queue handles it.
       const message = await client.session.message.get({ sessionID, messageID: id });
-      return message.id === id && message.type === "user";
+      return message.id === id && message.type === type;
     },
     async idle(workspaceId, sessionID) {
       if (config.readOnly) return false;
@@ -72,8 +80,8 @@ export function nativeQueueTransport(config: ServerConfig, input: {
         const admitted = await client.session.prompt({ sessionID, id, ...queuedPromptPayload(execution), delivery: "queue" });
         if (admitted.id !== id) throw new Error("The engine did not confirm the queued message identity.");
       } else if (execution.kind === "command") {
-        await client.session.command({ sessionID, name: execution.command, text: execution.args,
-          files: execution.files, agents: execution.agents, skills: execution.skills, delivery: "queue" });
+        await runNativeCommand(client, { sessionID, name: execution.command, text: execution.args,
+          files: execution.files, agents: execution.agents, skills: execution.skills, delivery: "queue" }, queueMessageID(entry));
       } else {
         await client.session.shell({ sessionID, command: execution.command });
       }
