@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { OpenCode } from "@opencode/client";
 import { z } from "zod";
@@ -101,9 +102,13 @@ test.skipIf(!binary)("compiled original-image hooks link real Code Mode observat
     for(const name of ["home","config","data","cache","state","project","private","capture-plugin","original-tools","fixture-plugin"])await mkdir(join(root,name));
     const directory=join(root,"project"),location={directory};process.env.LEGALWORK_RUNTIME_DB=join(root,"runtime.sqlite");process.env.LEGALWORK_TOKEN_STORE=join(root,"tokens.json");
     config={host:"127.0.0.1",port:0,token:"original-fixture",hostToken:"original-host",configPath:join(root,"private","server.json"),managedEngineStorageDirectory:join(root,"private"),workspaces:[{id:"matter",name:"Matter",path:directory,workspaceType:"local",preset:"starter"}],authorizedRoots:[directory],readOnly:false,approval:{mode:"auto",timeoutMs:1000},corsOrigins:[],startedAt:0,tokenSource:"cli",hostTokenSource:"cli",logFormat:"pretty",logRequests:false};
-    const resources=process.env.LEGALWORK_TEST_RASTER_RESOURCES;if(!resources)throw new Error("The pinned existing packaged Node/addons are required");
-    const require=createRequire(join(resources,"app.asar.unpacked/package.json"));
-    server=await startServer(config,{toolImageRasterRuntime:()=>({executable:join(resources,"node","node"),canvas:require.resolve("@napi-rs/canvas"),imageSize:require.resolve("image-size")})});
+    const resources=process.env.LEGALWORK_TEST_RASTER_RESOURCES;
+    const require=createRequire(resources?join(resources,"app.asar.unpacked/package.json"):new URL("../../package.json",import.meta.url));
+    // CI/source controls use the same prepared Node and installed native addons
+    // as the raster tests; packaged acceptance supplies its actual resources.
+    const nodeName=process.platform==="win32"?"node.exe":"node";
+    const executable=resources?join(resources,"node",nodeName):fileURLToPath(new URL(`../../../desktop/resources/node/${nodeName}`,import.meta.url));
+    server=await startServer(config,{toolImageRasterRuntime:()=>({executable,canvas:require.resolve("@napi-rs/canvas"),imageSize:require.resolve("image-size")})});
     const scopedToken=await ensureWikiAgentToken(config),base=`http://127.0.0.1:${server.port}`;
     appProxy=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){const started=performance.now(),url=new URL(request.url);const response=await fetch(base+url.pathname+url.search,{method:request.method,headers:request.headers,...(request.method==="GET"?{}:{body:await request.bytes()}),signal:request.signal});const bytes=await response.bytes();applicationTransport.push({method:request.method,path:url.pathname,status:response.status,milliseconds:performance.now()-started,body:Buffer.from(bytes).toString()});return nativeDecodedRelayResponse(response,bytes);}});
     await buildNativePluginFixture(join(import.meta.dir,"legalwork-tool-image-original-capture.ts"),join(root,"capture-plugin","index.js"));
