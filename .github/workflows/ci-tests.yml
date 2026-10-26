@@ -89,7 +89,13 @@ jobs:
       reuse-run-id: ${{ inputs.engine_reuse_run_id }}
       reuse-manifest-sha256: ${{ inputs.engine_reuse_manifest_sha256 }}
   desktop-packaging:
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance
+    # Manual package diagnostics may exercise a built runtime after a sandbox
+    # assertion fails. The failed sandbox workflow still keeps the run red.
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      inputs.package_desktop && !inputs.mac_signing_acceptance &&
+      needs.opencode-derivative.result == 'success' &&
+      (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'failure')
     needs: [sandbox-runtime, opencode-derivative]
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
