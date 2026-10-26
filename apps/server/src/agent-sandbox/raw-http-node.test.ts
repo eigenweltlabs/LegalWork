@@ -159,9 +159,17 @@ test.skipIf(process.platform === "win32")("parent rejects early/malformed/duplic
       const source = scenario === "early" ? `process.send(${result});` : scenario === "malformed" ? "process.send({kind:'ready',unexpected:true});" : scenario === "death" ? "process.exit(7);" : `${ready} process.once('message',m=>{const reply={kind:'settled',id:m.id,outcome:${outcome}};process.send(reply);process.send(reply);});`;
       await writeFile(script, `process.stdin.resume();process.stderr.write('owned-complete-diagnostic-${scenario}');${source}`);
       await writeFile(executable, `#!/bin/sh\nexec '${node.replaceAll("'", "'\\''")}' '${script.replaceAll("'", "'\\''")}'\n`); await chmod(executable, 0o700);
-      const error = await createSend(() => executable)(request, loopback, new AbortController().signal).catch(error => error);
+      let factories = 0;
+      const error = await createSend(() => { factories++; return executable; })(request, loopback, new AbortController().signal).catch(error => error);
+      expect(factories).toBe(1);
       expect(error).toBeInstanceOf(Error); expect(error.workerStderr).toContain(`owned-complete-diagnostic-${scenario}`);
-      expect(error.message).toContain(scenario === "early" ? "ready handshake" : scenario === "malformed" ? "Invalid private" : scenario === "duplicate" ? "duplicate" : "code 7");
+      if (scenario === "death") {
+        expect(error.workerExitCode).toBe(7); expect(error.workerSignal).toBeNull();
+        // A child that exits before stdin finishes can also report EPIPE.
+        // Retain that genuine primary error and independently prove its exit.
+        if (error.code === "EPIPE") { expect(error.message).toContain("broken pipe"); expect(error.syscall).toBe("write"); }
+        else expect(error.message).toBe("HTTP worker exited before cleanup (code 7, signal null).");
+      } else expect(error.message).toContain(scenario === "early" ? "ready handshake" : scenario === "malformed" ? "Invalid private" : "duplicate");
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 }, 15000);
