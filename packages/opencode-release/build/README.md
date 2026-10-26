@@ -41,6 +41,82 @@ signing remains subject to the existing policy: bundled engine bytes are not
 silently re-signed. No artifacts have been published and no release is authorized
 by this preparation.
 
+## Opt-in production Mac engine signing
+
+`buildCandidate({macSigning})` and the candidate CLI's
+`--mac-signing-config /path/to/public-certificate-policy.json` now provide a
+build-only signing path. Omitting the option preserves the existing two ad-hoc
+sign/verify commands. The production policy is public metadata only:
+
+```json
+{
+  "mode": "developer-id",
+  "identitySha1": "<exact 40-hex leaf certificate fingerprint>",
+  "certificateSha256": "<independently approved 64-hex leaf certificate fingerprint>",
+  "teamId": "<expected 10-character Apple Team ID>",
+  "keychainPath": "/path/to/existing-CI-only.keychain-db"
+}
+```
+
+The optional keychain path refers to an already imported identity. Existing CI
+Apple certificate infrastructure owns its import, unlock and disposal. This
+helper never imports, reads or exports a private key, accepts a certificate name
+substring, or changes an application runtime setting. Root-owned CI wiring must
+pass this policy explicitly; no workflow, selector or URL is changed here.
+
+Signing happens after the untouched upstream compilation and before version
+probing, provenance, checksums or distribution archives. The helper requests
+hardened runtime and a secure timestamp. Native `codesign` must verify all
+architectures, an Apple generic anchor, Developer ID Application certificate
+extensions and the expected certificate OU/team. Extracted public leaf
+certificate bytes must match both SHA1 and SHA256 pins; displayed authority,
+team, hardened-runtime flag and timestamp must also match. The complete signed
+entitlements must equal the reviewed five-key profile. Any failure retains
+evidence and aborts without final provenance or accepted signature metadata.
+Signing helper/profile bytes, native outputs, public certificates and
+before/after executable hashes are retained under `build-evidence`; their
+identities enter provenance. A later version probe or packaging step cannot
+replace signed bytes without failing their existing pins.
+
+The 571-byte `macos-entitlements.plist` is byte-identical to
+[the pinned upstream OpenCode profile](https://github.com/anomalyco/opencode/blob/68bc26b7da1990ce10ffecfbc1e09eb13aa5d824/packages/cli/script/entitlements.plist),
+SHA256 `55031b092985f55d4aa22ce1ee3aec1650cf160d46c15b7334476e9f2961074a`.
+It also matches [Bun's documented standalone signing profile](https://bun.sh/docs/bundler/executables#code-signing-on-macos):
+JIT, unsigned executable memory, disabled executable-page protection, DYLD
+environment variables and disabled library validation. These are permissive
+exceptions. They are preserved explicitly for Bun and third-party native plugin
+compatibility; this preparation does not invent a narrower, untested profile.
+[Apple documents runtime exceptions](https://developer.apple.com/documentation/security/hardened-runtime)
+and [the distinction between signature validity, requirements and Gatekeeper](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
+Only the engine executable receives this profile, not Electron or unrelated
+helpers. Actual Developer ID engine startup/JIT/native-plugin/tool acceptance,
+the existing enclosing-app signing/notarization gate and independent review of
+the new final distribution pin remain required. Unit command-contract tests do
+not establish Apple trust or production signed-engine functionality.
+
+Focused validation:
+`node --test packages/opencode-release/build/mac-signing.test.mjs packages/opencode-release/build/candidate.test.mjs packages/opencode-release/candidate.test.mjs`.
+It includes actual native ad-hoc signing/execution and Apple requirement parsing
+on Mac, plus fail-closed public identity/team/timestamp/runtime/entitlement and
+post-sign tamper controls using a synthetic native-command boundary. No private
+signing key is accessed by these tests.
+
+The original ad-hoc `f754…` producer, all prior candidate archives and selections
+remain immutable. Production signing creates a new distribution identity/hash;
+it must never re-sign files after their manifest has been approved.
+
+### Candidate versus adoption metadata proposal (not implemented)
+
+Keep artifact facts separate from host adoption. A distribution manifest should
+describe a `reviewed-build` and its source, signing evidence and immutable bytes;
+`selection.json` should be the explicit host adoption decision, independently
+pinning that manifest and a real download location. Publishing engine assets
+and releasing a LegalWork app remain separate approvals. Historical
+`local-candidate-not-adopted` manifests must retain their original bytes/digests.
+Changing the new manifest vocabulary requires the distribution producer and
+validator to change together; neither that change nor default adoption is made
+by this signing preparation.
+
 The complete previous `.1` release package, recipe and distribution metadata
 were preserved before updating the recipe. Its artifacts and receipts remain
 historical evidence; current `.3` validators deliberately do not authorize `.1`.

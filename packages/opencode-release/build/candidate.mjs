@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { opencodeRelease, opencodeReleaseTarget } from "../index.mjs";
 import { verifyOpencodeCandidate } from "../candidate.mjs";
+import { macSigningBuildInputs, signMacEngine, validateMacSigningConfiguration } from "./mac-signing.mjs";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(directory, "../../..");
@@ -108,8 +109,12 @@ async function run(command, args, { cwd, env, capture = false } = {}) {
   } finally { process.off("SIGINT", stop); process.off("SIGTERM", stop); }
 }
 
-export async function buildCandidate({ output, bun, target = opencodeReleaseTarget(), preparedSource, reuseArtifact, reuseProvenanceSha256 }) {
+export async function buildCandidate({ output, bun, target = opencodeReleaseTarget(), preparedSource, reuseArtifact, reuseProvenanceSha256, macSigning }) {
+  validateMacSigningConfiguration(macSigning);
+  macSigning = macSigning === undefined ? undefined : Object.freeze({ ...macSigning });
+  if (macSigning && target.startsWith("darwin-") && process.platform !== "darwin") throw new Error("Production Mac engine signing requires the reviewed macOS builder.");
   const wrapperBytes = await readFile(fileURLToPath(import.meta.url));
+  const signingInputs = await macSigningBuildInputs();
   const recipeBytes = await readFile(path.join(directory, "recipe.json"));
   const recipe = JSON.parse(recipeBytes);
   const inputs = await verifyInputs(recipe);
@@ -136,6 +141,8 @@ export async function buildCandidate({ output, bun, target = opencodeReleaseTarg
   const evidence = path.join(destination, "build-evidence");
   await mkdir(evidence);
   await writeFile(path.join(evidence, "candidate.mjs"), wrapperBytes, { mode: 0o444 });
+  await writeFile(path.join(evidence, "mac-signing.mjs"), signingInputs.helper, { mode: 0o444 });
+  await writeFile(path.join(evidence, "macos-entitlements.plist"), signingInputs.entitlements, { mode: 0o444 });
   await writeFile(path.join(evidence, "recipe.json"), recipeBytes, { mode: 0o444 });
   const reference = path.join(destination, reused ? "source-review" : "source");
   await cloneReviewedSource(prepared, reference);
@@ -190,10 +197,10 @@ export async function buildCandidate({ output, bun, target = opencodeReleaseTarg
   await copyFile(original, binary); await chmod(binary, 0o755);
   const buildSha256 = sha256(await readFile(binary));
   let signing = "not-signed-by-this-build";
+  let signingEvidence;
   if (process.platform === "darwin" && target.startsWith("darwin-")) {
-    await run("codesign", ["--force", "--sign", "-", binary]);
-    await run("codesign", ["--verify", "--strict", binary]);
-    signing = "macOS ad-hoc; application signing/notarization remains a distribution gate";
+    signingEvidence = await signMacEngine({ binary, evidenceDirectory: evidence, configuration: macSigning, inputs: signingInputs });
+    signing = signingEvidence.signing;
   }
   let reportedVersion;
   if (target === opencodeReleaseTarget()) {
@@ -212,9 +219,10 @@ export async function buildCandidate({ output, bun, target = opencodeReleaseTarg
   await writeFile(path.join(artifact, "NOTICE"), notice);
   const provenance = { ...recipe, officialBase: opencodeRelease.packages[target], target,
     compiler: { version: bunVersion, sha256: sha256(await readFile(runtime)) }, packageManager: `Bun ${bunVersion}; original frozen upstream lock; copied tested installation`,
-    sourceDateEpoch: epoch, build: { script: "packages/cli/script/build.ts", wrapperSha256: sha256(wrapperBytes), recipeSha256: sha256(recipeBytes), fullNativeWebUI: true, skipInstall: true, buildSha256,
+    sourceDateEpoch: epoch, build: { script: "packages/cli/script/build.ts", wrapperSha256: sha256(wrapperBytes), signingHelperSha256: sha256(signingInputs.helper), signingEntitlementsSha256: sha256(signingInputs.entitlements), recipeSha256: sha256(recipeBytes), fullNativeWebUI: true, skipInstall: true, buildSha256,
       staging: previous ? { kind: "serial-reuse-of-verified-candidate-staging", provenanceSha256: previous.provenanceSha256, binarySha256: previous.sha256 } : { kind: "independent-copy-of-tested-official-install" } },
-    binary: { filename: name, sha256: sha256(await readFile(binary)), ...(reportedVersion ? { reportedVersion } : {}), signing }, licenseSha256: sha256(license) };
+    binary: { filename: name, sha256: sha256(await readFile(binary)), ...(reportedVersion ? { reportedVersion } : {}), signing, ...(signingEvidence ? { signingEvidence } : {}) }, licenseSha256: sha256(license) };
+  if (signingEvidence && (signingEvidence.beforeSha256 !== buildSha256 || signingEvidence.afterSha256 !== provenance.binary.sha256)) throw new Error("The executable changed between compilation, signing and final provenance pins.");
   const document = `${JSON.stringify(provenance, null, 2)}\n`;
   await writeFile(path.join(artifact, "provenance.json"), document);
   await writeFile(path.join(artifact, "SHA256SUMS"), `${provenance.binary.sha256}  ${name}\n${sha256(document)}  provenance.json\n${provenance.licenseSha256}  LICENSE\n${sha256(notice)}  NOTICE\n`);
@@ -226,7 +234,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(2);
   const value = name => { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; };
   const output = value("--output"), bun = value("--bun"), preparedSource = value("--prepared-source");
-  if (!output || !bun || !preparedSource) throw new Error("Usage: node candidate.mjs --output <NEW-directory> --bun <pinned-bun> --prepared-source <tested-official-checkout> [--target <release-target>]");
+  if (!output || !bun || !preparedSource) throw new Error("Usage: node candidate.mjs --output <NEW-directory> --bun <pinned-bun> --prepared-source <tested-official-checkout> [--target <release-target>] [--mac-signing-config <public-certificate-policy.json>]");
+  const signingConfigPath = value("--mac-signing-config");
+  if (args.includes("--mac-signing-config") && (!signingConfigPath || signingConfigPath.startsWith("--"))) throw new Error("--mac-signing-config requires an explicit public certificate policy file; it cannot fall back to ad-hoc signing.");
+  const macSigning = signingConfigPath ? JSON.parse(await readFile(signingConfigPath, "utf8")) : undefined;
   console.log(JSON.stringify(await buildCandidate({ output, bun, target: value("--target"), preparedSource,
-    reuseArtifact: value("--reuse-artifact"), reuseProvenanceSha256: value("--reuse-provenance-sha256") }), null, 2));
+    reuseArtifact: value("--reuse-artifact"), reuseProvenanceSha256: value("--reuse-provenance-sha256"), macSigning }), null, 2));
 }
