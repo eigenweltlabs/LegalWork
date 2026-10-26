@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import net from "node:net";
-import { realpathSync, statSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { constants, realpathSync, statSync } from "node:fs";
+import { access, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 import { OpenCode } from "@opencode/client";
+import { opencodeReleaseTarget } from "../../../packages/opencode-release/index.mjs";
+import { opencodeEngineSelection } from "../../../packages/opencode-release/selection.mjs";
 
 const serverCredentials = new Map();
 
@@ -74,6 +76,29 @@ export async function findFreePort() {
   return port;
 }
 
+export async function resolveOpencodeBinary({
+  env = process.env,
+  resourcesDirectory = fileURLToPath(new URL("../../desktop/resources/", import.meta.url)),
+  selection = opencodeEngineSelection,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
+  const filename = platform === "win32" ? "opencode.exe" : "opencode";
+  const candidate = env.LEGALWORK_TEST_OPENCODE_BIN ?? env.OPENCODE_BIN
+    ?? (selection.kind === "derivative"
+      ? join(resourcesDirectory, "opencode-engine", selection.version, opencodeReleaseTarget(platform, arch), filename)
+      : join(resourcesDirectory, "sidecars", filename));
+  if (!candidate.trim()) throw new Error("OpenCode test executable must be a nonempty path");
+  try {
+    const executable = await realpath(candidate);
+    if (!(await stat(executable)).isFile()) throw new Error("Expected a regular executable file");
+    await access(executable, constants.X_OK);
+    return executable;
+  } catch (cause) {
+    throw new Error(`OpenCode test executable is unavailable (${candidate}): ${cause.message}`, { cause });
+  }
+}
+
 export async function spawnOpencodeServe({
   directory,
   hostname = "127.0.0.1",
@@ -85,6 +110,8 @@ export async function spawnOpencodeServe({
   assert.ok(Number.isInteger(port) && port > 0, "port must be a positive integer");
 
   const cwd = realpathSync(directory);
+  const inheritedEnv = { ...process.env, ...env };
+  const executable = await resolveOpencodeBinary({ env: inheritedEnv });
   const args = ["serve", "--hostname", hostname, "--port", String(port)];
   for (const origin of corsOrigins) {
     args.push("--cors", origin);
@@ -92,12 +119,11 @@ export async function spawnOpencodeServe({
 
   const privateRoot = await mkdtemp(join(tmpdir(), "legalwork-native-script-"));
   const password = randomUUID();
-  const child = spawn(process.env.OPENCODE_BIN ?? fileURLToPath(new URL("../../desktop/resources/sidecars/opencode" + (process.platform === "win32" ? ".exe" : ""), import.meta.url)), args, {
+  const child = spawn(executable, args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
-      ...env,
+      ...inheritedEnv,
       // Make it explicit we're a non-TUI client.
       OPENCODE_CLIENT: "legalwork-test",
       OPENCODE_PASSWORD: password,
@@ -115,8 +141,6 @@ export async function spawnOpencodeServe({
   });
 
   const baseUrl = `http://${hostname}:${port}`;
-  serverCredentials.set(baseUrl, `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`);
-
   // If the process dies early or never becomes healthy, surface its output so
   // CI failures are diagnosable instead of showing an empty stderr.
   let stderr = "";
@@ -130,6 +154,14 @@ export async function spawnOpencodeServe({
   child.stdout.on("data", (chunk) => {
     stdout += chunk;
   });
+
+  try {
+    await once(child, "spawn");
+  } catch (cause) {
+    await rm(privateRoot, { recursive: true, force: true });
+    throw new Error(`Cannot start OpenCode (${executable}): ${cause.message}`, { cause });
+  }
+  serverCredentials.set(baseUrl, `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`);
 
   async function waitForExit(ms) {
     return Promise.race([
