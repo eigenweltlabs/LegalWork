@@ -19,6 +19,10 @@ on:
         description: Run the full Linux and Mac unit jobs against an exact reused engine; does not validate six-platform packages
         type: boolean
         default: false
+      committed_selection:
+        description: Test six-platform packages using the published engine pinned in committed selection.json, without a candidate override
+        type: boolean
+        default: false
       engine_reuse_run_id:
         description: Optional same-repository producer run ID (requires independent manifest SHA256)
         type: string
@@ -44,8 +48,9 @@ jobs:
         env:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          COMMITTED_SELECTION: ${{ inputs.committed_selection }}
         run: |
-          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ]; then
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
             echo 'mac_signing_acceptance, package_desktop and unit_acceptance are mutually exclusive.' >&2
             exit 1
           fi
@@ -57,10 +62,11 @@ jobs:
         env:
           PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
           MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          COMMITTED_SELECTION: ${{ inputs.committed_selection }}
           ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
           ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
-          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ]; then
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
             echo 'unit_acceptance cannot be combined with package or signing acceptance.' >&2
             exit 1
           fi
@@ -68,9 +74,45 @@ jobs:
             echo 'unit_acceptance requires an engine producer run and independent manifest SHA256.' >&2
             exit 1
           fi
+  committed-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.committed_selection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Require the committed published selection without candidate inputs
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
+          ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" != true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ -n "$ENGINE_REUSE_RUN_ID" ] || [ -n "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+            echo 'committed_selection requires package_desktop only, without candidate reuse inputs.' >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFile } from 'node:fs/promises';
+          import { verifyDerivativeDistributionContent } from './packages/opencode-release/derivative.mjs';
+          const text = await readFile('packages/opencode-release/selection.json', 'utf8');
+          const selection = JSON.parse(text);
+          assert.equal(selection.kind, 'derivative', 'A published derivative must be committed before this acceptance mode');
+          assert.equal(selection.schemaVersion, 1);
+          const distribution = await verifyDerivativeDistributionContent(selection);
+          assert.equal(selection.version, distribution.version);
+          assert.equal(selection.baseVersion, distribution.baseVersion);
+          const url = new URL(selection.downloadBaseUrl);
+          assert.ok(url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname.endsWith('/'), 'The committed selection requires a plain public HTTPS download directory');
+          console.log(JSON.stringify({ selectionSha256: createHash('sha256').update(text).digest('hex'), manifestSha256: selection.manifestSha256, version: selection.version, downloadBaseUrl: selection.downloadBaseUrl }));
+          NODE
   mac-signing-acceptance:
     needs: signing-inputs
-    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.committed_selection
     uses: ./.github/workflows/mac-engine-signing-acceptance.yml
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
@@ -105,7 +147,7 @@ jobs:
     uses: ./.github/workflows/sandbox-runtime.yml
   opencode-derivative:
     if: >-
-      github.event_name == 'workflow_dispatch' && !inputs.mac_signing_acceptance &&
+      github.event_name == 'workflow_dispatch' && !inputs.mac_signing_acceptance && !inputs.committed_selection &&
       ((inputs.package_desktop && !inputs.unit_acceptance) ||
       (inputs.unit_acceptance && !inputs.package_desktop && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))
     permissions:
@@ -121,9 +163,11 @@ jobs:
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
       inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance &&
-      needs.opencode-derivative.result == 'success' &&
+      (!inputs.committed_selection || needs.committed-inputs.result == 'success') &&
+      (needs.opencode-derivative.result == 'success' ||
+      (inputs.committed_selection && needs.opencode-derivative.result == 'skipped' && needs.committed-inputs.result == 'success')) &&
       (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'failure')
-    needs: [sandbox-runtime, opencode-derivative]
+    needs: [sandbox-runtime, opencode-derivative, committed-inputs]
     uses: ./.github/workflows/ci-desktop-packaging.yml
     with:
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
@@ -159,8 +203,8 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 
   legalwork-tests:
-    needs: opencode-derivative
-    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (needs.opencode-derivative.result == 'success' || (needs.opencode-derivative.result == 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.unit_acceptance)))
+    needs: [opencode-derivative, committed-inputs]
+    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance) && (!(github.event_name == 'workflow_dispatch' && inputs.committed_selection) || needs.committed-inputs.result == 'success') && (needs.opencode-derivative.result == 'success' || (needs.opencode-derivative.result == 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.unit_acceptance)))
     runs-on: ${{ matrix.os }}
 
     strategy:
