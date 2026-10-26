@@ -17,6 +17,10 @@ afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await st
 // The child calls back using only the credentials and address it actually
 // inherited, rather than test code supplying the server's correct address.
 const engine = (version: string) => `#!${process.execPath}
+import { Database } from "bun:sqlite";
+const database = new Database(process.env.OPENCODE_DB, { create: true });
+database.exec("PRAGMA user_version=1");
+database.close();
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const password = process.argv.includes("--service") ? (await Bun.file(process.env.OPENCODE_CONFIG_DIR + "/service-legalwork.json").json()).password : process.env.OPENCODE_PASSWORD;
 let projectDirectory;

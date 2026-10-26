@@ -23,6 +23,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("user", "existing", "user", 100, JSON.stringify({ text: "Matter question" }));
     inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("summary", "existing", "compaction", 200, JSON.stringify({}));
     const deliveries = [];
+    const deliveryWaiters = new Map();
+    const waitForDelivery = count => deliveries.length >= count ? Promise.resolve() : new Promise(resolve => deliveryWaiters.set(count, resolve));
     let restrictiveAgent = true;
     const agents = () => [{ id: "legalwork-scheduled-project", permissions: restrictiveAgent ? [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_project_read", resource: "*", effect: "allow" }] : [] }, { id: "legalwork-scheduled-all", permissions: [] }];
     const engine = Bun.serve({ port: 0, fetch: async request => {
@@ -49,6 +51,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       if (path.endsWith("/prompt")) {
         const input = await request.json();
         deliveries.push({ ...input, agent: session.agent, model: session.model });
+        deliveryWaiters.get(deliveries.length)?.();
+        deliveryWaiters.delete(deliveries.length);
         inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("reply-" + deliveries.length, id, "assistant", 300, JSON.stringify({ time: { completed: 400 } }));
         session.outcome = "succeeded";
         return Response.json({ data: { type: "user", id: input.id, text: input.text, time: { created: 300 } } });
@@ -69,6 +73,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     const call = (path, method="GET", body, token="test") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const path = "/workspace/project/scheduled-tasks";
     try {
+      // A persisted queue admission is not proof of the later native HTTP send.
+      await waitForDelivery(1);
       for (let i=0; i<100 && store.runs(seed.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 1);
       const inbox = await (await call("/session-inbox")).json();
@@ -146,6 +152,7 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       const chosenModel = { providerID: "selected-provider", modelID: "selected-model" };
       store.update("project", broad.id, broad.revision, { model: chosenModel });
       server = await startServer(config);
+      await waitForDelivery(2);
       for (let i=0; i<100 && store.runs(broad.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 2);
       assert.equal(deliveries[1].agent, "legalwork-scheduled-all");

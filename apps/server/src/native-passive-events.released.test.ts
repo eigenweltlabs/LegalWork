@@ -56,7 +56,7 @@ test.skipIf(!binary)("passive global events keep an unapproved default inactive 
     expect(existsSync(pluginMarker)).toBe(false); expect(existsSync(mcpMarker)).toBe(false);
     const denied = await fetch(`http://127.0.0.1:${server.port}/w/a/opencode/api/model`, { headers: { authorization: `Bearer ${config.token}` } });
     expect(denied.status).toBe(409);
-    controller.abort(); await reader.cancel(); reader.releaseLock(); reader = undefined;
+    await reader.cancel(); reader.releaseLock(); reader = undefined; controller.abort();
     // Positive control: raw trusted native activation runs these same valid
     // definitions, so passive subscription did not merely ignore a bad fixture.
     await privateClient.model.list({ location: { directory: a } });
