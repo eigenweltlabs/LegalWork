@@ -6,11 +6,11 @@ LegalWork helps users run agents, skills, and MCP. It is an open-source alternat
 
 LegalWork is a practical control surface for agentic work:
 
-* Run local and remote agent workflows from one place.
+* Run local agent workflows from one place.
 * Use OpenCode capabilities directly through LegalWork.
 * Compose desktop app and server without lock-in.
 * Treat the LegalWork app as a client of the LegalWork server API surface.
-* Connect to hosted workers through a simple user flow: `Add a worker` -> `Connect remote`.
+* Connect the app to a LegalWork server through its manual URL/token settings. Remote agent workspace registrations are retired; preserve legacy records as inactive configuration.
 
 ## Core Philosophy
 

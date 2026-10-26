@@ -53,7 +53,6 @@ import type {
 } from "../../../../app/types";
 import {
   getWorkspaceTaskLoadErrorDisplay,
-  isRemoteConnectionWorkspace,
   isWindowsPlatform,
   isMacPlatform,
 } from "../../../../app/utils";
@@ -1045,7 +1044,6 @@ function WorkspaceSidebarGroup({
     message: null,
   };
   const isConnectionActionBusy = isConnecting || connectionState.status === "connecting";
-  const isRemoteWorkspace = isRemoteConnectionWorkspace(workspace);
   const taskLoadError = getWorkspaceTaskLoadErrorDisplay(workspace, group.error);
   const isExpanded = ctx.expandedWorkspaceIds.has(workspace.id);
   const isSelected = ctx.selectedWorkspaceId === workspace.id;
@@ -1059,7 +1057,6 @@ function WorkspaceSidebarGroup({
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
     if (group.status === "error") return taskLoadError.label;
     if (isConnectionActionBusy) return t("workspace_list.connecting");
-    if (isRemoteWorkspace && connectionState.status === "connected") return connectionState.message?.trim() || t("workspace_list.connected");
     if (!ctx.developerMode) return "";
     if (isSelected) return t("workspace.selected");
     return workspaceKindLabel(workspace);

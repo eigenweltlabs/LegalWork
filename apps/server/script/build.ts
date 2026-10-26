@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 const bunRuntime = (globalThis as typeof globalThis & {
@@ -105,9 +106,17 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
 }
 
 const options = readArgs(bun.argv.slice(2));
-const entrypoint = resolve("src", "cli.ts");
+const raster = spawnSync(process.execPath, [resolve("scripts", "gen-tool-image-raster-code.ts")], { stdio: "inherit" });
+if (raster.status !== 0) process.exit(raster.status ?? 1);
+const plugins = spawnSync(process.execPath, [resolve("scripts", "build-opencode-plugins.ts")], { stdio: "inherit" });
+if (plugins.status !== 0) process.exit(plugins.status ?? 1);
+const pluginDirectory = resolve("dist", "opencode-plugins");
+const bundles = Object.fromEntries(readdirSync(pluginDirectory, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => [entry.name, readFileSync(join(pluginDirectory, entry.name, "index.js"), "utf8")]));
+mkdirSync(options.outdir, { recursive: true });
+const entrypoint = join(options.outdir, `.native-server-entry-${randomUUID()}.ts`);
+writeFileSync(entrypoint, `import {installEmbeddedNativePluginBundles} from ${JSON.stringify(resolve("src", "native-plugin-assets.ts"))};\ninstallEmbeddedNativePluginBundles(${JSON.stringify(bundles)});\nawait import(${JSON.stringify(resolve("src", "cli.ts"))});\n`);
 const targets = options.targets.length ? options.targets : [undefined];
 
-for (const target of targets) {
-  await buildOnce(entrypoint, options.outdir, options.filename, target);
-}
+try {
+  for (const target of targets) await buildOnce(entrypoint, options.outdir, options.filename, target);
+} finally { rmSync(entrypoint, { force: true }); }

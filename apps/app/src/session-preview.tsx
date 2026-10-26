@@ -8,7 +8,7 @@ import type { WikiVault } from "@legalwork/types/wiki";
 import type { ViewInput, ViewOwner, ViewRecord } from "@legalwork/types/views";
 import { useViewGenerationStore, viewDraftTab, viewGenerationId, type ViewGeneration } from "./react-app/domains/views/view-generation";
 import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "@/app/lib/opencode-view";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */

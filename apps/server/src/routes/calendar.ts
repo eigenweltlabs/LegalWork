@@ -142,7 +142,7 @@ export function registerCalendarRoutes(options: {
   });
   addRoute(options.routes, "GET", "/calendar/occurrences", "client", async ctx => {
     options.requireClientScope(ctx, "viewer"); const { from, to } = range(ctx);
-    const occurrences = (await Promise.all(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => calendarOccurrences(config, workspace, from, to)))).flat();
+    const occurrences = (await Promise.all(config.workspaces.map(workspace => calendarOccurrences(config, workspace, from, to)))).flat();
     for (const task of await datedTasks(config)) {
       if (task.projectId || !task.dueDate || task.status === "cancelled") continue;
       const day = task.dueDate.length === 10 ? task.dueDate : dayInZone(task.dueDate, "Europe/Berlin");
@@ -155,7 +155,7 @@ export function registerCalendarRoutes(options: {
   addRoute(options.routes, "POST", "/calendar/reminders/claim", "client", async ctx => {
     options.requireClientScope(ctx, "collaborator"); await collectCalendarReminders(config);
     const connection = await readEigenweltConnection(config);
-    const visible = new Set<string>(); for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote" && await calendarVisible(config, workspace)) visible.add(workspace.id);
+    const visible = new Set<string>(); for (const workspace of config.workspaces) if (await calendarVisible(config, workspace)) visible.add(workspace.id);
     const reminders = (await calendarStore(config)).claimReminders(visible, connection.account?.userId ?? null);
     try {
       if (connectedTaskOrgId(connection)) {

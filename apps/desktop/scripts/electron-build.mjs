@@ -29,6 +29,7 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(__dirname, "build-browser-controller.mjs"), "--check"], desktopRoot);
 run(nodeCmd, [resolve(repoRoot, "scripts/sandbox/verify-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], desktopRoot);

@@ -1,3 +1,6 @@
+import { readMessages } from "@/app/lib/opencode-read";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
 /**
  * Recorder runtime store (module-level, mirrors the Voice Mode pattern):
  * bootstraps the local model manager, drives capture + live transcription,
@@ -429,7 +432,7 @@ function transcriptText(segments: AudioTranscriptSegment[], limit = 12_000): str
 async function ensureCopilotSession(client: Client, directory: string | null): Promise<string> {
   if (copilotSessionId) return copilotSessionId;
   const session = unwrap(
-    await client.session.create({ directory: directory ?? undefined, title: "Recorder call copilot" }),
+    await createSessionView(client,{ directory: directory ?? undefined, title: "Recorder call copilot" }),
   );
   copilotSessionId = session.id;
   return session.id;
@@ -457,16 +460,12 @@ async function runCopilotPrompt(question: string, transcript: string, language: 
   const prompt = transcript.trim().length
     ? `Live transcript so far:\n"""\n${transcript}\n"""\n\nRequest: ${question}`
     : `There is no transcript yet.\n\nRequest: ${question}`;
-  const promptCall = client.session.prompt({
-    sessionID,
-    system,
-    parts: [{ type: "text", text: prompt }],
-  });
+  const promptCall = sendSessionPrompt(client,{sessionID,system,parts:[{type:"text",text:prompt}]},{waitForCompletion:true}).then(()=>readMessages(client,sessionID));
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error(t("recorder.copilot_timeout"))), 75_000);
   });
   const result = unwrap(await Promise.race([promptCall, timeout]));
-  const answer = (result.parts ?? [])
+  const answer = (result.findLast(message=>message.info.role==="assistant")?.parts ?? [])
     .flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
     .join("\n")
     .trim();
@@ -1782,7 +1781,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         const body = t("recorder.live_share_notice").replace("{file}", fileName);
         try {
           unwrap(
-            await client.session.promptAsync({
+            await sendSessionPrompt(client,{
               sessionID: sessionId,
               directory: directory || copilotContext?.getDirectory() || undefined,
               noReply: true,

@@ -64,7 +64,7 @@ export async function calendarExport(config: ServerConfig, workspace: WorkspaceI
 export async function collectCalendarReminders(config: ServerConfig, now = Date.now()) {
   const store = await calendarStore(config), today = new Date(now).toISOString().slice(0, 10);
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote" || !(await calendarVisible(config, workspace))) continue;
+    if (!(await calendarVisible(config, workspace))) continue;
     for (const item of store.list(workspace.id)) {
       if (item.status !== "active") continue;
       for (const occurrence of occurrences(item, workspace.name || workspace.id, addDays(today, -30), addDays(today, 366))) {

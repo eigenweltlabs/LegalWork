@@ -88,6 +88,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     version: serverVersion,
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
+    ...(config.engineProjectTrustRequired ? { engine: { status: config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting" } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
@@ -335,7 +336,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   addRoute(routes, "GET", "/workspaces", "client", async () => {
     const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map(serializeWorkspace);
-    return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
+    return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null, warnings: config.workspaceWarnings ?? [] });
   });
 
   function rethrowEnvStoreReadError(error: unknown): never {
