@@ -535,8 +535,8 @@ importers:
         specifier: ^12.1.1
         version: 12.1.1
       undici-transport:
-        specifier: npm:undici@7.30.1
-        version: undici@7.30.1
+        specifier: npm:undici@8.12.3
+        version: undici@8.12.3
       webdav:
         specifier: ^5.10.0
         version: 5.10.0
@@ -711,8 +711,8 @@ importers:
         specifier: ^12.1.1
         version: 12.1.1
       undici-transport:
-        specifier: npm:undici@7.30.1
-        version: undici@7.30.1
+        specifier: npm:undici@8.12.3
+        version: undici@8.12.3
       webdav:
         specifier: ^5.10.0
         version: 5.10.0
@@ -9624,10 +9624,6 @@ packages:
 
   undici@7.29.1:
     resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
-    engines: {node: '>=20.18.1'}
-
-  undici@7.30.1:
-    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
     engines: {node: '>=20.18.1'}
 
   undici@8.12.3:
@@ -20673,8 +20669,6 @@ snapshots:
 
   undici@7.29.1:
     optional: true
-
-  undici@7.30.1: {}
 
   undici@8.12.3: {}
 
