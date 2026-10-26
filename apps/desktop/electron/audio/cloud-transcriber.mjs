@@ -113,6 +113,7 @@ export class CloudTranscriber extends EventEmitter {
       else this.flush(stream);
     }
     if (message.type === "drop" && stream && !stream.cancelled) {
+      if (message.preserveSpeakers) this.detachSpeakerPass(stream);
       stream.cancelled = true;
       stream.speakerPass?.stop();
       clearTimeout(stream.timer);
@@ -228,8 +229,7 @@ export class CloudTranscriber extends EventEmitter {
     // The recorder owns detached passes so changing the capture model cannot
     // cancel speaker detection for an earlier, already saved recording.
     if (stream.speakerPass && this.onSpeakerPass && !stream.cancelled) {
-      this.onSpeakerPass(stream.id, stream.speakerPass);
-      stream.speakerPass = null;
+      this.detachSpeakerPass(stream);
     } else await stream.speakerPass?.finish();
     if (!stream.finished && !stream.cancelled) this.emit("message", { type: "finalized", streamId: stream.id });
     this.dispose(stream);
@@ -253,8 +253,17 @@ export class CloudTranscriber extends EventEmitter {
 
   fail(stream, error) {
     if (stream.finished || stream.cancelled) return;
+    // A broken captions connection must not delete the audio already saved
+    // for the independent speaker pass. The recorder still owns that job.
+    this.detachSpeakerPass(stream);
     this.emit("message", { type: "stream-error", streamId: stream.id, error });
     this.dispose(stream);
+  }
+
+  detachSpeakerPass(stream) {
+    if (!stream.speakerPass || !this.onSpeakerPass || stream.cancelled) return;
+    this.onSpeakerPass(stream.id, stream.speakerPass);
+    stream.speakerPass = null;
   }
 
   dispose(stream) {

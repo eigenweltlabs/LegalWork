@@ -65,3 +65,61 @@ test("signing out while configuration is loading prevents a stale connection", a
   onRequest(async () => { await writeEigenweltConnection(config, { platformToken: null, account: null }); });
   await expect(cloudTranscriptionConnection(config, "gemini-transcribe-live-eu")).rejects.toThrow("Sign in");
 });
+
+const { generateMeetingNotes, MeetingNotesInput } = await import("./meeting-notes.js");
+
+async function notesGateway() {
+  const state = await fixture();
+  const requests: unknown[] = [];
+  let output = '{"title":"Contract review","summary":"Deadline: Friday."}';
+  let finishReason = "stop";
+  const gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    expect(new URL(request.url).pathname).toBe("/v1/chat/completions");
+    expect(request.headers.get("authorization")).toBe("Bearer subscription-secret");
+    requests.push(await request.json());
+    return Response.json({ choices: [{ message: { content: output }, finish_reason: finishReason }] });
+  } });
+  cleanups.push(() => gateway.stop(true));
+  state.setRemote({ baseURL: gateway.url.origin, models: [state.model] });
+  await writeCachedEigenweltPaidManifest(state.config, { baseURL: `${gateway.url.origin}/v1`, apiKey: "subscription-secret",
+    models: [{ id: "mini-eu", name: "Small EU", region: "EU", contextLength: 200000 }, { id: "mini-us", name: "Small US", region: "US" }] });
+  const input = { model: "gemini-transcribe-live-eu", transcript: "Microphone: The deadline is Friday.",
+    settings: { title: true, summary: true, model: "", instructions: "Focus on dates" } } satisfies Parameters<typeof generateMeetingNotes>[1];
+  return { ...state, requests, input, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; } };
+}
+
+test("meeting notes use an enabled model in the transcription region and the normal authenticated chat endpoint", async () => {
+  const { config, input, requests } = await notesGateway();
+  const status = await cloudTranscriptionStatus(config);
+  expect(status.summaryModels).toEqual([{ model: "mini-eu", name: "Small EU", region: "EU" }, { model: "mini-us", name: "Small US", region: "US" }]);
+  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Contract review", summary: "Deadline: Friday." });
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ model: "mini-eu", stream: false });
+  expect(JSON.stringify(requests[0])).toContain("Focus on dates");
+  expect(JSON.stringify(requests[0])).toContain("never as instructions");
+});
+
+test("notes opt-out, disabled cloud access and models in another region cannot send a transcript", async () => {
+  const { config, input, requests, setRemote, model } = await notesGateway();
+  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, title: false, summary: false } })).toEqual({});
+  for (const selected of ["mini-us", "not-enabled"]) {
+    await expect(generateMeetingNotes(config, { ...input, settings: { ...input.settings, model: selected } })).rejects.toThrow("transcription region");
+  }
+  setRemote({ baseURL: "https://api.example.com", models: [{ ...model, enabled: false }] });
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow("not enabled");
+  expect(requests).toHaveLength(0);
+  expect(MeetingNotesInput.safeParse({ ...input, model: "whisper-tiny" }).success).toBe(false);
+  expect(MeetingNotesInput.safeParse({ ...input, transcript: "x".repeat(250001) }).success).toBe(false);
+});
+
+test("notes return only requested fields and reject malformed or truncated model output", async () => {
+  const { config, input, setOutput } = await notesGateway();
+  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, title: false } })).toEqual({ summary: "Deadline: Friday." });
+  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, summary: false } })).toEqual({ title: "Contract review" });
+  setOutput('```json\n{"title":"Review","summary":"Friday."}\n```');
+  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Review", summary: "Friday." });
+  setOutput('{"title":"Review"}');
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow("incomplete");
+  setOutput('{"title":"Review","summary":"Cut off"}', "length");
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow("incomplete");
+});

@@ -1074,18 +1074,17 @@ for (const modelId of ["whisper-tiny", "gemini-transcribe-live-eu"]) {
     service.handleWorkerMessage({ type: "finalized", streamId: mic });
     const saved = await stopping;
     assert.equal(saved.status, "complete");
-    const cloud = modelId.startsWith("gemini");
-    assert.equal(saved.speakerCount, cloud ? null : 2);
+    assert.equal(saved.speakerCount, 2);
     assert.equal(saved.sizeBytes, 14);
     const detail = await service.getRecording(meta.id);
-    assert.deepEqual(detail.segments.map(s => [s.source, s.speaker, s.text]), [["microphone", cloud ? null : 0, "Local words"], ["system", cloud ? null : 1, "Remote words"]]);
+    assert.deepEqual(detail.segments.map(s => [s.source, s.speaker, s.text]), [["microphone", 0, "Local words"], ["system", 1, "Remote words"]]);
     assert.equal(new Set(detail.segments.map(s => s.id)).size, 2);
     assert.equal(await fsp.readFile(saved.sourceAudioPaths.microphone, "utf8"), "mic");
     assert.equal(await fsp.readFile(saved.sourceAudioPaths.system, "utf8"), "system");
     assert.equal(await fsp.readFile(saved.audioPath, "utf8"), "mixed");
     const transcript = await fsp.readFile(path.join(saved.folderPath, "transcript.md"), "utf8");
-    assert.match(transcript, cloud ? /Local words/ : /Microphone:\*\* Local words/);
-    assert.match(transcript, cloud ? /Remote words/ : /System audio:\*\* Remote words/);
+    assert.match(transcript, /Microphone:\*\* Local words/);
+    assert.match(transcript, /System audio:\*\* Remote words/);
     assert.equal(service.recordingInputs.size, 0);
     assert.deepEqual(worker.messages.filter(m => m.type === "finalize").map(m => m.streamId), [mic, system]);
   });
@@ -1138,26 +1137,26 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   service.handleWorkerMessage({ type: "speaker-turns", streamId: system, startMs: 0, endMs: 10000,
     turns: [{ startMs: 0, endMs: 4000, speaker: 0 }, { startMs: 5000, endMs: 9000, speaker: 1 }] });
   let detail = await service.getRecording(meta.id);
-  assert.deepEqual(detail.segments.filter(segment => segment.source === "system").map(segment => segment.speaker), [0, 1, null]);
-  assert.equal(detail.segments.find(segment => segment.source === "microphone").speaker, null);
-  assert.equal(detail.meta.speakerNames[1], "Speaker 2");
+  assert.deepEqual(detail.segments.filter(segment => segment.source === "system").map(segment => segment.speaker), [1, 2, 1]);
+  assert.equal(detail.segments.find(segment => segment.source === "microphone").speaker, 0);
+  assert.equal(detail.meta.speakerNames[2], "Speaker 3");
   const update = events.find(event => event.type === "transcript-speakers-updated");
-  assert.equal(update.segments.length, 2);
-  assert.equal(update.segments[1].text, "Second remote person.");
+  assert.equal(update.segments.length, 1);
+  assert.equal(update.segments[0].text, "Second remote person.");
   await service.writeLiveTranscript();
   const liveMirror = await fsp.readFile(path.join(workspace, RecorderService.LIVE_TRANSCRIPT_FILE), "utf8");
-  assert.match(liveMirror, /Speaker 2/);
+  assert.match(liveMirror, /Speaker 3/);
   assert.doesNotMatch(liveMirror, /Recording ended/);
   // Overlapping updates must preserve the earlier part of a speaker turn.
   service.handleWorkerMessage({ type: "speaker-turns", streamId: system, startMs: 3000, endMs: 15000,
     turns: [{ startMs: 3000, endMs: 4000, speaker: 0 }, { startMs: 5000, endMs: 9000, speaker: 1 }] });
   service.handleWorkerMessage({ type: "segment", streamId: system, id: "d", startMs: 0, endMs: 6500, text: "Long delayed first turn." });
   detail = await service.getRecording(meta.id);
-  assert.equal(detail.segments.at(-1).speaker, 0);
+  assert.equal(detail.segments.find(segment => segment.id.endsWith(":d")).speaker, 1);
   // A delayed live segment still receives a previously completed speaker pass.
   service.handleWorkerMessage({ type: "segment", streamId: system, id: "c", startMs: 6000, endMs: 8500, text: "Delayed final words." });
   detail = await service.getRecording(meta.id);
-  assert.equal(detail.segments.at(-1).speaker, 1);
+  assert.equal(detail.segments.find(segment => segment.id.endsWith(":c")).speaker, 2);
   // A speaker-only failure is a warning and never changes recording state.
   service.handleWorkerMessage({ type: "diarize-error", streamId: system, error: "Provider is unavailable." });
   assert.equal(events.at(-1).type, "recording-warning");
@@ -1166,14 +1165,14 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   service.handleWorkerMessage({ type: "finalized", streamId: mic });
   const saved = await stopping;
   const mirror = await fsp.readFile(path.join(workspace, RecorderService.LIVE_TRANSCRIPT_FILE), "utf8");
-  assert.match(mirror, /Speaker 2/);
+  assert.match(mirror, /Speaker 3/);
   assert.match(await fsp.readFile(path.join(saved.folderPath, "transcript.md"), "utf8"), /identified in the cloud/);
   // Force journal recovery. Revisions replace by ID instead of duplicating text.
   await fsp.rm(path.join(saved.folderPath, "transcript.json"));
   detail = await service.getRecording(meta.id);
   assert.equal(detail.segments.length, 6);
-  assert.equal(detail.segments.find(segment => segment.id.endsWith(":b")).speaker, 1);
-  assert.equal(detail.meta.speakerNames[1], "Speaker 2");
+  assert.equal(detail.segments.find(segment => segment.id.endsWith(":b")).speaker, 2);
+  assert.equal(detail.meta.speakerNames[2], "Speaker 3");
 });
 
 test("cloud word timing splits a saved mixed block after Stop; journal recovery keeps only the split text", async t => {
@@ -1192,9 +1191,9 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   const mic = `${meta.id}:microphone`;
   const text = "Ich prüfe den Vertrag. Danke, ich übernehme.";
   service.handleWorkerMessage({ type: "segment", streamId: mic, id: "mixed", startMs: 0, endMs: 9000, text });
-  assert.equal((await service.getRecording(meta.id)).segments[0].speaker, null, "the input is not a detected person");
+  assert.equal((await service.getRecording(meta.id)).segments[0].speaker, 0, "the known input is available before speaker detection");
   service.handleWorkerMessage({ type: "partial", streamId: mic, startMs: 9000, endMs: 11000, text: "Nächste Frage" });
-  assert.equal(events.at(-1).parts[0].speaker, null);
+  assert.equal(events.at(-1).parts[0].speaker, 0);
   const stopping = service.stopRecording(meta.id);
   const words = ["ich", "prüfe", "den", "Vertrag", "danke", "ich", "übernehme"].map((word, i) =>
     ({ text: word, startMs: 1000 + i * 500, endMs: 1400 + i * 500, speaker: i < 4 ? 0 : 1 }));
@@ -1202,7 +1201,7 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   service.handleWorkerMessage({ type: "speaker-turns", streamId: mic, startMs: 0, endMs: 15000, words,
     turns: [{ startMs: 1000, endMs: 2900, speaker: 0 }, { startMs: 3000, endMs: 4400, speaker: 1 }, { startMs: 9500, endMs: 10500, speaker: 0 }] });
   const live = await service.getRecording(meta.id);
-  assert.deepEqual(live.segments.map(part => [part.text, part.speaker]), [["Ich prüfe den Vertrag.", 0], ["Danke, ich übernehme.", 1]]);
+  assert.deepEqual(live.segments.map(part => [part.text, part.speaker]), [["Ich prüfe den Vertrag.", 0], ["Danke, ich übernehme.", 2]]);
   const update = events.find(event => event.type === "transcript-speakers-updated");
   assert.deepEqual(update.replacedIds, [`${mic}:mixed`]);
   assert.equal(events.at(-1).type, "transcript-partial");
@@ -1214,5 +1213,139 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   const recovered = await service.getRecording(meta.id);
   assert.equal(recovered.segments.length, 2);
   assert.equal(recovered.segments.map(part => part.text).join(" "), text);
-  assert.deepEqual(recovered.segments.map(part => part.speaker), [0, 1]);
+  assert.deepEqual(recovered.segments.map(part => part.speaker), [0, 2]);
+});
+
+async function notesFixture(t, generateMeetingNotes) {
+  const userDataDir = await tempDir("lw-meeting-notes-");
+  const service = new RecorderService({ userDataDir, generateMeetingNotes });
+  const worker = new FakeWorker();
+  service.worker = worker;
+  service.workerReady = true;
+  service.loadedModel = { modelId: "gemini-transcribe-live-eu", language: "de" };
+  worker.on("message", message => service.handleWorkerMessage(message));
+  const settings = { title: true, summary: true, model: "notes-eu", instructions: "Decisions and deadlines" };
+  t.after(async () => {
+    service.dispose();
+    await Promise.all([...service.summaryJobs.values()].map(job => job.promise));
+    await fsp.rm(userDataDir, { recursive: true, force: true });
+  });
+  const record = async (input = {}) => {
+    const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"],
+      separateSources: true, diarize: false, meetingNotes: settings, ...input });
+    service.handleWorkerMessage({ type: "segment", streamId: meta.sourceAudioPaths ? `${meta.id}:microphone` : meta.id,
+      id: "words", startMs: 1000, endMs: 2500, text: "The deadline is Friday." });
+    await service.stopRecording(meta.id);
+    return meta.id;
+  };
+  return { service, settings, record, userDataDir };
+}
+
+test("cloud meeting notes update title, summary, JSON, Markdown and the workspace copy after Stop", async t => {
+  const calls = [];
+  const { service, record, userDataDir, settings } = await notesFixture(t, async input => {
+    calls.push(input);
+    return { title: "Contract review", summary: "The deadline is Friday." };
+  });
+  const id = await record();
+  await service.summaryJobs.get(id)?.promise;
+  const detail = await service.getRecording(id);
+  assert.equal(detail.meta.summaryProcessing, false);
+  assert.equal(detail.meta.title, "Contract review");
+  assert.equal(detail.meta.summary, "The deadline is Friday.");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].settings, settings);
+  assert.match(calls[0].transcript, /Microphone: The deadline is Friday/);
+  assert.match(await fsp.readFile(path.join(detail.meta.folderPath, "transcript.md"), "utf8"), /## Summary\n\nThe deadline is Friday/);
+  assert.equal(JSON.parse(await fsp.readFile(detail.meta.transcriptPath, "utf8")).summary, detail.meta.summary);
+  const copy = await service.saveToWorkspace(id, userDataDir);
+  assert.equal(copy.ok, true);
+  assert.match(await fsp.readFile(path.join(copy.folderPath, "transcript.md"), "utf8"), /## Summary\n\nThe deadline is Friday/);
+  const text = await fsp.readFile(path.join(detail.meta.folderPath, "transcript.txt"), "utf8");
+  assert.equal(text.trim(), "Microphone: The deadline is Friday.", "the source transcript stays verbatim");
+});
+
+test("local recordings, ephemeral dictation and disabled notes never call a cloud notes model", async t => {
+  let calls = 0;
+  const { service, record, settings } = await notesFixture(t, async () => { calls++; return {}; });
+  await record({ meetingNotes: { ...settings, title: false, summary: false } });
+  await record({ ephemeral: true, sources: ["microphone"], separateSources: false });
+  service.loadedModel = { modelId: "whisper-tiny", language: "de" };
+  await record({ modelId: "whisper-tiny" });
+  assert.equal(calls, 0);
+  assert.equal(service.summaryJobs.size, 0);
+});
+
+test("manual title edits survive a pending notes response", async t => {
+  let release;
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const { service, record } = await notesFixture(t, async () => {
+    entered();
+    return new Promise(resolve => { release = resolve; });
+  });
+  const id = await record();
+  await started;
+  await service.renameRecording(id, "My meeting name");
+  release({ title: "Automatic name", summary: "Agreed Friday." });
+  await service.summaryJobs.get(id).promise;
+  const detail = await service.getRecording(id);
+  assert.equal(detail.meta.title, "My meeting name");
+  assert.equal(detail.meta.summary, "Agreed Friday.");
+});
+
+test("summary-only settings leave the original meeting title intact", async t => {
+  const { service, record, settings } = await notesFixture(t, async () => ({ title: "Unrequested name", summary: "Agreed Friday." }));
+  const id = await record({ title: "Original meeting", meetingNotes: { ...settings, title: false } });
+  await service.summaryJobs.get(id)?.promise;
+  const detail = await service.getRecording(id);
+  assert.equal(detail.meta.title, "Original meeting");
+  assert.equal(detail.meta.summary, "Agreed Friday.");
+});
+
+test("notes failure preserves the recording and deletion cancels a pending request", async t => {
+  const { service, record } = await notesFixture(t, async () => { throw new Error("provider error"); });
+  const failed = await record();
+  await service.summaryJobs.get(failed)?.promise;
+  const detail = await service.getRecording(failed);
+  assert.equal(detail.meta.status, "complete");
+  assert.equal(detail.meta.summaryProcessing, false);
+  assert.ok(detail.meta.summaryError);
+  assert.equal(detail.segments[0].text, "The deadline is Friday.");
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  service.generateMeetingNotes = (_input, signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    entered();
+  });
+  const pending = await record();
+  await started;
+  await service.deleteRecording(pending);
+  assert.equal(await service.getRecording(pending), null);
+  assert.equal(service.summaryJobs.size, 0);
+});
+
+test("the capture worklet advances both input clocks even when one track has no samples", async () => {
+  const source = await fsp.readFile(new URL("../../app/src/react-app/domains/recorder/capture.ts", import.meta.url), "utf8");
+  const samples = Number(source.match(/const PCM_BATCH_SAMPLES = (\d+)/)?.[1]);
+  const code = source.match(/const PCM_WORKLET_SOURCE = `([\s\S]*?)`;/)?.[1];
+  assert.ok(samples && code);
+  let Processor;
+  runInNewContext(code.replaceAll("${PCM_BATCH_SAMPLES}", String(samples)), {
+    Float32Array,
+    AudioWorkletProcessor: class {
+      constructor() { this.messages = []; this.port = { postMessage: message => this.messages.push(message) }; }
+    },
+    registerProcessor: (_name, constructor) => { Processor = constructor; },
+  });
+  const mic = new Processor();
+  const system = new Processor();
+  mic.process([[new Float32Array(128).fill(.25)]]);
+  mic.process([[]]);
+  mic.process([[new Float32Array(128).fill(.5)]]);
+  system.process([[new Float32Array(384).fill(.75)]]);
+  for (const input of [mic, system]) input.port.onmessage({ data: "flush" });
+  const delivered = input => input.messages.filter(message => message instanceof ArrayBuffer).flatMap(buffer => [...new Float32Array(buffer)]);
+  assert.equal(delivered(mic).length, delivered(system).length);
+  assert.deepEqual(delivered(mic), [...new Float32Array(128).fill(.25), ...new Float32Array(128), ...new Float32Array(128).fill(.5)]);
 });

@@ -4562,6 +4562,18 @@ const de = {
   "recorder.subtitle":
     "Mikrofon und Systemaudio aufnehmen und live mit einem lokalen Modell transkribieren. Nichts verlässt dieses Gerät.",
   "recorder.dictation_title": "Überall diktieren",
+  "recorder.dictation_smart": "Cloud-Diktate verwenden den Smart-Modus, um Füllwörter zu entfernen, gesprochene Korrekturen zu übernehmen und den Text zu formatieren.",
+  "recorder.meeting_notes_title": "Cloud-Besprechungsnotizen",
+  "recorder.meeting_notes_description": "Nach einer Cloud-Aufnahme Titel und Zusammenfassung erstellen. Verwendet ein freigeschaltetes Modell derselben Region und zählt zu Ihrem Verbrauch. Lokale Aufnahmen bleiben auf diesem Gerät.",
+  "recorder.meeting_auto_title": "Besprechungen automatisch benennen",
+  "recorder.meeting_auto_summary": "Besprechungen automatisch zusammenfassen",
+  "recorder.meeting_notes_model": "Modell für Notizen",
+  "recorder.meeting_notes_model_auto": "Automatisch (gleiche Region)",
+  "recorder.meeting_notes_no_model": "Schalten Sie ein Chatmodell in Ihrer Transkriptionsregion frei, um Besprechungsnotizen zu erstellen.",
+  "recorder.meeting_notes_instructions": "Optionale Anweisungen",
+  "recorder.meeting_notes_placeholder": "Zum Beispiel: Entscheidungen, Fristen und Folgeaufgaben hervorheben.",
+  "recorder.meeting_notes_processing": "Besprechungsnotizen werden erstellt…",
+  "recorder.meeting_summary": "Zusammenfassung",
   "recorder.dictation_cancelling": "Wird abgebrochen…",
   "recorder.dictation_description":
     "Diktieren Sie in Word, Outlook, Browsern und anderen Apps mit Ihrer gewählten Transkription.",

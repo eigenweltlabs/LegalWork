@@ -17,8 +17,12 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const candidates = words.filter(word => word.text && word.endMs > segment.startMs - 4000 && word.startMs < segment.endMs + 1000)
     .flatMap(word => (word.text.match(/\S+/gu) ?? []).map(text => ({ ...word, key: normalized(text) })));
   if (!candidates.length || tokens.length > 512 || candidates.length > 1024) {
+    if (!words.some(word => word.text) && segment.endMs <= coveredEnd) {
+      const speaker = dominantSpeaker(segment, turns);
+      if (speaker != null) return [{ ...segment, speaker }];
+    }
     if (previousParts.some(part => part.speaker != null)) return previousParts;
-    return [{ ...segment, speaker: !words.some(word => word.text) && segment.endMs <= coveredEnd ? dominantSpeaker(segment, turns) : null }];
+    return [{ ...segment, speaker: segment.speaker ?? null }];
   }
   // Order-preserving word alignment tolerates punctuation, casing and small
   // recognition differences while keeping the live model's text untouched.
@@ -40,7 +44,7 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const matchedCharacters = [...matched.keys()].reduce((sum, index) => sum + tokens[index].key.length, 0);
   const totalCharacters = tokens.reduce((sum, token) => sum + token.key.length, 0);
   if (matched.size < Math.min(2, tokens.length) || matchedCharacters < totalCharacters * .6) {
-    return previousParts.length ? previousParts : [{ ...segment, speaker: null }];
+    return previousParts.length ? previousParts : [{ ...segment, speaker: segment.speaker ?? null }];
   }
   const inferred = new Map();
   const assigned = tokens.map((_, index) => matched.get(index)?.speaker ?? null);
@@ -80,10 +84,11 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
     parts.push({ ...segment, id: `${segment.id}:w${begin}`, text: segment.text.slice(from, to).trim(),
       startMs: timed[0]?.startMs ?? before?.endMs ?? segment.startMs,
       endMs: timed.at(-1)?.endMs ?? after?.startMs ?? segment.endMs,
-      speaker: assigned[begin] });
+      speaker: assigned[begin] ?? segment.speaker ?? null });
     begin = end;
   }
-  return previousParts.length === parts.length && parts.every((part, index) => part.text === previousParts[index].text && part.speaker === previousParts[index].speaker)
+  return previousParts.length === parts.length && parts.every((part, index) => part.text === previousParts[index].text && part.speaker === previousParts[index].speaker
+    && part.startMs === previousParts[index].startMs && part.endMs === previousParts[index].endMs)
     ? previousParts : parts;
 }
 

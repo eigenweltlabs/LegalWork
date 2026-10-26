@@ -5,7 +5,7 @@ import path from "node:path";
 import { finished } from "node:stream/promises";
 import { CloudSpeakerPass } from "./cloud-speakers.mjs";
 
-export const SPEAKER_BATCH_MS = 45000;
+export const SPEAKER_BATCH_MS = 30000;
 
 /** Save PCM locally during capture. Speaker requests begin only after Stop. */
 export class DeferredCloudSpeakerPass {

@@ -47,10 +47,10 @@ test("saved speaker audio is analyzed only at Stop, in bounded batches, then rem
     assert.equal(requests.length, 0);
     assert.equal(results.length, 0);
     await pass.finish();
-    assert.equal(requests.length, 5);
-    assert.equal(requests[0].length, 45000 * 32);
+    assert.equal(requests.length, 7);
+    assert.equal(requests[0].length, 30000 * 32);
     assert.ok(requests.every(request => request.length <= 58000 * 32));
-    assert.deepEqual(results.map(result => result.endMs), [45000, 90000, 135000, 180000, 200000]);
+    assert.deepEqual(results.map(result => result.endMs), [30000, 60000, 90000, 120000, 150000, 180000, 200000]);
     assert.equal(fs.existsSync(pass.folder), false);
   } finally { await pass.stop(); }
 });

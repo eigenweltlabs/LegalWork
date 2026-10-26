@@ -60,7 +60,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
     queryFn: () => audioRecordingGet(recordingId),
     enabled: !liveRecording,
     retry: false,
-    refetchInterval: query => query.state.data?.meta.speakerProcessing ? 2000 : false,
+    refetchInterval: query => query.state.data?.meta.speakerProcessing || query.state.data?.meta.summaryProcessing ? 2000 : false,
   });
   useEffect(() => {
     if (!liveRecording) void queryClient.invalidateQueries({ queryKey });
@@ -172,12 +172,18 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
             </span> : null}
           </div>
           {meta?.speakerError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.speakerError}</p> : null}
+          {meta?.summaryProcessing ? <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-3.5 animate-spin" />{t("recorder.meeting_notes_processing")}</p> : null}
+          {meta?.summaryError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.summaryError}</p> : null}
         </div>
         <div className="lw-recording-transcript-actions">
           <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
           <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />
         </div>
       </header>
+      {meta?.summary ? <section className="mb-6 rounded-xl border border-subtle bg-sunken p-4" aria-label={t("recorder.meeting_summary")}>
+        <h2 className="mb-2 text-sm font-medium">{t("recorder.meeting_summary")}</h2>
+        <p className="whitespace-pre-wrap text-sm leading-relaxed">{meta.summary}</p>
+      </section> : null}
       <div className="lw-recording-transcript-body">
         {turns.length === 0 ? <div className="lw-recording-transcript-empty"><FileText className="size-6" /><p>{t(liveRecording ? "recorder.waiting_for_speech" : "recorder.transcript_empty")}</p></div> : turns.map(turn => (
           <section key={turn.id} className="lw-recording-transcript-turn">

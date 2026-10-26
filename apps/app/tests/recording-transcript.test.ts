@@ -249,3 +249,20 @@ test("a split recording shows both simultaneous input labels in chronological or
   expect(html).toContain("System audio");
   expect(html.indexOf("Local words")).toBeLessThan(html.indexOf("Remote words"));
 });
+
+test("long monologues and pauses start readable new transcript turns", () => {
+  const words = Array.from({ length: 20 }, (_, i) => ({ ...segment(String(i), "A complete sentence. ".repeat(5), 0), startMs: i * 2000, endMs: (i + 1) * 2000 }));
+  const turns = transcriptTurns(words, null);
+  expect(turns.length).toBeGreaterThan(1);
+  expect(turns.every(turn => turn.segments.reduce((n, part) => n + part.text.length, 0) <= 600)).toBe(true);
+  expect(turns.flatMap(turn => turn.segments)).toEqual(words);
+  expect(transcriptTurns([words[0], { ...words[1], startMs: 10000, endMs: 12000 }], null)).toHaveLength(2);
+});
+
+test("saved meeting summaries render separately from the verbatim transcript", () => {
+  const html = render({ meta: { ...recording, status: "complete", summary: "Review the draft by Friday." }, segments: [segment("saved", "Um, Friday would work.", 0)] });
+  expect(html).toContain("Summary");
+  expect(html).toContain("Review the draft by Friday.");
+  expect(html).toContain("Um, Friday would work.");
+  expect(html.indexOf("Review the draft")).toBeLessThan(html.indexOf("Um, Friday"));
+});

@@ -4318,6 +4318,18 @@ export default {
   "recorder.subtitle":
     "Record the microphone and system audio and get a live transcript from a local model. Nothing leaves this device.",
   "recorder.dictation_title": "Dictate anywhere",
+  "recorder.dictation_smart": "Cloud dictation uses Smart mode to remove fillers, apply spoken corrections and format your text.",
+  "recorder.meeting_notes_title": "Cloud meeting notes",
+  "recorder.meeting_notes_description": "Generate a title and summary after a cloud recording ends. Uses an enabled model in the same region and counts toward your usage. Local recordings stay on this device.",
+  "recorder.meeting_auto_title": "Automatically name meetings",
+  "recorder.meeting_auto_summary": "Automatically summarize meetings",
+  "recorder.meeting_notes_model": "Notes model",
+  "recorder.meeting_notes_model_auto": "Automatic (same region)",
+  "recorder.meeting_notes_no_model": "Enable a chat model in your transcription region to generate meeting notes.",
+  "recorder.meeting_notes_instructions": "Optional instructions",
+  "recorder.meeting_notes_placeholder": "For example: focus on decisions, deadlines and follow-up tasks.",
+  "recorder.meeting_notes_processing": "Preparing meeting notes…",
+  "recorder.meeting_summary": "Summary",
   "recorder.dictation_cancelling": "Cancelling…",
   "recorder.dictation_description":
     "Dictate into Word, Outlook, browsers, and other apps using your selected transcription engine.",

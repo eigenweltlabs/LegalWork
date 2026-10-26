@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { desktopLoginItemGet, desktopLoginItemSet } from "@/app/lib/desktop";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 import { t } from "../../../../i18n";
@@ -61,6 +62,8 @@ export function RecorderSettingsView(props: {
   const engine = store.bootstrap?.engine;
   const selectedModelInstalled = isTranscriptionReady(store);
   const dictation = store.systemDictation;
+  const cloudRegion = store.bootstrap?.cloud?.models.find(model => model.model === store.cloudModelId)?.region;
+  const notesModels = (store.bootstrap?.cloud?.summaryModels ?? []).filter(model => model.region === cloudRegion);
 
   useEffect(() => {
     void store.init();
@@ -177,6 +180,40 @@ export function RecorderSettingsView(props: {
           </div>
           <p className="text-xs text-subtext">{t("recorder.meeting_detection_support")}</p>
           <p className="text-xs text-subtext">{t("recorder.meeting_recording_location")}</p>
+          {store.transcriptionSource === "cloud" ? <div className="space-y-4 border-t border-subtle pt-4">
+            <div>
+              <div className="text-xs font-medium text-ink">{t("recorder.meeting_notes_title")}</div>
+              <p className="mt-1 text-sm text-subtext">{t("recorder.meeting_notes_description")}</p>
+            </div>
+            <label className="flex items-center justify-between gap-4 text-sm">
+              {t("recorder.meeting_auto_title")}
+              <Switch checked={store.meetingNotes.title} onCheckedChange={title => store.setMeetingNotes({ title })} aria-label={t("recorder.meeting_auto_title")} />
+            </label>
+            <label className="flex items-center justify-between gap-4 text-sm">
+              {t("recorder.meeting_auto_summary")}
+              <Switch checked={store.meetingNotes.summary} onCheckedChange={summary => store.setMeetingNotes({ summary })} aria-label={t("recorder.meeting_auto_summary")} />
+            </label>
+            {store.meetingNotes.title || store.meetingNotes.summary ? <>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm">{t("recorder.meeting_notes_model")}</span>
+                <Select value={store.meetingNotes.model || "auto"}
+                  items={[{ value: "auto", label: t("recorder.meeting_notes_model_auto") }, ...notesModels.map(model => ({ value: model.model, label: model.name }))]}
+                  onValueChange={model => { if (model) store.setMeetingNotes({ model: model === "auto" ? "" : model }); }}>
+                  <SelectTrigger size="sm" aria-label={t("recorder.meeting_notes_model")}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="auto">{t("recorder.meeting_notes_model_auto")}</SelectItem>
+                    {notesModels.map(model => <SelectItem key={model.model} value={model.model}>{model.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {notesModels.length === 0 ? <p className="text-xs text-subtext">{t("recorder.meeting_notes_no_model")}</p> : null}
+              <label className="block space-y-2 text-sm">
+                <span>{t("recorder.meeting_notes_instructions")}</span>
+                <Textarea value={store.meetingNotes.instructions} maxLength={1000} rows={3}
+                  placeholder={t("recorder.meeting_notes_placeholder")}
+                  onChange={event => store.setMeetingNotes({ instructions: event.target.value })} />
+              </label>
+            </> : null}
+          </div> : null}
           <div className="flex flex-col gap-3 border-t border-subtle pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-xs font-medium text-ink">{t("settings.hide_app_title")}</div>
@@ -211,6 +248,7 @@ export function RecorderSettingsView(props: {
         <LayoutSectionItemHeader>
           <div>
             <LayoutSectionItemTitle>{t("recorder.dictation_title")}</LayoutSectionItemTitle>
+            {store.transcriptionSource === "cloud" ? <p className="mt-1 text-sm text-subtext">{t("recorder.dictation_smart")}</p> : null}
             <LayoutSectionItemDescription>
               {t("recorder.dictation_description")}
             </LayoutSectionItemDescription>

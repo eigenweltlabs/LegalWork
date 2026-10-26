@@ -763,6 +763,7 @@ function recorderService() {
       powerSessions,
       pinProcessQoS: pinWindowsProcessQoS,
       resolveCloudConnection: (model) => recorderServerRequest("/transcription/connection", { model }),
+      generateMeetingNotes: (input, signal) => recorderServerRequest("/transcription/summary", input, AbortSignal.any([signal, AbortSignal.timeout(100_000)])),
     });
     if (mainWindow && !mainWindow.isDestroyed()) {
       recorderServiceInstance.subscribe(mainWindow.webContents);
@@ -771,7 +772,7 @@ function recorderService() {
   return recorderServiceInstance;
 }
 
-async function recorderServerRequest(route, body) {
+async function recorderServerRequest(route, body, signal = AbortSignal.timeout(10_000)) {
   const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
   const response = await fetch(`${info.baseUrl}${route}`, {
     method: body ? "POST" : "GET",
@@ -779,7 +780,7 @@ async function recorderServerRequest(route, body) {
       ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(10_000), redirect: "error",
+    signal, redirect: "error",
   });
   if (!response.ok) throw new Error("Cloud transcription is unavailable. Sign in and check your organisation’s model settings.");
   return response.json();

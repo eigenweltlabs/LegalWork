@@ -26,7 +26,10 @@ async function remoteConfiguration(config: ServerConfig) {
 export async function cloudTranscriptionStatus(config: ServerConfig) {
   try {
     const result = await remoteConfiguration(config);
-    return { models: result?.remote.models ?? [], error: null };
+    const manifest = result ? await readCachedEigenweltPaidManifest(config) : null;
+    const summaryModels = (manifest?.models ?? []).flatMap(model => model.region && ["EU", "US"].includes(model.region.toUpperCase())
+      ? [{ model: model.id, name: model.name ?? model.id, region: model.region.toUpperCase() }] : []);
+    return { models: result?.remote.models ?? [], summaryModels, error: null };
   } catch {
     return { models: [], error: "Cloud transcription is currently unavailable." };
   }

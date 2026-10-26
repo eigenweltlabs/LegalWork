@@ -178,7 +178,7 @@ once at completion. After an interruption, the journal recovers completed
 segments, tolerating an incomplete final line, and marks the recording as
 interrupted instead of presenting it as complete.
 
-Speaker detection now runs on completed VAD segments (at most 18 seconds) while
+Local speaker detection runs on completed VAD segments (at most 18 seconds) while
 recording. The installed segmentation and embedding models assign provisional
 speaker IDs; up to 64 voice centroids keep IDs stable across segments. Short or
 uncertain speech remains unassigned, and a segment containing multiple voices is
@@ -190,3 +190,49 @@ Regression coverage feeds six hours of timestamped segments through persistence,
 checks interruption recovery, and verifies that stopping keeps all live text.
 This is not a six-hour capture soak test: available disk space and a transcription
 model that keeps up with the input still determine practical recording length.
+
+## Cloud meetings and automatic notes
+
+Cloud meetings retain known Microphone, System audio and App audio labels for
+separate inputs from the start. They identify sources, not verified people.
+After Stop, the independent speaker pass refines these labels and word timings;
+its first detected voice reuses the input label and additional voices get their
+own IDs. Unmatched words keep their input label. A failed live socket preserves
+captured speaker-pass audio for the saved transcript. Speaker windows are
+30 seconds with overlap to reduce per-request latency.
+
+The capture worklet emits silence when an input has no samples so both input
+clocks keep advancing together. The gateway uses provider speech activity
+offsets instead of response arrival times. Desktop persistence sorts incoming
+segments by capture time and rewrites a shared live mirror on late arrivals.
+Improved word timings are applied even when text and speaker stay unchanged.
+The gateway commits long authoritative meeting text incrementally; the viewer
+also bounds same-speaker grouping by time, silence gap and text length.
+
+With a cloud transcription model selected, **Settings > Recorder > Meetings**
+offers independent automatic title and summary switches, an enabled chat model
+in the transcription region, and optional instructions. Both switches default
+to on. Disabling both sends no notes request. Local recordings and ephemeral
+dictation never generate cloud notes.
+
+Notes run after speaker processing, through the existing server and paid chat
+endpoint with a fresh organisation opt-in check. They count toward normal model
+usage. Automatic selection prefers an available small non-reasoning model in
+the same region. A selected unavailable model fails without silently switching
+models or regions. Responses must contain complete JSON with the requested
+fields. Failures leave the transcript intact. A manual rename during generation
+is preserved. Summary text appears above the transcript and is included in JSON,
+Markdown and managed workspace copies; TXT and SRT remain verbatim.
+
+OpenWhispr's [capture timeline](https://github.com/OpenWhispr/openwhispr/blob/f2a269646075ab4a82b86f08802aeaf315191520/src/helpers/meetingAudioTimeline.js),
+[segment reducer](https://github.com/OpenWhispr/openwhispr/blob/f2a269646075ab4a82b86f08802aeaf315191520/src/stores/meetingSegmentReducer.ts)
+and separation of meeting and dictation routing informed this review. No
+OpenWhispr implementation code was copied.
+
+Deploy the companion model-api gateway change before the desktop release.
+Regression tests cover delayed input ordering, source-label preservation,
+speaker failure, notes controls, cancellation, manual names and export updates.
+Before release, make a real microphone plus system-audio call, stop it, and
+verify turn order, refined speakers and notes. Repeat with local transcription
+and with both notes switches off. Synthetic tests and component previews do
+not replace this live provider check.
