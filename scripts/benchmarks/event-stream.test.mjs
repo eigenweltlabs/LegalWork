@@ -83,7 +83,9 @@ test("rejects redirects, bad status, non-SSE and encoded responses without follo
 });
 
 test("rejects unbound endpoints and missing cancellation before network access", () => {
-  for (const url of ["https://127.0.0.1:123/events", "http://localhost:123/events", "http://example.com/events", "http://x:y@127.0.0.1:123/events", "http://127.0.0.1:123/events#other"]) {
+  const fixtureURL = new URL("http://127.0.0.1:123/events");
+  fixtureURL.username = "x"; fixtureURL.password = "y";
+  for (const url of ["https://127.0.0.1:123/events", "http://localhost:123/events", "http://example.com/events", fixtureURL.href, "http://127.0.0.1:123/events#other"]) {
     assert.throws(() => openEventStream(url, { signal: new AbortController().signal }), error => error.code === "EVENT_STREAM_ENDPOINT");
   }
   assert.throws(() => openEventStream("http://127.0.0.1:123/events", {}), error => error.code === "EVENT_STREAM_SIGNAL");

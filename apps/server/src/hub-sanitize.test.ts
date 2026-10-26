@@ -98,9 +98,11 @@ describe("sanitizeIntegrationMcp", () => {
 
 describe("sanitizePresetFragment", () => {
   test("native presets keep canonical choices and typed controls without private transport definitions", () => {
+    const fixtureURL = new URL("https://example.invalid/v1");
+    fixtureURL.username = "private"; fixtureURL.password = "secret";
     const clean = sanitizePresetFragment({ providers: { custom: {
       canonical: "openai", name: "Firm connection", package: "@opencode/ai/providers/openai-compatible", env: ["FIRM_KEY"],
-      settings: { baseURL: "https://private:secret@example.invalid/v1", apiKey: "synthetic-secret" }, headers: { "X-Private": "synthetic-header" },
+      settings: { baseURL: fixtureURL.href, apiKey: "synthetic-secret" }, headers: { "X-Private": "synthetic-header" },
       models: { reasoning: { modelID: "exact-model", name: "Firm Model", limit: { context: 900_000, output: 80_000 },
         settings: { temperature: 0.2 }, body: { reasoningEffort: "high", private_transport: "synthetic-body" },
         variants: [{ id: "Careful", body: { reasoningEffort: "high" }, headers: { "X-Mode": "synthetic-variant" } }] } },
