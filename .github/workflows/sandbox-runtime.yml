@@ -133,9 +133,9 @@ jobs:
         run: |
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
-      - name: Test macOS compatibility audit
+      - name: Test packaged sandbox paths and macOS compatibility
         if: inputs.run_tests
-        run: node --test scripts/sandbox/macos-compatibility.test.mjs
+        run: node --test scripts/sandbox/probe-packaged.test.mjs scripts/sandbox/macos-compatibility.test.mjs
       - name: Record temporary filesystem capacity
         if: inputs.run_tests
         shell: bash
