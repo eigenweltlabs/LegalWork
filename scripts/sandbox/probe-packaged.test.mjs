@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const script = fileURLToPath(new URL('./probe-packaged.mjs', import.meta.url));
 const probe = fileURLToPath(new URL('./probe.mjs', import.meta.url));
@@ -24,7 +24,7 @@ async function fixture(platform, run) {
     await writeFile(preload, `import assert from 'node:assert/strict';import cp from 'node:child_process';import{realpathSync}from'node:fs';import{syncBuiltinESMExports}from'node:module';
       Object.defineProperty(process,'platform',{value:${JSON.stringify(platform)}});
       cp.spawnSync=(command,args,options)=>{assert.equal(realpathSync(command),process.env.LEGALWORK_PROBE_EXPECTED_NODE);assert.deepEqual(args,${JSON.stringify([probe, join(resources, 'agent-sandbox')])});assert.equal(options.timeout,300000);assert.equal(options.windowsHide,true);console.log('bundled Node probe selected');return{status:0}};syncBuiltinESMExports();`);
-    const invoke = (target, expectedNode = node) => spawnSync(process.execPath, ['--import', preload, script, target], { encoding: 'utf8', env: { ...process.env, LEGALWORK_PROBE_EXPECTED_NODE: expectedNode } });
+    const invoke = (target, expectedNode = node) => spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, script, target], { encoding: 'utf8', env: { ...process.env, LEGALWORK_PROBE_EXPECTED_NODE: expectedNode } });
     await run({ root, bundle, executable, resources, node, invoke });
   } finally { await rm(root, { recursive: true, force: true }); }
 }
