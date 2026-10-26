@@ -1,18 +1,28 @@
 name: Build reviewed OpenCode engine for platform acceptance
 on:
   workflow_call:
+    inputs:
+      reuse-run-id:
+        description: Optional original same-repository Actions producer run
+        type: string
+        default: ''
+      reuse-manifest-sha256:
+        description: Independent digest required with reuse-run-id
+        type: string
+        default: ''
     outputs:
       manifest-sha256:
         description: Independent digest of the complete derivative distribution
         value: ${{ jobs.build.outputs.manifest-sha256 }}
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
     runs-on: macos-14
     timeout-minutes: 90
     outputs:
-      manifest-sha256: ${{ steps.engine.outputs.manifest-sha256 }}
+      manifest-sha256: ${{ steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -20,7 +30,30 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+      - name: Validate explicit producer reuse inputs
+        id: mode
+        env:
+          REUSE_RUN_ID: ${{ inputs.reuse-run-id }}
+          REUSE_MANIFEST_SHA256: ${{ inputs.reuse-manifest-sha256 }}
+        run: node scripts/ci/reuse-opencode-derivative.mjs inputs
+      - name: Download the original producer's same-repository artifact
+        if: steps.mode.outputs.reuse == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reuse-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative/distribution
+      - name: Verify current recipe, independent manifest and every archive
+        if: steps.mode.outputs.reuse == 'true'
+        id: reuse
+        env:
+          MANIFEST_SHA256: ${{ inputs.reuse-manifest-sha256 }}
+          REUSE_RUN_ID: ${{ inputs.reuse-run-id }}
+        run: node scripts/ci/reuse-opencode-derivative.mjs verify "$RUNNER_TEMP/opencode-derivative/distribution" "$MANIFEST_SHA256"
       - name: Compile exact reviewed source and complete twelve-target distribution
+        if: steps.mode.outputs.reuse != 'true'
         id: engine
         run: node scripts/ci/build-opencode-derivative.mjs "$RUNNER_TEMP/opencode-derivative"
       - name: Retain complete build receipts
@@ -33,6 +66,7 @@ jobs:
             ${{ runner.temp }}/opencode-derivative/build-*/artifact/provenance.json
             ${{ runner.temp }}/opencode-derivative/build-*/result.json
             ${{ runner.temp }}/opencode-derivative/builds.json
+            ${{ runner.temp }}/opencode-derivative/reuse-receipt.json
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
