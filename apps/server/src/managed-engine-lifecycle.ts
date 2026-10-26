@@ -77,11 +77,11 @@ export async function startManagedEngineLifecycle(options: {
       events?.abort(); events = undefined;
       imageAffinity.disconnect();
       await engine.close();
-      try { engine = await options.create("service", preflight); mode = "service"; serviceStartupFailed = false; failure = undefined; await publish(); }
+      try { engine = await options.create("service", preflight); await publish(); mode = "service"; serviceStartupFailed = false; failure = undefined; }
       catch (error) {
         remember(error); serviceStartupFailed = true;
         if (closed) return;
-        engine = await options.create("recovery"); mode = "recovery"; await publish(); monitor();
+        engine = await options.create("recovery"); await publish(); mode = "recovery"; monitor();
       }
     })().catch(error => { remember(error); }).finally(() => { checking = undefined; });
     return checking;
