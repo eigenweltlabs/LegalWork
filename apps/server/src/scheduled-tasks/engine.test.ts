@@ -176,7 +176,8 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
     expect(end.content).toBe("");
     expect([recent.content, older.content, end.content].flatMap(text => text.split("\n").filter(Boolean))).toHaveLength(23);
     const agents = (await client.agent.list({ location: { directory: folder } })).data;
-    expect(hasProjectTaskBoundary(agents.find(agent => agent.id === PROJECT_TASK_AGENT))).toBe(true);
+    const projectAgent = agents.find(agent => agent.id === PROJECT_TASK_AGENT);
+    expect(hasProjectTaskBoundary(projectAgent), JSON.stringify({ projectAgent, availableAgentIds: agents.map(agent => agent.id) })).toBe(true);
     for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, "legalwork"]) {
       scenario = agent === PROJECT_TASK_AGENT ? "project" : agent === ALL_PROJECTS_TASK_AGENT ? "all" : "morning";
       stage = 0;
