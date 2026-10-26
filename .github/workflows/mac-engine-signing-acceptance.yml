@@ -49,6 +49,8 @@ jobs:
           security find-identity -v -p codesigning "$keychain" | grep -F '5ECCDBC844B673D12B8528F6B8EA5F41F6D4E4A6'
           node scripts/ci/mac-engine-signing-acceptance.mjs policy "$keychain" "$directory/public-policy.json"
           echo "policy=$directory/public-policy.json" >> "$GITHUB_OUTPUT"
+      - name: Check the exact signing context before compilation
+        run: node scripts/ci/mac-engine-signing-acceptance.mjs identity-probe "${{ steps.identity.outputs.policy }}" "$RUNNER_TEMP/signed-mac-identity-probe"
       - name: Compile and sign the three Mac targets before final pins
         id: build
         run: node scripts/ci/mac-engine-signing-acceptance.mjs build "$RUNNER_TEMP/signed-mac-engine" "${{ steps.identity.outputs.policy }}"
@@ -68,6 +70,7 @@ jobs:
             ${{ runner.temp }}/signed-mac-engine/build-*/build-evidence/
             ${{ runner.temp }}/signed-mac-engine/build-*/result.json
             ${{ runner.temp }}/signed-mac-engine/bundle/manifest.json
+            ${{ runner.temp }}/signed-mac-identity-probe/
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
