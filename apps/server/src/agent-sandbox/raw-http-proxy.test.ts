@@ -95,7 +95,12 @@ test("Node22 and Bun use pinned proxy targets, enterprise CA, NO_PROXY and Stop 
   await new Promise<void>(resolve => raw.listen(0, resolve)); const rawAddress = raw.address(); if (!rawAddress || typeof rawAddress === "string") throw new Error("No raw fixture port");
   const built = await Bun.build({ entrypoints: [join(import.meta.dir, "raw-http.test-driver.ts")], outdir: root, target: "node", format: "esm", naming: "driver.mjs" });
   expect(built.success).toBe(true);
-  const environment = { ...process.env, HTTP_PROXY: `http://fixture:proxy@localhost:${proxyPort}`, HTTPS_PROXY: `http://fixture:proxy@localhost:${proxyPort}`,
+  const fixtureProxyURL = (protocol: string, port: number) => {
+    const url = new URL(`${protocol}://localhost:${port}`);
+    url.username = "fixture"; url.password = "proxy";
+    return url.href;
+  };
+  const environment = { ...process.env, HTTP_PROXY: fixtureProxyURL("http", proxyPort), HTTPS_PROXY: fixtureProxyURL("http", proxyPort),
     http_proxy: "", https_proxy: "", ALL_PROXY: "", all_proxy: "", NO_PROXY: "", no_proxy: "", NODE_EXTRA_CA_CERTS: bundlePath, SSL_CERT_FILE: "", SSL_CERT_DIR: "", NODE_USE_SYSTEM_CA: "" };
   const run = async (binary: string, input: RawHttpInput, options: { trusted?: boolean; extraCaFile?: string; verificationDisabled?: boolean; noProxy?: string; stop?: Promise<void>; secureProxy?: boolean; worker?: boolean } = {}) => {
     // The wrapper is TEST-ONLY startup trust for the controlled origin/proxy.
@@ -109,7 +114,7 @@ test("Node22 and Bun use pinned proxy targets, enterprise CA, NO_PROXY and Stop 
       await chmod(wrapper, 0o700);
     }
     return new Promise<z.infer<typeof outcomeSchema>>((done, reject) => {
-    const child = spawn(binary, [join(root, "driver.mjs"), JSON.stringify(input), ...(options.worker ? [wrapper] : [])], { env: { ...environment, ...(options.secureProxy ? { HTTP_PROXY: `https://fixture:proxy@localhost:${secureProxyPort}`, HTTPS_PROXY: `https://fixture:proxy@localhost:${secureProxyPort}` } : {}), NODE_EXTRA_CA_CERTS: options.trusted === false ? "" : options.extraCaFile ?? bundlePath, NODE_TLS_REJECT_UNAUTHORIZED: options.verificationDisabled ? "0" : "1", NO_PROXY: options.noProxy ?? "" }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(binary, [join(root, "driver.mjs"), JSON.stringify(input), ...(options.worker ? [wrapper] : [])], { env: { ...environment, ...(options.secureProxy ? { HTTP_PROXY: fixtureProxyURL("https", secureProxyPort), HTTPS_PROXY: fixtureProxyURL("https", secureProxyPort) } : {}), NODE_EXTRA_CA_CERTS: options.trusted === false ? "" : options.extraCaFile ?? bundlePath, NODE_TLS_REJECT_UNAUTHORIZED: options.verificationDisabled ? "0" : "1", NO_PROXY: options.noProxy ?? "" }, stdio: ["pipe", "pipe", "pipe"] });
     let output = "", errors = "";
     child.stdout.on("data", chunk => { output += String(chunk); }); child.stderr.on("data", chunk => { errors += String(chunk); });
     child.once("error", reject); child.once("exit", code => { try { if (code !== 0) throw new Error(`Fixture exit ${code}: ${errors}`); done(outcomeSchema.parse(JSON.parse(output))); } catch (error) { reject(error); } });
