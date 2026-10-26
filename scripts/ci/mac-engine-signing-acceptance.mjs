@@ -43,6 +43,30 @@ async function identityProbe(signingConfig, root) {
   assert.equal(results.minimal.code, 0, "The exact build helper signing context must pass before compilation; inspect public identity-probe evidence.");
   assert.equal(results.parent.code, 0, "The ordinary CI signing context must pass before compilation.");
 }
+export function parseKeychainSearchList(text) {
+  return text.split("\n").filter(line => line.trim()).map(line => {
+    const value = JSON.parse(line.trim());
+    assert(typeof value === "string" && path.isAbsolute(value) && !/[\0\r\n]/.test(value), "Invalid native keychain search-list path");
+    return value;
+  });
+}
+async function keychainList(keychain, evidence, register) {
+  assert(path.isAbsolute(keychain));
+  const query = async () => parseKeychainSearchList((await run("/usr/bin/security", ["list-keychains", "-d", "user"], { capture: true })).stdout);
+  const before = await query();
+  if (register) {
+    assert(!before.includes(keychain), "Only a new CI-owned keychain may be registered");
+    // codesign requires search-list membership even with its exact --keychain.
+    await run("/usr/bin/security", ["list-keychains", "-d", "user", "-s", ...before, keychain]);
+    const after = await query(); assert.deepEqual(after, [...before, keychain]);
+    await writeFile(evidence, JSON.stringify({ before, after, ownedKeychain: keychain }, null, 2) + "\n", { flag: "wx" });
+  } else {
+    // security delete-keychain removes only the owned entry; never restore an
+    // old array over unrelated entries another normal build tool may have added.
+    assert(!before.includes(keychain), "Owned signing keychain remained registered after deletion");
+    await writeFile(evidence, JSON.stringify({ afterCleanup: before, ownedKeychainAbsent: true }, null, 2) + "\n", { flag: "wx" });
+  }
+}
 export function validateMacAcceptanceManifest(manifest, recipeSha256) {
   assert.equal(manifest.schemaVersion, 1); assert.equal(manifest.kind, "signed-mac-engine-acceptance-not-adopted");
   assert.equal(manifest.recipeSha256, recipeSha256); assert.deepEqual(manifest.signer, macSigningIdentity);
@@ -154,6 +178,7 @@ async function runtime(bundle, expectedManifestSha256, root, selectedTargets) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "policy" && args.length === 2) { assert(path.isAbsolute(args[0])); await writeFile(args[1], JSON.stringify({ ...macSigningIdentity, keychainPath: args[0] }) + "\n", { flag: "wx", mode: 0o600 }); }
+  else if (["keychain-register", "keychain-removed"].includes(command) && args.length === 2) await keychainList(args[0], args[1], command === "keychain-register");
   else if (command === "identity-probe" && args.length === 2) await identityProbe(args[0], path.resolve(args[1]));
   else if (command === "build" && args.length === 2) await build(path.resolve(args[0]), args[1]);
   else if (command === "runtime" && args.length === 4) await runtime(path.resolve(args[0]), args[1], path.resolve(args[2]), args[3]);

@@ -47,6 +47,7 @@ jobs:
           security import "$certificate" -k "$keychain" -P "$APPLE_CODESIGN_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
           security find-identity -v -p codesigning "$keychain" | grep -F '5ECCDBC844B673D12B8528F6B8EA5F41F6D4E4A6'
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-register "$keychain" "$RUNNER_TEMP/signed-mac-search-list.json"
           node scripts/ci/mac-engine-signing-acceptance.mjs policy "$keychain" "$directory/public-policy.json"
           echo "policy=$directory/public-policy.json" >> "$GITHUB_OUTPUT"
       - name: Check the exact signing context before compilation
@@ -60,6 +61,7 @@ jobs:
         run: |
           directory="$RUNNER_TEMP/mac-engine-signing"
           if [ -f "$directory/identity.keychain-db" ]; then security delete-keychain "$directory/identity.keychain-db"; fi
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-removed "$directory/identity.keychain-db" "$RUNNER_TEMP/signed-mac-keychain-cleanup.json"
           rm -f "$directory/identity.p12"
       - name: Retain public signing and build evidence
         if: always()
@@ -71,6 +73,8 @@ jobs:
             ${{ runner.temp }}/signed-mac-engine/build-*/result.json
             ${{ runner.temp }}/signed-mac-engine/bundle/manifest.json
             ${{ runner.temp }}/signed-mac-identity-probe/
+            ${{ runner.temp }}/signed-mac-search-list.json
+            ${{ runner.temp }}/signed-mac-keychain-cleanup.json
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
