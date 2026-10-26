@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 26 October 2026, 20:35 UTC. Migration remains unfinished. The
+Checkpoint: 26 October 2026, 21:18 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -66,10 +66,22 @@ that assumed the official engine's old resource layout; Mac server tests had not
 built native plugin directories. Both CI prerequisites/fixtures are corrected.
 The desktop package jobs remained skipped.
 
-The next [normal run40395337521](https://github.com/eigenweltlabs/legalwork/actions/runs/40395337521)
-reuses the independently pinned twelve-target producer. A Windows-only test preload
-path error has a committed file-URL correction; remaining jobs continue. No further
-actual packaged-app configuration is counted yet.
+Run[40395337521](https://github.com/eigenweltlabs/legalwork/actions/runs/40395337521)
+has closed. Intel Mac now passes its real isolation suite (248 tests/1189 assertions);
+Windows exposed a test-preload file-URL error, corrected at28ce3c2e. Its package jobs
+were skipped. Current normal run[40399014261](https://github.com/eigenweltlabs/legalwork/actions/runs/40399014261)
+at7ad46c80 has five sandbox configurations passing, including both Windows targets;
+Intel Mac isolation is still running. Its six actual package/startup jobs remain pending.
+These results do not yet establish the three additional packaged-app configurations.
+
+Both full Linux/Mac unit jobs passed their preceding suites, real engine checks and
+Electron typecheck, then found the same final E2E helper still looking in the old
+sidecar directory. Commit4014f65a resolves the reviewed engine path and preserves
+the original health allowances and assertions. The unchanged full app E2E chain
+passes locally on the signed .3 engine; seven focused controls pass on both Node22
+and Bun1.4.4. Independent run[40402814154](https://github.com/eigenweltlabs/legalwork/actions/runs/40402814154)
+executes both complete Linux/Mac jobs without rebuilding the six QEMU runtimes or
+cancelling the normal platform run. This explicit unit-only mode is not platform coverage.
 
 Native queue functional acceptance now includes paused restart recovery and Resume,
 exact retained sessions/messages/entries, exactly-once native admission and two
@@ -81,16 +93,31 @@ queue evidence, not a legal-quality or model-performance result.
 
 Context testing exposed a real /compact dispatch regression: the configured-command
 catalog does not contain OpenCode's separate native compaction operation. The shared
-queued server path is being corrected; actual normal UI acceptance remains open.
+queued server path is corrected atfaa2e322 (37 controls/177 assertions). A fresh normal
+Linux package is building for ordinary UI acceptance; that gate remains open.
+The separate native-API context scenario completes compaction in the same chat,
+then reads the changed document/project and saves the source-verified new result.
+Root accepts only its exact empty-input trace qualification; original strict
+recorder failures remain unchanged. It is functional evidence with a synthetic provider,
+not a legal-quality or performance comparison, and does not replace ordinary UI acceptance.
 The frozen scheduler case asks for MCP/shell access that unchanged v1/v2 scheduled
-policy forbids. It remains a permission-negative case, with a separate useful
-allowed-tool scheduling case required. The remaining VM has a finite21:55UTC lease.
+policy forbids. It remains a permission-negative case. The separate allowed-tool
+task now completes exactly once: it lists/reads the actual project source and
+saves the correct2026-11-14 result. Root independently verifies its task/run/native
+admission IDs, full tool outputs, saved bytes and provider wires. The remaining
+VM has a finite23:55UTC deletion lease.
 
 Mac signing run40395265646 now passes exact identity import and both codesign
 preflights after correcting only the owned temporary keychain's search-list lifecycle.
-All three Mac binaries compile/sign successfully and independent ARM
-engine/restart/auth/Code Mode/JIT/native-module checks pass. Intel runtime checks
-and final twelve-target adoption pins remain open. Old f754 artifacts are immutable; no publication/default flip.
+All three Mac binaries compile/sign successfully. Independent native ARM, Intel
+and Intel-baseline engine/restart/auth/Code Mode/JIT/native-module checks pass:
+nine tests/135 assertions, actual optimizing JIT execution and native pixel checks.
+The complete twelve-target distribution combines these three signed Mac archives
+with nine unchanged non-Mac archives. All14 proposed release files have independent
+root hash/size checks. Exact engine-only prerelease publication is awaiting the
+user's explicit acknowledgment; final adoption still requires published download
+verification and the prepared selection change. Old f754 artifacts are immutable;
+no publication/default flip has occurred.
 
 Canonical Bun1.4.4 web/calendar bundles reproduce exactly with their license headers.
 Exact reviewed prior deadline calculator bundles remain usable at the same rule
@@ -126,13 +153,17 @@ The full mapping retains exact source files/lines and observed native IDs.
 
 ## Remaining acceptance
 
-1. Complete context and useful scheduled execution. Native queue/restart/Resume
-   functional acceptance is complete under its exact qualification above. Further v1 harness reruns are deferred
+1. Complete ordinary UI /compact acceptance in the fresh normal package. Native
+   queue/restart/Resume, native-API context and useful scheduling functional
+   acceptance are complete under their exact qualifications above. Further v1 harness reruns are deferred
    while the native-v2 lane takes priority. The latest v1 control restored its
    chat correctly but a normal feature announcement obscured the Deny button;
    no denied-permission or model-quality verdict is claimed for that attempt.
-2. Finalize the
-   pinned derivative's adoption/distribution metadata after functional acceptance.
+2. Publish the exact reviewed engine-only files after explicit acknowledgment,
+   verify actual downloads, and adopt the prepared signed-distribution selection.
+   Publication is a prerelease with latest=false, not an app release. Its release
+   event also runs existing alpha-feed maintenance, which excludes the engine
+   but can repair independently stale alpha links; this effect is in the question.
 3. Execute the six-platform CI acceptance and verify the latest private-auth
    runtime change in an actual package. Public workspace/status metadata now
    omits both flat and nested native engine credentials. The desktop reads the
@@ -140,6 +171,11 @@ The full mapping retains exact source files/lines and observed native IDs.
    follows credential rotation. Real HTTP tests pass13 cases/98 assertions;
    desktop tests pass435 with4 platform skips; app/server typechecks pass. These
    source checks are now supplemented by an actual final8 Mac normal build/package/security and real engine startup. It verifies the exact native version and credential-free workspace metadata; browser connection acceptance remains separate.
+
+The desktop manual-server connection UI has a separately recorded inherited
+routing problem: its current resolver prefers the embedded server. The relevant
+source predates this migration. The working Node22 development-server route is
+separate; this finding is not silently counted as a tested manual desktop connection.
 
 Latest dev3b214a80c is merged at80d34a95, including checkout/sign-in expiry and
 Mac updater shutdown fixes. Migration-specific import integration is corrected

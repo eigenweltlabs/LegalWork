@@ -8,7 +8,49 @@ uncertain historical holds are preserved. This is distinct from actual charges.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 The migration branch is pushed for CI; no release or default-engine switch has occurred.
 
-## Current checkpoint — 26 October, 20:35 UTC
+## Current checkpoint — 26 October, 21:18 UTC
+
+Three subagents and the orchestrator are active, the session's maximum. Platform
+acceptance, fresh normal-app context acceptance and independent final integration
+review have separate owners. The full Linux/Mac unit retest runs independently
+of the slower six-platform builds; neither run cancels the other.
+
+The remaining gates are:
+
+1. Actual package/startup execution on all six OS/CPU configurations. Current
+   [run40399014261](https://github.com/eigenweltlabs/legalwork/actions/runs/40399014261)
+   has five sandbox configurations passing; Intel isolation and then all six
+   package jobs remain pending. Sandbox success alone is not app execution.
+2. Ordinary UI /compact in the fresh normal Linux package. Its server dispatch
+   fix passes37 controls/177 assertions. The separate native-API context scenario,
+   useful scheduled task, and queue restart/Resume now have independently reviewed
+   functional outcomes. Their synthetic provider does not measure legal quality
+   or performance; original failures and exact trace qualifications are retained.
+3. Final engine distribution/default adoption. All three signed Mac engine
+   variants now pass actual native startup/restart/auth/Code Mode/JIT/native-module
+   checks, nine tests/135 assertions. The exact14-file distribution and prepared
+   selection change are reviewed. The specific engine-only prerelease publication
+   question is pending; no publication or default switch has occurred. Actual
+   published downloads must be verified before adoption. The release event also
+   triggers existing alpha-feed maintenance, as disclosed in that question.
+
+The current full Linux/Mac jobs passed their preceding suites and failed only
+the final app E2E helper's old sidecar path. Commit4014f65a fixes engine resolution
+without changing assertions or timeouts. The complete unchanged app E2E chain
+passes locally on the signed engine; seven controls pass on Node22 and Bun1.4.4.
+[Run40402814154](https://github.com/eigenweltlabs/legalwork/actions/runs/40402814154)
+now repeats both complete Linux/Mac jobs in explicit unit-only mode.
+
+The remaining VM has a finite23:55UTC deletion lease. About9GB was reclaimed
+from ignored dependency directories in three obsolete compiler checkouts; their
+sources, locks, binaries and all traces remain. Closed evidence is also fully
+verified in the approved private EU bucket.
+
+One inherited issue is separately recorded: the current desktop manual-server
+connection resolver prefers its embedded server. This predates migration;
+the working Node22 development-server route is a separate tested flow.
+
+## Previous checkpoint — 26 October, 20:35 UTC
 
 Repeated percentage estimates have been retired: they did not communicate the
 remaining work reliably. The concrete gates are actual app/engine execution on
