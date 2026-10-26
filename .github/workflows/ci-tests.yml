@@ -51,7 +51,7 @@ jobs:
           COMMITTED_SELECTION: ${{ inputs.committed_selection }}
         run: |
           if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
-            echo 'mac_signing_acceptance, package_desktop and unit_acceptance are mutually exclusive.' >&2
+            echo 'mac_signing_acceptance cannot be combined with package_desktop, unit_acceptance or committed_selection.' >&2
             exit 1
           fi
   unit-inputs:
@@ -67,7 +67,7 @@ jobs:
           ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
           if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$COMMITTED_SELECTION" = true ]; then
-            echo 'unit_acceptance cannot be combined with package or signing acceptance.' >&2
+            echo 'unit_acceptance cannot be combined with package_desktop, mac_signing_acceptance or committed_selection.' >&2
             exit 1
           fi
           if [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
