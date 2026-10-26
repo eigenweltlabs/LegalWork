@@ -263,6 +263,7 @@ export function safeStringify(value: unknown) {
           lowerKey.includes("token") ||
           lowerKey.includes("authorization") ||
           lowerKey.includes("cookie") ||
+          lowerKey.includes("password") ||
           lowerKey.includes("secret")
         ) {
           return "[redacted]";
