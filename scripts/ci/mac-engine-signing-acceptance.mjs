@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { appendFile, chmod, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,8 +22,26 @@ async function run(command, args, options = {}) {
   child.stdout?.on("data", bytes => { stdout += bytes; }); child.stderr?.on("data", bytes => { stderr += bytes; });
   const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal, stdout, stderr })); });
   if (options.evidence) await writeFile(options.evidence, JSON.stringify({ command, args, ...result }, null, 2) + "\n");
-  if (result.code !== 0) throw new Error(`${path.basename(command)} failed (${result.signal ?? result.code}). See retained CI evidence.`);
+  if (result.code !== 0 && !options.allowFailure) throw new Error(`${path.basename(command)} failed (${result.signal ?? result.code}). See retained CI evidence.`);
   return result;
+}
+async function identityProbe(signingConfig, root) {
+  const signing = JSON.parse(await readFile(signingConfig, "utf8"));
+  assert.deepEqual({ ...signing, keychainPath: undefined }, { ...macSigningIdentity, keychainPath: undefined });
+  assert(path.isAbsolute(signing.keychainPath)); await mkdir(root);
+  const binary = path.join(root, "owned-true"); await copyFile("/usr/bin/true", binary); await chmod(binary, 0o755);
+  const minimal = Object.fromEntries(["PATH", "HOME", "TMPDIR"].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+  minimal.LANG = "en_US.UTF-8"; minimal.LC_ALL = "en_US.UTF-8";
+  const results = {};
+  for (const [name, env] of [["minimal", minimal], ["parent", process.env]]) {
+    for (const [label, args] of [["search-list", ["list-keychains", "-d", "user"]], ["identity", ["find-identity", "-v", "-p", "codesigning", signing.keychainPath]]])
+      await run("/usr/bin/security", args, { env, capture: true, allowFailure: true, evidence: path.join(root, `${name}-${label}.json`) });
+    results[name] = await run("/usr/bin/codesign", ["--dryrun", "--force", "--sign", signing.identitySha1, "--options", "runtime", "--timestamp", "--keychain", signing.keychainPath, binary],
+      { env, capture: true, allowFailure: true, evidence: path.join(root, `${name}-codesign.json`) });
+  }
+  await writeFile(path.join(root, "summary.json"), JSON.stringify({ kind: "public-signing-context-diagnostic", minimalCode: results.minimal.code, parentCode: results.parent.code, noEnvironmentValuesRecorded: true }, null, 2) + "\n");
+  assert.equal(results.minimal.code, 0, "The exact build helper signing context must pass before compilation; inspect public identity-probe evidence.");
+  assert.equal(results.parent.code, 0, "The ordinary CI signing context must pass before compilation.");
 }
 export function validateMacAcceptanceManifest(manifest, recipeSha256) {
   assert.equal(manifest.schemaVersion, 1); assert.equal(manifest.kind, "signed-mac-engine-acceptance-not-adopted");
@@ -136,7 +154,8 @@ async function runtime(bundle, expectedManifestSha256, root, selectedTargets) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "policy" && args.length === 2) { assert(path.isAbsolute(args[0])); await writeFile(args[1], JSON.stringify({ ...macSigningIdentity, keychainPath: args[0] }) + "\n", { flag: "wx", mode: 0o600 }); }
+  else if (command === "identity-probe" && args.length === 2) await identityProbe(args[0], path.resolve(args[1]));
   else if (command === "build" && args.length === 2) await build(path.resolve(args[0]), args[1]);
   else if (command === "runtime" && args.length === 4) await runtime(path.resolve(args[0]), args[1], path.resolve(args[2]), args[3]);
-  else throw new Error("Use policy <keychain> <new-public-config>, build <new-root> <public-config>, or runtime <bundle> <independent-manifest-SHA> <new-root> <native-targets>.");
+  else throw new Error("Use policy <keychain> <new-public-config>, identity-probe <public-config> <new-root>, build <new-root> <public-config>, or runtime <bundle> <independent-manifest-SHA> <new-root> <native-targets>.");
 }
