@@ -5,7 +5,37 @@ across558 calls**; newer completed calls have not yet been reconciled.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 The migration branch is pushed for CI; no release or default-engine switch has occurred.
 
-## Current checkpoint — 26 October, 17:05 UTC
+## Current checkpoint — 26 October, 19:45 UTC
+
+Approximately 80% remains an engineering estimate. The second CI run reused and
+verified all 12 engine artifacts; three sandbox targets passed, while both
+Windows hosts panicked on the temporary old Bun version and Mac Intel retained
+capacity/guest/proxy failures. The actual six-platform desktop jobs did not run.
+Current fixes restore Bun 1.4.4, update the existing HTTP transport dependency to
+supported 8.12.3, repair clean-checkout fixtures and fix a managed-engine startup
+race. Original full proxy tests pass 2/128; raw transport 33/191; lifecycle focused
+10/35 and actual-engine1/33. No task assertion, output cap or timeout was relaxed.
+The 27.6s proxy test remains close to its existing 30s budget. New TMP capacity
+diagnostics will distinguish Mac Intel disk pressure from runtime reporting.
+
+The real native queue completed Send, pause, enqueue, edit, remove, reorder and
+Stop. Its recorder then failed before restart; full stopped state is preserved.
+Continuation uses that same paused queue without replaying the initial message.
+Restart/Resume, context and scheduling still require acceptance. One remaining
+VM is safely extended to 21:55 UTC; completed Windows/Linux evidence is cloud-safe.
+
+Optional pre-pin Mac Developer ID signing is implemented and 25 focused tests
+pass. This Mac has no valid signing identity currently, so production signed
+engine execution remains unverified. Existing artifacts/default selection are
+unchanged; no publication has occurred.
+
+Read-only PostHog inspection at 19:43 UTC found 1,626 SG app openings in the previous
+24h: 1,613 version 0.2.9 and 13 version 0.2.17, all Linux x86_64 with distinct IDs.
+These do not match our private 0.2.19 migration renderers; the traffic source is
+unconfirmed and distinct IDs do not prove distinct real people. No analytics
+data or settings were changed.
+
+## Previous checkpoint — 26 October, 17:05 UTC
 
 The matched Office/legal/delegation/large-MCP cases have completed with exact
 functional review; original strict failures and legal-quality limitations remain.
@@ -20,8 +50,8 @@ Queue recovery, context, scheduling and actual execution on all six platforms
 remain the main gates. The first CI producer successfully built all12 engine
 targets. Its six sandbox jobs found the same missing Node worker preparation;
 the fix is pushed, with13 CI controls passing. The corrected run can reuse the
-exact verified engine artifact. CI test hosts use Bun1.3.14 for a reproduced
-layered-TLS regression; production Node22 and compiler1.4.4 are unchanged.
+exact verified engine artifact. That checkpoint temporarily used Bun1.3.14;
+the current checkpoint supersedes that test-host choice.
 
 Latest dev3b214a80c is merged, preserving the new checkout/sign-in and Mac updater
 fixes. Affected sign-in tests29pass; desktop437pass/4platform skips; both
