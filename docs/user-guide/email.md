@@ -2,12 +2,12 @@
 
 Open in LegalWork: [Connectors](legalwork://app/settings/extensions/mcp), [Account](legalwork://app/settings/account).
 
-Open **Settings > Integrations > Connectors** and select **Gmail** or **Outlook Email**. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
+Open **Settings > Integrations**, press **Add**, then select **Plugins** to open the **Plugin catalogue**. Search for and select **Gmail** or **Outlook Email** to open its connection panel. The **Add** step is required to find a connector you have not added yet; an already added connector can be opened from the library. These connectors let the assistant search and read mail, retrieve supported attachments and prepare editable email drafts. Connecting Google Drive, Google Calendar or an Office add-in does not connect email.
 
 ## Connect with Eigenwelt
 
 1. Sign in under **Settings > Account**.
-2. Open the mail connector and choose **Connect with Eigenwelt** under **Connection method**.
+2. Open **Settings > Integrations**, press **Add**, choose **Plugins**, then search for and select **Gmail** or **Outlook Email**. In its connection panel, choose **Connect with Eigenwelt** under **Connection method**.
 3. Leave **Allow write access** off for reading and searching. Enable it if you want to save drafts or send emails, then review the permissions requested during sign-in.
 4. Select **Connect Gmail** or **Connect Outlook Email**. Keep the connection panel open while completing Google or Microsoft sign-in in the browser. Choose the intended personal or work account and review its consent screen.
 5. Return to LegalWork and select **Refresh** if necessary. Use **Test connection** to check access directly with the provider.
@@ -52,6 +52,6 @@ Disconnecting does not delete mailbox messages, previously downloaded attachment
 
 ## Firm-provided mail connectors
 
-A firm can also supply a custom MCP connector through **Settings > Integrations > Connectors > Add Custom Connector**. Use the supplied MCP address and authentication details. A Gmail or Outlook webmail address is not an MCP endpoint. Custom connectors determine their own account support and actions; check their actual tools rather than assuming the built-in connector's behavior.
+A firm can also supply a custom MCP connector. Open **Settings > Integrations > Add > Plugins**, then choose **Custom** in the catalogue to create a plugin with that connector. Use the supplied MCP address and authentication details. A Gmail or Outlook webmail address is not an MCP endpoint. Custom connectors determine their own account support and actions; check their actual tools rather than assuming the built-in connector's behavior.
 
 Related: [Integrations](integrations.md), [Settings and privacy](settings-privacy.md), [Troubleshooting](troubleshooting.md).

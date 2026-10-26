@@ -4,9 +4,9 @@ Open in LegalWork: [Connectors](legalwork://app/settings/extensions/mcp), [Plugi
 
 ## Connectors, storage, skills and plugins
 
-Open **Settings > Integrations**. Its tabs separate **Connectors**, **File storage**, **Skills** and **Plugins**. The **Local / Team** view appears when the connected firm account supports it. A catalog entry is an available integration, not proof it is connected.
+Open **Settings > Integrations**. Its tabs separate **Plugins**, **Skills** and **File storage**. Connectors appear in the Plugins library. A catalogue entry is an available integration, not proof it is connected.
 
-For a connector, choose its card and follow its setup flow. Some use browser sign-in; others need an API key, local command or remote MCP URL. A custom MCP connection can use the supported local-command or remote-server configuration. Complete authentication and check its connection status. Reload the agent when the app requests it so the new tools become available.
+To add a connector, press **Add**, choose **Plugins** to open the **Plugin catalogue**, then search for and select the connector, such as **Gmail** or **Outlook Email**. Follow its setup flow. Do not skip **Add** when the connector has not been added yet. To manage an existing connector, open its entry in the library. Some use browser sign-in; others need an API key, local command or remote MCP URL. A custom MCP connection can use the supported local-command or remote-server configuration. Complete authentication and check its connection status. Reload the agent when the app requests it so the new tools become available.
 
 An MCP server publishes tools with its own access requirements. Local-command integrations run on the worker, so required software and credentials must exist there. A remote workspace does not run commands on your laptop by default. A disabled connector or expired authorization can leave a card visible while its tools fail or are absent.
 
