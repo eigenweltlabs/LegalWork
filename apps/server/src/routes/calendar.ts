@@ -73,7 +73,8 @@ export function registerCalendarRoutes(options: {
     sessions: (await options.listSessions(workspace, ctx.url.searchParams.get("search")?.slice(0, 255))).filter(session => resolve(session.directory) === resolve(workspace.path)).map(({ id, title }) => ({ id, title })) }));
   route("POST", "/calculate", async (ctx, workspace) => {
     const input = z.strictObject({ skill: z.string(), input: z.unknown() }).parse(await body(ctx));
-    return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, await calculateWithSkill(workspace.path, input.skill, input.input), DEADLINE_CODE_HASH) };
+    const result = await calculateWithSkill(workspace.path, input.skill, input.input);
+    return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, result, result.codeHash) };
   });
   route("POST", "/run", async (ctx, workspace) => {
     const input = z.object({ skill: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(await body(ctx));
