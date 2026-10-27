@@ -29,6 +29,34 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("folder approval explains project scope and shows the native resolved destination", () => {
+    const permission = permissionWithReceivedAt({
+      id: "folder", sessionID: "session-1", action: "external_directory", resources: ["/shortcut/*"], save: ["/shortcut/*"],
+      message: "This folder resolves to /actual/private. Remembering approval includes that destination.",
+    } satisfies PermissionRequest, 1);
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, { permission, respondPermission: () => {} }));
+    const main = html.split("<details")[0];
+    expect(main).toContain("/actual/private");
+    expect(main).toContain("/shortcut/*");
+    expect(main).toContain("Add folder to project");
+    expect(main).toContain("Remove it later in Settings &gt; Permissions");
+    expect(main).not.toContain("Allow for session");
+  });
+
+  test("host command consent explains full computer access and keeps it separate from folder grants", () => {
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ permission: "host_access", protocol: "host", host: {
+        id: "host-access", workspaceId: "matter", sessionID: "session-1", action: "sandbox.host_access", summary: "Unprotected commands", paths: [],
+        createdAt: 1, actor: { type: "host" }, canRemember: true,
+      } }), respondPermission: () => {},
+    }));
+    expect(html).toContain("Computer access for commands");
+    expect(html).toContain("read and change files anywhere your computer account can access");
+    expect(html).toContain("outside added folders");
+    expect(html).toContain("Allow for session");
+    expect(html).not.toContain("Add folder to project");
+  });
+
   test("shows actual MCP call arguments before approving an engine event with empty metadata", () => {
     const request = permissionWithReceivedAt({
       id: "mcp-request", sessionID: "child-session", action: "legalmemory_search", resources: ["*"],

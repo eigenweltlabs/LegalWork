@@ -1,4 +1,5 @@
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
+import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
 import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
 import { registerToolImageOriginalRoutes } from "./routes/tool-image-originals.js";
@@ -62,6 +63,7 @@ import { announceSyncChange, onSyncChange, syncEventStream } from "./app-sync-ev
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
+import { rememberNativeFolderApproval } from "./native-folder-approval.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -1469,6 +1471,13 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   const protectedExecution = input.config.agentSandboxEnabled || wikis.length > 0;
   if (protectedExecution) assertSandboxProxyAllowed(method, `/api${path}`);
   let body = method === "GET" || method === "HEAD" ? undefined : await input.request.arrayBuffer().then(value => value.byteLength ? value : undefined);
+  const folderReply = path.match(/^\/session\/[^/]+\/permission\/([^/]+)\/reply$/);
+  if (input.config.engineConfigurationMode === "managed" && method === "POST" && sessionID && folderReply && body) {
+    const reply = z.object({ decision: z.enum(["once", "always", "reject"]), message: z.string().optional() }).parse(JSON.parse(Buffer.from(body).toString()));
+    if (reply.decision === "always" && await rememberNativeFolderApproval(input.config, workspace, sessionID, folderReply[1])) {
+      body = new TextEncoder().encode(JSON.stringify({ ...reply, decision: "once" })).buffer;
+    }
+  }
   if (body && (path === "/session" || /^\/session\/[^/]+(?:\/move)?$/.test(path))) {
     const value = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(body).toString()));
     if (isRecord(value.metadata) && Object.hasOwn(value.metadata, "legalworkInternal")) throw new ApiError(403, "internal_session_owned", "Internal operation contexts are managed by LegalWork.");
@@ -5556,7 +5565,9 @@ async function refreshManagedEngineLocation(config: ServerConfig, workspace: Wor
   };
   try { await refresh(); }
   catch (error) {
-    if (findApiError(error)?.status !== 404) throw error;
+    const api = findApiError(error);
+    const details = api?.details;
+    if (api?.status !== 404 && !(isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) throw error;
     // Fresh locations activate external native registrations when their model
     // catalog is read; public plugin/agent metadata alone does not do that.
     await client.model.list({ location: { directory } });

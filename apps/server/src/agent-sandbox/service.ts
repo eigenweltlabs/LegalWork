@@ -156,8 +156,8 @@ export class AgentSandboxService {
         await ask("read", "*", "Allow this command to read files on this computer? Sandboxing is off.", [workspace.path], commandAction("read"));
         await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
         await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
-        await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
-          restrictive([wholeCommandAction({ external_directory: runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+        await ask("external_directory", "*", "Allow unprotected commands in this chat to access files anywhere your computer account can access? This includes reading and changing files outside added folders. Turn on Sandboxing to enforce folder boundaries.", [workspace.path],
+          restrictive(["ask", wholeCommandAction({ external_directory: runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -324,7 +324,8 @@ export class AgentSandboxService {
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
+            action: permission === "external_directory" && !settings.enabled ? "sandbox.host_access" : `sandbox.${permission}`,
+            summary, paths, sessionID: operation.sessionID, description: operation.description,
             ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
           if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
         }
