@@ -42,7 +42,7 @@ async function regularFile(file) {
   }
 }
 
-const applicationLogs = ["main.log", "main.old.log", "runtime-boot-failure.log"];
+const applicationLogs = ["main.log", "main.old.log", "runtime-boot-failure.log", "chromium-startup.log"];
 export async function snapshotStartupLogs(directories) {
   return Promise.all([...new Set(directories)].flatMap(directory => applicationLogs.map(name => regularFile(path.join(directory, name)))));
 }
@@ -67,8 +67,31 @@ function ownedProcesses(appPid, registeredPids) {
   return rows.filter(row => owned.has(row.pid));
 }
 
+function ownedWindows(pid) {
+  if (process.platform !== "win32" || !Number.isSafeInteger(pid) || pid < 1) return [];
+  // Inspect only the still-live launched synthetic main process. Do not read other
+  // applications' window text, command lines, environment or profile contents.
+  const script = `
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]${pid})
+$windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)
+$result = @($windows | ForEach-Object {
+  [PSCustomObject]@{
+    pid = $_.Current.ProcessId
+    title = $_.Current.Name
+    className = $_.Current.ClassName
+    controls = @($_.FindAll([System.Windows.Automation.TreeScope]::Subtree, $condition) | ForEach-Object {
+      [PSCustomObject]@{ name = $_.Current.Name; controlType = $_.Current.ControlType.ProgrammaticName }
+    })
+  }
+})
+ConvertTo-Json -Depth 5 -Compress -InputObject $result`;
+  return JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 5000 }));
+}
+
 export async function collectStartupFailure({ artifactDirectory, root, userData, runtime, logDirectories,
-  logBaseline, child, output, milestones, startedAt, failure, selection, processSnapshot = ownedProcesses }) {
+  logBaseline, child, output, milestones, startedAt, failure, selection, processSnapshot = ownedProcesses, windowSnapshot = ownedWindows }) {
   const names = [
     path.join(userData, "legalwork-ui-control.json"), path.join(userData, "legalwork-server-tokens.json"),
     path.join(userData, "legalwork-server-state.json"), path.join(runtime, "server.json"),
@@ -113,12 +136,16 @@ export async function collectStartupFailure({ artifactDirectory, root, userData,
   let processes;
   try { processes = processSnapshot(child.pid, registeredPids); }
   catch (error) { processes = { unavailable: true, error: scrub(error.message) }; }
+  let windows;
+  try { windows = child.exitCode === null && child.signalCode === null && !child.killed
+    ? windowSnapshot(child.pid) : { skipped: true, reason: "synthetic-main-process-not-live" }; }
+  catch (error) { windows = { unavailable: true, error: scrub(error.message) }; }
   const summary = { schemaVersion: 1, scope: "Synthetic package-test failure only; no profile, database, cookie or config contents copied",
     platform: process.platform, architecture: process.arch, sourceCommit: process.env.GITHUB_SHA ?? null,
     collectedAt: new Date().toISOString(), startedAt: new Date(startedAt).toISOString(), elapsedMs: Date.now() - startedAt,
     failure: scrub(failure?.stack ?? failure), root, selection, milestones,
     child: { pid: child.pid ?? null, exitCode: child.exitCode, signalCode: child.signalCode, killed: child.killed },
-    states, logs, processes, stdio: { file: "stdio.log", redactedBytes: Buffer.byteLength(consoleOutput), redactedSha256: digest(consoleOutput) } };
+    states, logs, processes, windows, stdio: { file: "stdio.log", redactedBytes: Buffer.byteLength(consoleOutput), redactedSha256: digest(consoleOutput) } };
   const clean = value => typeof value === "string" ? scrub(value) : Array.isArray(value) ? value.map(clean)
     : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) =>
       [key, sensitiveKey.test(key) && typeof item === "string" ? "<redacted>" : clean(item)])) : value;
