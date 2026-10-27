@@ -187,6 +187,16 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean, 
   });
 }
 
+/** The app's shared library, without arbitrary project or ancestor discovery. */
+export async function listGlobalSkills(skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+  const items: SkillItem[] = [];
+  for (const directory of [globalSkillsDir(), join(homedir(), ".claude", "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".agent", "skills")]) {
+    items.push(...await listSkillsInDir(directory, "global", skipped));
+  }
+  const seen = new Set<string>();
+  return items.filter(item => !seen.has(item.name) && Boolean(seen.add(item.name)));
+}
+
 /**
  * Where a skill/workflow is written.
  *

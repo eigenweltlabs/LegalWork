@@ -12,8 +12,8 @@ type Definitions = NativeConfig["providers"];
 export type ProviderDisplayMetadata = Record<string, { hasCustomEndpoint: boolean; editable: boolean }>;
 const hasEndpoint = (value: unknown) => typeof value === "string" && value.length > 0;
 
-/** These flags describe ownership and presence only. Private authored values
- * are expanded by the native engine only after project approval. */
+/** These flags describe ownership and presence only. Managed settings belong
+ * to LegalWork; native-project sources require resolved document provenance. */
 export async function nativeProviderDisplay(config: ServerConfig, workspace: WorkspaceInfo, definitions: {
   authored: Definitions; owned: Definitions; combined: Definitions;
 }, resolved?: { entries: ConfigEntry[]; project: EngineProjectStatus }): Promise<ProviderDisplayMetadata> {
@@ -22,7 +22,7 @@ export async function nativeProviderDisplay(config: ServerConfig, workspace: Wor
     hasCustomEndpoint: hasEndpoint(provider.settings?.baseURL),
     editable: !firm.has(id) && Object.hasOwn(definitions.owned ?? {}, id) && !Object.hasOwn(definitions.authored ?? {}, id),
   }]));
-  if (!resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return display;
+  if (config.engineConfigurationMode === "managed" || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return display;
   const project = resolved?.project ?? await engineProjectStatus(config, workspace);
   if (project.state !== "ready") return display;
   const entries = resolved?.entries ?? await createEngineClient(config, workspace).config.get({ location: workspaceEngineLocation(workspace) }).catch(error => {

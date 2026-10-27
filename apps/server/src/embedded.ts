@@ -92,6 +92,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   if (managedEngine) await expectedOpencodeVersion(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
   config.agentSandboxEnabled = managedEngine && options.managedEngineSandbox !== false;
   config.engineProjectTrustRequired = managedEngine;
+  config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
@@ -201,7 +202,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
             OPENCODE_MODELS_URL: catalog.url,
             OPENCODE_MODELS_PATH: catalog.catalogPath,
-            OPENCODE_CONFIG_PROJECT_DISABLE: "",
+            OPENCODE_CONFIG_PROJECT_DISABLE: "1",
             OPENCODE_TEST_HOME: engineHome,
             XDG_CONFIG_HOME: join(engineHome, "config"),
             XDG_STATE_HOME: service.stateDirectory,
