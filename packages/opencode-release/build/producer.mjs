@@ -75,7 +75,7 @@ export async function buildOpencodeDistribution({ outputDirectory, targets, mode
   if (!(await lstat(bun)).isFile()) throw new Error("The pinned compiler must be an ordinary executable.");
   verifyCompiler(recipe, await readFile(bun)); await chmod(bun, 0o755);
   const prepared = path.join(root, "upstream");
-  await run("git", ["clone", "--depth=1", "--branch", recipe.upstream.tag, recipe.upstream.repository, prepared]);
+  await run("git", ["clone", "--config", "core.autocrlf=false", "--config", "core.eol=lf", "--depth=1", "--branch", recipe.upstream.tag, recipe.upstream.repository, prepared]);
   if (await run("git", ["rev-parse", "HEAD"], prepared, undefined, true) !== recipe.upstream.commit) throw new Error("Cloned upstream tag does not match the exact reviewed commit.");
   await applyReviewedPatch(prepared, path.join(repository, recipe.inputs.patch.path));
   for (const [name, filename] of [["rootPackage", "package.json"], ["lockfile", "bun.lock"]]) {
