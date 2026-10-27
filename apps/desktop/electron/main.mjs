@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { app, autoUpdater, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
@@ -912,6 +912,9 @@ const systemDictation = new SystemDictationService({
 // destroying it, and a tray icon keeps the app reachable.
 
 let appIsQuitting = false;
+// Native update installation closes windows before app's before-quit event.
+// Mark the quit intent now so close-to-hide cannot block the installation.
+autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; });
 let windowsCloseHintShown = false;
 // --hidden comes from the login-item registration (Windows args); macOS
 // login-item launches are detected via wasOpenedAtLogin in whenReady.
@@ -2917,7 +2920,7 @@ async function createMainWindow() {
 
   // While dictation is armed (or a recording is finishing), closing the
   // window would kill the renderer that hosts the capture pipeline — hide it
-  // instead. Quit still closes for real via the before-quit flag.
+  // instead. Quit and update installation close for real via the quit flag.
   mainWindow.on("close", (event) => {
     if (appIsQuitting || !keepAliveOnClose()) return;
     const status = systemDictation.status();

@@ -48,6 +48,14 @@ If you cannot run tests or capture the video, say so explicitly and explain why,
 - When creating new components, we prefer using shadcn/ui with (Base UI).
 - Assume most end users of LegalWork are non-technical.
 
+### User-facing help
+
+- Keep the bundled manual in `docs/user-guide/` up to date in the same change whenever user-facing features, screens, settings, labels or behavior change.
+- Write for questions users might ask: what a feature does, where to find it, how to set it up and use it, what prerequisites apply, and how to resolve common problems. Technical implementation notes do not replace this help.
+- Give complete steps with the actual button and menu labels, including entry steps such as **Add > Plugins > select a connector**. Use supported app links to relevant pages and describe the current app directly.
+- Cover new screens and settings in the guide and screen inventory mapping. Keep the `legalwork-help` skill's topic routing current so the agent can read the relevant page directly.
+- After updating help or UI translations, run `pnpm docs:generate` and `pnpm docs:check`, and include changes to the tracked bundle and screen inventory as applicable. The full i18n reference and its runtime module are generated during builds and ignored by Git; do not commit those copies. Keep user guides focused on using the app; put architecture and developer instructions in technical docs.
+
 ### Tech Stack Preferences
 
 When uncertain, prefer: Tailwind, TypeScript, React, shadcn/ui (Base UI), TanStack Query, Zustand, Zod, Drizzle, Better-Auth.
