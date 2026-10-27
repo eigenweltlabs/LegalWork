@@ -2461,6 +2461,7 @@ export function SessionRoute() {
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         legalworkToken={selectedWorkspaceServerToken}
+        legalworkHostToken={selectedWorkspaceEndpoint.hostToken}
         onSessionLoaded={handleRuntimeSessionLoaded}
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
@@ -2598,6 +2599,7 @@ export function SessionRoute() {
       wikiWorkspace={activeWiki}
       wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, onOpenWiki: openWikiWorkspace, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined, onManageWikis: () => navigate("/wikis?manage=1") }}
       legalworkServerToken={selectedWorkspaceServerToken}
+      legalworkServerHostToken={selectedWorkspaceEndpoint?.hostToken}
       developerMode={developerMode}
       headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
