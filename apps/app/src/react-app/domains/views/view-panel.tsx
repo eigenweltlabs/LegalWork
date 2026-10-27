@@ -19,7 +19,8 @@ import { SavedView, OpenUIView, PreviewView } from "./view-renderer";
 
 export function ViewPanel({ client, tab, sessionId }: { client: LegalworkServerClient | null; tab: ViewPanelTab; sessionId: string }) {
   const title = useCallback((label: string) => usePanelTabStore.getState().updateTabLabel(sessionId, tab.id, label), [sessionId, tab.id]);
-  return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><SavedView client={client?.baseUrl === tab.serverUrl ? client : null} reference={tab} onTitle={title} /></div>;
+  if (client && client.baseUrl !== tab.serverUrl) return <p className="p-4 text-sm text-muted-foreground">{t("views.connection_unavailable")}</p>;
+  return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><SavedView client={client} reference={tab} onTitle={title} /></div>;
 }
 
 export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client: LegalworkServerClient | null; tab: ViewDraftTab; sessionId: string }) {

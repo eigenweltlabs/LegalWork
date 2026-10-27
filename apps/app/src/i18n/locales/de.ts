@@ -7420,6 +7420,7 @@ const de = {
   "views.refresh": "Aktualisieren",
   "views.open_in_tab": "Als Tab öffnen",
   "views.loading": "Ansicht wird geladen…",
+  "views.connection_unavailable": "Öffnen Sie dieses Dashboard oder diesen Bericht im zugehörigen Projekt oder Wiki, um die Verbindung wiederherzustellen.",
   "views.loading_data": "Daten werden geladen…",
   "views.creating_preview": "Vorschau wird erstellt…",
   "views.generation_failed": "Die Erstellung ist fehlgeschlagen, bevor die Vorschau vollständig war.",

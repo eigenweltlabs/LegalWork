@@ -157,7 +157,7 @@ export type PanelTabStore = {
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
-  reconnectWikiTabs: (serverUrl: string, wikiIds: string[]) => void;
+  reconnectLocalTabs: (serverUrl: string, wikiIds: string[], workspaceIds?: string[]) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   restoreNavigationTab: (scope: string, tab: unknown, paneId: string) => void;
@@ -464,20 +464,21 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
         if (scope !== sessionId) delete sessions[sessionId];
         return { sessions };
       }),
-      reconnectWikiTabs: (serverUrl, wikiIds) => set(state => {
+      reconnectLocalTabs: (serverUrl, wikiIds, workspaceIds = []) => set(state => {
         if (!isLoopbackLegalworkServerUrl(serverUrl)) return state;
-        const known = new Set(wikiIds);
+        const knownWikis = new Set(wikiIds), knownWorkspaces = new Set(workspaceIds);
         const sessions = { ...state.sessions };
         let changed = false;
         for (const [scope, session] of Object.entries(sessions)) {
           const renamed = new Map<string, string>();
           const tabs = session.tabs.map(tab => {
             if (tab.type !== "wiki" && tab.type !== "view") return tab;
-            const wikiId = tab.type === "wiki" ? tab.wikiId : tab.owner.kind === "wiki" ? tab.owner.id : null;
-            // A desktop restart can change its port. Reconnect only wiki IDs
+            const known = tab.type === "wiki" ? knownWikis.has(tab.wikiId)
+              : tab.owner.kind === "wiki" ? knownWikis.has(tab.owner.id) : knownWorkspaces.has(tab.owner.id);
+            // A desktop restart can change its port. Reconnect only owners
             // confirmed by the current local server, never remote tabs.
-            if (!wikiId || !known.has(wikiId) || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
-            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
+            if (!known || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
+            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, tab.wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
             renamed.set(tab.id, next.id);
             return next;
           });

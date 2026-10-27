@@ -23,6 +23,8 @@ Use **Export snapshot** to download a portable `.view.json` file with frozen dat
 
 ## Refresh and resolve conflicts
 
+Saved dashboard tabs reconnect automatically when you restart the desktop app. A loading indicator appears while the local connection starts. If a view belongs to another server, open it from its original project or wiki to reconnect.
+
 **Live dashboard** and **Refresh data** mean the view queries the source wiki. **Snapshot** with its data timestamp and **Reload saved file** mean the data is frozen. Cross-owner copies retain snapshots and source attribution; same-wiki copies can retain live queries. Imported files never silently run another wiki's queries against the destination. If an import requests a snapshot, export one from its source first. Source links can be unavailable when the original server is not connected, while the saved data remains readable.
 
 If the original changes before an update preview is saved, LegalWork preserves the existing file. Choose **Open latest version** to inspect it or **Save a copy** to keep your preview separately. Some live dashboard boards allow property changes; those update source records and require access and matching revisions. Reports and generation previews are read-only.

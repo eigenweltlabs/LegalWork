@@ -93,11 +93,11 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
 export function SavedView({ client, reference, inline = false, onTitle, openSource, readOnly }: { client: LegalworkServerClient | null; reference: ViewReference; inline?: boolean; readOnly?: boolean; onTitle?: (title: string) => void; openSource?: (path: string) => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error("Connect to view this report"); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: 15_000 });
+  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error(t("views.connection_unavailable")); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: 15_000 });
   const download = useMutation({ mutationFn: async () => { if (client && view.data) await downloadViewFile(client, view.data); } });
   const status = view.data ? viewDataStatus(view.data) : null;
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
-  if (!client) return <p className="lw-saved-view-error">Connect to view this report.</p>;
+  if (!client) return <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />{t("views.loading")}</div>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>
     {view.data && <div className="lw-saved-view-toolbar">
       {!inline && <span>{status?.live ? t("views.live_dashboard") : status?.asOf ? t("views.snapshot_at", { date: new Date(status.asOf).toLocaleString() }) : t("views.snapshot")}</span>}

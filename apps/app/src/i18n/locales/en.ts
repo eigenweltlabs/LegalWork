@@ -7067,6 +7067,7 @@ export default {
   "views.refresh": "Refresh",
   "views.open_in_tab": "Open in tab",
   "views.loading": "Loading view…",
+  "views.connection_unavailable": "Open this dashboard or report from its project or wiki to reconnect.",
   "views.loading_data": "Loading data…",
   "views.creating_preview": "Creating preview…",
   "views.generation_failed": "Generation failed before the preview was complete.",

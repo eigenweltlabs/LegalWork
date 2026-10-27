@@ -22,6 +22,36 @@ function createTestPanelTabStore() {
   }));
 }
 
+test("restored project dashboards reconnect after a desktop port change without replacing remote or unknown owners", () => {
+  const store = createTestPanelTabStore();
+  const previousUrl = "http://127.0.0.1:4001", currentUrl = "http://127.0.0.1:4002";
+  const saved = viewPanelTab(previousUrl, { owner: view.owner, viewId: view.id }, view.title);
+  const remote = viewPanelTab("https://remote.example", saved, "Remote dashboard");
+  const unknown = viewPanelTab(previousUrl, { ...saved, owner: { kind: "workspace", id: "unavailable" } }, "Unavailable");
+  const wikiView = viewPanelTab(previousUrl, { ...saved, owner: { kind: "wiki", id: project.id } }, "Different owner");
+  const scope = workspacePanelKey(project.id);
+  for (const tab of [remote, unknown, wikiView]) store.getState().openTab(scope, tab, "main");
+  store.getState().openTab(scope, saved, "main", "right");
+  const restored = store.getState().readLayout(JSON.parse(JSON.stringify(store.getState().sessions[scope])));
+  if (!restored) throw new Error("Expected restored dashboard tabs");
+  store.setState({ sessions: { [scope]: restored } });
+  store.getState().reconnectLocalTabs(currentUrl, [], [project.id]);
+  const result = store.getState().sessions[scope];
+  const reconnected = viewPanelTab(currentUrl, saved, saved.label);
+  expect(result.tabs).toEqual([remote, unknown, wikiView, reconnected]);
+  expect(result.tree).toEqual(restored.tree);
+  expect(result.sizes).toEqual(restored.sizes);
+  expect(result.focusedPaneId).toBe(restored.focusedPaneId);
+  expect(result.activeTabId).toBe(restored.activeTabId);
+  expect(result.sideActiveTabId).toBe(reconnected.id);
+  expect(result.panes.find(pane => pane.id === result.focusedPaneId)?.activeTabId).toBe(reconnected.id);
+  expect(result.panes.some(pane => pane.tabIds.includes(saved.id))).toBe(false);
+  store.getState().reconnectLocalTabs(currentUrl, [], [project.id]);
+  expect(store.getState().sessions[scope]).toBe(result);
+  store.getState().reconnectLocalTabs("https://another.example", [project.id], [project.id]);
+  expect(store.getState().sessions[scope]).toBe(result);
+});
+
 test("Open selects the saved file in its project, preserving the current workspace and migrating legacy tabs first", async () => {
   const store = createTestPanelTabStore();
   const source = { ...view, id: "source", owner: { kind: "workspace", id: "source" } } satisfies Parameters<typeof openSavedView>[0]["view"];
