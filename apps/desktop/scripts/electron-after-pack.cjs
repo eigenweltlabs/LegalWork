@@ -76,10 +76,10 @@ async function afterPack(context) {
   if (opencodeEngineSelection.kind === "derivative") {
     const { opencodeReleaseTarget } = await import("@legalwork/opencode-release");
     const target = opencodeReleaseTarget(context.electronPlatformName, arch);
-    const versionDirectory = path.join(engineDirectory, opencodeEngineSelection.version);
-    await verifySelectedOpencodeEngine(path.join(versionDirectory, target, context.electronPlatformName === "win32" ? "opencode.exe" : "opencode"), { target });
-    for (const entry of fs.readdirSync(versionDirectory)) if (entry !== target) fs.rmSync(path.join(versionDirectory, entry), { force: true, recursive: true });
-    for (const entry of fs.readdirSync(engineDirectory)) if (entry !== opencodeEngineSelection.version) fs.rmSync(path.join(engineDirectory, entry), { force: true, recursive: true });
+    const artifactDirectory = path.join(engineDirectory, opencodeEngineSelection.artifactId);
+    await verifySelectedOpencodeEngine(path.join(artifactDirectory, target, context.electronPlatformName === "win32" ? "opencode.exe" : "opencode"), { target });
+    for (const entry of fs.readdirSync(artifactDirectory)) if (entry !== target) fs.rmSync(path.join(artifactDirectory, entry), { force: true, recursive: true });
+    for (const entry of fs.readdirSync(engineDirectory)) if (entry !== opencodeEngineSelection.artifactId) fs.rmSync(path.join(engineDirectory, entry), { force: true, recursive: true });
   } else if (fs.existsSync(engineDirectory)) {
     // Stale derivative artifacts cannot enter an official-selection package.
     fs.rmSync(engineDirectory, { force: true, recursive: true });
