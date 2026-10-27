@@ -226,6 +226,8 @@ jobs:
         with:
           version: 11.4.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify bundled help generation on Windows
+        run: node --test scripts/gen-core-skills.test.mjs
       - name: Test portable drafts
         run: pnpm test:drafts
       - name: Test Windows Outlook handoff
@@ -278,6 +280,11 @@ jobs:
 
       - name: Prepare checksum-pinned Node for worker tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
+
+      - name: Verify bundled user documentation and translations
+        run: |
+          node --test scripts/gen-core-skills.test.mjs
+          pnpm docs:check
 
       - name: Typecheck app
         if: runner.os == 'Linux'
