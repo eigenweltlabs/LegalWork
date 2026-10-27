@@ -8,7 +8,7 @@ import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import {
-  parseDynamicToolUIPart,
+  parseDynamicToolUIParts,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -197,14 +197,13 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
     return mapped ? [mapped] : [];
   }
 
-  const mapped = parseDynamicToolUIPart(part);
-  if (!mapped) return [];
+  const mapped = parseDynamicToolUIParts(part);
 
   if (part.state.status === "completed" && part.state.attachments) {
-    return [mapped, ...part.state.attachments.flatMap(mapFileParts)];
+    return [...mapped, ...part.state.attachments.flatMap(mapFileParts)];
   }
 
-  return [mapped];
+  return mapped;
 }
 
 /** Internal stop notes stay hidden; their structured reason explains the

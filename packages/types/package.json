@@ -64,6 +64,7 @@
     "./wiki": "./src/wiki.ts",
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts",
+    "./chat-tool-results": "./src/chat-tool-results.ts",
     "./line-diff": "./src/line-diff.ts"
   },
   "files": [
