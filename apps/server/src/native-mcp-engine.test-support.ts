@@ -32,7 +32,8 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
   for (const name of ["home", "config", "data", "cache", "state", "project", "other"]) await mkdir(join(root, name));
   const directory = join(root, "project"), other = join(root, "other");
   const prepared = typeof configuration === "function" ? await configuration(root) : configuration;
-  const options = { bin: nativeMcpBinary, cwd: directory, timeoutMs: 30_000, env: {
+  // Match embedded/CLI stdin-lease shutdown before removing the private fixture.
+  const options = { bin: nativeMcpBinary, cwd: directory, timeoutMs: 30_000, parentLease: true, env: {
     HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false, ...prepared }),
