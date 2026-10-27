@@ -181,5 +181,6 @@ jobs:
         with:
           name: packaged-startup-failure-${{ matrix.os }}-${{ matrix.arch }}
           path: apps/desktop/.test-artifacts/packaged-startup/
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
