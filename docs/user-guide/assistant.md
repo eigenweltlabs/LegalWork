@@ -18,3 +18,20 @@ load the resources when doing the work.
 Under project access, choose all projects, no projects, only selected projects,
 or all except selected projects. These restrictions also apply to delegated
 and scheduled Assistant work. Use **AI Providers** to configure its models.
+
+## Cloud Assistant
+
+In builds with cloud support, open **Settings > Assistant > Enable cloud
+assistant**. Sign in to your Eigenwelt account first. Cloud access also requires
+an account with a model allowance and an available cloud service. The setup
+dialog reports preparation, sync and startup progress. Larger project files
+continue syncing in the background.
+
+Phone messages execute in the cloud; desktop messages execute locally. Their
+messages and project data sync between devices. Existing desktop schedules
+remain on the desktop, with their initial cloud copies paused.
+
+If setup fails, use **Try again** after checking your account and connection.
+Local desktop work remains available. Cloud browser tasks can provide a secure
+login link when a website needs credentials; enter passwords through that link,
+never in a chat message.

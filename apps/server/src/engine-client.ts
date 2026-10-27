@@ -1,3 +1,4 @@
+import { cloudExecutionFetch } from "./cloud-sync/lifecycle.js";
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { ApiError, findApiError } from "./errors.js";
@@ -23,7 +24,7 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       let response: Response;
       const sessionID = method === "POST" ? url.pathname.match(/^\/api\/session\/([^/]+)\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/)?.[1] : undefined;
       const perform = async () => {
-        const result = await fetch(request, init);
+        const result = await cloudExecutionFetch(config, workspace, fetch)(request, init);
         await config.observeManagedEngineResponse?.({ method, path: url.pathname, directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory }, result);
         return result;
       };

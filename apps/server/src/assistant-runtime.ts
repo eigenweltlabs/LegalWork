@@ -8,14 +8,19 @@ import { AssistantSessionAccess, assertAssistantDispatchAuthority } from "./assi
 import { AssistantDelegations } from "./assistant-delegations.js";
 import { readDelegationResult } from "./assistant-delegation-result.js";
 import { createAssistantSessionQueue } from "./assistant-session-executor.js";
-import type { Route } from "./routes/registry.js";
+import { CloudAssistantSetup } from "./cloud-assistant-setup.js";
+import { AssistantChannelHistory } from "./assistant-channel-history.js";
+import { registerAssistantChannelHistoryRoutes } from "./routes/assistant-channel-history.js";
+import { registerChannelRuntimeRoutes } from "./channel-runtime-routes.js";
 import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { announceSyncChange } from "./app-sync-events.js";
+import { addRoute, type Route } from "./routes/registry.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
+import { prepareCloudExecution } from "./cloud-sync/lifecycle.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import type { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import type { ScheduledTask } from "./scheduled-tasks/schema.js";
@@ -51,6 +56,17 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       create: async title => unwrapOpencodeResult(await client.session.create({ title }, { signal: AbortSignal.timeout(10000) }), "/session"),
     };
   }, () => { restartReloadWatchers(); announceSyncChange(config, "projects"); });
+  const cloudAssistantSetup = await CloudAssistantSetup.open({ config, idle: async () => {
+    for (const workspace of config.workspaces) {
+      const statuses = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
+      if (Object.values(statuses).some(status => status.type !== "idle")) return false;
+    }
+    return true;
+  } });
+  const assistantChannelHistory = await AssistantChannelHistory.open(runtimeDbPath(config), { config, assistant: mainAssistant,
+    client: workspace => createWorkspaceOpencodeClient(config, workspace),
+    enabled: () => config.cloudSync?.role === "executor" ? Promise.resolve(true) : cloudAssistantSetup.enabled(),
+    executor: Boolean(process.env.LEGALWORK_CHANNEL_IDENTITY) });
   const delegationSession = async (workspaceId: string, sessionId: string) => {
     const workspace = await resolveWorkspace(config, workspaceId);
     const client = createWorkspaceOpencodeClient(config, workspace);
@@ -79,6 +95,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     },
     idle: async destination => {
       if (config.readOnly) return false;
+      if (config.cloudSync && !config.cloudSync.canExecute()) return false;
       const { client, session } = await delegationSession(destination.workspaceId, destination.sessionId);
       if (session.time.archived) return false;
       const statuses = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
@@ -104,20 +121,62 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     }, true),
   });
   const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
+    available: () => !config.cloudSync || config.cloudSync.canExecute(),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
     config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
 
+  let channelRuntime: Awaited<ReturnType<typeof registerChannelRuntimeRoutes>> | undefined;
   const push = await AssistantPush.open(runtimeDbPath(config),
     () => readPushEvents(config, mainAssistant, delegations, workspace => createWorkspaceOpencodeClient(config, workspace)), options.tokenActive);
   async function register(routes: Route[], helpers: Helpers) {
-    const { readJsonBodyLimited } = helpers;
+    const { jsonResponse, readJsonBodyLimited } = helpers;
+  addRoute(routes, "GET", "/cloud-sync/status", "client", async () => {
+    if (!config.cloudSync?.status) return jsonResponse({ enabled: false });
+    return jsonResponse({ enabled: true, status: await config.cloudSync.status() });
+  });
+  addRoute(routes, "POST", "/cloud-sync/checkpoint", "host-token", async () => {
+    if (!config.cloudSync?.checkpoint) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    if (!config.cloudSync.canExecute()) throw new ApiError(409, "sync_execution_owner", "Only the execution owner can checkpoint sessions.");
+    const cancel = await config.cloudSync.beginCheckpoint?.();
+    try {
+      for (const workspace of config.workspaces) {
+        const statuses = unwrapOpencodeResult(await createWorkspaceOpencodeClient(config, workspace).session.status(), "/session/status");
+        if (Object.values(statuses).some(status => status.type !== "idle")) throw new ApiError(409, "sync_assistant_busy", "Wait for the assistant to finish before pausing its VM.");
+      }
+      return jsonResponse(await config.cloudSync.checkpoint());
+    } catch (error) { cancel?.(); throw error; }
+  });
+  addRoute(routes, "POST", "/cloud-sync/resume", "host-token", async () => {
+    if (!config.cloudSync?.resume) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    const status = await config.cloudSync.resume();
+    return jsonResponse({ ready: true, enabled: true, status });
+  });
+  addRoute(routes, "POST", "/cloud-sync/ready", "host-token", async () => {
+    if (!config.cloudSync?.ready) throw new ApiError(409, "sync_disabled", "Cloud sync is not enabled.");
+    const status = await config.cloudSync.ready();
+    return jsonResponse({ ready: true, enabled: true, status });
+  });
+  addRoute(routes, "POST", "/cloud-sync/projects/:id/prepare", "host-token", async ctx => {
+    await resolveWorkspace(config, ctx.params.id);
+    await prepareCloudExecution(config, ctx.params.id);
+    return jsonResponse({ ready: true });
+  });
+
     registerMainAssistantRoutes({ ...helpers, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
       preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), resolveWorkspace,
       client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } });
+    registerAssistantChannelHistoryRoutes({ routes, history: assistantChannelHistory, requireClientScope: helpers.requireClientScope, json: jsonResponse });
+    addRoute(routes, "GET", "/assistant/cloud", "client", async ctx => { helpers.requireClientScope(ctx, "viewer"); return jsonResponse(await cloudAssistantSetup.status()); });
+    addRoute(routes, "POST", "/assistant/cloud", "client", async ctx => { helpers.requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.enable(), 202); });
+    addRoute(routes, "DELETE", "/assistant/cloud", "client", async ctx => { helpers.requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.disable()); });
+    channelRuntime = await registerChannelRuntimeRoutes({ config, routes, assistant: mainAssistant, delegations, schedules: scheduledTasks,
+      client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: options.resolveWorkspace, json: jsonResponse, body: readJsonBodyLimited });
     registerPushRoutes(routes, push, readJsonBodyLimited);
   }
+  const stopHistory = assistantChannelHistory.start();
   const stopPush = push.start();
   const stopMain = config.readOnly ? () => {} : mainAssistant.start(() => {
+    if (config.cloudSync && !config.cloudSync.canExecute()) return Promise.resolve();
     return ensureMorningBriefing(config, scheduledTasks, mainAssistant, () => hasBriefingSessionThreshold(config, options.resolveWorkspace));
   });
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
@@ -133,7 +192,8 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return isMainAssistant(workspace) ? prepareAssistantScheduledWork(task, workspace, session, client, delegations) : { model: task.model, prompt: task.prompt };
     },
     async close() {
-      stopMain(); await stopDelegations(); await stopQueue(); await stopPush();
+      stopMain(); await stopDelegations(); await stopQueue(); await stopHistory(); await stopPush();
+      await cloudAssistantSetup.close(); channelRuntime?.close();
     },
   };
 }

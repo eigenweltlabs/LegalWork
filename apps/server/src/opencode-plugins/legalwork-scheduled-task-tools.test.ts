@@ -39,7 +39,8 @@ test("native scheduling pins the invoking assistant model, scopes the project an
 });
 
 test("chat creation supplies the computer zone for every schedule kind and respects explicit zones",async()=>{
-  const oldZone=process.env.TZ,oldUrl=process.env.LEGALWORK_SERVER_URL,oldToken=process.env.LEGALWORK_SERVER_TOKEN;
+  const options=new Intl.DateTimeFormat().resolvedOptions(),zoneMock=spyOn(Intl.DateTimeFormat.prototype,"resolvedOptions");
+  const oldUrl=process.env.LEGALWORK_SERVER_URL,oldToken=process.env.LEGALWORK_SERVER_TOKEN;
   const saved:ScheduledTaskInput[]=[];
   const server=Bun.serve({port:0,async fetch(request){if(new URL(request.url).pathname==="/workspaces")return Response.json({items:[{id:"current",path:context.directory}]});const input=ScheduledTaskInputSchema.parse(await request.json());saved.push(input);return Response.json({task:input});}});
   process.env.LEGALWORK_SERVER_URL=server.url.origin;process.env.LEGALWORK_SERVER_TOKEN="fixture-token";
@@ -47,7 +48,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
   try{
     const startAt="2026-10-24T06:00:00";const schedules=[{kind:"once",startAt},{kind:"interval",startAt,minutes:60},{kind:"rrule",startAt,rrule:"FREQ=DAILY"}];
     for(const[zone,firstRun,followingRun]of[["Europe/Berlin","2026-10-24T04:00:00.000Z","2026-10-25T05:00:00.000Z"],["America/New_York","2026-10-24T10:00:00.000Z","2026-10-25T10:00:00.000Z"]]){
-      process.env.TZ=zone;const before=wallTime(new Date().toISOString(),zone);
+      zoneMock.mockReturnValue({...options,timeZone:zone});const before=wallTime(new Date().toISOString(),zone);
       const system:{system:Array<{type:"text";text:string}>}={system:[]};await plugin.runtime.hook("session","context",system);
       const user={sessionID:"ses_zone",messageID:"msg_zone",prompt:{text:"Schedule my morning briefing"}};await plugin.runtime.hook("session","prompt",user);
       expect(user.prompt.text).toContain(`time zone ${zone}`);expect(user.prompt.text).toContain(before.slice(0,10));
@@ -55,7 +56,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
       for(const schedule of schedules){expect(JSON.parse(await plugin.tool.legalwork_schedule_create.execute({title:"Morning deadlines",prompt:"Review deadlines",schedule},context)).ok).toBe(true);const input=saved.at(-1)!;expect(input.schedule.timeZone).toBe(zone);expect(input.sessionId).toBe("this-chat");expect(nextOccurrence(input.schedule,Date.parse("2026-10-23T12:00:00Z"))).toBe(firstRun);if(schedule.kind==="rrule")expect(nextOccurrence(input.schedule,Date.parse(firstRun))).toBe(followingRun);}
     }
     await plugin.tool.legalwork_schedule_create.execute({...once,schedule:{kind:"once",startAt,timeZone:"Asia/Tokyo"}},context);expect(saved.at(-1)?.schedule.timeZone).toBe("Asia/Tokyo");
-  }finally{await plugin.close();server.stop(true);for(const[key,value]of Object.entries({TZ:oldZone,LEGALWORK_SERVER_URL:oldUrl,LEGALWORK_SERVER_TOKEN:oldToken})){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+  }finally{zoneMock.mockRestore();await plugin.close();server.stop(true);for(const[key,value]of Object.entries({LEGALWORK_SERVER_URL:oldUrl,LEGALWORK_SERVER_TOKEN:oldToken})){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
 });
 
 test("clock reminders atomically refresh only on user admission, keeping saved history and system fixed",async()=>{

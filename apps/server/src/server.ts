@@ -1,4 +1,5 @@
 import { createAssistantRuntime } from "./assistant-runtime.js";
+import { startConnectorSync } from "./connectors/sync.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { createToolImageRaster } from "./tool-image-raster.js";
 import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
@@ -878,6 +879,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
   const stopProjectSyncTimer = startProjectSyncTimer(config);
   // The firm pokes this computer when something changed, so rounds start at once.
+  const stopConnectorSync = startConnectorSync(config);
   const stopSyncEvents = startSyncEvents(config);
   const stopSandboxSettingsSync = startSandboxSettingsSync(config);
   // The firm's policy: pulled now and whenever the firm pokes; what changes
@@ -931,7 +933,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
     resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
-      if (config.readOnly) return false;
+      if (config.readOnly || config.cloudSync && !config.cloudSync.canExecute()) return false;
       const workspace = await scheduledWorkspace(task);
       const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
       const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
@@ -1287,6 +1289,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       officeConnection.dispose();
       stopMessageQueue(config);
       await assistantRuntime.close();
+      stopConnectorSync();
       await corpus.stop();
       reviews.stop();
       preparation.stop();

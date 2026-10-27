@@ -11,6 +11,8 @@ legalwork-server --workspace /path/to/workspace --approval auto
 
 `legalwork-server` ships as a compiled binary, so Bun is not required at runtime.
 
+For a persistent personal assistant VM, see [Personal assistant cloud sync](../../docs/cloud-assistant-sync.md).
+
 For development, use the Node.js version in `.nvmrc` (or an updated Node.js
 22 release, at least 22.15) and the repository's existing pnpm/Bun build tools:
 

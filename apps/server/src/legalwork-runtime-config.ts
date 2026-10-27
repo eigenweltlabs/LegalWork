@@ -1,3 +1,4 @@
+import { readChannelProvider } from "./channel-model.js";
 import { legalworkAssistantToolsPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
@@ -267,6 +268,7 @@ export async function buildLegalworkRuntimeSettings(
   // all models disabled). Never resurrect a stale per-workspace paid model.
   if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
   const providerMap = {
+    ...(await readChannelProvider()),
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.

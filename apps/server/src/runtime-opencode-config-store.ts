@@ -315,6 +315,7 @@ export async function writeRuntimeOpencodeConfig(
   config: ServerConfig,
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
+  updatedAt = Date.now(),
 ): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
   // Every app client shares this server. Keep the synchronous SQLite read,
@@ -332,8 +333,7 @@ export async function writeRuntimeOpencodeConfig(
   const next = normalizeRuntimeOpencodeConfig(updater(current));
   const configJson = JSON.stringify(next);
   if (configJson === previous) return next;
-  const now = Date.now();
-  db.upsert({ workspaceId, configJson, updatedAt: now });
+  db.upsert({ workspaceId, configJson, updatedAt });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
 }

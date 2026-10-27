@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createAssistantTestClient } from "../assistant-engine.test-support.js";
 import { LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
 import { LegalWorkCalendarTools } from "./legalwork-calendar-tools.js";
 import schedulingPlugin from "./legalwork-scheduled-task-tools.js";

@@ -29,6 +29,13 @@ import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
+import { bootCloudSync } from "./cloud-sync/lifecycle.js";
+import { runCloudSyncCli } from "./cloud-sync/cli.js";
+
+if (process.argv[2] === "sync") {
+  await runCloudSyncCli(process.argv.slice(3));
+  process.exit(0);
+}
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -51,11 +58,16 @@ const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
 let stopConfigRefresh: (() => Promise<void>) | null = null;
+const cloudSync = await bootCloudSync(config);
+if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managedOpencode?.close(); };
 
+if (cloudSync?.replica.settings.role === "executor" && process.env.LEGALWORK_MANAGE_OPENCODE !== "1")
+  throw new Error("A cloud execution owner requires LEGALWORK_MANAGE_OPENCODE=1");
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
+    if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
   }
 }
@@ -137,6 +149,7 @@ const server = await startServer(config, { onListening: async (port) => {
 } }).catch(async (error: unknown) => {
   await stopConfigRefresh?.();
   if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close();
+  await cloudSync?.stop();
   throw error;
 });
 
@@ -169,7 +182,7 @@ if (args.verbose) {
 }
 
 const shutdown = () => {
-  return (async () => { await stopConfigRefresh?.(); if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close(); await server.stop(); })();
+  return (async () => { await stopConfigRefresh?.(); if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close(); await server.stop(); if (cloudSync) { try { await cloudSync.replica.tick(); } finally { await cloudSync.stop(); } } })();
 };
 
 process.once("SIGINT", () => {

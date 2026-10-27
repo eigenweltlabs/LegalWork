@@ -83,7 +83,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   };
 }
 
-async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+export async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
