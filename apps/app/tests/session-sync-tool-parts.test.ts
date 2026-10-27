@@ -189,10 +189,17 @@ describe("tool part mapper", () => {
     const cleanup = __createWorkspaceSessionSyncForTest(input);
     const release = trackWorkspaceSessionSync(input, part.sessionID);
     try {
-      __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: { id: part.messageID, role: "assistant", sessionID: part.sessionID } } });
-      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+      const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { type, id: "event", created: 1,
+        durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, data: { sessionID: part.sessionID, assistantMessageID: part.messageID, ...data } });
+      event("session.step.started", {});
+      event("session.tool.input.started", { id: part.callID, name: part.tool });
+      event("session.tool.called", { id: part.callID, input: part.state.input });
+      event("session.tool.success", { id: part.callID, content: [{ type: "text", text: output }], metadata: {} });
       const messages = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, part.sessionID)) ?? [];
-      expect(messages[0]?.parts).toEqual([mapped]);
+      expect(messages[0]?.parts).toMatchObject([{ type: "dynamic-tool", toolName: part.tool, state: "output-available" }]);
+      const live = messages[0]?.parts[0];
+      expect(parseAssistantNameResult(live && "output" in live ? live.output : undefined)).toEqual(result);
+      expect(getAssistantRenderGroups(messages[0]?.parts ?? [], false)[0]?.kind).toBe("assistant-name");
     } finally { release(); cleanup(); }
   });
 

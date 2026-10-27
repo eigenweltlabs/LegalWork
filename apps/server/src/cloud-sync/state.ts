@@ -19,7 +19,7 @@ import { getBlob, putBlob, type SyncObjects } from "./objects.js";
 // secrets, machine cursors, transfer bases and derived caches stay on-device.
 export const RUNTIME_TABLES = new Set([
   "runtime_opencode_configs", "session_group_states", "session_usage_limits", "project_links",
-  "assistant_days", "assistant_profiles", "assistant_onboarding", "assistant_greeting_views", "assistant_project_defaults",
+  "assistant_days", "assistant_profiles", "assistant_settings", "assistant_onboarding", "assistant_greeting_views", "assistant_project_defaults",
   "assistant_session_queue", "assistant_delegations", "assistant_delegation_receipts", "assistant_attention_cards", "assistant_attention_widgets",
   "channel_runtime_owner", "channel_runtime_jobs", "channel_runtime_conversations", "channel_runtime_commands", "channel_runtime_approvals", "channel_runtime_settings",
   "scheduled_tasks", "scheduled_task_runs", "scheduled_task_defaults", "scheduled_sessions",
@@ -64,7 +64,7 @@ export function remapPaths(value: unknown, projects: SyncProject[], roots: Map<s
   if (typeof value === "string") return translate(value);
   if (Array.isArray(value)) return value.map(item => remapPaths(item, projects, roots));
   if (!isRecord(value)) return value;
-  const prose = new Set(["text", "prompt", "customInstructions", "output", "content", "title", "description", "label"]);
+  const prose = new Set(["text", "prompt", "customInstructions", "systemPromptAddition", "output", "content", "title", "description", "label"]);
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [translate(key), prose.has(key) ? child : remapPaths(child, projects, roots)]));
 }
 
