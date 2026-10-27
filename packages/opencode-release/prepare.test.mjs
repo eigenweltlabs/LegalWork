@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import recipe from "./build/recipe.json" with { type: "json" };
-import { engineBuildMode, prepareForBuild } from "./prepare.mjs";
+import { engineBuildMode, engineTargetsForBuild, prepareForBuild } from "./prepare.mjs";
+import { opencodeReleaseTarget } from "./index.mjs";
+import { writeFixtureDerivativeDistribution, writeFixtureReleaseLibrary } from "./test-fixture.mjs";
 
 async function fixture(run) {
-  const root = await mkdtemp(path.join(tmpdir(), "legalwork-engine-entry-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "legalwork-engine-entry-")));
   try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
@@ -25,7 +27,7 @@ async function write(root, name, contents) {
 async function cliFixture(root) {
   const directory = path.join(root, "packages/opencode-release");
   await mkdir(path.join(directory, "build"), { recursive: true });
-  await copyFile(new URL("prepare.mjs", import.meta.url), path.join(directory, "prepare.mjs"));
+  for (const name of ["prepare.mjs", "index.mjs", "release.json"]) await copyFile(new URL(name, import.meta.url), path.join(directory, name));
   await copyFile(new URL("build/recipe.json", import.meta.url), path.join(directory, "build/recipe.json"));
   await write(root, "packages/opencode-release/build/prepare.mjs", `
     export async function prepareOpencodeEngine(input) { console.log(JSON.stringify({operation:"prepare",input})); return input; }
@@ -41,6 +43,15 @@ test("build mode is explicit, validated, and cannot be specified twice", () => {
   for (const args of [["--engine-mode"], ["--engine-mode", "auto"], ["--engine-mode=production", "--engine-mode", "development"]]) {
     assert.throws(() => engineBuildMode(args), /explicit/);
   }
+});
+
+test("standalone cross-builds request corresponding reviewed engine artifacts", () => {
+  assert.equal(engineTargetsForBuild([]), undefined);
+  assert.deepEqual(engineTargetsForBuild(["bun-darwin-arm64", "bun-darwin-x64", "bun-linux-x64-baseline-musl", "bun-windows-arm64"]),
+    ["darwin-arm64", "darwin-x64-baseline", "linux-x64-baseline-musl", "windows-arm64"]);
+  assert.deepEqual(engineTargetsForBuild(["bun-windows-x64", "bun-windows-x64-baseline"]), ["windows-x64-baseline"]);
+  assert.throws(() => engineTargetsForBuild(["bun-darwin-arm64-musl"]), /No reviewed/);
+  assert.throws(() => engineTargetsForBuild(["arbitrary-target"]), /No reviewed/);
 });
 
 test("development uses the host default and production requests the complete reviewed matrix", async () => {
@@ -65,10 +76,13 @@ test("the actual preparation CLI rejects malformed requests before reaching the 
   for (const args of [[], ["--mode", "auto"], ["--mode", "development", "--mode", "production"],
     ["--mode", "development", "--target", "unknown"], ["--mode", "development", "--target"],
     ["--mode", "development", "--all-targets", "--target", recipe.targets[0]],
-    ["--mode", "development", "--check", "--mac-signing-config", "unused"]]) {
+    ["--mode", "development", "--check", "--mac-signing-config", "unused"],
+    ["--mode", "production", "--run", process.execPath], ["--mode", "development", "--dev-mode"],
+    ["--mode", "development", "--run"]]) {
     const result = execute(cli, args);
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
+    assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
   }
 }));
 
@@ -161,8 +175,81 @@ test("the actual source server wrapper blocks stale setup before loading built J
 }));
 
 test("the actual source server wrapper uses check-only then the existing Node runtime", () => fixture(async root => {
-  const entry = await serverWrapperFixture(root, "if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(['--mode','development','--check']))throw Error('NOT_CHECK_ONLY');console.log('CHECK_ONLY_COMPLETE');");
+  const entry = await serverWrapperFixture(root, `import{spawnSync}from'node:child_process';const args=process.argv.slice(2);if(JSON.stringify(args.slice(0,5))!==JSON.stringify(['--mode','development','--check','--with-engine-binary','--run']))throw Error('NOT_CHECK_ONLY');console.log('CHECK_ONLY_COMPLETE');process.exitCode=spawnSync(args[5],args.slice(6),{stdio:'inherit'}).status;`);
   const result = execute(entry, ["--help"]);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "CHECK_ONLY_COMPLETE\nNODE_SERVER_STARTED\n");
+}));
+
+
+async function realHandoffFixture(root) {
+  const distributionRoot = path.join(root, "distribution"); await mkdir(distributionRoot);
+  const distribution = await writeFixtureDerivativeDistribution(distributionRoot);
+  const library = await writeFixtureReleaseLibrary(path.join(root, "library"), distribution.selection);
+  await copyFile(new URL("prepare.mjs", import.meta.url), path.join(library, "prepare.mjs"));
+  const prepared = { manifestSha256: distribution.selection.manifestSha256, archiveDirectory: distribution.archives, receiptPath: path.join(library, "generated/receipt.json"), sourceKey: "e".repeat(64) };
+  await write(root, "library/build/prepare.mjs", `export async function prepareOpencodeEngine(){return ${JSON.stringify(prepared)}};export async function checkPreparedOpencodeEngine(){return ${JSON.stringify(prepared)}};`);
+  return { distribution, cli: path.join(library, "prepare.mjs") };
+}
+
+test("the actual dev launcher delivers verified archives and a fully installed host binary", () => fixture(async root => {
+  const { cli, distribution } = await realHandoffFixture(root);
+  const target = opencodeReleaseTarget();
+  const expected = await readFile(path.join(distribution.builds.find(build => build.target === target).directory, target.startsWith("windows-") ? "opencode.exe" : "opencode"), "utf8");
+  const child = await write(root, "consume.mjs", `import assert from 'node:assert/strict';import{readFile,readdir}from'node:fs/promises';import path from'node:path';assert.equal(process.env.LEGALWORK_OPENCODE_ARCHIVES,${JSON.stringify(distribution.archives)});const binary=process.env.LEGALWORK_OPENCODE_BIN;assert.equal(await readFile(binary,'utf8'),${JSON.stringify(expected)});assert.equal((await readdir(path.dirname(binary))).length,5);console.log('VERIFIED_HOST_HANDOFF');`);
+  const result = execute(cli, ["--mode", "development", "--check", "--with-engine-binary", "--run", process.execPath, child], { env: { ...process.env, LEGALWORK_OPENCODE_ARCHIVES: "/untrusted-old-location", LEGALWORK_OPENCODE_BIN: "" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "VERIFIED_HOST_HANDOFF\n");
+}));
+
+test("archive-only dev handoff leaves an explicit user binary unchanged and propagates child failure", () => fixture(async root => {
+  const { cli, distribution } = await realHandoffFixture(root);
+  const child = await write(root, "consume.mjs", `import assert from'node:assert/strict';assert.equal(process.env.LEGALWORK_OPENCODE_ARCHIVES,${JSON.stringify(distribution.archives)});assert.equal(process.env.LEGALWORK_OPENCODE_BIN,'existing-user-setting');assert.equal(process.env.LEGALWORK_DEV_MODE,'1');process.exitCode=23;`);
+  const result = execute(cli, ["--mode", "development", "--dev-mode", "--run", process.execPath, child], { env: { ...process.env, LEGALWORK_OPENCODE_BIN: "existing-user-setting" } });
+  assert.equal(result.status, 23, result.stderr);
+}));
+
+test("corrupt prepared archives stop dev launch before the child can run", () => fixture(async root => {
+  const { cli, distribution } = await realHandoffFixture(root);
+  await writeFile(path.join(distribution.archives, distribution.manifest.artifacts[opencodeReleaseTarget()].archive.filename), "corrupt archive");
+  const child = await write(root, "consume.mjs", "console.log('MUST_NOT_RUN');");
+  const result = execute(cli, ["--mode", "development", "--with-engine-binary", "--run", process.execPath, child]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /archive integrity/);
+  assert.doesNotMatch(result.stdout, /MUST_NOT_RUN/);
+}));
+
+
+test("standalone staging keeps all five selected files under the full artifact identity", () => fixture(async root => {
+  const { cli, distribution } = await realHandoffFixture(root);
+  const driver = await write(root, "stage.mjs", `import{prepareForBuild,stagePreparedEngineBuild}from ${JSON.stringify("./library/prepare.mjs")};const prepared=await prepareForBuild({mode:'development'});console.log(JSON.stringify(await stagePreparedEngineBuild({prepared,outputDirectory:${JSON.stringify(path.join(root, "bundle"))}})));`);
+  const result = execute(driver);
+  assert.equal(result.status, 0, result.stderr);
+  const [binary] = JSON.parse(result.stdout);
+  assert.equal(path.dirname(path.dirname(path.dirname(binary))), path.join(root, "bundle/opencode-engine"));
+  assert.equal(path.basename(path.dirname(path.dirname(binary))), distribution.selection.manifestSha256);
+  assert.deepEqual((await readdir(path.dirname(binary))).sort(),
+    ["LICENSE", "NOTICE", "SHA256SUMS", "provenance.json", opencodeReleaseTarget().startsWith("windows-") ? "opencode.exe" : "opencode"].sort());
+  await writeFile(binary, "changed standalone binary");
+  const corrupted = execute(driver);
+  assert.notEqual(corrupted.status, 0);
+  assert.match(corrupted.stderr, /Installed derivative file changed/);
+}));
+
+
+test("an explicit dev engine path wins only after exact selected-file verification", () => fixture(async root => {
+  const { cli, distribution } = await realHandoffFixture(root);
+  const build = distribution.builds.find(build => build.target === opencodeReleaseTarget());
+  const binary = path.join(build.directory, opencodeReleaseTarget().startsWith("windows-") ? "opencode.exe" : "opencode");
+  const child = await write(root, "consume-explicit.mjs", `import assert from'node:assert/strict';assert.equal(process.env.LEGALWORK_OPENCODE_BIN,${JSON.stringify(binary)});console.log('EXPLICIT_VERIFIED');`);
+  const args = ["--mode", "development", "--with-engine-binary", "--run", process.execPath, child];
+  const options = { env: { ...process.env, LEGALWORK_OPENCODE_BIN: binary } };
+  const valid = execute(cli, args, options);
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.equal(valid.stdout, "EXPLICIT_VERIFIED\n");
+  await writeFile(binary, "changed explicit engine");
+  const changed = execute(cli, args, options);
+  assert.notEqual(changed.status, 0);
+  assert.match(changed.stderr, /Installed derivative file changed/);
+  assert.doesNotMatch(changed.stdout, /EXPLICIT_VERIFIED/);
 }));

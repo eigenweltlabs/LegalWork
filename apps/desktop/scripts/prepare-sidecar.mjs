@@ -267,7 +267,7 @@ let installedOpencodePath = opencodeCandidatePath;
 let opencodeSource;
 if (opencodeEngineSelection.kind === "derivative") {
   const installed = await installSelectedOpencodeEngine({
-    directory: join(selectedEngineResources, normalizedOpencodeVersion, releaseTarget),
+    directory: join(selectedEngineResources, opencodeEngineSelection.artifactId, releaseTarget),
     cacheDirectory: process.env.LEGALWORK_OPENCODE_CACHE || resolve(__dirname, "../../../.cache/opencode-derivative"),
     archiveDirectory: preparedEngine.archiveDirectory,
     target: releaseTarget,

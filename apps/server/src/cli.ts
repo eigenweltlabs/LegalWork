@@ -3,6 +3,7 @@
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
 import { join, resolve } from "node:path";
+import { resolveServerOpencodeExecutable } from "./server-opencode-executable.js";
 import { engineStorageDir } from "./engine-storage.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
@@ -100,7 +101,7 @@ const server = await startServer(config, { onListening: async (port) => {
       if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
       managedLifecycle = await startManagedEngineLifecycle({ config, database, service, create: async (mode, beforeSpawn) => {
         const engine = await createConfiguredManagedEngine(config, {
-        bin: process.env.LEGALWORK_OPENCODE_BIN,
+        bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL ? { logLevel: process.env.LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL } : {}),
         cwd: process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome,

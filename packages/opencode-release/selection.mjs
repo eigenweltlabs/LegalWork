@@ -12,7 +12,8 @@ if (selection.schemaVersion !== 1 || selection.baseVersion !== opencodeRelease.v
 
 /** Prepared build input, never a user setting or an environment override.
  * Its source policy and exact artifact pins travel with every consumer. */
-export const opencodeEngineSelection = Object.freeze({ kind: selection.kind, version: selection.version, baseVersion: selection.baseVersion });
+export const opencodeEngineSelection = Object.freeze({ kind: selection.kind, version: selection.version, baseVersion: selection.baseVersion,
+  artifactId: selection.kind === "derivative" ? selection.manifestSha256 : selection.version });
 
 let verifiedDistribution;
 async function distribution() {
