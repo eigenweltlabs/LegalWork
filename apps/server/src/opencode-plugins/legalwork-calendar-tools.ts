@@ -80,6 +80,9 @@ export default Plugin.define({ id: "legalwork.calendar", async setup(ctx) {
   await ctx.tool.transform(editor => {
     for (const [name, definition] of Object.entries(definitions.tool)) editor.add(nativeTool(ctx, {
       name, description: definition.description, schema: z.object(definition.args), execute: definition.execute,
+      ...(["legalwork_calendar_create", "legalwork_calendar_get", "legalwork_calendar_update"].includes(name)
+        ? { outputSchema: nativeResponseOutput(z.object({ item: CalendarItemSchema.optional() }).passthrough()) }
+        : name === "legalwork_deadline_calculate" ? { outputSchema: nativeResponseOutput(z.object({ calculation: DeadlineCalculationSchema.optional() }).passthrough()) } : {}),
     }));
   });
 } });

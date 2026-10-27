@@ -7,3 +7,8 @@ export { LegalMemoryPermissionsSchema, LegalMemoryPermissionSchema, LegalMemoryP
 export { ScheduledTaskMessageSchema } from "@legalwork/types/scheduled-tasks";
 export { isReviewWorkerSession } from "@legalwork/types/reviews";
 export { ApproveEngineProjectSchema } from "@legalwork/types/engine-project";
+
+export { projectMessage, projectSession } from "@legalwork/types/opencode-view";
+export { AssistantAttentionItemSchema, AssistantAttentionPresentSchema, AssistantAttentionRefSchema, AssistantAttentionReplySchema, AssistantChannelHistorySchema, AssistantChannelMessageSchema, AssistantReactionResultSchema, AssistantReactionEmojiSchema, AssistantShareFileSchema, AssistantAvatarIconSchema, AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, MORNING_BRIEFING_PROMPT } from "@legalwork/types/main-assistant";
+
+export { AssistantResourceSchema, AssistantSettingsSchema, AssistantProjectAccessSchema, DEFAULT_ASSISTANT_SETTINGS } from "@legalwork/types/main-assistant";

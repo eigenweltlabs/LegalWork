@@ -1,6 +1,7 @@
 import type { OpenCodeClient, SessionMessageInfo, FormInfo } from "@opencode/client";
 import { z } from "zod";
-import { projectMessage, projectSession, type MessageView, type PromptPart } from "@legalwork/types/opencode-view";
+import { projectMessage, projectSession } from "./native-shared-values.js";
+import type { MessageView, PromptPart } from "@legalwork/types/opencode-view";
 import { createEngineClient, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
 import { findApiError } from "./errors.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";

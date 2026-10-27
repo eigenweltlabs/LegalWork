@@ -203,7 +203,7 @@ describe("workspace activation", () => {
     }
   });
 
-  test("reloads the bound OpenCode engine on activate", async () => {
+  test("activation preserves an already running engine without reloading it", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();
     const legalwork = await startLegalworkServer({
@@ -221,13 +221,8 @@ describe("workspace activation", () => {
     const body = await response.json();
     expect(body.activeId).toBe("ws_1");
 
-    const reloadRequest = mock.requests.find(
-      (request) => request.pathname === "/api/rpc/legalwork.managed-settings/refresh",
-    );
-    expect(reloadRequest).toBeDefined();
-    expect(reloadRequest?.search).toContain(
-      `location%5Bdirectory%5D=${encodeURIComponent(workspaceRoot)}`,
-    );
+    expect(mock.requests).toEqual([]);
+
   });
 
   test("retries activation while the engine listener is starting", async () => {
@@ -259,7 +254,7 @@ describe("workspace activation", () => {
     expect(response.status).toBe(200);
   });
 
-  test("reports an engine that stays unreachable as unavailable", async () => {
+  test("navigation remains available when its engine is unreachable", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
     const port = probe.port;
@@ -273,11 +268,11 @@ describe("workspace activation", () => {
       method: "POST",
       headers: hostAuth(legalwork.hostToken),
     });
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toMatchObject({ code: "opencode_unavailable" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ activeId: "ws_1" });
   });
 
-  test("does not repeat a reload after the engine accepts and drops the connection", async () => {
+  test("activation does not contact or restart the engine", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let attempts = 0;
     const engine = createServer((request) => {
@@ -299,8 +294,8 @@ describe("workspace activation", () => {
       method: "POST",
       headers: hostAuth(legalwork.hostToken),
     });
-    expect(response.status).toBe(503);
-    expect(attempts).toBe(1);
+    expect(response.status).toBe(200);
+    expect(attempts).toBe(0);
   });
 
   test("persists activation order only when requested", async () => {

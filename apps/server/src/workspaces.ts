@@ -15,7 +15,7 @@ export function buildWorkspaceInfos(
   workspaces: WorkspaceConfig[],
   cwd: string,
 ): WorkspaceInfo[] {
-  return workspaces.map((workspace) => {
+  return workspaces.filter(workspace => workspace.workspaceType !== "remote").map((workspace) => {
     const rawPath = workspace.path?.trim() ?? "";
     const resolvedPath = rawPath ? resolve(cwd, rawPath) : "";
     const id = workspace.id?.trim() || workspaceIdForPath(resolvedPath);
