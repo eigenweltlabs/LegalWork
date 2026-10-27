@@ -29,14 +29,15 @@ if (existsSync(compiledBinary)) {
   run(compiledBinary, args);
 }
 
-// Source checkouts must already have a current prepared selector. Published
-// compiled binaries retain their own immutable pins and do not load build code.
+// Source checkouts verify preparation before loading their entrypoint. The
+// handoff supplies the verified binary; published compiled binaries above keep
+// their own pins and never import build tooling.
 if (existsSync(sourceCli)) {
-  const check = spawnSync(process.execPath, [
+  run(process.execPath, [
     resolve(packageRoot, "../../packages/opencode-release/prepare.mjs"),
-    "--mode", "development", "--check",
-  ], { stdio: "inherit" });
-  if (check.status !== 0) process.exit(check.status ?? 1);
+    "--mode", "development", "--check", "--with-engine-binary", "--run",
+    ...(existsSync(builtCli) ? [process.execPath, builtCli] : ["bun", sourceCli]), ...args,
+  ]);
 }
 
 if (existsSync(builtCli)) {
