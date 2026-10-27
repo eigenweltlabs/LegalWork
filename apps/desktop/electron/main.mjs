@@ -2561,6 +2561,9 @@ const desktopCommandHandlers = {
   "audioSystemDictationGet": async (event, ...args) => {
       return systemDictation.status();
   },
+  "audioMiniBarSetEnabled": async (event, ...args) => {
+      return systemDictation.setMiniBarEnabled(args[0]);
+  },
   "audioSystemDictationSetAppearance": async (event, ...args) => {
       return systemDictation.setAppearance(args[0]);
   },
