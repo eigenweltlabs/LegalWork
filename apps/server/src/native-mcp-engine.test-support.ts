@@ -26,9 +26,9 @@ export async function nativeOAuthProvider(environment: Record<string, string> = 
   } catch (error) { await close(); throw error; }
 }
 
-export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>)) {
+export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>), parentOwnedRoot?: string) {
   if (!nativeMcpBinary) throw new Error("Released OpenCode binary is required");
-  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
+  const root = await realpath(parentOwnedRoot ?? await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
   for (const name of ["home", "config", "data", "cache", "state", "project", "other"]) await mkdir(join(root, name));
   const directory = join(root, "project"), other = join(root, "other");
   const prepared = typeof configuration === "function" ? await configuration(root) : configuration;
@@ -45,6 +45,8 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
     restart: async () => { await engine.close(); engine = await createManagedOpencodeServer(options); },
     close: async () => {
       await engine.close();
+      // An external fixture owner removes its root after this process exits.
+      if (parentOwnedRoot !== undefined) return;
       try { await rm(root, { recursive: true, force: true }); }
       catch (error) {
         // Observe the original cleanup failure without retrying or masking it.
