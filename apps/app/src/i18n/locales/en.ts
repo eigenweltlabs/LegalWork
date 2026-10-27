@@ -4458,6 +4458,8 @@ export default {
   "onboarding_audio.transcription_title": "Where should transcription happen?",
   "onboarding_audio.transcription_description": "Choose how LegalWork turns audio into text. You can change this later in Settings.",
   "onboarding_audio.transcription_device": "On this device",
+  "onboarding_audio.transcription_local_description": "Requires a model download and uses your computer’s CPU power.",
+  "onboarding_audio.transcription_cloud_description": "High quality transcription in the cloud, in your region, with zero data retention (ZDR).",
   "onboarding_audio.local_model_installed": "The {model} speech model is already downloaded.",
   "onboarding_audio.local_model_download": "Download the {model} speech model ({size}) to get started.",
   "onboarding_audio.setup_ready": "Ready to use",

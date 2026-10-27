@@ -5,7 +5,7 @@ import { isTranscriptionReady, useRecorderStore } from "../recorder/recorder-sto
 export type TranscriptionChoice = { source: "local" | "cloud"; modelId: string };
 export type TranscriptionOption = TranscriptionChoice & { title: string; description: string; disabled?: boolean };
 
-/** The draft is deliberately independent of the profile's saved selection. */
+/** Choices stay in the setup draft until the user confirms. */
 export function TranscriptionChoices(props: {
   value: TranscriptionChoice | null;
   options: TranscriptionOption[];

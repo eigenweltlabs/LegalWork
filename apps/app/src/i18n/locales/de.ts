@@ -4713,6 +4713,8 @@ const de = {
   "onboarding_audio.transcription_title": "Wo soll transkribiert werden?",
   "onboarding_audio.transcription_description": "Wählen Sie, wie LegalWork Audio in Text umwandelt. Sie können dies später in den Einstellungen ändern.",
   "onboarding_audio.transcription_device": "Auf diesem Gerät",
+  "onboarding_audio.transcription_local_description": "Erfordert einen Modelldownload und nutzt die CPU-Rechenleistung Ihres Computers.",
+  "onboarding_audio.transcription_cloud_description": "Hochwertige Transkription in der Cloud, in Ihrer Region, mit Zero Data Retention (ZDR).",
   "onboarding_audio.local_model_installed": "Das Sprachmodell {model} ist bereits heruntergeladen.",
   "onboarding_audio.local_model_download": "Laden Sie das Sprachmodell {model} ({size}) herunter, um loszulegen.",
   "onboarding_audio.setup_ready": "Einsatzbereit",

@@ -34,7 +34,7 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-test("existing cloud profile opens with no choice selected and no preference writes", () => {
+test("an unselected draft does not infer a choice from the saved profile or write preferences", () => {
   const html = renderToStaticMarkup(<TranscriptionChoices value={null} options={[
     { source: "local", modelId: "whisper-small", title: "On this device", description: "Local" },
     { source: "cloud", modelId: "cloud-eu", title: "Cloud · Europe", description: "Cloud" },

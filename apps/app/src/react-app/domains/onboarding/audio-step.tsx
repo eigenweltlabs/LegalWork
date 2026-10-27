@@ -228,16 +228,16 @@ export function AudioStep(props: {
   };
   const localInstalled = demo ? sim.model === "installed" : recommendedModel?.state === "installed";
   const transcriptionOptions: TranscriptionOption[] = [
+    ...(demo ? [] : bootstrap?.cloud?.models ?? []).filter(model => model.enabled && model.available).map<TranscriptionOption>(model => ({
+      source: "cloud", modelId: model.model, title: cloudModelName(model.region),
+      description: t("onboarding_audio.transcription_cloud_description"),
+    })),
     {
       source: "local", modelId: recommended.modelId,
       title: t("onboarding_audio.transcription_device"),
-      description: t("recorder.transcription_local_description"),
+      description: t("onboarding_audio.transcription_local_description"),
       disabled: !demo && (!recommendedModel || bootstrap?.engine.available === false),
     },
-    ...(demo ? [] : bootstrap?.cloud?.models ?? []).filter(model => model.enabled && model.available).map<TranscriptionOption>(model => ({
-      source: "cloud", modelId: model.model, title: cloudModelName(model.region),
-      description: t("recorder.transcription_cloud_note"),
-    })),
   ];
   const chosenOption = transcriptionOptions.find(option => option.source === transcriptionChoice?.source && option.modelId === transcriptionChoice.modelId && !option.disabled);
   const model: RecorderSetupRequirement = {
@@ -295,7 +295,11 @@ export function AudioStep(props: {
     feature={props.feature}
     demo={demo}
     loading={checkingReadiness}
-    onSetupStart={() => setTranscriptionChoice(null)}
+    onSetupStart={() => {
+      const cloud = transcriptionOptions.find(option => option.source === "cloud" && option.modelId === store.cloudModelId)
+        ?? transcriptionOptions.find(option => option.source === "cloud");
+      setTranscriptionChoice(cloud ? { source: cloud.source, modelId: cloud.modelId } : null);
+    }}
     meetingRequirements={[microphone, ...(sysApplies ? [systemAudio] : []), model]}
     dictationRequirements={[microphone, ...dictationAccess, model]}
     onBack={props.onBack}
