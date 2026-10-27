@@ -79,6 +79,8 @@ jobs:
         run: pnpm test:drafts
       - name: Test Windows Outlook handoff
         run: node --test apps/desktop/electron/mail-draft.test.mjs
+      - name: Test detailed support exports on Windows
+        run: node --test apps/desktop/electron/technical-support-bundle.test.mjs
       - name: Test packaged server archive imports on Windows
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 

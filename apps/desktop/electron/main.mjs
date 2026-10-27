@@ -41,7 +41,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
-import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
+import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -372,7 +372,7 @@ async function showSupportLogsProgressWindow(parent) {
 // path, or null when the user cancels the dialog. `runtimeManager` is created
 // later at module scope; the click/IPC always happens after startup, so the
 // late binding via closure is safe.
-async function collectSupportLogsAndReveal() {
+async function collectSupportLogsAndReveal(technical = false, days = 7) {
   let defaultDir;
   try {
     defaultDir = app.getPath("desktop");
@@ -381,9 +381,9 @@ async function collectSupportLogsAndReveal() {
   }
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   const options = {
-    title: "Save Support Logs",
-    defaultPath: path.join(defaultDir, defaultSupportBundleFileName()),
-    filters: [{ name: "Text", extensions: ["txt"] }],
+    title: technical ? "Export Technical Diagnostics" : "Save Support Logs",
+    defaultPath: path.join(defaultDir, technical ? defaultSupportBundleFileName().replace("support-", "diagnostics-").replace(/\.txt$/, ".json") : defaultSupportBundleFileName()),
+    filters: technical ? [{ name: "JSON", extensions: ["json"] }] : [{ name: "Text", extensions: ["txt"] }],
   };
   const { canceled, filePath } = parent
     ? await dialog.showSaveDialog(parent, options)
@@ -392,6 +392,12 @@ async function collectSupportLogsAndReveal() {
 
   const progressWindow = await showSupportLogsProgressWindow(parent);
   try {
+    if (technical) {
+      const text = await collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days });
+      writeFileSync(filePath, text, { encoding: "utf8", mode: 0o600 });
+      shell.showItemInFolder(filePath);
+      return filePath;
+    }
     // Give the progress window one paint before the synchronous diagnostics
     // snapshot starts probing binaries and reading log tails.
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -1892,6 +1898,7 @@ const desktopCommandHandlers = {
       const bundlePath = await collectSupportLogsAndReveal();
       return { path: bundlePath };
   },
+  "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {
       return runtimeManager.runtimeStatus();
   },
