@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { nativeMcpEngine } from "../native-mcp-engine.test-support.js";
@@ -18,6 +20,24 @@ const traceSchema = z.object({ phase: z.enum(["before", "after"]), tool: z.strin
 const approvalSchema = z.object({ items: z.array(z.object({ id: z.string(), sessionID: z.string().optional(), network: z.object({ complete: z.literal(true), sha256: z.string(), body: z.string(), bodyBytes: z.number(), headers: z.record(z.string(), z.string()) }).optional() })) });
 
 test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy with complete private transport and Stop", async () => {
+  const childRoot = process.env.LEGALWORK_RAW_HTTP_ENGINE_FIXTURE;
+  if (!childRoot) {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-raw-http-")));
+    // Full-server stores live for the process. Reap their owner before deleting
+    // the profile, matching the existing full-server fixtures on Windows.
+    try {
+      const child = Bun.spawn([process.execPath, "test", "--preload", resolve(import.meta.dir, "../../test-preload.ts"),
+        ...(process.env.LEGALWORK_TEST_CANDIDATE_DIRECTORY ? ["--preload", resolve(import.meta.dir, "../../../../packages/opencode-release/build/validation-preload.mjs")] : []),
+        import.meta.filename], {
+        env: { ...process.env, LEGALWORK_RAW_HTTP_ENGINE_FIXTURE: root }, stdout: "inherit", stderr: "inherit",
+      });
+      expect(await child.exited).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+    expect(existsSync(root)).toBe(false);
+    return;
+  }
   const providerRequests: unknown[] = [], hits: Array<{ path: string; method: string; headers: Record<string, string>; bytes: number; sha256: string }> = [];
   const codes = new Map<string, string>(), rounds = new Map<string, number>();
   const bodyStarted = new Map<string, () => void>();
@@ -79,7 +99,7 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       observerBundle = await readFile(join(observer, "index.js"));
       return { plugins: [{ package: plugin }, { package: observer }], model: "openai/fixture", permissions: [{ action: "*", resource: "*", effect: "allow" }],
         providers: { openai: { settings: { baseURL: `${provider.url.origin}/v1`, apiKey: "synthetic-local-only", transport: "http" }, models: { fixture: { modelID: "fixture", limit: { context: 128000, output: 4096 }, capabilities: { tools: true } } } } } };
-    });
+    }, childRoot);
     if (!config || !server) throw new Error("HTTP fixture setup failed");
     const runningEngine = engine;
     const managedConfig = config, base = `http://127.0.0.1:${server.port}`, connection = runningEngine.connection();
