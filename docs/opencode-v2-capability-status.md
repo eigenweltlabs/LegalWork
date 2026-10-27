@@ -33,8 +33,10 @@ All six final app/package/startup checks remain a distinct completion gate.
 The older candidate40475853243 passes full Linux x64/ARM64 and Mac ARM64 app
 acceptance plus both full unit jobs. Both Windows app jobs stop at two fixture
 comparisons of 8.3 versus long Windows paths; c54ec087 canonicalizes the physical
-paths on both sides while retaining negative checks. The Intel app result is
-still being collected. Historical source/distribution results are retained under
+paths on both sides while retaining negative checks. Intel passes its corrected
+network probe, then fails final app startup because no server-state file appears.
+The original assertion remains required; failure diagnostics are being added to
+preserve the cause from the ephemeral runner. Historical results remain under
 their original identities, rather than counted as final adopted-build evidence.
 
 The user approved retiring bare standalone downloads. Remove automatic URL/mirror
