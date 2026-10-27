@@ -198,6 +198,7 @@ process.once("SIGTERM", () => void stopAll(143));
 
 if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], { cwd: desktopRoot });
+  runSync(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
 }
