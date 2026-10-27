@@ -149,7 +149,9 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
     }
     if (!base) throw new Error(`Engine did not start: ${logs}`);
     const client = OpenCode.make({ baseUrl: base, headers: { authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` } });
-    for (const directory of [otherFolder, folder]) await client.agent.list({ location: { directory } }, { signal: AbortSignal.timeout(15000) });
+    // Match scheduledRunner.send: model discovery awaits native plugin activation;
+    // agent metadata alone can return before configured agents are registered.
+    for (const directory of [otherFolder, folder]) await client.model.list({ location: { directory } }, { signal: AbortSignal.timeout(15000) });
     const empty = await client.session.create({ location: { directory: otherFolder }, title: "Other project chat" });
     await client.session.remove({ sessionID: empty.id });
     const sourceSession = await client.session.import({ info: empty, location: { directory: otherFolder }, messages: Array.from({ length: 23 }, (_, index) => ({ type: "user", id: `msg_source_${index}`, time: { created: index + 1 }, text: `Source message ${index}: Continue the contract review.` })) });
