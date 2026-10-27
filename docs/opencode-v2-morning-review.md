@@ -6,9 +6,84 @@ response IDs. The conservative ledger still holds €57.76 because its existing
 settlement API cannot update those already settled estimates; originals and two
 uncertain historical holds are preserved. This is distinct from actual charges.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
-The migration branch is pushed for CI; no release or default-engine switch has occurred.
+Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 26 October, 21:18 UTC
+## Current checkpoint — 27 October, 09:55 UTC
+
+The user chose to finish and freeze OpenCode 2.1.4. Stable 2.2.0 appeared today;
+its source audit is retained for a later upgrade. It needs a real patch/build
+adaptation and fresh acceptance, so its release notes are not counted as
+improvements in this migration.
+
+The approved normal source-build route is implemented: developer builds prepare
+only their host engine, verify and reuse unchanged outputs, and bundle the engine
+with the app. Production builds use the pinned upstream source, official frozen
+Bun dependency graph and exact compiler, sign before generating immutable file
+pins, and supply the complete verified distribution to each app build. The normal
+entry points share this preparation; runtime startup does not compile source.
+No separate public engine release or new runtime dependency is needed.
+
+Fresh [source-build acceptance40482058927](https://github.com/eigenweltlabs/legalwork/actions/runs/40482058927)
+at09bea36f has passed cold native compilation and seven actual engine/tool tests
+(162 assertions) on Mac ARM64, Mac Intel, Linux x64 and Linux ARM64. Each also
+passes unchanged-output cache reuse. Both Windows native-source jobs failed before
+compilation because Git changed pinned patch bytes to CRLF. The bounded correction
+preserves LF in reviewed build inputs and both upstream clones; all original pins
+remain unchanged. It requires an actual Windows successor run. These four source
+checks do not replace final app/package/startup acceptance on all six platforms.
+
+The preceding candidate run40475853243 passed complete Linux x64/ARM64 and Mac
+ARM64 app checks. Its Windows app jobs stopped at two test comparisons between
+short and long spellings of the same physical path; the tests now canonicalize
+both sides while retaining escape/missing-file checks. Intel Mac app checks are
+still being collected. Both complete Linux/Mac unit jobs passed. Earlier results
+retain their exact source/distribution identities; they cannot be relabelled as
+the final normal source build.
+
+The user approved retiring bare standalone executable downloads. CLI URL/download
+fallbacks and the separate raw-sidecar release route are being removed. Desktop,
+Node development, manual server URL/token connections and complete existing NPM
+platform packages remain. Desktop agent tools use the embedded server and local
+packaged sandbox, independently of the retired downloader. No new standalone
+archive delivery format is being introduced.
+
+Ordinary UI /compact, native context, useful scheduling and queue restart/Resume
+remain functionally accepted with the detailed qualifications below. The complete
+local compact evidence is retained; two later guest-only whole-state backups were
+not confirmed offloaded before interruption. The last confirmed model charge
+above is a dated receipt, not a fresh balance. No new paid model calls were needed
+for this source-build work. Final migration completion still requires the final
+integrated six-platform acceptance; percentages and unsupported finish times are
+not being used.
+
+## Previous checkpoint — 26 October, 21:46 UTC
+
+The migration remains unfinished. Public engine publication was explicitly
+declined; migration source pushes and CI remain authorized. No release, tag or
+public binary assets will be published. Final consumption is being prepared
+through existing local archives and CI artifacts, with all exact pins retained.
+
+All six sandbox runtime suites pass. Complete normal app-package, renderer and
+actual .3 startup checks now pass on Linux x64, Linux ARM64 and Mac ARM64; each
+also passes seven native engine/tool tests with162 assertions. Intel Mac has
+finished building and is running its engine/tool checks. Both Windows package
+jobs found the same drive-letter archive bug before app build. The small native
+Windows tar fix is committed; both architecture retests are running separately.
+
+Ordinary UI /compact now passes on the fresh normal Linux package in the same
+retained chat. Its closed evidence is awaiting root review. Native-API context,
+useful once-only scheduling and queue restart/Resume remain functionally accepted.
+The full Mac unit job also passes. Linux's independent scheduled-agent boundary
+assertion remains unresolved: local Mac and isolated Linux controls pass, and the
+next CI run retains the exact returned policy on failure. No guard was weakened.
+
+The old sandbox-engine test fixture is now ported to native v2 APIs and passes
+the actual protected Mac VM check (33 assertions); successor CI still needs to
+consume it. An inherited diagnostic-export password leak is also fixed with a
+one-line serializer change and a focused regression; live engine credentials
+and all useful diagnostics remain intact.
+
+## Previous checkpoint — 26 October, 21:18 UTC
 
 Three subagents and the orchestrator are active, the session's maximum. Platform
 acceptance, fresh normal-app context acceptance and independent final integration
