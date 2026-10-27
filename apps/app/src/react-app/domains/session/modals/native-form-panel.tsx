@@ -56,7 +56,7 @@ export function NativeFormPanel(props: {
     );
   const inputClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
   const passwordRequest = browserPasswordRequest(props.form.metadata);
-  if (passwordRequest) return <div className="p-3">
+  if (passwordRequest) return <div className="w-full">
     <InteractionSource session={props.sourceSession} onOpenSession={props.onOpenSession} />
     <BrowserPasswordForm request={passwordRequest} client={props.client} busy={props.busy}
       onComplete={id => props.onReply(props.form.fields.map(field => [field.key === "password_id" ? id : field.key === "cancelled" ? "false" : ""]))}

@@ -24,7 +24,7 @@ When asking what was said previously, name the chat or topic and let the assista
 
 ## Connected services
 
-When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card above the chat input. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
+When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card inline in the conversation. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
 
 Connect cloud storage and other services through **Settings > Integrations**. Their account permissions apply separately from local folder permissions. A separately operated LegalWork server uses its own URL and access token and must remain reachable; its credentials and files belong to that server. Adding a remote agent as a workspace is no longer supported. Treat connection tokens as credentials.
 

@@ -359,5 +359,28 @@
   "privacy": "Synthetic sign-in values were entered into the masked inline UI. Native answers contain only saved-entry UUID and cancellation. Serialized native messages contain no synthetic password. No real account was used for sign-in testing. Synthetic entries were removed by their exact created IDs.",
   "cost": "Native token counts are recorded per assistant response. Native engine reported zero cost; actual provider billing is unavailable and is not assumed zero. Preliminary diagnostic runs are not included in these final-run token counts.",
   "limitations": "Full login still includes native browser recovery errors; this change does not establish optimal browser tool counts or fix all existing browser interaction behavior. Packaged-app acceptance remains separate.",
-  "testCleanupIncident": "A preliminary test controller ran against the old in-process backend, which ignored the new origin filter. Its cleanup mistakenly deleted an existing DeepL entry from the development vault. Recovery was unsuccessful and the user was informed. The controller was corrected to delete only its exact created ID before final validation. Production data was untouched."
+  "testCleanupIncident": "A preliminary test controller ran against the old in-process backend, which ignored the new origin filter. Its cleanup mistakenly deleted an existing DeepL entry from the development vault. Recovery was unsuccessful and the user was informed. The controller was corrected to delete only its exact created ID before final validation. Production data was untouched.",
+  "presentationRevision": {
+    "date": "2026-10-27",
+    "layout": "The credential request uses the same InlineCard/header/footer as email drafts and renders in the conversation, outside the composer. Compact border-separated fields and footer actions replace the oversized form.",
+    "electronCheck": {
+      "inConversation": true,
+      "outsideComposer": true,
+      "cardCount": 1,
+      "width": 672,
+      "height": 319,
+      "masked": true,
+      "headerCompact": "12px",
+      "buttonsInsideForm": true,
+      "passed": true,
+      "reloadRestored": true,
+      "cancelViaUI": true,
+      "passwordNeverSaved": true,
+      "noSecretInNativeAnswer": true,
+      "modelCalls": 0
+    },
+    "appTests": 30,
+    "typecheck": true,
+    "note": "A separate native-form fixture verified the actual development renderer, reload and Cancel. Synthetic text was typed into the masked input and never saved. No model calls, mailbox operations or vault mutations were needed for this presentation check."
+  }
 }

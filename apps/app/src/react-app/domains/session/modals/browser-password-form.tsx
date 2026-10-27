@@ -1,11 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LoaderCircle } from "lucide-react";
+import { KeyRound, LoaderCircle, LockKeyhole } from "lucide-react";
 import type { BrowserPasswordRequest } from "@legalwork/types/browser-password-request";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { InlineCard, InlineCardFooter, InlineCardHeader } from "@/components/chat/inline-card";
 import { t } from "@/i18n";
 
 /** Password state belongs only to this card, never the chat/form answer cache. */
@@ -45,37 +45,45 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
       if (active.current) setSaving(false);
     }
   };
-  return <form className="space-y-3 rounded-xl border border-dls-border bg-dls-surface p-4" data-private data-ph-mask
-    onSubmit={event => { event.preventDefault(); void save(); }}>
-    <div className="flex items-center gap-2"><KeyRound className="size-4" /><h3 className="text-sm font-semibold">{t("browser_password_request.title")}</h3></div>
-    <p className="break-all text-sm font-medium">{request.website}</p>
-    <p className="text-xs text-muted-foreground">{t("browser_password_request.description")}</p>
-    {!available ? <p role="alert" className="text-sm text-muted-foreground">{t("browser_password_request.unavailable")}</p> : null}
-    {existing.isLoading ? <p role="status" className="text-sm text-muted-foreground">{t("settings.browser_passwords.loading")}</p> : null}
-    {existing.error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{t("browser_password_request.load_failed")}</p>
-      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => void existing.refetch()}>{t("browser_password_request.retry")}</Button></div> : null}
-    {entryId ? <div className="space-y-2">
-      <p role="status" className="text-sm">{t("browser_password_request.saved")}</p>
-      {entries.length > 1 ? <select aria-label={t("browser_password_request.account")} className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={entryId} disabled={disabled}
-        onChange={event => setSelectedId(event.currentTarget.value)}>
-        {entries.map(entry => <option key={entry.id} value={entry.id}>{entry.label}{entry.username ? ` · ${entry.username}` : ""}</option>)}
-      </select> : null}
-    </div> : <div className="space-y-3">
-      <Field><FieldLabel htmlFor={`${id}-username`}>{t("settings.browser_passwords.username")}</FieldLabel>
-        <Input id={`${id}-username`} autoComplete="username" value={username} maxLength={500} disabled={disabled || !available} onChange={event => setUsername(event.currentTarget.value)} />
-      </Field>
-      <Field><FieldLabel htmlFor={`${id}-password`}>{t("settings.browser_passwords.password")}</FieldLabel>
-        <Input id={`${id}-password`} type="password" autoComplete="current-password" value={password} required maxLength={10000} disabled={disabled || !available} onChange={event => setPassword(event.currentTarget.value)} />
-      </Field>
-    </div>}
-    {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    <div className="flex flex-wrap gap-2">
-      <Button type="submit" size="sm" disabled={disabled || !available || existing.isLoading || Boolean(existing.error) || !entryId && !password}>
-        {saving ? <LoaderCircle className="size-4 animate-spin" /> : null}
-        {t(saving ? "settings.environment.saving" : entryId ? "browser_password_request.continue" : "browser_password_request.save")}
-      </Button>
-      <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => { setPassword(""); onCancel(); }}>{t("settings.environment.cancel")}</Button>
-    </div>
-    <p className="text-xs text-muted-foreground">{t("browser_password_request.manage")}</p>
-  </form>;
+  const inputClass = "h-7 rounded-sm border-transparent bg-transparent px-0 text-sm shadow-none hover:enabled:border-transparent focus-visible:ring-0";
+  const rowClass = "grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-3 border-b border-border/50 px-5 py-2.5 focus-within:bg-muted/20";
+  return <InlineCard>
+    <form data-private data-ph-mask onSubmit={event => { event.preventDefault(); void save(); }}>
+      <InlineCardHeader icon={<KeyRound className="size-3.5 text-muted-foreground" />} title={t("browser_password_request.title")} />
+      <div className={rowClass}>
+        <span className="text-xs text-muted-foreground">{t("settings.browser_passwords.website")}</span>
+        <span className="min-w-0 break-all text-sm" title={request.website}>{request.website}</span>
+      </div>
+      {!available ? <p role="alert" className="px-5 py-3 text-xs text-muted-foreground">{t("browser_password_request.unavailable")}</p> : null}
+      {existing.isLoading ? <p role="status" className="px-5 py-3 text-xs text-muted-foreground">{t("settings.browser_passwords.loading")}</p> : null}
+      {existing.error ? <div role="alert" className="space-y-2 px-5 py-3 text-xs text-destructive"><p>{t("browser_password_request.load_failed")}</p>
+        <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => void existing.refetch()}>{t("browser_password_request.retry")}</Button></div> : null}
+      {entryId ? <div className="space-y-2 px-5 py-4">
+        <p role="status" className="text-sm">{t("browser_password_request.saved")}</p>
+        {entries.length > 1 ? <select aria-label={t("browser_password_request.account")} className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={entryId} disabled={disabled}
+          onChange={event => setSelectedId(event.currentTarget.value)}>
+          {entries.map(entry => <option key={entry.id} value={entry.id}>{entry.label}{entry.username ? ` · ${entry.username}` : ""}</option>)}
+        </select> : null}
+      </div> : <>
+        <div className={rowClass}>
+          <label htmlFor={`${id}-username`} className="text-xs text-muted-foreground">{t("browser_password_request.username")}</label>
+          <Input id={`${id}-username`} className={inputClass} autoComplete="username" value={username} placeholder={t("browser_password_request.optional")} maxLength={500} disabled={disabled || !available} onChange={event => setUsername(event.currentTarget.value)} />
+        </div>
+        <div className={rowClass}>
+          <label htmlFor={`${id}-password`} className="text-xs text-muted-foreground">{t("settings.browser_passwords.password")}</label>
+          <Input id={`${id}-password`} className={inputClass} type="password" autoComplete="current-password" value={password} required maxLength={10000} disabled={disabled || !available} onChange={event => setPassword(event.currentTarget.value)} />
+        </div>
+        <p className="px-5 py-3 text-xs text-muted-foreground">{t("browser_password_request.description")}</p>
+      </>}
+      {error ? <p role="alert" className="mx-5 mb-3 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}</p> : null}
+      <InlineCardFooter className="flex-wrap">
+        <span className="mr-auto flex items-center gap-1.5 text-[11px] text-muted-foreground" title={t("browser_password_request.manage")}><LockKeyhole className="size-3" />{t("browser_password_request.privacy")}</span>
+        <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => { setPassword(""); onCancel(); }}>{t("settings.environment.cancel")}</Button>
+        <Button type="submit" size="sm" disabled={disabled || !available || existing.isLoading || Boolean(existing.error) || !entryId && !password}>
+          {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+          {t(saving ? "settings.environment.saving" : entryId ? "browser_password_request.continue" : "browser_password_request.save")}
+        </Button>
+      </InlineCardFooter>
+    </form>
+  </InlineCard>;
 }
