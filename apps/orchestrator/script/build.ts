@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { engineBuildMode, prepareForBuild } from "../../../packages/opencode-release/prepare.mjs";
 import solidPlugin from "../node_modules/@opentui/solid/scripts/solid-plugin";
 
 const bunRuntime = (globalThis as typeof globalThis & {
@@ -126,6 +127,7 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
 }
 
 const options = readArgs(bun.argv.slice(2));
+await prepareForBuild({ mode: engineBuildMode(bun.argv.slice(2)) });
 const entrypoint = resolve("src", "cli.ts");
 const targets = options.targets.length ? options.targets : [undefined];
 

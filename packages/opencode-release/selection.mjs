@@ -1,15 +1,17 @@
 import path from "node:path";
 import { copyFile, lstat, mkdir, mkdtemp, realpath, rename, rm } from "node:fs/promises";
-import selection from "./selection.json" with { type: "json" };
+import selection from "./generated/selection.json" with { type: "json" };
+import { validateBuildSelection } from "./build-policy.mjs";
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./index.mjs";
 import { downloadDerivativeArchive, installLocalDerivativeEngine, verifyDerivativeDistributionContent, verifyInstalledDerivativeEngine } from "./derivative.mjs";
 
+await validateBuildSelection(selection);
 if (selection.schemaVersion !== 1 || selection.baseVersion !== opencodeRelease.version
   || !["official", "derivative"].includes(selection.kind)
   || selection.kind === "official" && selection.version !== opencodeRelease.version) throw new Error("The compiled OpenCode selection does not match its reviewed base API.");
 
-/** This file is build input, never a user setting or an environment override.
- * The official selection remains active until the derivative passes adoption. */
+/** Prepared build input, never a user setting or an environment override.
+ * Its source policy and exact artifact pins travel with every consumer. */
 export const opencodeEngineSelection = Object.freeze({ kind: selection.kind, version: selection.version, baseVersion: selection.baseVersion });
 
 let verifiedDistribution;

@@ -4,6 +4,7 @@ import path from "node:path";
 import release from "./release.json" with { type: "json" };
 import recipe from "./build/recipe.json" with { type: "json" };
 import { assembleDerivativeDistribution } from "./build/distribution.mjs";
+import { sourcePolicySha256, recipePolicySha256 } from "./build-policy.mjs";
 
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export const officialFixtureSelection = { schemaVersion: 1, kind: "official", version: release.version, baseVersion: release.version };
@@ -12,10 +13,21 @@ export const officialFixtureSelection = { schemaVersion: 1, kind: "official", ve
  * native-engine tests never receive a process-wide mock or trust override. */
 export async function writeFixtureReleaseLibrary(directory, selection = officialFixtureSelection) {
   await mkdir(path.join(directory, "build"), { recursive: true });
-  for (const name of ["package.json", "index.mjs", "release.json", "candidate.mjs", "derivative.mjs", "selection.mjs", "install.mjs", "build/recipe.json"]) {
+  await mkdir(path.join(directory, "generated"), { recursive: true });
+  for (const name of ["package.json", "index.mjs", "release.json", "candidate.mjs", "derivative.mjs", "selection.mjs", "install.mjs", "build-policy.mjs", "build/recipe.json"]) {
     await copyFile(new URL(name, import.meta.url), path.join(directory, name));
   }
-  await writeFile(path.join(directory, "selection.json"), JSON.stringify(selection));
+  if (selection.kind === "official") {
+    // Both compiled fixture inputs intentionally declare the historical base.
+    await writeFile(path.join(directory, "selection.json"), JSON.stringify(selection));
+  } else {
+    await copyFile(new URL("selection.json", import.meta.url), path.join(directory, "selection.json"));
+    selection = { ...selection, build: selection.build ?? {
+      schemaVersion: 1, mode: "development", sourcePolicySha256,
+      recipeSha256: recipePolicySha256, sourceKey: "f".repeat(64),
+    } };
+  }
+  await writeFile(path.join(directory, "generated", "selection.json"), JSON.stringify(selection));
   return directory;
 }
 

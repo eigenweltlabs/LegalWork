@@ -78,3 +78,7 @@ apps/desktop/resources/opencode-sdk/
 # Digest-verified OpenCode download archives used by local builds/tests.
 /.cache/opencode/
 /.cache/opencode-v2-release/
+
+# Engine source-build outputs; reviewed source policy stays tracked.
+/packages/opencode-release/generated/
+/.legalwork/opencode-build/

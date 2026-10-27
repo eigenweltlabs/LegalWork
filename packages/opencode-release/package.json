@@ -33,7 +33,9 @@
     "derivative.mjs",
     "derivative.d.mts",
     "derivative-release.json",
+    "build-policy.mjs",
     "selection.json",
+    "generated/selection.json",
     "selection.mjs",
     "selection.d.mts",
     "install.mjs"

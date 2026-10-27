@@ -52,23 +52,15 @@ test("an unpublished selected derivative fails clearly without local archives or
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("network installation takes its URL and authority only from the compiled selector", async () => {
+test("source-built selectors reject a runtime download URL before installation", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "downloaded-engine-install-")));
   try {
     const distributionRoot = path.join(root, "distribution"); await mkdir(distributionRoot);
     const distribution = await writeFixtureDerivativeDistribution(distributionRoot);
     const selection = { ...distribution.selection, downloadBaseUrl: "https://downloads.invalid/engine/" };
     const library = await writeFixtureReleaseLibrary(path.join(root, "library"), selection);
-    const { installSelectedEngineForHost } = await import(pathToFileURL(path.join(library, "install.mjs")));
-    const target = opencodeReleaseTarget(), artifact = distribution.manifest.artifacts[target];
-    const requests = [];
-    const installed = await installSelectedEngineForHost({ installRoot: path.join(root, "installed"), cacheDirectory: path.join(root, "cache"), fetcher: async url => {
-      requests.push(String(url));
-      return new Response(await readFile(path.join(distribution.archives, artifact.archive.filename)));
-    } });
-    assert.deepEqual(requests, [`${selection.downloadBaseUrl}${artifact.archive.filename}`]);
-    assert.equal(installed.version, selection.version);
-    assert.deepEqual((await readdir(path.dirname(installed.path))).sort(), Object.keys(artifact.files).sort());
+    await assert.rejects(import(pathToFileURL(path.join(library, "install.mjs"))), /runtime download URL is not permitted/);
+    await assert.rejects(readdir(path.join(root, "installed")), { code: "ENOENT" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

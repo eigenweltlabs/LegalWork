@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { prepareForBuild } from "../../../packages/opencode-release/prepare.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
@@ -198,8 +199,10 @@ process.once("SIGTERM", () => void stopAll(143));
 
 if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], { cwd: desktopRoot });
-  runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
+  runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--engine-mode", "development", "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
+} else {
+  await prepareForBuild({ mode: "development", checkOnly: true });
 }
 
 // pnpm installs native modules for the host Node.js version. Rebuild them for
