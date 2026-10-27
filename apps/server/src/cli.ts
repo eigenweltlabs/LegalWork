@@ -56,7 +56,7 @@ if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
