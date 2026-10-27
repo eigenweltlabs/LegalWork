@@ -44,7 +44,7 @@ for (const dir of ["apps/app/src", "apps/server/src", "apps/desktop/electron"]) 
     visit(source);
   }
 }
-const output = join(root, process.argv[2] ?? "docs/performance/request-inventory.json");
+const output = join(root, process.argv[2] ?? "tmp/performance/request-inventory.json");
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, JSON.stringify(inventory, null, 2) + "\n");
 console.log(JSON.stringify(Object.fromEntries(Object.entries(inventory).map(([key, rows]) => [key, rows.length]))));

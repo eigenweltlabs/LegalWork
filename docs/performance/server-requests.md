@@ -20,8 +20,8 @@ validation results supplement the implementation-run counts below.
 
 ## Inventory and review coverage
 
-Run `node scripts/request-inventory.mjs` to regenerate
-[request-inventory.json](request-inventory.json). This is a source-site inventory,
+Run `node scripts/request-inventory.mjs` to generate the local, Git-ignored
+`tmp/performance/request-inventory.json` artifact. This is a source-site inventory,
 not a count of unique runtime endpoints or a production traffic capture. It
 contains 383 explicit request-wrapper calls, 134 query configurations, 58 interval
 or serialized-poller sites, 372 direct route registrations, 128 fetch/bridge calls,
