@@ -39,6 +39,12 @@ In **Secrets**, add the exact environment-variable name expected by the integrat
 
 In **Tool Permissions**, inspect the displayed rule for the operation before changing it. Allowing a tool to run automatically can affect later chats as well as the current one. In workspace **Permissions**, add/remove the intended folder grant and check the selected workspace. Neither setting replaces provider consent or OS access grants.
 
+## Sandboxing
+
+During onboarding, the **Sandboxing** switch appears below the tool approval switches and is off by default. Turn it on to run commands inside a protected environment. **Sandbox network traffic** appears only while sandboxing is on; use it to control internet access for commands, page reads and web searches. Model connections, connected apps and browser tools keep their own permissions. You can change these defaults in **Settings > Tool Permissions**, and chats can override them unless firm policy locks them.
+
+If the app reports that sandboxing is unavailable, commands remain blocked while sandboxing is on. This indicates a runtime problem, not a missing network permission.
+
 ## Personalisation and memory
 
 Use **Personalisation > System prompt additions** to enter persistent writing instructions, then **Save**. These apply to chats on the current host. Choose a personality such as Default, Pragmatic or Professional if useful; individual models can follow tone differently. Project-specific instructions belong in the project's personalisation controls when available.
