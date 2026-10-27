@@ -485,6 +485,8 @@ export type DesktopCommandMap = {
   runtimeStatus: { args: []; result: unknown };
   /** Write a token-free support-log bundle and reveal it in the file manager. */
   supportBundleCollect: { args: []; result: { path: string | null } };
+  /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
+  technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };

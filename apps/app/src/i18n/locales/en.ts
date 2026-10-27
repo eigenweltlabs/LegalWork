@@ -5493,6 +5493,11 @@ export default {
   "updates.current_version": "Current version",
   "updates.release_channel": "Release channel",
   "updates.support_logs_title": "Support logs",
+  "updates.technical_diagnostics_title": "Detailed support export",
+  "updates.technical_diagnostics_desc": "Export runtime logs, execution traces, model details, errors and tool arguments and results for the selected period. User and assistant message text is removed. Traces include file paths and may contain document excerpts. Review the local JSON file before sharing it with support.",
+  "updates.technical_diagnostics_export": "Export diagnostic traces",
+  "updates.technical_diagnostics_days": "Days",
+  "updates.technical_diagnostics_days_invalid": "Enter a whole number from 1 to 365.",
   "updates.support_logs_desc":
     "If something doesn't work, save this file and send it to our support team. It contains technical details about recent errors.",
   "updates.support_logs_saved": "Saved to {path}. Please send this file to our support team.",

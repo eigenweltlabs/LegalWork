@@ -5807,6 +5807,11 @@ const de = {
   "updates.current_version": "Aktuelle Version",
   "updates.release_channel": "Release-Kanal",
   "updates.support_logs_title": "Support-Protokolle",
+  "updates.technical_diagnostics_title": "Ausführlicher Support-Export",
+  "updates.technical_diagnostics_desc": "Exportiert Laufzeitprotokolle, Ausführungsabläufe, Modelldetails, Fehler sowie Werkzeugparameter und Ergebnisse für den gewählten Zeitraum. Texte der Nutzer- und Assistentennachrichten werden entfernt. Die Diagnose enthält Dateipfade und kann Dokumentauszüge enthalten. Prüfen Sie die lokale JSON-Datei, bevor Sie sie an den Support weitergeben.",
+  "updates.technical_diagnostics_export": "Diagnoseabläufe exportieren",
+  "updates.technical_diagnostics_days": "Tage",
+  "updates.technical_diagnostics_days_invalid": "Geben Sie eine ganze Zahl zwischen 1 und 365 ein.",
   "updates.support_logs_desc":
     "Wenn etwas nicht funktioniert, speichern Sie diese Datei und senden Sie sie an unseren Support. Sie enthält technische Details zu den letzten Fehlern.",
   "updates.support_logs_saved": "Gespeichert unter {path}. Bitte senden Sie diese Datei an unseren Support.",
