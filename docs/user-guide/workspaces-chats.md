@@ -22,6 +22,10 @@ The command palette searches available navigation/actions. File/document tabs ke
 
 When asking what was said previously, name the chat or topic and let the assistant read the returned transcript. A chat transcript is a record of that discussion, not independent evidence about a matter. For current matter facts, use the connected source documents.
 
+## Amounts and formulas in answers
+
+Answers display mathematical formulas and monetary calculations with their formatting, including euro amounts. This also applies when you reopen an earlier chat. Plain prices and examples inside code blocks keep their original text. A formula may appear as text while the assistant is still writing it and becomes formatted when it is complete. Wide formulas scroll horizontally within the answer.
+
 ## Remote access
 
 Use the remote connection flow with a LegalWork worker URL and its access token/password. The host must be reachable and running. A collaborator connection has fewer administrative powers than owner/host access. Sharing a worker gives access to that runtime under its permissions; it does not make a folder publicly available by itself. Treat a sharing token as a credential. Check the sharing details again after switching the host's active local folder.
