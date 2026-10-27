@@ -34,5 +34,26 @@
     "serverAppDesktopTypechecks": "passed",
     "frozenLockfileSupplyChainCheck": "passed"
   },
-  "qualification": "This records the existing user session and deterministic/native verification. It does not claim a new successful real-model login, authenticated account session, or improved model latency."
+  "qualification": "This records the existing user session and deterministic/native verification. It does not claim a new successful real-model login, authenticated account session, or improved model latency.",
+  "full_development_app_smoke": {
+    "passed": true,
+    "serverReady": true,
+    "engineReady": true,
+    "currentWebsite": "https://auth.deepl.com",
+    "existingSavedEntryFound": true,
+    "retainedAfterTurn": true,
+    "sameTabReconnected": true,
+    "chatOwnershipPreserved": true,
+    "background": true,
+    "passwordFilled": false,
+    "passwordValuesRetrieved": false,
+    "modelCalls": 0
+  },
+  "development_restart": {
+    "generatedRuntimeBundlesRebuilt": true,
+    "generatedHelpPlaceholdersReplaced": true,
+    "cause": "macOS hidden,compressed,dataless placeholders blocked filesystem reads/writes of bundled help files in the existing Test project. Generated copies were replaced atomically from the app bundle.",
+    "authoredDocumentsOrCredentialsChanged": false,
+    "serverAndEngineRunning": true
+  }
 }
