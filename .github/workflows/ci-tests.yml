@@ -129,6 +129,10 @@ jobs:
           pnpm --filter @legalwork/app typecheck
           pnpm --filter legalwork-server build
 
+      - name: Check packaged OpenCode plugins are self-contained
+        if: runner.os == 'Linux'
+        run: node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
+
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
 
