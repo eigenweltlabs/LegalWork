@@ -88,6 +88,8 @@ export type AiPlansOverlayProps = {
   account: AiPlansAccount | null;
   /** The LegalWork server is up. Every action needs it. */
   serverReady: boolean;
+  /** Project approval must stay reachable while this screen covers the app. */
+  projectApproval?: ReactNode;
   initialSeats?: number;
   /** Bind the sign-in loopback and return the platform URL to open. */
   onStartSignIn: (opts: {
@@ -966,6 +968,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
+          {props.projectApproval}
           <div className={cn("flex flex-1 flex-col justify-center py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
             {body}
           </div>
