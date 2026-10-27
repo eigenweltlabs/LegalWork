@@ -175,3 +175,11 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Retain redacted synthetic startup failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-startup-failure-${{ matrix.os }}-${{ matrix.arch }}
+          path: apps/desktop/.test-artifacts/packaged-startup/
+          if-no-files-found: ignore
+          retention-days: 7
