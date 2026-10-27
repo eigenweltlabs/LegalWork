@@ -1039,7 +1039,8 @@ export class RecorderService {
 
     const meta = recording.meta;
     meta.speakerProcessing = background;
-    meta.summaryProcessing = Boolean(recording.segments.length && recording.meetingNotes?.enabled);
+    const summarize = Boolean(recording.segments.length && recording.meetingNotes?.enabled);
+    meta.summaryProcessing = false;
     meta.durationMs = stoppedAt - recording.startedAt;
     meta.sizeBytes = recording.sizeBytes;
     meta.segmentCount = recording.segments.length;
@@ -1077,7 +1078,7 @@ export class RecorderService {
       this.speakerJobs.set(recordingId, job);
     }
     this.activeRecordings.delete(recordingId);
-    if (meta.summaryProcessing) {
+    if (summarize) {
       const controller = new AbortController();
       const promise = Promise.resolve().then(() => this.finishMeetingNotes(recordingId, recording, controller.signal))
         .finally(() => { this.summaryJobs.delete(recordingId); });
@@ -1121,7 +1122,17 @@ export class RecorderService {
       if (signal.aborted) return;
       const detail = await this.getRecording(recordingId);
       if (!detail || detail.meta.transcriptionSource !== "cloud" || detail.meta.ephemeral) return;
+      if (detail.meta.speakerProcessing) throw new Error("Wait for speaker detection to finish before generating the summary.");
       if (!this.generateMeetingNotes) throw new Error("Meeting notes are unavailable. Your transcript is saved.");
+      if (!detail.meta.summaryProcessing) {
+        const started = await this.updateSavedTranscript(recordingId, saved => {
+          if (signal.aborted) throw new Error("Meeting notes cancelled.");
+          if (saved.meta.speakerProcessing) throw new Error("Wait for speaker detection to finish before generating the summary.");
+          return { ...saved, meta: { ...saved.meta, summaryProcessing: true, summaryError: undefined } };
+        });
+        this.broadcast({ type: "recording-updated", meta: started.meta });
+      }
+      if (signal.aborted) return;
       const result = await this.generateMeetingNotes({ model: detail.meta.modelId,
         transcript: detail.segments.map(segment => `[speaker:${segment.speaker ?? "unknown"}] ${segment.text.replace(/\s+/g, " ")}`).join("\n"),
         speakers: [...new Set(detail.segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker]))]

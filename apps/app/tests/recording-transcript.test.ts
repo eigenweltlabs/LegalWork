@@ -87,6 +87,17 @@ test("Summarize is disabled while processing is in progress", () => {
   }
 });
 
+test("speaker detection and summary generation are shown as successive stages", () => {
+  const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", summaryProcessing: true },
+    segments: [segment("saved", "Words", 0)] } satisfies AudioRecordingDetail;
+  const waiting = render({ ...detail, meta: { ...detail.meta, speakerProcessing: true } });
+  expect(waiting).not.toContain("Preparing meeting notes");
+  expect(waiting).not.toContain("Summarizing");
+  const generating = render({ ...detail, meta: { ...detail.meta, speakerProcessing: false } });
+  expect(generating).toContain("Preparing meeting notes");
+  expect(generating).toContain("Summarizing");
+});
+
 test("speaker turns group consecutive speech without changing input segments", () => {
   const segments = [segment("a", "First", 0), segment("b", "continued", 0), segment("c", "Reply", 1), segment("d", "Again", 0)];
   const turns = transcriptTurns(segments, null);

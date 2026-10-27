@@ -13,6 +13,7 @@ import { runInNewContext } from "node:vm";
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./audio/model-catalog.mjs";
 import { AudioModelManager } from "./audio/model-manager.mjs";
 import { RecorderService, assignSpeakers } from "./audio/recorder-service.mjs";
+import { DeferredCloudSpeakerPass } from "./audio/deferred-cloud-speakers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1240,6 +1241,62 @@ async function notesFixture(t, generateMeetingNotes) {
   };
   return { service, settings, record, userDataDir };
 }
+
+test("automatic notes wait for both speaker passes and saved final identities before reporting generation", async t => {
+  const gate = () => {
+    let release = () => {};
+    const promise = new Promise(resolve => { release = () => resolve(undefined); });
+    return { promise, release };
+  };
+  const mic = gate(), system = gate(), saving = gate(), saved = gate(), generating = gate(), response = gate();
+  t.after(() => { for (const pending of [mic, system, saving, saved, generating, response]) pending.release(); });
+  const calls = [];
+  const { service, settings } = await notesFixture(t, async input => {
+    calls.push(input);
+    generating.release();
+    await response.promise;
+    return { title: "Complete", summary: "Both final speakers." };
+  });
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"],
+    separateSources: true, meetingNotes: settings });
+  const recording = service.activeRecordings.get(meta.id);
+  for (const source of meta.sources) service.handleWorkerMessage({ type: "segment", streamId: `${meta.id}:${source}`,
+    id: "words", startMs: 0, endMs: 2000, text: `${source} words.` });
+  recording.speakerPasses = [mic, system].map((pending, id) => {
+    const pass = new DeferredCloudSpeakerPass({ recognize: async () => [], onTurns: () => {}, onError: assert.fail });
+    pass.finish = async () => {
+      await pending.promise;
+      recording.meta.speakerNames[id] = id === 0 ? "Chris" : "Johann";
+    };
+    return pass;
+  });
+  const sync = service.syncWorkspaceTranscripts.bind(service);
+  service.syncWorkspaceTranscripts = async (...args) => {
+    if (service.speakerJobs.has(meta.id)) { saving.release(); await saved.promise; }
+    return sync(...args);
+  };
+  await service.stopRecording(meta.id);
+  const pending = await service.getRecording(meta.id);
+  assert.equal(pending.meta.speakerProcessing, true);
+  assert.equal(calls.length, 0);
+  mic.release();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 0, "the system input must finish too");
+  system.release();
+  await saving.promise;
+  assert.equal(calls.length, 0, "final speaker metadata and workspace copies must finish saving");
+  saved.release();
+  await generating.promise;
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].speakers, [{ id: 0, label: "Chris" }, { id: 1, label: "Johann" }]);
+  const running = await service.getRecording(meta.id);
+  assert.equal(running.meta.speakerProcessing, false);
+  assert.equal(running.meta.summaryProcessing, true);
+  response.release();
+  await service.summaryJobs.get(meta.id)?.promise;
+  assert.equal((await service.getRecording(meta.id)).meta.summaryProcessing, false);
+  assert.equal(pending.meta.summaryProcessing, false, "waiting for speakers must not be reported as summarizing");
+});
 
 test("unverified provider voice splits keep source labels while refining timing", async t => {
   const { service } = await notesFixture(t, async () => ({}));

@@ -242,8 +242,10 @@ setting unchanged. The button waits for speaker processing, shows progress,
 allows retry after failure and disappears after success. Concurrent clicks share
 one request; deleting the recording cancels a pending request.
 
-Notes run after speaker processing, through the existing server and paid chat
-endpoint with a fresh organisation opt-in check. They count toward normal model
+Notes wait for every input's speaker pass and the final transcript and workspace
+copies to finish saving. Only then does the UI show summary generation in progress.
+They use the existing server and paid chat endpoint with a fresh organisation
+opt-in check, and count toward normal model
 usage. The default is OpenAI Luna in the same region, including when the catalog
 marks Luna as a reasoning model. Settings displays the resolved model name.
 If Luna is unavailable, the user must enable it or explicitly select another
