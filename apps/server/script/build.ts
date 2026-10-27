@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
+import { engineBuildMode, prepareForBuild } from "../../../packages/opencode-release/prepare.mjs";
 
 const bunRuntime = (globalThis as typeof globalThis & {
   Bun?: {
@@ -21,6 +22,7 @@ type BuildOptions = {
   targets: string[];
   outdir: string;
   filename: string;
+  engineMode: "development" | "production";
 };
 
 function readArgs(argv: string[]): BuildOptions {
@@ -28,6 +30,7 @@ function readArgs(argv: string[]): BuildOptions {
     targets: [],
     outdir: resolve("dist", "bin"),
     filename: "legalwork-server",
+    engineMode: engineBuildMode(argv),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -106,6 +109,7 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
 }
 
 const options = readArgs(bun.argv.slice(2));
+await prepareForBuild({ mode: options.engineMode });
 const raster = spawnSync(process.execPath, [resolve("scripts", "gen-tool-image-raster-code.ts")], { stdio: "inherit" });
 if (raster.status !== 0) process.exit(raster.status ?? 1);
 const plugins = spawnSync(process.execPath, [resolve("scripts", "build-opencode-plugins.ts")], { stdio: "inherit" });

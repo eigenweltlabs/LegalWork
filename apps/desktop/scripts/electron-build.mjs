@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { engineBuildMode } from "../../../packages/opencode-release/prepare.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
@@ -12,6 +13,7 @@ const packagedServerRoot = resolve(desktopRoot, "server");
 
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nodeCmd = process.execPath;
+const engineMode = engineBuildMode(process.argv.slice(2));
 
 function needsShell(command) {
   return process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
@@ -38,7 +40,7 @@ run(nodeCmd, [resolve(__dirname, "prepare-windows-arm64-speech.mjs")], desktopRo
 if (!existsSync(resolve(desktopRoot, "node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx"))) {
   throw new Error("Bundled dictation speech detector missing; install desktop dev dependencies before packaging.");
 }
-run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--engine-mode", engineMode, "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);

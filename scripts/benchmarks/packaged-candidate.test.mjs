@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { writeFixtureReleaseLibrary } from "../../packages/opencode-release/test-fixture.mjs";
 
 const source = new URL("./packaged-candidate.mjs", import.meta.url);
 const packageDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../packages/opencode-release");
@@ -13,9 +14,8 @@ async function fixture(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-packaged-candidate-"));
   try {
     const isolatedPackage = path.join(root, "node_modules", "@legalwork", "opencode-release");
-    await mkdir(path.join(isolatedPackage, "build"), { recursive: true });
+    await writeFixtureReleaseLibrary(isolatedPackage);
     const recipeText = await readFile(path.join(packageDirectory, "build", "recipe.json"), "utf8"), recipe = JSON.parse(recipeText);
-    for (const name of ["package.json", "release.json", "index.mjs", "derivative.mjs", "candidate.mjs", "selection.mjs", "selection.json"]) await copyFile(path.join(packageDirectory, name), path.join(isolatedPackage, name));
     await writeFile(path.join(isolatedPackage, "build", "recipe.json"), recipeText);
     const release = JSON.parse(await readFile(path.join(isolatedPackage, "release.json"), "utf8"));
     const digest = bytes => createHash("sha256").update(bytes).digest("hex");

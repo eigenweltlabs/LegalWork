@@ -1,6 +1,6 @@
 import { spawnSync } from "child_process";
 import { downloadOpencodeBinary, opencodeReleaseTarget } from "../electron/opencode-release.mjs";
-import { installSelectedOpencodeEngine, opencodeEngineSelection } from "@legalwork/opencode-release/selection";
+import { engineBuildMode, prepareForBuild } from "../../../packages/opencode-release/prepare.mjs";
 import { createHash } from "crypto";
 import {
   chmodSync,
@@ -240,9 +240,6 @@ const didBuildLegalworkServer = false;
 
 // Server binary copy/sign skipped — runs in-process.
 
-const declaredOpencodeBaseVersion = normalizeVersion(opencodeVersion);
-if (declaredOpencodeBaseVersion !== opencodeEngineSelection.baseVersion) throw new Error(`OpenCode base API in ${constantsPath} does not match its reviewed engine selection.`);
-const normalizedOpencodeVersion = opencodeEngineSelection.version;
 const releaseTargetByTriple = {
   "aarch64-apple-darwin": "darwin-arm64",
   "x86_64-apple-darwin": "darwin-x64-baseline",
@@ -255,6 +252,13 @@ const releaseTargetByTriple = {
 };
 const releaseTarget = releaseTargetByTriple[resolvedTargetTriple];
 if (!releaseTarget) throw new Error(`No reviewed OpenCode binary for target ${resolvedTargetTriple}`);
+const engineMode = engineBuildMode(process.argv.slice(2));
+const preparedEngine = await prepareForBuild({ mode: engineMode,
+  ...(engineMode === "development" ? { targets: [releaseTarget] } : {}) });
+const { installSelectedOpencodeEngine, opencodeEngineSelection } = await import("@legalwork/opencode-release/selection");
+const declaredOpencodeBaseVersion = normalizeVersion(opencodeVersion);
+if (declaredOpencodeBaseVersion !== opencodeEngineSelection.baseVersion) throw new Error(`OpenCode base API in ${constantsPath} does not match its reviewed engine selection.`);
+const normalizedOpencodeVersion = opencodeEngineSelection.version;
 // Re-verify the pinned archive even on incremental/offline builds. Never use
 // GitHub's latest (v1), npm tags, or an unverified PATH executable for packaging.
 const selectedEngineResources = resolve(sidecarDir, "..", "opencode-engine");
@@ -265,7 +269,7 @@ if (opencodeEngineSelection.kind === "derivative") {
   const installed = await installSelectedOpencodeEngine({
     directory: join(selectedEngineResources, normalizedOpencodeVersion, releaseTarget),
     cacheDirectory: process.env.LEGALWORK_OPENCODE_CACHE || resolve(__dirname, "../../../.cache/opencode-derivative"),
-    archiveDirectory: readArg("--opencode-archives") || process.env.LEGALWORK_OPENCODE_ARCHIVES,
+    archiveDirectory: preparedEngine.archiveDirectory,
     target: releaseTarget,
   });
   installedOpencodePath = installed.path;
@@ -307,6 +311,8 @@ if (shouldBuildOrchestrator) {
   }
   const orchestratorArgs = [
     orchestratorBuildScript,
+    "--engine-mode",
+    engineMode,
     "--outdir",
     sidecarDir,
     "--filename",

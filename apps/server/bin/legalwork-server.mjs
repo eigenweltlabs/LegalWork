@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -29,8 +29,18 @@ if (existsSync(compiledBinary)) {
   run(compiledBinary, args);
 }
 
+// Source checkouts must already have a current prepared selector. Published
+// compiled binaries retain their own immutable pins and do not load build code.
+if (existsSync(sourceCli)) {
+  const check = spawnSync(process.execPath, [
+    resolve(packageRoot, "../../packages/opencode-release/prepare.mjs"),
+    "--mode", "development", "--check",
+  ], { stdio: "inherit" });
+  if (check.status !== 0) process.exit(check.status ?? 1);
+}
+
 if (existsSync(builtCli)) {
-  run("bun", [builtCli, ...args]);
+  run(process.execPath, [builtCli, ...args]);
 }
 
 if (existsSync(sourceCli)) {
