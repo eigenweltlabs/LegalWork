@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import * as util from "../scripts/_util.mjs";
+import { opencodeReleaseTarget } from "../../../packages/opencode-release/index.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-e2e-path-test-"));
@@ -22,7 +23,7 @@ test("legacy explicit executable remains supported without a CI override", async
 
 test("default derivative paths preserve all six desktop target layouts", async t => {
   const resourcesDirectory = await fixture(t);
-  const selection = { kind: "derivative", version: "2.1.4-legalwork.http-policy.3" };
+  const selection = { kind: "derivative", version: "2.1.4-legalwork.http-policy.3", artifactId: "a".repeat(64) };
   for (const [platform, arch, target, filename] of [
     ["darwin", "arm64", "darwin-arm64", "opencode"],
     ["darwin", "x64", "darwin-x64-baseline", "opencode"],
@@ -31,10 +32,25 @@ test("default derivative paths preserve all six desktop target layouts", async t
     ["win32", "arm64", "windows-arm64", "opencode.exe"],
     ["win32", "x64", "windows-x64-baseline", "opencode.exe"],
   ]) {
-    const file = path.join(resourcesDirectory, "opencode-engine", selection.version, target, filename);
+    const file = path.join(resourcesDirectory, "opencode-engine", selection.artifactId, target, filename);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, "path-selection-fixture", { mode: 0o700 });
     assert.equal(await util.resolveOpencodeBinary({ env: {}, resourcesDirectory, selection, platform, arch }), realpathSync(file));
+  }
+});
+
+test("same-version local generations select their exact manifest and never an old version folder", async t => {
+  const resourcesDirectory = await fixture(t), target = opencodeReleaseTarget();
+  const filename = process.platform === "win32" ? "opencode.exe" : "opencode";
+  const first = { kind: "derivative", version: "2.1.4-legalwork.http-policy.3", artifactId: "a".repeat(64) };
+  const second = { ...first, artifactId: "b".repeat(64) };
+  const old = path.join(resourcesDirectory, "opencode-engine", first.version, target, filename);
+  await mkdir(path.dirname(old), { recursive: true }); await writeFile(old, "stale version alias", { mode: 0o700 });
+  await assert.rejects(util.resolveOpencodeBinary({ env: {}, resourcesDirectory, selection: first }), /unavailable/);
+  for (const selection of [first, second]) {
+    const file = path.join(resourcesDirectory, "opencode-engine", selection.artifactId, target, filename);
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, selection.artifactId, { mode: 0o700 });
+    assert.equal(await util.resolveOpencodeBinary({ env: {}, resourcesDirectory, selection }), realpathSync(file));
   }
 });
 

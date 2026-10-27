@@ -86,7 +86,7 @@ export async function resolveOpencodeBinary({
   const filename = platform === "win32" ? "opencode.exe" : "opencode";
   const candidate = env.LEGALWORK_TEST_OPENCODE_BIN ?? env.OPENCODE_BIN
     ?? (selection.kind === "derivative"
-      ? join(resourcesDirectory, "opencode-engine", selection.version, opencodeReleaseTarget(platform, arch), filename)
+      ? join(resourcesDirectory, "opencode-engine", selection.artifactId, opencodeReleaseTarget(platform, arch), filename)
       : join(resourcesDirectory, "sidecars", filename));
   if (!candidate.trim()) throw new Error("OpenCode test executable must be a nonempty path");
   try {

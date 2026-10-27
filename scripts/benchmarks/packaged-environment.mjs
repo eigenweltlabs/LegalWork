@@ -67,9 +67,9 @@ export function nativePackageIdentityContract(manifest, receiptBytes, options) {
   const receipt = JSON.parse(receiptBytes);
   if (!options || sha256(receiptBytes) !== options.packageReceiptSha256
     || manifest.nativePackage?.packageReceiptSha256 !== options.packageReceiptSha256) throw new Error("Exact original native package receipt pin required");
-  const version = manifest.runtime?.engineVersion;
-  const relative = `resources/opencode-engine/${version}/linux-x64-baseline/opencode`;
-  if (!/^2\.1\.4-legalwork\.http-policy\.3$/.test(version ?? "") || manifest.runtime.engineRelativePath !== relative
+  const version = manifest.runtime?.engineVersion, artifactId = manifest.nativePackage.distributionManifestSha256;
+  const relative = `resources/opencode-engine/${artifactId}/linux-x64-baseline/opencode`;
+  if (!/^[a-f0-9]{64}$/.test(artifactId ?? "") || !/^2\.1\.4-legalwork\.http-policy\.3$/.test(version ?? "") || manifest.runtime.engineRelativePath !== relative
     || receipt.package !== options.runtimeRoot || receipt.engine.path !== `${options.runtimeRoot}/${relative}`
     || receipt.engine.sha256 !== manifest.runtime.engineBinarySha256
     || receipt.asarSha256 !== manifest.build?.asar?.sha256
