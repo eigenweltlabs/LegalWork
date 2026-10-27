@@ -85,7 +85,7 @@ export async function applyReviewedPatch(source, patch) {
 
 /** Git's transport preserves shallow boundaries when the prepared source is a linked worktree. */
 export async function cloneReviewedSource(prepared, destination) {
-  await run("git", ["clone", "--no-local", "--no-checkout", prepared, destination]);
+  await run("git", ["clone", "--config", "core.autocrlf=false", "--config", "core.eol=lf", "--no-local", "--no-checkout", prepared, destination]);
 }
 
 function environment() {

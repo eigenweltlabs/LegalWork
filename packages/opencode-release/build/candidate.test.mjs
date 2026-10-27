@@ -131,3 +131,33 @@ test("native staging reuse is serial and releases only its own lock after failur
     assert.equal(await withBuildStagingLock(root, async () => "next target"), "next target");
   } finally { release?.(); await rm(root, { recursive: true, force: true }); }
 });
+
+
+test("reviewed cloning persists LF checkout policy despite a global autocrlf=true setting", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-build-lf-"));
+  const home = path.join(root, "home"), origin = path.join(root, "origin"), unsafe = path.join(root, "unsafe"), copied = path.join(root, "reviewed");
+  const previousHome = process.env.HOME, previousProfile = process.env.USERPROFILE;
+  try {
+    await mkdir(home); await mkdir(origin);
+    await writeFile(path.join(home, ".gitconfig"), "[core]\n autocrlf = true\n eol = crlf\n");
+    process.env.HOME = home; process.env.USERPROFILE = home;
+    const git = (...args) => promisify(execFile)("git", args, { cwd: root, env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(home, ".gitconfig") } });
+    await git("-C", origin, "init");
+    const bytes = Buffer.from("exact upstream source\nsecond line\n");
+    for (const name of ["source.ts", "bun.lock", "package.json"]) await writeFile(path.join(origin, name), bytes);
+    await git("-C", origin, "add", ".");
+    await git("-C", origin, "-c", "user.name=LegalWork fixture", "-c", "user.email=fixture@invalid", "-c", "commit.gpgsign=false", "commit", "-m", "LF blobs");
+    await git("clone", "--no-local", "--no-checkout", origin, unsafe);
+    await git("-C", unsafe, "checkout", "HEAD");
+    assert.equal((await readFile(path.join(unsafe, "source.ts"), "utf8")).includes("\r\n"), true, "negative control must exercise real global CRLF checkout conversion");
+    await cloneReviewedSource(origin, copied);
+    assert.equal((await git("-C", copied, "config", "--local", "core.autocrlf")).stdout.trim(), "false");
+    assert.equal((await git("-C", copied, "config", "--local", "core.eol")).stdout.trim(), "lf");
+    await git("-C", copied, "checkout", "HEAD");
+    for (const name of ["source.ts", "bun.lock", "package.json"]) assert.deepEqual(await readFile(path.join(copied, name)), bytes);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    if (previousProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = previousProfile;
+    await rm(root, { recursive: true, force: true });
+  }
+});
