@@ -6,6 +6,8 @@ import type {
   TokenUsageInfo,
 } from "@opencode/client";
 import type { HistoricalAttachment, HistoricalMessage, SessionHistoryProvenance } from "@legalwork/types/session-history";
+import { toolDisplayText } from "@legalwork/types/chat-tool-results";
+export { toolDisplayText } from "@legalwork/types/chat-tool-results";
 
 /** Presentation-only models. Native engine records are retained alongside each view. */
 export type SessionView = SessionInfo & { title: string; directory: string };
@@ -166,33 +168,6 @@ const zeroTokens = (): TokenUsageInfo => ({
   reasoning: 0,
   cache: { read: 0, write: 0 },
 });
-/** Hide only metadata-attested model reminders in presentation, preserving native content. */
-export function toolDisplayText(
-  content: ReadonlyArray<{ type: string; text?: string }>,
-  metadata?: Record<string, unknown>,
-): string {
-  const states = metadata?.legalworkSystemReminders;
-  const reminders = new Set(
-    states && typeof states === "object" && !Array.isArray(states)
-      ? Object.entries(states).flatMap(([topic, state]) =>
-          typeof state === "string"
-            ? [
-                `<system-reminder topic="${topic}">\n${state}\n</system-reminder>`,
-              ]
-            : [],
-        )
-      : [],
-  );
-  return content
-    .flatMap((item) =>
-      item.type === "text" &&
-      item.text !== undefined &&
-      !reminders.has(item.text)
-        ? [item.text]
-        : [],
-    )
-    .join("\n");
-}
 export function projectTool(
   sessionID: string,
   messageID: string,

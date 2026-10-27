@@ -49,7 +49,7 @@ test("a native execute review result becomes a widget in live updates and reload
     for (const thinking of [false, true]) {
       const groups = getAssistantRenderGroups(parts, thinking);
       expect(groups.map(group => group.kind)).toEqual(["review"]);
-      expect(groups[0]).toMatchObject({ kind: "review", part: { toolName: "execute", output: JSON.stringify(card) } });
+      expect(groups[0]).toMatchObject({ kind: "review", part: { output: JSON.stringify(card) } });
     }
   }
   expect(reviewCardIdentity(livePart(tool))).toBe(`workspace:${card.review.id}`);
