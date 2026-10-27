@@ -49,9 +49,9 @@ export function ViewSaveDialog({ client, preview, savedFrom, scope, onClose, onS
   const error = destinations.error || locations.error;
   const canSave = !busy && !loading && !error && Boolean(title.trim()) && Boolean(destination);
   const savedOwners = [...new Map(saved.map(view => [viewOwnerKey(view.owner), view])).values()];
-  return <Dialog open onOpenChange={isOpen => { if (!isOpen && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+  return <Dialog open onOpenChange={isOpen => { if (!isOpen && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="max-h-[calc(100dvh-2rem)] grid-cols-1 overflow-y-auto">
     <DialogHeader><DialogTitle>{t("views.save_copy")}</DialogTitle><DialogDescription>{t("views.independent_copy_hint")}</DialogDescription></DialogHeader>
-    <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (canSave && destination) save.mutate({ owner: destination.owner, title, copy: true }); }}>
+    <form className="min-w-0 space-y-4" onSubmit={event => { event.preventDefault(); if (canSave && destination) save.mutate({ owner: destination.owner, title, copy: true }); }}>
       {savedOwners.length > 0 && <section className="space-y-1" aria-labelledby={`${id}-saved`}>
         <p id={`${id}-saved`} className="text-xs font-medium text-muted-foreground">{t("views.already_saved_in")}</p>
         {savedOwners.map(view => <div key={viewOwnerKey(view.owner)} className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2">
@@ -69,9 +69,9 @@ export function ViewSaveDialog({ client, preview, savedFrom, scope, onClose, onS
         </div>
         {(available?.filter(item => item.owner.kind === kind).length ?? 0) > 5 && <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input disabled={busy} className="pl-9" aria-label={t("views.search_destinations")} placeholder={t("views.search_destinations")} value={search} onChange={event => setSearch(event.target.value)} /></div>}
         {/* Base UI measures radio offsets against this scroll container on mount and keyboard navigation. */}
-        {!loading && !error && <RadioGroup aria-labelledby={`${id}-location`} className="relative max-h-44 gap-1 overflow-y-auto" value={destination ? viewOwnerKey(destination.owner) : ""} onValueChange={value => { if (typeof value === "string") setSelected(value); }} disabled={busy}>
-          {groups.flatMap(group => group.items.map(item => <label key={viewOwnerKey(item.owner)} className="flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 hover:bg-muted/50 has-data-checked:border-primary/40 has-data-checked:bg-muted/50">
-            <RadioGroupItem value={viewOwnerKey(item.owner)} />{item.owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0 text-muted-foreground" /> : <FolderIcon className="size-4 shrink-0" />}<span className="min-w-0 flex-1 truncate">{item.name}</span>
+        {!loading && !error && <RadioGroup aria-labelledby={`${id}-location`} className="relative max-h-44 min-w-0 grid-cols-1 gap-1 overflow-y-auto" value={destination ? viewOwnerKey(destination.owner) : ""} onValueChange={value => { if (typeof value === "string") setSelected(value); }} disabled={busy}>
+          {groups.flatMap(group => group.items.map(item => <label key={viewOwnerKey(item.owner)} className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 hover:bg-muted/50 has-data-checked:border-primary/40 has-data-checked:bg-muted/50">
+            <RadioGroupItem value={viewOwnerKey(item.owner)} />{item.owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0 text-muted-foreground" /> : <FolderIcon className="size-4 shrink-0" />}<span className="min-w-0 flex-1 truncate" title={item.name}>{item.name}</span>
           </label>))}
         </RadioGroup>}
         {!loading && !error && groups.length === 0 && <p className="py-2 text-sm text-muted-foreground">{t(search ? "views.no_matching_destinations" : "views.no_further_destinations")}</p>}
