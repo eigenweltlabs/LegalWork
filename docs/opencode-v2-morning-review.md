@@ -10,16 +10,20 @@ records are preserved, and a fresh per-case budget guard precedes another task.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 27 October, 13:40 UTC
+## Current checkpoint — 27 October, 14:22 UTC
 
 All six native engine configurations and all six protected runtimes pass. Both
 full Linux and Mac unit suites pass. Final-source actual app/package/startup
-passes are closed for both Macs and both Linux architectures. Both
-Windows builds pass the preceding checks but fail the original final startup
-gate. The processes remain alive without observable app bootstrap; the cause is
-unproven. The focused [Windows follow-up40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
-adds scoped diagnostic collection and the real engine-to-protected-VM check. No startup assertion
-or time limit is relaxed.
+passes are closed for both Macs and both Linux architectures.
+
+Windows startup diagnostics now identify a native Documents-folder lookup error
+in the synthetic test profile, before engine boot. The fixture now creates that
+owned directory; [verification40517342408](https://github.com/eigenweltlabs/legalwork/actions/runs/40517342408)
+is running and must prove startup succeeds. The original 90-second deadline and
+all 16 startup assertions remain. Both Windows architectures separately pass the
+actual engine-to-protected-VM tool check, each with all 33 assertions and no skips.
+ARM64's native-window diagnostic timed out; the exact Documents error was
+recovered on x64. The two corrected-profile app checks are now building.
 
 Intel Mac's initial final-source attempt failed during dependency downloads.
 Its unchanged Intel-only retry passed the full app/package/security/native/preview/startup checks at 13:33:59 UTC. Earlier
