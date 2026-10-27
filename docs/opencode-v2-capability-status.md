@@ -7,15 +7,26 @@ engine. Local released-engine checks pass: two-project isolation, shared native
 skills/agents/commands/plugins, custom provider variants and enablement, inactive
 project/ancestor executables, registered-root admission, command delegation,
 permission refusal, cancellation and lossless retirement of owned generated files
-(36 tests, 391 assertions). This follow-up still needs its own final app/CI checks;
+(initial focused run: 36 tests, 391 assertions). This follow-up still needs fresh cross-platform CI;
 the six-platform results below describe the previously accepted source snapshot.
 
-Checkpoint blockers: the bundled core skills/agents/commands are still seeded in
-project folders and must be made available from the shared library before this
-follow-up is complete. The full local server run also found a stale disabled MCP
-entry after removal; the duplicate file-backed source has been removed, with its
-recovery/removal verification still running. Do not count this checkpoint as
-final capability acceptance.
+The bundled core now has one private central home. Its six skills, three helper
+agents and five document commands are present in both the released-engine fixture
+and the restarted real dev app. Managed projects no longer receive new core
+copies; existing project and personal files remain untouched. Full helper assets
+and generation settings are retained.
+
+Managed MCP definitions have one location-scoped owner. Recovery reads that same
+managed selection; unchanged status refreshes do not wait for a new connection.
+The five real-engine recovery tests pass for disable/remove/disconnect barriers
+and OAuth polling from either project. Startup/admission tests also pass. Their
+cloud fixture now denies access to the actual case folder, rather than only an
+unused per-project core stamp; its original 503 and retry requirements remain.
+The final local server suite passes: 2,814 tests, 27,078 assertions, zero failures
+and 45 environment-dependent skips across 397 files. The server build/type check,
+bundled-help verification and actual Mac dev app capability inventory pass. Fresh
+cross-platform CI remains pending for this follow-up; the matrix below is baseline
+evidence rather than a result for this new configuration change.
 
 Baseline final acceptance: 27 October 2026. The engineering migration was complete on
 `codex/opencode-v2-migration` for the user-frozen OpenCode 2.1.4/dev snapshot.

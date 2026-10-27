@@ -72,9 +72,16 @@ export const LegalWorkManagedConfig = Plugin.define({
       if (request) Object.assign(event.options, request);
     }));
     registrations.push(await ctx.rpc.register(managedSettingsRpc, { async refresh() {
+      const previousMcp = JSON.stringify(settings?.configuration.mcp);
       settings = await read();
       difference = settings ? managedConfigurationDiff(settings.configuration, settings.sharedConfiguration) : {};
-      if (managed) { await ctx.integration.reload(); await ctx.provider.reload(); await ctx.agent.reload(); await ctx.mcp.reload(); await ctx.skill.reload(); }
+      if (managed) {
+        await ctx.integration.reload(); await ctx.provider.reload(); await ctx.agent.reload();
+        // A status read also refreshes settings. An unchanged MCP reload waits
+        // for in-flight connects, preventing callers from cancelling them.
+        if (JSON.stringify(settings?.configuration.mcp) !== previousMcp) await ctx.mcp.reload();
+        await ctx.skill.reload();
+      }
       await ctx.model.reload();
       return { refreshed: true };
     } }));
