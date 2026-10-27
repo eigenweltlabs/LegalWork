@@ -64,7 +64,7 @@ describe("Wiki HTTP API", () => {
     expect(await read()).toEqual(edited);
     expect((await request(endpoint, "owner", "POST", { path, baseRevision: revision, dataBase64: encode(copy) })).status).toBe(409);
     expect((await request(endpoint, "owner", "POST", { path: "Missing.view.json", dataBase64: encode({ ...original, datasets: {} }) })).status).toBe(400);
-    expect((await request(endpoint, "viewer", "POST", { path: "Denied.view.json", dataBase64: encode(original) })).status).toBe(404);
+    expect((await request(endpoint, "collaborator", "POST", { path: "Denied.view.json", dataBase64: encode(original) })).status).toBe(404);
   });
 
   test("pending contributions aggregate projects without publishing drafts or exposing them to wiki agents", async () => {
