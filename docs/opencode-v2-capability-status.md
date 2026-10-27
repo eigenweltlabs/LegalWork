@@ -1,22 +1,63 @@
 # Engine and capability acceptance status
 
-Checkpoint: 26 October 2026, 21:18 UTC. Migration remains unfinished. The
+Checkpoint: 27 October 2026, 09:55 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
+
+## Final target and normal-build acceptance
+
+The user explicitly froze the migration target at OpenCode 2.1.4. The newly
+released 2.2.0 was audited separately and is deferred; no 2.2.0 feature or test
+result is claimed here. Public releases, tags and binary publication remain
+forbidden; branch pushes and existing Actions acceptance artifacts are allowed.
+
+Normal development/app builds now prepare the reviewed source engine, reuse
+verified unchanged outputs, and bundle it. Developer preparation builds only the
+host target. Production preparation compiles all twelve pinned targets from the
+original frozen upstream graph, applies the approved patches, signs Mac outputs
+before hashing, and hands the exact distribution to app builds. Generated runtime
+selection is checked against the committed source policy and recipe. Cache and
+installed-runtime directories use full manifest identities, preserving older
+same-version outputs. Runtime startup never compiles source.
+
+The fresh [source production run40482058927](https://github.com/eigenweltlabs/legalwork/actions/runs/40482058927)
+at09bea36f has four passing cold native-source hosts: both Macs and both Linux
+architectures, each including seven real engine integrations/162 assertions and
+byte-stable warm reuse. Windows x64/ARM64 both stop at the pinned patch check after
+Git converts LF to CRLF. The successor correction72c76604/f713de2e preserves
+reviewed bytes through the LegalWork checkout and upstream clones; no content
+hash or compiler pin is weakened. Actual Windows re-execution is still required.
+All six final app/package/startup checks remain a distinct completion gate.
+
+The older candidate40475853243 passes full Linux x64/ARM64 and Mac ARM64 app
+acceptance plus both full unit jobs. Both Windows app jobs stop at two fixture
+comparisons of 8.3 versus long Windows paths; c54ec087 canonicalizes the physical
+paths on both sides while retaining negative checks. The Intel app result is
+still being collected. Historical source/distribution results are retained under
+their original identities, rather than counted as final adopted-build evidence.
+
+The user approved retiring bare standalone downloads. Remove automatic URL/mirror
+fallbacks and raw-sidecar release assets; preserve desktop, Node development,
+manual URL/token connections and complete NPM platform bundles. Desktop's embedded
+server and packaged sandbox do not depend on this downloader. No new standalone
+archive delivery format or runtime dependency is introduced.
+
+The following platform notes retain earlier functional evidence and its scope;
+they do not supersede the final normal-build acceptance above.
 
 ## Platforms
 
 | Configuration tested | Verified | Still running or remaining |
 |---|---|---|
-| macOS ARM64 | Normal final7 Electron startup, patched v2 engine, retained project/document, native tool calls and original visible-browser scenario; full build/package/security. | Remaining shared real-agent regression cases and final adoption. |
-| Linux x64 | Normal final7 engine/Electron startup and live native registry; prior final6 PowerPoint4/4. Final7 actual Excel, NDA, delegation and large-MCP tasks completed; root independently verifies their files, complete wires and exact trace qualifications. | Excel strict3/4 matches v1's style XML CRLF→LF change. NDA55/56 versus v1 53/56 retains the frozen rubric/source conflict and additional legal-quality concerns. Delegation strict8/9 versus v1 9/9 differs in three citation capitalizations. Large MCP3/3 preserves the full2,024,587-byte result. Queue recovery is functionally accepted under the exact qualification below; context/scheduling remain. |
+| macOS ARM64 | Normal final7 Electron startup, patched v2 engine, retained project/document, native tool calls and original visible-browser scenario; full build/package/security. Subsequent final8 private-auth package acceptance also passes. | Normal-build/default adoption and final integrated acceptance. |
+| Linux x64 | Normal final7 engine/Electron startup and live native registry; prior final6 PowerPoint4/4. Final7 actual Excel, NDA, delegation and large-MCP tasks completed; root independently verifies their files, complete wires and exact trace qualifications. | Excel strict3/4 matches v1's style XML CRLF→LF change. NDA55/56 versus v1 53/56 retains the frozen rubric/source conflict and additional legal-quality concerns. Delegation strict8/9 versus v1 9/9 differs in three citation capitalizations. Large MCP3/3 preserves the full2,024,587-byte result. Queue recovery, native-API context, useful scheduling and ordinary UI /compact are functionally accepted under the exact qualifications below; final integrated normal-build adoption remains. |
 | Windows x64 Server VM | Final7 normal build/package/security/unsigned installer and installed upgrade pass. All2620 installed package files match; all15 chats/75 messages and empty queue remain exact in SQL and accessible through public APIs. Actual licensed Word read/tracked edit/comment/save/reopen passed on final6. Actual final7 engine MCP recovery component passes2 tests/26 original assertions. Actual final7 Claude in-app DOCX editing qualifies4/4 after root verifies the saved tracked30→45 edit, full wires and exact zero-argument tool traces. | Original Claude controller-path failure remains unchanged; read-only recovery adds separate evidence without a model rerun. In-app DOCX, external Microsoft Word and controller-hosted MCP component evidence retain their separate scopes. |
 
 These are the actual tested configurations, not a claim that every CPU/OS
 combination was executed. All twelve upstream engine target artifacts were
-built and statically verified. Intel Mac, Linux ARM64 and Windows ARM64 app
-execution is not yet established. The user explicitly requires all six app/engine
+built and statically verified. Linux ARM64 has now passed actual packaged-app
+execution. Intel Mac and Windows ARM64 app execution remain open. The user explicitly requires all six app/engine
 configurations before migration completion. The first migration checkpoint was pushed at `d35228ebb9c44d2827e3d1b8c7bf7f925917d253`.
 The [six-platform CI acceptance](https://github.com/eigenweltlabs/legalwork/actions/runs/40359354246)
 started at16:27:48UTC. Its reviewed twelve-target engine producer passed; all six
@@ -70,9 +111,26 @@ Run[40395337521](https://github.com/eigenweltlabs/legalwork/actions/runs/4039533
 has closed. Intel Mac now passes its real isolation suite (248 tests/1189 assertions);
 Windows exposed a test-preload file-URL error, corrected at28ce3c2e. Its package jobs
 were skipped. Current normal run[40399014261](https://github.com/eigenweltlabs/legalwork/actions/runs/40399014261)
-at7ad46c80 has five sandbox configurations passing, including both Windows targets;
-Intel Mac isolation is still running. Its six actual package/startup jobs remain pending.
-These results do not yet establish the three additional packaged-app configurations.
+at7ad46c80 now has all six sandbox configurations passing. Actual normal app packages,
+renderers and .3 engine startup pass on Linux x64, Linux ARM64 and Mac ARM64;
+each platform also passes seven native engine/tool tests with162 assertions.
+Intel Mac passes its normal build, seven engine/tool checks, packaging and package
+security, then its protected-network probe receives HTTP503 from example.com.
+The broker forwards that actual remote status; this is not an established VM or
+permission failure. Probe-only correction1c4be3b5 uses an existing immutable
+repository LICENSE and verifies the full response digest in Python and Node.
+It passes the actual Mac ARM packaged-Node/VM probe and rejects wrong expected
+digests; current-source Intel app startup still requires a passing CI run.
+Both Windows package jobs failed before app build because Git's GNU tar treats
+an absolute drive letter as a remote hostname. Commit732ddbf2 selects the existing
+Windows system tar for official and derivative extraction, preserving all integrity
+checks. Native[40406372783](https://github.com/eigenweltlabs/legalwork/actions/runs/40406372783)
+installs and executes the engine, then fails a CI assertion that omitted the CLI's
+`opencode v` prefix. The corrected[40473801099](https://github.com/eigenweltlabs/legalwork/actions/runs/40473801099)
+passes on both Windows x64 and ARM64: complete derivative integrity/provenance,
+actual .3 execution, missing-system-tool rejection and official pinned archive
+extraction. Full Windows app packaging/startup remains separate and pending.
+No successful Windows ARM64 or Intel Mac package execution is claimed yet.
 
 Both full Linux/Mac unit jobs passed their preceding suites, real engine checks and
 Electron typecheck, then found the same final E2E helper still looking in the old
@@ -80,8 +138,19 @@ sidecar directory. Commit4014f65a resolves the reviewed engine path and preserve
 the original health allowances and assertions. The unchanged full app E2E chain
 passes locally on the signed .3 engine; seven focused controls pass on both Node22
 and Bun1.4.4. Independent run[40402814154](https://github.com/eigenweltlabs/legalwork/actions/runs/40402814154)
-executes both complete Linux/Mac jobs without rebuilding the six QEMU runtimes or
-cancelling the normal platform run. This explicit unit-only mode is not platform coverage.
+has closed: Mac passes the full job, including2791 server tests/26637 assertions;
+Linux fails the real scheduling fixture's project-agent boundary assertion.
+That check passes on the actual signed Mac engine and isolated Linux x64 component,
+so no deterministic production permissions regression is established. Diagnostic
+4e3ac8aa retains the exact returned policy on future failure. Combined-source
+[40406377008](https://github.com/eigenweltlabs/legalwork/actions/runs/40406377008)
+passes both complete Linux/Mac jobs, including original E2E. The fixture had
+primed agent metadata, which does not await native plugin activation. Production
+already reads the model catalog first, whose native handler awaits activation.
+Fixture-onlyf1097948 now matches that supported order; both signed Mac and
+isolated Linux components pass all76 assertions without changing guards/timeouts.
+The original failed agent snapshot was not captured, so exact failure state is
+not retrospectively invented. Explicit unit-only mode is not platform coverage.
 
 Native queue functional acceptance now includes paused restart recovery and Resume,
 exact retained sessions/messages/entries, exactly-once native admission and two
@@ -94,7 +163,13 @@ queue evidence, not a legal-quality or model-performance result.
 Context testing exposed a real /compact dispatch regression: the configured-command
 catalog does not contain OpenCode's separate native compaction operation. The shared
 queued server path is corrected atfaa2e322 (37 controls/177 assertions). A fresh normal
-Linux package is building for ordinary UI acceptance; that gate remains open.
+Linux package has now completed ordinary UI /compact in the same preserved chat,
+with one manual native compaction, start/end events, a drained queue and one
+complete controlled-provider request. Root independently verifies330 retained
+references/57,889,342 bytes, all18 prior rows unchanged, exactly one completed
+compaction plus native idle, the joined durable queue ID, empty final queue and
+one start/end pair. Functional ordinary UI acceptance is complete; no model
+quality or performance claim follows from the controlled provider.
 The separate native-API context scenario completes compaction in the same chat,
 then reads the changed document/project and saves the source-verified new result.
 Root accepts only its exact empty-input trace qualification; original strict
@@ -105,7 +180,11 @@ policy forbids. It remains a permission-negative case. The separate allowed-tool
 task now completes exactly once: it lists/reads the actual project source and
 saves the correct2026-11-14 result. Root independently verifies its task/run/native
 admission IDs, full tool outputs, saved bytes and provider wires. The remaining
-VM has a finite23:55UTC deletion lease.
+VM's last verified deletion lease was26October23:55UTC. Complete local functional
+traces and prior cloud-preserved state remain available. Two additional post-UI
+whole-guest/package archives were verified on the guest but were not offloaded
+before interruption. Their recoverability is unconfirmed; cloud inspection needs
+interactive reauthentication. No durable post-UI whole-archive claim is made.
 
 Mac signing run40395265646 now passes exact identity import and both codesign
 preflights after correcting only the owned temporary keychain's search-list lifecycle.
@@ -114,10 +193,12 @@ and Intel-baseline engine/restart/auth/Code Mode/JIT/native-module checks pass:
 nine tests/135 assertions, actual optimizing JIT execution and native pixel checks.
 The complete twelve-target distribution combines these three signed Mac archives
 with nine unchanged non-Mac archives. All14 proposed release files have independent
-root hash/size checks. Exact engine-only prerelease publication is awaiting the
-user's explicit acknowledgment; final adoption still requires published download
-verification and the prepared selection change. Old f754 artifacts are immutable;
-no publication/default flip has occurred.
+root hash/size checks. The user has explicitly declined public engine publication
+and authorized migration source pushes/CI only. No release, tag or public binary
+assets will be published. Final adoption is being prepared through the existing
+local/archive-directory and CI-artifact paths, with exact distribution pins;
+the old proposed public download URL will not be adopted. Old f754 artifacts are
+immutable; no default flip has occurred.
 
 Canonical Bun1.4.4 web/calendar bundles reproduce exactly with their license headers.
 Exact reviewed prior deadline calculator bundles remain usable at the same rule
@@ -153,19 +234,31 @@ The full mapping retains exact source files/lines and observed native IDs.
 
 ## Remaining acceptance
 
-1. Complete ordinary UI /compact acceptance in the fresh normal package. Native
-   queue/restart/Resume, native-API context and useful scheduling functional
-   acceptance are complete under their exact qualifications above. Further v1 harness reruns are deferred
-   while the native-v2 lane takes priority. The latest v1 control restored its
-   chat correctly but a normal feature announcement obscured the Deny button;
-   no denied-permission or model-quality verdict is claimed for that attempt.
-2. Publish the exact reviewed engine-only files after explicit acknowledgment,
-   verify actual downloads, and adopt the prepared signed-distribution selection.
-   Publication is a prerelease with latest=false, not an app release. Its release
-   event also runs existing alpha-feed maintenance, which excludes the engine
-   but can repair independently stale alpha links; this effect is in the question.
-3. Execute the six-platform CI acceptance and verify the latest private-auth
-   runtime change in an actual package. Public workspace/status metadata now
+Current-source candidate run [40475853243](https://github.com/eigenweltlabs/legalwork/actions/runs/40475853243) started27October08:46UTC atf10979482b1aeb719288c84247fb2d325c3799ef. It uses the existing six-runtime/six-package matrix and independently pinned producer40359354246/f754. It is candidate execution, not normal-build/default adoption or final signed-distribution consumption.
+
+1. Complete actual current-source app/package/startup checks on Intel Mac and
+   Windows ARM64, and recheck Windows x64 after its extraction fix. All six sandbox
+   suites pass; native Windows engine installation now passes on both architectures.
+   These successes do not replace whole-app execution. The Intel probe-only fix
+   requires a successful actual Intel run.
+2. Implement a coherent normal-build/default adoption path without a separate
+   public engine release. A URL-less static distribution alone cannot bootstrap a
+   clean checkout. Both independent reviewers recommend building the approved
+   patched source during app preparation, generating the exact selector after
+   signing, then bundling those outputs. This is proposed, not implemented: the
+   existing canonical source builder only qualifies Mac ARM and its manifest
+   requires all twelve targets. Fresh developer-host support, generated-input
+   ordering and cold-build cost must be handled explicitly. A material build-policy
+   question has been presented to the user. Preserve all integrity/provenance and
+   production-signing checks; no public publication, nonexistent URL or silent
+   official fallback is authorized.
+3. Run final integrated six-platform acceptance against the actual adopted normal
+   build inputs. Ordinary UI /compact now has independently root-verified functional
+   acceptance, including all18 original full message rows and exactly one native
+   compaction. Queue/restart/Resume, native-API context and useful scheduling remain
+   functionally accepted under their recorded qualifications. Both full Linux/Mac
+   unit jobs pass; f1097948 additionally makes the scheduled-agent fixture await the
+   existing native plugin barrier, with actual Mac/Linux component controls. Public workspace/status metadata now
    omits both flat and nested native engine credentials. The desktop reads the
    live embedded-server config privately, matches the exact selected project and
    follows credential rotation. Real HTTP tests pass13 cases/98 assertions;

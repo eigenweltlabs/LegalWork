@@ -25,13 +25,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  opencode-engine:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: production
+      ref: ${{ github.sha }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: win32-x64,win32-arm64
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-windows:
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-engine]
     name: Build + Publish alpha (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -88,6 +99,19 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -183,7 +207,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron alpha (Windows)
         shell: bash
