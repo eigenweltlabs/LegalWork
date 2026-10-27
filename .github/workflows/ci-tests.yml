@@ -283,6 +283,9 @@ jobs:
       - name: Verify retired downloads and complete local CLI bundles
         run: bun test apps/orchestrator/src/retired-binary-downloads.test.mjs
 
+      - name: Verify synthetic startup failure diagnostics
+        run: node --test apps/desktop/scripts/packaged-startup-diagnostics.test.mjs
+
       - name: Verify recorder capture and dictation
         run: |
           pnpm --filter @legalwork/app test:recorder-capture
