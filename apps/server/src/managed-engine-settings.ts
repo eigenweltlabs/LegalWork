@@ -11,7 +11,7 @@ const entry = z.object({ directory: z.string(), configuration: z.unknown(),
   agentRequests: z.record(z.string(), z.record(z.string(), z.unknown())),
   skills: z.array(z.unknown()),
 });
-export const managedSettingsFileSchema = z.object({ version: z.literal(1), workspaces: z.record(z.string(), entry) });
+export const managedSettingsFileSchema = z.object({ version: z.literal(1), workspaces: z.record(z.string(), entry), sharedConfiguration: z.unknown().optional() });
 export type ManagedSettingsFile = z.infer<typeof managedSettingsFileSchema>;
 export class ManagedSettingsWorkspaceMissingError extends Error {}
 export const managedSettingsRpc = {
@@ -32,6 +32,7 @@ export async function readManagedEngineSettings(path: string, directory: string)
   }
   if (!selected) throw new ManagedSettingsWorkspaceMissingError("This engine location is not registered with LegalWork. Register the project before loading managed capabilities.");
   return { ...selected, configuration: Schema.decodeUnknownSync(Config.Info)(selected.configuration, { onExcessProperty: "error" }),
+    sharedConfiguration: Schema.decodeUnknownSync(Config.Info)(file.sharedConfiguration ?? {}, { onExcessProperty: "error" }),
     skills: selected.skills.map(skill => Schema.decodeUnknownSync(Skill.Info)(skill)) };
 }
 export type ManagedEngineSettings = Awaited<ReturnType<typeof readManagedEngineSettings>>;

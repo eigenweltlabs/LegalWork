@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { listSkills, type SkippedSkill } from "./skills.js";
+import { listGlobalSkills, listSkills, type SkippedSkill } from "./skills.js";
 import { parseFrontmatter } from "./frontmatter.js";
 
 /** The existing UI resolver also supplies the engine. One shared library;
  * nearer project overrides keep precedence without copied skill folders. */
-export async function resolveCapabilityLibrary(directory: string) {
+export async function resolveCapabilityLibrary(directory: string, globalOnly = false) {
   const skipped: SkippedSkill[] = [];
-  const skills = await listSkills(directory, true, skipped);
+  const skills = globalOnly ? await listGlobalSkills(skipped) : await listSkills(directory, true, skipped);
   const nativeSkills = await Promise.all(skills.map(async skill => {
     const { data, body } = parseFrontmatter(await readFile(skill.path, "utf8"));
     const metadata = data.metadata && typeof data.metadata === "object" ? Object.fromEntries(Object.entries(data.metadata)) : {};

@@ -44,19 +44,21 @@ checkpoints below retain their original failures and do not override that regist
   typed LegalWork managed-setting APIs. Remove the automatic standalone file-editing
   fallback. Standalone OpenCode-only connections own their settings externally.
 - **One engine, confirmed:** one released server for all local projects, matching
-  the current LegalWork and upstream desktop architecture. Use native project
-  configuration discovery with the shared library; replace the incomplete broad
-  configuration adapter instead of duplicating upstream configuration internals.
-  Generated project documents must preserve authored files and keep secrets private.
-- **Project automation, approved:** ask before trusting a canonical project folder.
-  Explain that approval covers automation and subsequent changes within that folder.
-  Executable plugin targets are approved through the shared library; newly seen
-  packages/external paths remain pending. Native plugin policy authorizes package
-  identity, not a particular npm version. Admission must cover internal engine
-  operations and restart recovery as well as HTTP, before any untrusted executable
-  source activates. Released-engine fixtures cover startup, internal location moves,
-  approval changes and inactive-project recovery; paid behavior and platform
-  acceptance remain separate gates.
+  the current LegalWork and upstream desktop architecture. On 2026-10-27 the user
+  approved shared LegalWork-managed configuration with automatic native project and
+  ancestor configuration discovery disabled. Normal UI skills, workflows and plugin
+  imports use the shared library. Preserve actual project provider controls through
+  supported native APIs, and retain project instructions, folder permissions and
+  case context through their existing services. This replaces the earlier native
+  project-discovery choice; no additional engine patch is authorized or required
+  for disabling discovery.
+- **Project admission, revised 2026-10-27:** registered, available managed projects
+  do not require a folder-trust prompt. Admission must still reject unknown engine
+  locations and protect internal moves and restart recovery. User-authored files
+  remain intact and inactive as engine configuration in managed mode. Retire only
+  verified unchanged LegalWork-generated selection files, preserving a private copy.
+  Existing native-project fixtures describe the separate explicit native mode;
+  managed-mode acceptance requires its own discovery, capability and isolation tests.
 - **Commands, approved:** preserve configured commands, routing executable expansion
   through normal permissions and sandboxes. Keep complete command output and the
   upstream absence of a default command execution deadline; Stop/revocation remain.
