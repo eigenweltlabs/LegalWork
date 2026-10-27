@@ -276,9 +276,9 @@ export function projectMessage(
   message: SessionMessageInfo,
   historical?: HistoricalMessage,
 ): MessageView[] {
-  // Native synthetic input is model-visible context, including migrated v1
-  // reminders whose original metadata flags are not retained upstream.
-  if (message.type === "synthetic") return [];
+  // Synthetic input and engine-attested instruction updates are model-visible
+  // context, not assistant replies. Keep their native records unchanged.
+  if (message.type === "synthetic" || (message.type === "system" && message.metadata?.notice === "instructions")) return [];
   if (
     ![
       "user",
