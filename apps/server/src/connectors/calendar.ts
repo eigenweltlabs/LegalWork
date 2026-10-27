@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { connectorCalendarColorSchema } from "@legalwork/types/connectors";
+import { connectorCalendarColorSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import type { ConnectorRequest } from "./request.js";
 import { accountInput, nativeId, nativePagePath, parseNative } from "./native.js";
