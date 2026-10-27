@@ -17,6 +17,7 @@ export type RecorderSetupRequirement = {
   title: string;
   description: string;
   ready: boolean;
+  readyLabel?: string;
   downloading?: boolean;
   action: ReactNode;
   hint?: string | null;
@@ -37,6 +38,7 @@ export function RecorderFlow(props: {
   const store = useRecorderStore();
   const section = props.feature;
   const [open, setOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [demoMeetings, setDemoMeetings] = useState(false);
   const setupButton = useRef<HTMLButtonElement>(null);
@@ -76,17 +78,17 @@ export function RecorderFlow(props: {
         <div className="space-y-3">
           {ready ? <p className="flex items-center gap-2 text-sm text-foreground" role="status"><Check className="size-4 text-success" />{t("onboarding_audio.setup_ready")}</p> : null}
           {downloading && !ready ? <p className="flex items-start gap-2 text-xs leading-relaxed text-subtext" role="status"><Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />{t("onboarding_audio.background_note")}</p> : null}
-          {!ready ? <Button ref={setupButton} size="lg" disabled={props.loading || captureBusy} onClick={() => setDialogOpen(true)}>
+          <Button ref={setupButton} size="lg" variant={ready ? "outline" : "default"} disabled={props.loading || captureBusy} onClick={() => { setReviewing(ready); setDialogOpen(true); }}>
             {props.loading ? <Loader2 className="size-4 animate-spin" /> : null}
-            {t(section === "meetings" ? "onboarding_audio.setup_meetings" : "onboarding_audio.setup_dictation")}
-          </Button> : null}
+            {t(ready ? "onboarding_audio.review_setup" : section === "meetings" ? "onboarding_audio.setup_meetings" : "onboarding_audio.setup_dictation")}
+          </Button>
         </div>
       </div>
     </OnboardingCover>
     <Dialog open={open} onOpenChange={setDialogOpen}>
-      <DialogContent finalFocus={ready ? continueButton : setupButton} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
+      <DialogContent finalFocus={ready && !reviewing ? continueButton : setupButton} className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
         {open ? <RecorderSetup
-          key={section} feature={section} demo={props.demo} requirements={requirements} enabled={enabled}
+          key={section} feature={section} demo={props.demo} review={reviewing} requirements={requirements} enabled={enabled}
           demoMeetings={demoMeetings} onDemoMeetings={setDemoMeetings} onDemoEnabled={() => setDemoEnabled(true)} onClose={() => setDialogOpen(false)}
         /> : null}
       </DialogContent>
@@ -94,10 +96,11 @@ export function RecorderFlow(props: {
   </>;
 }
 
-/** Granted requirements disappear automatically, including after returning from OS settings. */
+/** Setup advances past granted access; review keeps each step until Continue. */
 function RecorderSetup(props: {
   feature: RecorderFeature;
   demo: boolean;
+  review: boolean;
   requirements: RecorderSetupRequirement[];
   enabled: boolean;
   demoMeetings: boolean;
@@ -109,11 +112,12 @@ function RecorderSetup(props: {
   const [practice, setPractice] = useState(false);
   const [changing, setChanging] = useState(false);
   const [text, setText] = useState("");
+  const [reviewStep, setReviewStep] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const [initialMissing] = useState(() => props.requirements.filter(item => !item.ready).map(item => item.id));
-  const steps = props.requirements.filter(item => initialMissing.includes(item.id) || !item.ready);
+  const steps = props.review ? props.requirements : props.requirements.filter(item => initialMissing.includes(item.id) || !item.ready);
   const missingIndex = props.requirements.findIndex(item => !item.ready);
-  const requirement = props.requirements[missingIndex];
+  const requirement = props.review ? steps[reviewStep] : props.requirements[missingIndex];
   const isPractice = !requirement && props.feature === "dictation" && practice;
   const dictation = useComposerDictation("onboarding-test", spoken => setText(current => appendDictatedText(current, spoken)), isPractice);
   const capturingShortcut = !props.demo && store.systemDictation?.shortcutCaptureActive === true;
@@ -151,7 +155,7 @@ function RecorderSetup(props: {
       </DialogHeader>
       <div className="mt-6 min-h-28">
         {requirement ? <div className="space-y-4" key={requirement.id}>
-          {requirement.action}
+          {requirement.ready ? <p className="flex items-center gap-2 text-sm" role="status"><Check className="size-4 text-success" />{requirement.readyLabel ?? t("onboarding_audio.setup_ready")}</p> : requirement.action}
           {requirement.hint ? <p className="text-xs leading-relaxed text-subtext" role="status">{requirement.hint}</p> : null}
         </div> : props.feature === "meetings" ? <div className="rounded-xl border border-dls-border p-4">
           <label className="flex cursor-pointer items-center justify-between gap-4 text-sm font-medium">
@@ -179,7 +183,8 @@ function RecorderSetup(props: {
       </div>
     </div>
     <div className="flex items-center justify-between gap-3 border-t border-dls-border px-7 py-4 sm:px-8">
-      {requirement || props.feature === "dictation" ? <Button variant="ghost" size="sm" onClick={isPractice && !busy ? () => setPractice(false) : props.onClose}>{t(isPractice && !busy ? "onboarding.back" : "onboarding_audio.finish_later")}</Button> : <span />}
+      {requirement || props.feature === "dictation" || props.review ? <Button variant="ghost" size="sm" disabled={busy} onClick={isPractice ? () => setPractice(false) : props.review && reviewStep > 0 ? () => setReviewStep(step => step - 1) : props.onClose}>{t(isPractice || props.review && reviewStep > 0 ? "onboarding.back" : "onboarding_audio.finish_later")}</Button> : <span />}
+      {props.review && requirement?.ready ? <Button size="sm" disabled={busy} onClick={() => setReviewStep(step => step + 1)}>{t("onboarding.continue")}</Button> : null}
       {requirement?.downloading ? <Button size="sm" disabled={busy} onClick={props.onClose}>{t("onboarding_audio.continue_background")}</Button> : null}
       {!requirement ? <Button size="sm" disabled={busy || (!props.demo && props.feature === "dictation" && !store.systemDictation)} onClick={props.feature === "dictation" && !isPractice ? () => void enableAndTry() : props.onClose}>
         {changing ? <Loader2 className="size-3.5 animate-spin" /> : null}

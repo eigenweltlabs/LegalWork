@@ -21,6 +21,7 @@ import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalw
 import { RecorderFlow, type RecorderSetupRequirement, type RecorderFeature } from "./recorder-flow";
 import { dictationPermissionReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
 import { MODEL_TIERS } from "../recorder/model-tiers";
+import { cloudModelName } from "../recorder/cloud-model-list";
 import { recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore, isTranscriptionReady } from "../recorder/recorder-store";
 import { onboardingDemoActive } from "./onboarding-cover";
@@ -221,6 +222,7 @@ export function AudioStep(props: {
     title: t("onboarding_audio.mic_access_title"),
     description: t("onboarding_audio.mic_access_description"),
     ready: micDone,
+    readyLabel: micState === "granted" ? t("recorder.perm_status_granted") : undefined,
     hint: micBlocked ? t("recorder.perm_microphone_instructions") : null,
     action: <Button disabled={requestingMic} onClick={allowMicrophone}>
       {requestingMic ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -232,17 +234,21 @@ export function AudioStep(props: {
     title: t("onboarding_audio.system_access_title"),
     description: t("onboarding_audio.system_access_description"),
     ready: sysGranted,
+    readyLabel: sysState === "granted" ? t("recorder.perm_status_granted") : undefined,
     hint: waitingForSettings ? t("recorder.perm_recheck_hint") : null,
     action: <Button onClick={openSystemAudioSettings}>
       {waitingForSettings ? <Loader2 className="size-3.5 animate-spin" /> : null}
       {t("recorder.perm_allow")}
     </Button>,
   };
+  const cloud = !demo && store.transcriptionSource === "cloud";
+  const selectedCloud = bootstrap?.cloud?.models.find(model => model.model === store.cloudModelId);
   const model: RecorderSetupRequirement = {
     id: "model",
-    title: t("onboarding_audio.local_transcription_title"),
-    description: t("onboarding_audio.local_transcription_description", { size: modelSize }),
+    title: cloud ? selectedCloud ? cloudModelName(selectedCloud.region) : t("recorder.transcription_cloud_unavailable") : t(modelInstalled ? "onboarding_audio.model_title" : "onboarding_audio.local_transcription_title"),
+    description: cloud ? t("recorder.transcription_cloud_note") : t(modelInstalled ? "recorder.transcription_local_description" : "onboarding_audio.local_transcription_description", { size: modelSize }),
     ready: modelInstalled,
+    readyLabel: !demo && !cloud ? bootstrap?.models.find(model => model.id === store.modelId)?.label : undefined,
     downloading: modelDownloading === true,
     hint: !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
     action: modelDownloading ? <div className="space-y-3" role="status">
@@ -259,6 +265,7 @@ export function AudioStep(props: {
     title: permissionViews[kind].title,
     description: permissionViews[kind].body,
     ready: demo ? sim.dictationPermissions[kind] : dictationPermissionReady(readiness?.[kind] ?? "not-determined"),
+    readyLabel: t("recorder.perm_status_granted"),
     hint: readiness?.[kind] === "broken" ? t("recorder.dictation_step_monitor_broken") : !demo ? t("recorder.perm_recheck_hint") : null,
     action: <Button disabled={requestingDictation !== null} onClick={() => {
       if (demo) { setSim(state => ({ ...state, dictationPermissions: { ...state.dictationPermissions, [kind]: true } })); return; }
