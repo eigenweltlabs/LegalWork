@@ -1,8 +1,10 @@
 # Regression fixture migration evidence
 
-Final acceptance remains open for the final actual-model check and latest-source
-app/package/startup execution on all six OS/CPU configurations. The latest full
-Linux unit job passes; the Mac unit result remains required. See the
+Final acceptance remains open for the final actual-model check, Intel Mac's
+unchanged dependency-failure retry, and both Windows packaged startup failures.
+Final-source actual app/package/startup passes are closed for Apple Silicon Mac
+and both Linux architectures. All six native engine hosts, all six protected
+runtimes, and the full Linux and Mac unit jobs pass. See the
 [current capability checkpoint](opencode-v2-capability-status.md) for exact
 build identities and current results. Earlier checkpoints below retain their
 original failures and qualifications. The user explicitly separated inherited
