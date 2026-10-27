@@ -26,7 +26,7 @@ test("password routes declare host-only access, persist in the shared vault, omi
   expect(routes.every(route => route.auth === "host-token")).toBe(true);
   const approvals = new ApprovalService(config.approval), reloadEvents = new ReloadEventStore(), tokens = new TokenService(config);
   const call = async (method: string, suffix = "", body?: unknown) => {
-    const path = `/browser-passwords${suffix}`, route = matchRoute(routes, method, path);
+    const path = `/browser-passwords${suffix}`, route = matchRoute(routes, method, new URL(`http://localhost${path}`).pathname);
     if (!route) throw new Error("Missing password route");
     const request = new Request(`http://localhost${path}`, { method, ...(body ? { body: JSON.stringify(body), headers: { "content-type": "application/json" } } : {}) });
     return route.handler({ request, url: new URL(request.url), params: route.params, config, approvals, reloadEvents, tokens });
@@ -42,6 +42,9 @@ test("password routes declare host-only access, persist in the shared vault, omi
     const list = await (await call("GET")).text();
     expect(list).toContain(item.id);
     expect(list).not.toContain(payload.password);
+    expect(await (await call("GET", "?origin=https%3A%2F%2Fauth.example.org")).json()).toMatchObject({ items: [{ id: item.id }] });
+    expect(await (await call("GET", "?origin=https%3A%2F%2Funrelated.example.net")).json()).toEqual({ items: [] });
+    await expect(call("GET", "?origin=http%3A%2F%2Finsecure.example.org")).rejects.toThrow("Use HTTPS");
     expect((await browserPasswords(config).get(item.id)).password).toBe(payload.password);
     const updated = await call("PUT", "", { ...payload, id: item.id, label: "Updated", password: "" });
     expect(updated.status).toBe(200);

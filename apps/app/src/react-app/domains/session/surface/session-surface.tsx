@@ -2174,7 +2174,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   />
                 ) : null}
                 {props.activeQuestion ? (
-                  props.activeQuestion.form ? <NativeFormPanel key={props.activeQuestion.id} form={props.activeQuestion.form} sourceSession={props.activeQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(props.activeQuestion)props.respondQuestion?.(props.activeQuestion.id,answers);}}/> : (
+                  props.activeQuestion.form ? <NativeFormPanel key={props.activeQuestion.id} form={props.activeQuestion.form} client={props.client} sourceSession={props.activeQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(props.activeQuestion)props.respondQuestion?.(props.activeQuestion.id,answers);}}/> : (
                   <QuestionPanel
                     key={props.activeQuestion.id}
                     questions={props.activeQuestion.questions}

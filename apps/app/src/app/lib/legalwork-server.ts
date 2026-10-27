@@ -3368,7 +3368,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
 
-    listBrowserPasswords: () => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, "/browser-passwords", { token, hostToken, timeoutMs: timeouts.config }),
+    listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
     saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),

@@ -1,5 +1,8 @@
 import { useState } from "react";
 import type { FormInfo, FormField } from "@opencode/client";
+import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { BrowserPasswordForm } from "./browser-password-form";
 import { Button } from "@/components/ui/button";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { InteractionSource } from "../chat/interaction-source";
@@ -39,6 +42,7 @@ export function fieldVisible(
 /** Native fields retain their keys, values, constraints and conditional visibility. */
 export function NativeFormPanel(props: {
   form: FormInfo;
+  client?: LegalworkServerClient;
   busy: boolean;
   onReply: (answers: string[][]) => void;
   submitLabel?: string;
@@ -51,6 +55,13 @@ export function NativeFormPanel(props: {
       current.map((value, position) => (position === index ? values : value)),
     );
   const inputClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
+  const passwordRequest = browserPasswordRequest(props.form.metadata);
+  if (passwordRequest) return <div className="p-3">
+    <InteractionSource session={props.sourceSession} onOpenSession={props.onOpenSession} />
+    <BrowserPasswordForm request={passwordRequest} client={props.client} busy={props.busy}
+      onComplete={id => props.onReply(props.form.fields.map(field => [field.key === "password_id" ? id : field.key === "cancelled" ? "false" : ""]))}
+      onCancel={() => props.onReply(props.form.fields.map(field => [field.key === "cancelled" ? "true" : ""]))} />
+  </div>;
   return (
     <form
       className="space-y-3 border-b border-dls-border p-4"

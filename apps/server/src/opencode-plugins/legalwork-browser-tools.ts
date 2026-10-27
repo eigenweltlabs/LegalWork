@@ -11,7 +11,7 @@ import { nativeToolAbortSignal, nativeToolSignal } from "./native-tool.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
 
-const browserUrl = z.string().describe("Exact browser_url capability returned by legalwork_browser_open_url. Do not construct one or use a general debugging endpoint.");
+export const browserUrl = z.string().describe("Exact browser_url capability returned by legalwork_browser_open_url. Do not construct one or use a general debugging endpoint.");
 const batchArgs = z.object({
   browser_url: browserUrl,
   steps: z.array(z.object({
@@ -49,7 +49,7 @@ function endpoint(capability: string, route: BrowserRoute) {
   return { url, remote: false };
 }
 
-async function requestBrowser(capability: string, route: BrowserRoute, body?: unknown, context?: OpenCodeContext) {
+export async function requestBrowser(capability: string, route: BrowserRoute, body?: unknown, context?: OpenCodeContext) {
   const destination = endpoint(capability, route);
   if (destination.remote && ["passwords", "fill-password"].includes(route)) throw new Error("Saved browser passwords require the local LegalWork desktop browser.");
   const response = await fetch(destination.url, {
@@ -122,7 +122,7 @@ async function receiveDownloads(capability: string, files: z.infer<typeof downlo
 
 export const legalworkBrowserTools = {
   legalwork_browser_passwords: {
-    description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. Use browser_url from legalwork_browser_open_url or legalwork_browser_connect; opening and listing can share one Code Mode execute. Never ask the user to paste passwords in chat; they can save them in Settings > Secrets > Browser passwords. No password values are returned.",
+    description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. Use browser_url from legalwork_browser_open_url or legalwork_browser_connect; opening and listing can share one Code Mode execute. If sign-in is needed and the list is empty, call legalwork_browser_request_password for the inline credential card. Never request passwords in chat. No password values are returned.",
     args: { browser_url: browserUrl },
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl }).parse(rawArgs);
