@@ -26,4 +26,6 @@ To contribute, ask the assistant to suggest a specific useful update from the pr
 
 Wiki settings can share with the firm or selected members when the firm's service supports independent wiki sharing. Only the owner changes access. Members join into a local folder. Saved changes sync with revision checks; overlapping edits retain a conflict copy. Signing out or losing access stops shared access. Stopping sharing leaves the owner's local folder intact.
 
+Joining or updating a shared wiki downloads several files at once. Each file is verified before it is saved, and edits you make while downloads are running are preserved.
+
 Use [Dashboards and reports](dashboards.md) for views of wiki properties. Source pages remain the place to correct underlying facts.
