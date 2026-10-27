@@ -73,6 +73,7 @@ async function backgroundFixture(t) {
   const service = new RecorderService({ userDataDir, resolveCloudConnection: transport.resolveConnection,
     powerSessions: { acquire: key => held.add(key), release: key => held.delete(key) } });
   service.broadcast = event => events.push(event);
+  service.modelManager.downloadDiarization = async () => { throw new Error("Speaker model unavailable in transport fixture"); };
   t.after(async () => { service.dispose(); await Promise.all(service.speakerJobs.values()); await fsp.rm(userDataDir, { recursive: true, force: true }); });
   const modelId = "gemini-transcribe-live-eu";
   await service.startTranscriber({ modelId, language: "de" });

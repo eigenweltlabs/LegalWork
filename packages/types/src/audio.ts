@@ -356,8 +356,6 @@ export type AudioSystemDictationPasteResult = {
 };
 
 export type AudioRecordingStartInput = {
-  /** Cloud recordings keep one label per separate input unless enabled. */
-  identifyAdditionalSpeakers?: boolean;
   meetingNotes?: AudioMeetingNotesSettings;
   title?: string;
   projectId?: string;
@@ -372,8 +370,7 @@ export type AudioRecordingStartInput = {
 };
 
 export type AudioMeetingNotesSettings = {
-  title: boolean;
-  summary: boolean;
+  enabled: boolean;
   /** Empty selects an available model in the transcription region. */
   model: string;
   instructions: string;

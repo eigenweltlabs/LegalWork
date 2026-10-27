@@ -183,25 +183,13 @@ export function RecorderSettingsView(props: {
           {store.transcriptionSource === "cloud" ? <div className="space-y-4 border-t border-subtle pt-4">
             <div>
               <label className="flex items-center justify-between gap-4 text-sm">
-                {t("recorder.identify_additional_speakers")}
-                <Switch checked={store.identifyAdditionalSpeakers} onCheckedChange={store.setIdentifyAdditionalSpeakers}
-                  aria-label={t("recorder.identify_additional_speakers")} />
+                {t("recorder.meeting_notes_title")}
+                <Switch checked={store.meetingNotes.enabled} onCheckedChange={enabled => store.setMeetingNotes({ enabled })}
+                  aria-label={t("recorder.meeting_notes_title")} />
               </label>
-              <p className="mt-1 text-xs text-subtext">{t("recorder.identify_additional_speakers_description")}</p>
-            </div>
-            <div>
-              <div className="text-xs font-medium text-ink">{t("recorder.meeting_notes_title")}</div>
               <p className="mt-1 text-sm text-subtext">{t("recorder.meeting_notes_description")}</p>
             </div>
-            <label className="flex items-center justify-between gap-4 text-sm">
-              {t("recorder.meeting_auto_title")}
-              <Switch checked={store.meetingNotes.title} onCheckedChange={title => store.setMeetingNotes({ title })} aria-label={t("recorder.meeting_auto_title")} />
-            </label>
-            <label className="flex items-center justify-between gap-4 text-sm">
-              {t("recorder.meeting_auto_summary")}
-              <Switch checked={store.meetingNotes.summary} onCheckedChange={summary => store.setMeetingNotes({ summary })} aria-label={t("recorder.meeting_auto_summary")} />
-            </label>
-            {store.meetingNotes.title || store.meetingNotes.summary ? <>
+            {store.meetingNotes.enabled ? <>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm">{t("recorder.meeting_notes_model")}</span>
                 <Select value={store.meetingNotes.model || "auto"}

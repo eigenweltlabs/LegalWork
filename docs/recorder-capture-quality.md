@@ -195,14 +195,16 @@ model that keeps up with the input still determine practical recording length.
 
 Cloud meetings retain known Microphone, System audio and App audio labels for
 separate inputs from the start. They identify sources, not verified people.
-By default each separate input keeps its label, including after the provider
-returns multiple voice IDs. **Identify additional voices** opts into individual
-voice detection for shared microphones or multiple remote participants. In that
-mode the first detected voice reuses the input label and additional voices get
-their own IDs. Source labels and detected identities are different guarantees:
-voice detection can still require correction.
+Speaker detection is automatic, with no additional-voices setting. After Stop,
+cloud word boundaries are checked against local CAM++ voice embeddings in an
+Electron utility process. Each input and recording has its own voice state.
+Several longer utterances contribute to a profile; a new voice needs independent
+confirmation, and similar profiles are reconciled at the end. The first voice
+reuses the input label and additional voices get their own IDs. Uncertain speech
+and unavailable voice models retain input labels. Source labels identify inputs;
+voice identities remain probabilistic and can require correction.
 
-After Stop, the independent speaker pass refines word timings in both modes.
+After Stop, the independent speaker pass refines word timings.
 Unmatched words keep their input label. A failed live socket preserves
 captured speaker-pass audio for the saved transcript. Speaker windows are
 30 seconds with overlap to reduce per-request latency.
@@ -216,6 +218,8 @@ clocks keep advancing together. The gateway uses provider speech activity
 offsets instead of response arrival times. Desktop persistence sorts incoming
 segments by capture time and rewrites a shared live mirror on late arrivals.
 Improved word timings are applied even when text and speaker stay unchanged.
+When alignment moves the end of one caption past the next caption's onset, the
+original word sequence on that input takes precedence over estimated timing.
 The gateway commits long authoritative meeting text incrementally. If Google
 returns a long utterance in one final packet, confident word alignment splits it
 into paragraphs targeting 600 characters and 30 seconds, using recognized word
@@ -224,10 +228,11 @@ The viewer also bounds same-speaker grouping by time, silence gap and text lengt
 The alignment cache retains four minutes of words to cover delayed long packets.
 
 With a cloud transcription model selected, **Settings > Recorder > Meetings**
-offers independent automatic title and summary switches, an enabled chat model
-in the transcription region, and optional instructions. Both switches default
-to on. Disabling both sends no notes request. Local recordings and ephemeral
-dictation never generate cloud notes.
+offers one **Post-process meeting with LLM** switch for the meeting title,
+summary and automatic speaker names, plus an enabled chat model in the
+transcription region and optional instructions. The switch defaults to on;
+upgrading preserves either previous title/summary opt-out. Disabling it sends no
+notes request. Local recordings and ephemeral dictation never generate cloud notes.
 
 Notes run after speaker processing, through the existing server and paid chat
 endpoint with a fresh organisation opt-in check. They count toward normal model
@@ -235,7 +240,10 @@ usage. Automatic selection prefers an available small non-reasoning model in
 the same region. A selected unavailable model fails without silently switching
 models or regions. Responses must contain complete JSON with the requested
 fields. Failures leave the transcript intact. A manual rename during generation
-is preserved. Summary text appears above the transcript and is included in JSON,
+is preserved. Speaker names require a known speaker ID and an exact quote from
+that speaker containing the proposed name. The model is instructed to use only
+explicit self-identification; uncertain identities retain their existing labels.
+Manual speaker names are preserved. Summary text appears above the transcript and is included in JSON,
 Markdown and managed workspace copies; TXT and SRT remain verbatim.
 
 OpenWhispr's [capture timeline](https://github.com/OpenWhispr/openwhispr/blob/f2a269646075ab4a82b86f08802aeaf315191520/src/helpers/meetingAudioTimeline.js),
@@ -248,5 +256,52 @@ Regression tests cover delayed input ordering, source-label preservation,
 speaker failure, notes controls, cancellation, manual names and export updates.
 Before release, make a real microphone plus system-audio call, stop it, and
 verify turn order, refined speakers and notes. Repeat with local transcription
-and with both notes switches off. Synthetic tests and component previews do
+and with post-processing off. Synthetic tests and component previews do
 not replace this live provider check.
+
+## Meeting detection
+
+Google Meet supports both `/<code>` and `/meet/<code>` URLs. Recognized browser
+meeting metadata can offer a recording even when joining muted. On macOS the
+helper examines browser windows independently of microphone activity, using
+window titles when Accessibility metadata is unavailable. Sustained browser
+microphone activity can offer a generic Browser call prompt if the provider
+cannot be identified. This can also prompt for other browser microphone uses.
+Detection always offers a prompt; it never starts recording automatically.
+
+## OSS implementation review, 27 October 2026
+
+Reviewed source and tests rather than treating advertised features as proof:
+
+- [Hyprnote, now Anarlog: batch diarization](https://github.com/fastrepl/anarlog/blob/7165aba8974c2c3ff4cfda34846027b4e0e1d7a9/crates/listener2-core/src/batch/diarize.rs)
+  preserves microphone/remote channel context and performs post-recording
+  diarization. Its [local pipeline](https://github.com/fastrepl/anarlog/blob/7165aba8974c2c3ff4cfda34846027b4e0e1d7a9/crates/pyannote-local/src/pipeline.rs)
+  uses segmentation, clean-speech embeddings and whole-session clustering.
+  Its [browser detection tests](https://github.com/fastrepl/anarlog/blob/7165aba8974c2c3ff4cfda34846027b4e0e1d7a9/crates/detect/src/meeting_ax/tests/browser_detection.rs)
+  combine window URLs, titles and bounded call-control checks.
+- [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit/blob/eb92c115ee7abc1e161b0b2159da31785b0f5566/whisperlivekit/diarization/sortformer_backend.py)
+  retains Sortformer state per session. Its speaker-boundary tests preserve
+  words despite speaker revisions and retrograde timestamps. The default
+  checkpoint has four speaker channels and requires the Python/NeMo stack.
+- [WhisperX](https://github.com/m-bain/whisperX/blob/5d3678b8535698a2826a5db9eb3e4105aef85dd9/whisperx/diarize.py)
+  assigns aligned words by temporal overlap with whole-recording pyannote
+  diarization. It is a quality reference, not an Electron drop-in library.
+- [OpenWhispr settings](https://github.com/OpenWhispr/openwhispr/blob/6408cd9a1081dc4935706fcbba6aaeae1d2cd18d/src/components/settings/MeetingSettings.tsx)
+  do expose a general diarization switch. Its local CAM++ embeddings and
+  post-recording reconciliation are the relevant implementation patterns.
+- Meetily's public community code includes capture and summaries, but
+  [speaker diarization is a Pro feature](https://meetily.ai/speaker-diarization).
+  It was excluded as an open-source diarization implementation.
+
+No upstream implementation code was copied. These projects establish useful
+patterns, not measured accuracy on LegalWork recordings. This change uses the
+existing local embedding runtime and cloud word alignment; it does not claim to
+implement Anarlog's complete clustering pipeline or WhisperX.
+
+Local replay of cached real provider responses and saved PCM on all three test
+recordings produced two input labels, zero unassigned segments, unchanged words
+in order, and paragraphs within 30 seconds/599 characters. Fresh transcription
+coverage of the longest recording remains partial (35 minutes microphone,
+21 minutes system audio). A controlled one-input sequence assembled from both
+real voices retained two final identities, with an early misassignment in one
+sequence. This is not a human-annotated diarization accuracy benchmark.

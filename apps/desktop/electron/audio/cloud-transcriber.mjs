@@ -25,7 +25,7 @@ export function pcm16(buffer) {
 
 /** Worker-compatible transport, so capture, shortcuts and transcript storage stay shared. */
 export class CloudTranscriber extends EventEmitter {
-  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, onSpeakerPass = null, createSpeechDetector = createDictationSpeechDetector }) {
+  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, onSpeakerPass = null, createVoiceVerifier = null, createSpeechDetector = createDictationSpeechDetector }) {
     super();
     this.modelId = modelId;
     this.language = language;
@@ -33,6 +33,7 @@ export class CloudTranscriber extends EventEmitter {
     this.socketFactory = socketFactory;
     this.rotateMs = rotateMs;
     this.onSpeakerPass = onSpeakerPass;
+    this.createVoiceVerifier = createVoiceVerifier;
     this.createSpeechDetector = createSpeechDetector;
     this.streams = new Map();
     this.stopped = false;
@@ -53,8 +54,10 @@ export class CloudTranscriber extends EventEmitter {
       if (!message.ephemeral && message.diarize) {
         try {
           stream.speakerPass = new DeferredCloudSpeakerPass({
+            createVoiceVerifier: this.createVoiceVerifier,
             recognize: (audio, signal) => this.recognizeSpeakers(audio, signal),
             onTurns: result => this.emit("message", { type: "speaker-turns", streamId: stream.id, ...result }),
+            onMerge: aliases => this.emit("message", { type: "speaker-merge", streamId: stream.id, aliases }),
             onError: error => this.emit("message", { type: "diarize-error", streamId: stream.id, error }),
           });
         } catch {

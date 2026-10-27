@@ -13,6 +13,7 @@
  * (forwarded to the worker for VAD + decoding).
  */
 
+import { VoiceVerifierClient } from "./voice-verifier.mjs";
 import fs from "node:fs";
 import { finished } from "node:stream/promises";
 import fsp from "node:fs/promises";
@@ -89,7 +90,7 @@ export class RecorderService {
    *   powerSessions?: { acquire: (key: string) => void, release: (key: string) => void },
    *   pinProcessQoS?: (pids: number[]) => void,
    *   resolveCloudConnection?: (modelId: string) => Promise<{ url: string, apiKey: string }>,
-   *   generateMeetingNotes?: (input: { model: string, transcript: string, settings: import("@legalwork/types/audio").AudioMeetingNotesSettings }, signal: AbortSignal) => Promise<{ title?: string, summary?: string }>,
+   *   generateMeetingNotes?: (input: { model: string, transcript: string, settings: import("@legalwork/types/audio").AudioMeetingNotesSettings, speakers: { id: number, label: string }[] }, signal: AbortSignal) => Promise<{ title?: string, summary?: string, speakerNames?: Record<string, string> }>,
    * }} options
    */
   constructor(options) {
@@ -173,7 +174,6 @@ export class RecorderService {
      *   diarize?: boolean,
      *   cloudSpeakers?: Map<string, { ids: Map<number, number>, turns: { startMs: number, endMs: number, speaker: number | null }[], words: { text?: string, startMs: number, endMs: number, speaker: number | null }[], endMs: number }>,
      *   cloudDiarize?: boolean,
-     *   identifyAdditionalSpeakers?: boolean,
      *   meetingNotes?: import("@legalwork/types/audio").AudioMeetingNotesSettings,
      *   speakerPasses?: import("./deferred-cloud-speakers.mjs").DeferredCloudSpeakerPass[],
      *   cloudSegments?: Map<string, { streamId: string, original: import("@legalwork/types/audio").AudioTranscriptSegment, parts: import("@legalwork/types/audio").AudioTranscriptSegment[] }>,
@@ -469,7 +469,22 @@ export class RecorderService {
         return this.transcriberStatus;
       }
       this.loadedModel = { modelId, language };
+      let speakerModelsReady;
       this.worker = new CloudTranscriber({ modelId, language, resolveConnection: this.resolveCloudConnection,
+        createVoiceVerifier: async () => {
+          // Both inputs start their deferred pass together. Share the download
+          // promise so neither input observes a partially installed model.
+          speakerModelsReady ??= this.modelManager.downloadDiarization().catch(error => {
+            speakerModelsReady = null;
+            throw error;
+          });
+          await speakerModelsReady;
+          if (!this.modelManager.isDiarizationInstalled()) {
+            speakerModelsReady = null;
+            throw new Error("Speaker models are unavailable.");
+          }
+          return new VoiceVerifierClient(this.forkWorker(path.join(__dirname, "voice-verifier-worker.cjs")), this.modelManager.diarizationModelPaths().embedding);
+        },
         onSpeakerPass: (streamId, pass) => {
           const recordingId = this.recordingInputs.get(streamId)?.recordingId ?? streamId;
           const recording = this.activeRecordings.get(recordingId);
@@ -613,6 +628,29 @@ export class RecorderService {
         }
         break;
       }
+      case "speaker-merge": {
+        const detected = recording?.cloudSpeakers?.get(message.streamId);
+        if (!detected || !recording) break;
+        const names = recording.meta.speakerNames ?? {};
+        const changed = [];
+        for (const [from, to] of Object.entries(message.aliases)) {
+          const oldId = detected.ids.get(Number(from));
+          const newId = detected.ids.get(to);
+          if (oldId == null || newId == null || oldId === newId) continue;
+          for (const segment of recording.segments) {
+            if (segment.speaker !== oldId) continue;
+            segment.speaker = newId;
+            changed.push(segment);
+          }
+          detected.ids.set(Number(from), newId);
+          delete names[oldId];
+        }
+        if (changed.length) {
+          recording.transcriptStream?.write(`${JSON.stringify({ replacedIds: [], segments: changed })}\n${JSON.stringify({ speakerNames: names })}\n`);
+          this.broadcast({ type: "transcript-speakers-updated", streamId, segments: changed, speakerNames: { ...names } });
+        }
+        break;
+      }
       case "speaker-turns": {
         if (!recording || recording.meta.ephemeral) break;
         recording.cloudSpeakers ??= new Map();
@@ -623,7 +661,7 @@ export class RecorderService {
         }
         const names = recording.meta.speakerNames ??= {};
         const turns = message.turns.map(turn => {
-          if (input && !recording.identifyAdditionalSpeakers) return { ...turn, speaker: input.speaker };
+          if (input && message.voicesVerified !== true) return { ...turn, speaker: input.speaker };
           if (turn.speaker == null) return turn;
           if (!detected.ids.has(turn.speaker)) {
             // Reuse the input's first label. Further voices on that input get
@@ -639,22 +677,38 @@ export class RecorderService {
         detected.turns = mergeSpeakerTurns(detected.turns, { startMs: message.startMs, endMs: message.endMs, turns })
           .filter(turn => turn.endMs >= detected.endMs - 120_000);
         detected.words = mergeSpeakerWords(detected.words, { startMs: message.startMs, endMs: message.endMs,
-          words: (message.words ?? []).map(word => ({ ...word, speaker: input && !recording.identifyAdditionalSpeakers
+          words: (message.words ?? []).map(word => ({ ...word, speaker: input && message.voicesVerified !== true
             ? input.speaker : word.speaker == null ? null : detected.ids.get(word.speaker) ?? null })) });
         const changed = [];
         const replacedIds = [];
+        const replacements = new Map();
         for (const [id, entry] of recording.cloudSegments ?? []) {
           if (entry.streamId !== message.streamId || entry.original.startMs > detected.endMs + 4000) continue;
           if (entry.original.endMs < detected.endMs - 120_000) { recording.cloudSegments.delete(id); continue; }
           const parts = splitCloudTranscript(entry.original, detected.words, detected.turns, detected.endMs, entry.parts);
           if (JSON.stringify(parts) === JSON.stringify(entry.parts)) continue;
           replacedIds.push(...entry.parts.map(part => part.id));
+          replacements.set(entry.parts[0].id, parts);
           changed.push(...parts);
           entry.parts = parts;
         }
         if (changed.length) {
           const removed = new Set(replacedIds);
-          const next = [...recording.segments.filter(segment => !removed.has(segment.id)), ...changed].sort((a, b) => a.startMs - b.startMs);
+          const next = recording.segments.flatMap(segment => replacements.get(segment.id) ?? (removed.has(segment.id) ? [] : [segment]));
+          // Word alignment can move a trailing word past the next caption's
+          // onset. Preserve the original order on each input, including when
+          // uncertain words keep a different speaker label and become a part.
+          const previousStarts = new Map();
+          for (const segment of next) {
+            const previousStart = previousStarts.get(segment.source) ?? 0;
+            if (segment.startMs < previousStart) {
+              segment.startMs = previousStart;
+              segment.endMs = Math.max(segment.endMs, segment.startMs);
+              if (!changed.includes(segment)) changed.push(segment);
+            }
+            previousStarts.set(segment.source, segment.startMs);
+          }
+          next.sort((a, b) => a.startMs - b.startMs);
           recording.segments.splice(0, recording.segments.length, ...next);
           recording.transcriptStream?.write(`${JSON.stringify({ replacedIds, segments: changed })}\n`);
         }
@@ -860,9 +914,8 @@ export class RecorderService {
       diarize,
       cloudSpeakers: new Map(),
       cloudDiarize,
-      identifyAdditionalSpeakers: input?.identifyAdditionalSpeakers === true,
       meetingNotes: meta.transcriptionSource === "cloud" && !meta.ephemeral && input?.meetingNotes
-        ? { title: input.meetingNotes.title === true, summary: input.meetingNotes.summary === true,
+        ? { enabled: input.meetingNotes.enabled === true,
           model: String(input.meetingNotes.model ?? "").slice(0, 200), instructions: String(input.meetingNotes.instructions ?? "").slice(0, 1000) } : undefined,
       cloudSegments: new Map(),
       cloudPartials: new Map(),
@@ -986,7 +1039,7 @@ export class RecorderService {
 
     const meta = recording.meta;
     meta.speakerProcessing = background;
-    meta.summaryProcessing = Boolean(recording.segments.length && (recording.meetingNotes?.title || recording.meetingNotes?.summary));
+    meta.summaryProcessing = Boolean(recording.segments.length && recording.meetingNotes?.enabled);
     meta.durationMs = stoppedAt - recording.startedAt;
     meta.sizeBytes = recording.sizeBytes;
     meta.segmentCount = recording.segments.length;
@@ -1041,14 +1094,23 @@ export class RecorderService {
       if (!detail || detail.meta.transcriptionSource !== "cloud" || detail.meta.ephemeral) return;
       if (!this.generateMeetingNotes) throw new Error("Meeting notes are unavailable. Your transcript is saved.");
       const result = await this.generateMeetingNotes({ model: detail.meta.modelId,
-        transcript: workspaceTranscriptBody(detail.meta, detail.segments), settings: recording.meetingNotes }, signal);
+        transcript: detail.segments.map(segment => `[speaker:${segment.speaker ?? "unknown"}] ${segment.text.replace(/\s+/g, " ")}`).join("\n"),
+        speakers: [...new Set(detail.segments.flatMap(segment => segment.speaker == null ? [] : [segment.speaker]))]
+          .map(id => ({ id, label: speakerLabel(id, detail.meta.speakerNames) })), settings: recording.meetingNotes }, signal);
       if (signal.aborted) return;
       const updated = await this.updateSavedTranscript(recordingId, saved => {
         if (signal.aborted) throw new Error("Meeting notes cancelled.");
-        return { ...saved, meta: { ...saved.meta, summaryProcessing: false,
+        const speakerNames = { ...saved.meta.speakerNames };
+        for (const [id, name] of Object.entries(result.speakerNames ?? {})) {
+          const before = detail.meta.speakerNames?.[id];
+          if (saved.segments.some(segment => String(segment.speaker) === id)
+            && saved.meta.speakerNames?.[id] === before
+            && (!before || /^(?:Microphone|System audio|App audio)(?: \d+)?$|^Speaker \d+$/.test(before))) speakerNames[id] = name;
+        }
+        return { ...saved, meta: { ...saved.meta, speakerNames, summaryProcessing: false,
           // A name edited while this request was pending belongs to the user.
-          ...(recording.meetingNotes.title && result.title && saved.meta.title === recording.meta.title ? { title: sanitizeTitle(result.title) } : {}),
-          ...(recording.meetingNotes.summary && result.summary ? { summary: result.summary } : {}),
+          ...(result.title && saved.meta.title === recording.meta.title ? { title: sanitizeTitle(result.title) } : {}),
+          ...(result.summary ? { summary: result.summary } : {}),
         } };
       });
       this.broadcast({ type: "recording-updated", meta: updated.meta });

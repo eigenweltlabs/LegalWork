@@ -88,7 +88,6 @@ const SOURCES_PREF_KEY = "legalwork.recorder.sources";
 const TRANSCRIPTION_SOURCE_PREF_KEY = "legalwork.recorder.transcription-source";
 const CLOUD_MODEL_PREF_KEY = "legalwork.recorder.cloud-model";
 const NOTES_PREF_KEY = "legalwork.recorder.meeting-notes";
-const ADDITIONAL_SPEAKERS_PREF_KEY = "legalwork.recorder.additional-speakers";
 
 function setDictationFeedback(state: AudioSystemDictationRuntimeState, message = "") {
   // Composer dictation owns its feedback and inserts directly into its draft.
@@ -135,7 +134,6 @@ export type RecorderState = {
   transcriptionSource: "local" | "cloud";
   cloudModelId: string;
   meetingNotes: AudioMeetingNotesSettings;
-  identifyAdditionalSpeakers: boolean;
   initialized: boolean;
   bootstrap: AudioRecorderBootstrap | null;
   permissions: AudioCapturePermissions | null;
@@ -189,7 +187,6 @@ export type RecorderState = {
 };
 
 type RecorderActions = {
-  setIdentifyAdditionalSpeakers: (enabled: boolean) => void;
   setMeetingNotes: (settings: Partial<AudioMeetingNotesSettings>) => void;
   setTranscriptionSource: (source: "local" | "cloud", cloudModelId?: string) => void;
   init: () => Promise<void>;
@@ -781,13 +778,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
   return {
     transcriptionSource: readPref(TRANSCRIPTION_SOURCE_PREF_KEY, "local") === "cloud" ? "cloud" : "local",
     cloudModelId: readPref(CLOUD_MODEL_PREF_KEY, ""),
-    identifyAdditionalSpeakers: readPref(ADDITIONAL_SPEAKERS_PREF_KEY, "false") === "true",
-    setIdentifyAdditionalSpeakers: enabled => {
-      writePref(ADDITIONAL_SPEAKERS_PREF_KEY, String(enabled));
-      set({ identifyAdditionalSpeakers: enabled });
-    },
-    meetingNotes: { title: readPref(`${NOTES_PREF_KEY}.title`, "true") === "true",
-      summary: readPref(`${NOTES_PREF_KEY}.summary`, "true") === "true",
+    meetingNotes: { enabled: readPref(`${NOTES_PREF_KEY}.enabled`,
+      readPref(`${NOTES_PREF_KEY}.title`, "true") === "true" && readPref(`${NOTES_PREF_KEY}.summary`, "true") === "true" ? "true" : "false") === "true",
       model: readPref(`${NOTES_PREF_KEY}.model`, ""), instructions: readPref(`${NOTES_PREF_KEY}.instructions`, "") },
     setMeetingNotes: (settings) => {
       const meetingNotes = { ...get().meetingNotes, ...settings };
@@ -1342,7 +1334,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
             projectId: options?.projectId,
             diarize,
             ...(get().transcriptionSource === "cloud" && !options?.systemDictation
-              ? { meetingNotes: get().meetingNotes, identifyAdditionalSpeakers: get().identifyAdditionalSpeakers } : {}),
+              ? { meetingNotes: get().meetingNotes } : {}),
           });
           startedMetaId = meta.id;
           startController?.signal.throwIfAborted();

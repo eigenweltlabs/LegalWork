@@ -11,8 +11,9 @@ const GAP = Buffer.alloc(RATE / 2); // 250 ms between references
 const overlap = (a, b) => Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
 
 export class CloudSpeakerPass {
-  constructor({ recognize, onTurns, onError, chunkMs = 20000 }) {
+  constructor({ recognize, onTurns, onError, verifyVoices = null, chunkMs = 20000 }) {
     this.recognize = recognize;
+    this.verifyVoices = verifyVoices;
     this.onTurns = onTurns;
     this.onError = onError;
     this.chunkMs = chunkMs;
@@ -121,10 +122,19 @@ export class CloudSpeakerPass {
         const alignedWords = words.filter(word => word.startMs >= prefixMs && word.endMs <= prefixMs + clip.length / BYTES_PER_MS + 1)
           .map(word => ({ ...word, startMs: word.startMs - prefixMs + startMs, endMs: word.endMs - prefixMs + startMs }))
           .map(word => ({ ...word, speaker: dominantSpeaker(word, turns) }));
+        const verification = this.verifyVoices ? await this.verifyVoices(clip, startMs, turns) : null;
+        const verifiedTurns = verification?.turns ?? null;
+        if (this.stopped) return;
         // A newly encountered voice needs confirmation in another chunk. Once
         // confirmed, backfill its earlier labels without changing any words.
-        for (const previous of this.recent) this.publish(previous);
-        const current = { startMs, endMs, turns, words: alignedWords, published: null };
+        for (const previous of this.recent) {
+          if (previous.verifiedTurns && verification?.corrections.length) {
+            previous.verifiedTurns = previous.verifiedTurns.map(turn => verification.corrections.find(correction =>
+              correction.startMs === turn.startMs && correction.endMs === turn.endMs) ?? turn);
+          }
+          this.publish(previous);
+        }
+        const current = { startMs, endMs, turns, verifiedTurns, words: alignedWords, published: null };
         this.publish(current);
         this.recent = [...this.recent, current].slice(-2);
       }
@@ -139,12 +149,13 @@ export class CloudSpeakerPass {
   publish(result) {
     const turns = result.turns.map(turn => ({ ...turn, speaker: this.anchors.some(anchor =>
       anchor.speaker === turn.speaker && anchor.confirmed !== false) ? turn.speaker : null }));
-    const published = JSON.stringify(turns);
+    const published = JSON.stringify([turns, result.verifiedTurns]);
     if (published !== result.published) {
       result.published = published;
       this.timeline = mergeSpeakerTurns(this.timeline, { ...result, turns });
-      const words = result.words.map(word => ({ ...word, speaker: dominantSpeaker(word, this.timeline) }));
-      this.onTurns({ startMs: result.startMs, endMs: result.endMs, turns, words });
+      const output = result.verifiedTurns ?? turns;
+      const words = result.words.map(word => ({ ...word, speaker: dominantSpeaker(word, result.verifiedTurns ?? this.timeline) }));
+      this.onTurns({ startMs: result.startMs, endMs: result.endMs, turns: output, words, voicesVerified: result.verifiedTurns != null });
     }
   }
 

@@ -83,8 +83,8 @@ async function notesGateway() {
   state.setRemote({ baseURL: gateway.url.origin, models: [state.model] });
   await writeCachedEigenweltPaidManifest(state.config, { baseURL: `${gateway.url.origin}/v1`, apiKey: "subscription-secret",
     models: [{ id: "mini-eu", name: "Small EU", region: "EU", contextLength: 200000 }, { id: "mini-us", name: "Small US", region: "US" }] });
-  const input = { model: "gemini-transcribe-live-eu", transcript: "Microphone: The deadline is Friday.",
-    settings: { title: true, summary: true, model: "", instructions: "Focus on dates" } } satisfies Parameters<typeof generateMeetingNotes>[1];
+  const input = { model: "gemini-transcribe-live-eu", transcript: "[speaker:0] The deadline is Friday.", speakers: [{ id: 0, label: "Microphone" }],
+    settings: { enabled: true, model: "", instructions: "Focus on dates" } } satisfies Parameters<typeof generateMeetingNotes>[1];
   return { ...state, requests, input, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; } };
 }
 
@@ -92,7 +92,7 @@ test("meeting notes use an enabled model in the transcription region and the nor
   const { config, input, requests } = await notesGateway();
   const status = await cloudTranscriptionStatus(config);
   expect(status.summaryModels).toEqual([{ model: "mini-eu", name: "Small EU", region: "EU" }, { model: "mini-us", name: "Small US", region: "US" }]);
-  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Contract review", summary: "Deadline: Friday." });
+  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Contract review", summary: "Deadline: Friday.", speakerNames: {} });
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({ model: "mini-eu", stream: false });
   expect(JSON.stringify(requests[0])).toContain("Focus on dates");
@@ -101,7 +101,7 @@ test("meeting notes use an enabled model in the transcription region and the nor
 
 test("notes opt-out, disabled cloud access and models in another region cannot send a transcript", async () => {
   const { config, input, requests, setRemote, model } = await notesGateway();
-  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, title: false, summary: false } })).toEqual({});
+  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, enabled: false } })).toEqual({});
   for (const selected of ["mini-us", "not-enabled"]) {
     await expect(generateMeetingNotes(config, { ...input, settings: { ...input.settings, model: selected } })).rejects.toThrow("transcription region");
   }
@@ -114,12 +114,25 @@ test("notes opt-out, disabled cloud access and models in another region cannot s
 
 test("notes return only requested fields and reject malformed or truncated model output", async () => {
   const { config, input, setOutput } = await notesGateway();
-  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, title: false } })).toEqual({ summary: "Deadline: Friday." });
-  expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, summary: false } })).toEqual({ title: "Contract review" });
   setOutput('```json\n{"title":"Review","summary":"Friday."}\n```');
-  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Review", summary: "Friday." });
+  expect(await generateMeetingNotes(config, input)).toEqual({ title: "Review", summary: "Friday.", speakerNames: {} });
   setOutput('{"title":"Review"}');
-  await expect(generateMeetingNotes(config, input)).rejects.toThrow("incomplete");
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow();
   setOutput('{"title":"Review","summary":"Cut off"}', "length");
   await expect(generateMeetingNotes(config, input)).rejects.toThrow("incomplete");
+});
+
+test("automatic names require a known speaker and evidence from that speaker containing the name", async () => {
+  const { config, input, setOutput } = await notesGateway();
+  setOutput(JSON.stringify({ title: "Introductions", summary: "Review the contract.", speakers: [
+    { id: 0, name: "Anna", evidence: "My name is Anna." },
+    { id: 1, name: "Anna", evidence: "My name is Anna." },
+    { id: 2, name: "Chris", evidence: "My name is Chris." },
+    { id: 99, name: "Anna", evidence: "My name is Anna." },
+  ] }));
+  const result = await generateMeetingNotes(config, { ...input,
+    transcript: "[speaker:0] My name is Anna.\n[speaker:1] Nice to meet you.\n[speaker:2] I will review it.",
+    speakers: [{ id: 0, label: "Microphone" }, { id: 1, label: "System audio" }, { id: 2, label: "Speaker 3" }],
+  });
+  expect(result.speakerNames).toEqual({ 0: "Anna" });
 });

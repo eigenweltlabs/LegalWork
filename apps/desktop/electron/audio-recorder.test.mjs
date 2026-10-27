@@ -1123,7 +1123,7 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   const modelId = "gemini-transcribe-live-eu";
   service.loadedModel = { modelId, language: "de" };
   t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); await fsp.rm(workspace, { recursive: true, force: true }); });
-  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true, identifyAdditionalSpeakers: true });
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true });
   const system = `${meta.id}:system`;
   const mic = `${meta.id}:microphone`;
   assert.equal(worker.messages.find(message => message.type === "begin").diarize, true);
@@ -1134,7 +1134,7 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   service.handleWorkerMessage({ type: "segment", streamId: system, id: "late", startMs: 180000, endMs: 185000, text: "Three minutes later." });
   const stopping = service.stopRecording(meta.id);
   assert.equal(events.some(event => event.type === "recording-diarizing"), false, "cloud speaker work does not block capture controls");
-  service.handleWorkerMessage({ type: "speaker-turns", streamId: system, startMs: 0, endMs: 10000,
+  service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: true, streamId: system, startMs: 0, endMs: 10000,
     turns: [{ startMs: 0, endMs: 4000, speaker: 0 }, { startMs: 5000, endMs: 9000, speaker: 1 }] });
   let detail = await service.getRecording(meta.id);
   assert.deepEqual(detail.segments.filter(segment => segment.source === "system").map(segment => segment.speaker), [1, 2, 1]);
@@ -1148,7 +1148,7 @@ test("speaker processing after Stop updates the whole transcript, workspace mirr
   assert.match(liveMirror, /Speaker 3/);
   assert.doesNotMatch(liveMirror, /Recording ended/);
   // Overlapping updates must preserve the earlier part of a speaker turn.
-  service.handleWorkerMessage({ type: "speaker-turns", streamId: system, startMs: 3000, endMs: 15000,
+  service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: true, streamId: system, startMs: 3000, endMs: 15000,
     turns: [{ startMs: 3000, endMs: 4000, speaker: 0 }, { startMs: 5000, endMs: 9000, speaker: 1 }] });
   service.handleWorkerMessage({ type: "segment", streamId: system, id: "d", startMs: 0, endMs: 6500, text: "Long delayed first turn." });
   detail = await service.getRecording(meta.id);
@@ -1187,7 +1187,7 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   const modelId = "gemini-transcribe-live-eu";
   service.loadedModel = { modelId, language: "de" };
   t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); });
-  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true, identifyAdditionalSpeakers: true });
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true, diarize: true });
   const mic = `${meta.id}:microphone`;
   const text = "Ich prüfe den Vertrag. Danke, ich übernehme.";
   service.handleWorkerMessage({ type: "segment", streamId: mic, id: "mixed", startMs: 0, endMs: 9000, text });
@@ -1198,7 +1198,7 @@ test("cloud word timing splits a saved mixed block after Stop; journal recovery 
   const words = ["ich", "prüfe", "den", "Vertrag", "danke", "ich", "übernehme"].map((word, i) =>
     ({ text: word, startMs: 1000 + i * 500, endMs: 1400 + i * 500, speaker: i < 4 ? 0 : 1 }));
   words.push({ text: "Nächste", startMs: 9500, endMs: 9900, speaker: 0 }, { text: "Frage", startMs: 10000, endMs: 10500, speaker: 0 });
-  service.handleWorkerMessage({ type: "speaker-turns", streamId: mic, startMs: 0, endMs: 15000, words,
+  service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: true, streamId: mic, startMs: 0, endMs: 15000, words,
     turns: [{ startMs: 1000, endMs: 2900, speaker: 0 }, { startMs: 3000, endMs: 4400, speaker: 1 }, { startMs: 9500, endMs: 10500, speaker: 0 }] });
   const live = await service.getRecording(meta.id);
   assert.deepEqual(live.segments.map(part => [part.text, part.speaker]), [["Ich prüfe den Vertrag.", 0], ["Danke, ich übernehme.", 2]]);
@@ -1224,7 +1224,7 @@ async function notesFixture(t, generateMeetingNotes) {
   service.workerReady = true;
   service.loadedModel = { modelId: "gemini-transcribe-live-eu", language: "de" };
   worker.on("message", message => service.handleWorkerMessage(message));
-  const settings = { title: true, summary: true, model: "notes-eu", instructions: "Decisions and deadlines" };
+  const settings = { enabled: true, model: "notes-eu", instructions: "Decisions and deadlines" };
   t.after(async () => {
     service.dispose();
     await Promise.all([...service.summaryJobs.values()].map(job => job.promise));
@@ -1241,13 +1241,13 @@ async function notesFixture(t, generateMeetingNotes) {
   return { service, settings, record, userDataDir };
 }
 
-test("separate-input meetings keep stable source labels despite provider voice splits while refining timing", async t => {
+test("unverified provider voice splits keep source labels while refining timing", async t => {
   const { service } = await notesFixture(t, async () => ({}));
   const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
   for (const source of meta.sources) {
     const streamId = `${meta.id}:${source}`;
     service.handleWorkerMessage({ type: "segment", streamId, id: "words", startMs: 0, endMs: 10000, text: "One person continues speaking." });
-    service.handleWorkerMessage({ type: "speaker-turns", streamId, startMs: 0, endMs: 10000,
+    service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: false, streamId, startMs: 0, endMs: 10000,
       turns: [{ startMs: 2000, endMs: 4000, speaker: 0 }, { startMs: 4000, endMs: 6000, speaker: 1 }],
       words: ["One", "person", "continues", "speaking"].map((text, i) => ({ text, startMs: 2000+i*1000, endMs: 2900+i*1000, speaker: i<2 ? 0 : 1 })) });
   }
@@ -1255,7 +1255,7 @@ test("separate-input meetings keep stable source labels despite provider voice s
   const detail = await service.getRecording(meta.id);
   assert.deepEqual(detail.meta.speakerNames, { 0: "Microphone", 1: "System audio" });
   assert.equal(detail.segments.length, 2);
-  assert.deepEqual(detail.segments.map(s => s.speaker), [0, 1]);
+  assert.deepEqual(Object.fromEntries(detail.segments.map(s => [s.source, s.speaker])), { microphone: 0, system: 1 });
   assert.ok(detail.segments.every(s => s.startMs === 2000 && s.endMs === 5900));
 });
 
@@ -1263,7 +1263,7 @@ test("cloud meeting notes update title, summary, JSON, Markdown and the workspac
   const calls = [];
   const { service, record, userDataDir, settings } = await notesFixture(t, async input => {
     calls.push(input);
-    return { title: "Contract review", summary: "The deadline is Friday." };
+    return { title: "Contract review", summary: "The deadline is Friday.", speakerNames: { 0: "Chris", 99: "Unknown" } };
   });
   const id = await record();
   await service.summaryJobs.get(id)?.promise;
@@ -1271,22 +1271,23 @@ test("cloud meeting notes update title, summary, JSON, Markdown and the workspac
   assert.equal(detail.meta.summaryProcessing, false);
   assert.equal(detail.meta.title, "Contract review");
   assert.equal(detail.meta.summary, "The deadline is Friday.");
+  assert.deepEqual(detail.meta.speakerNames, { 0: "Chris", 1: "System audio" });
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].settings, settings);
-  assert.match(calls[0].transcript, /Microphone: The deadline is Friday/);
+  assert.match(calls[0].transcript, /\[speaker:0\] The deadline is Friday/);
   assert.match(await fsp.readFile(path.join(detail.meta.folderPath, "transcript.md"), "utf8"), /## Summary\n\nThe deadline is Friday/);
   assert.equal(JSON.parse(await fsp.readFile(detail.meta.transcriptPath, "utf8")).summary, detail.meta.summary);
   const copy = await service.saveToWorkspace(id, userDataDir);
   assert.equal(copy.ok, true);
   assert.match(await fsp.readFile(path.join(copy.folderPath, "transcript.md"), "utf8"), /## Summary\n\nThe deadline is Friday/);
   const text = await fsp.readFile(path.join(detail.meta.folderPath, "transcript.txt"), "utf8");
-  assert.equal(text.trim(), "Microphone: The deadline is Friday.", "the source transcript stays verbatim");
+  assert.equal(text.trim(), "Chris: The deadline is Friday.", "naming a speaker preserves the transcript words");
 });
 
 test("local recordings, ephemeral dictation and disabled notes never call a cloud notes model", async t => {
   let calls = 0;
   const { service, record, settings } = await notesFixture(t, async () => { calls++; return {}; });
-  await record({ meetingNotes: { ...settings, title: false, summary: false } });
+  await record({ meetingNotes: { ...settings, enabled: false } });
   await record({ ephemeral: true, sources: ["microphone"], separateSources: false });
   service.loadedModel = { modelId: "whisper-tiny", language: "de" };
   await record({ modelId: "whisper-tiny" });
@@ -1294,8 +1295,8 @@ test("local recordings, ephemeral dictation and disabled notes never call a clou
   assert.equal(service.summaryJobs.size, 0);
 });
 
-test("manual title edits survive a pending notes response", async t => {
-  /** @type {(value: { title: string, summary: string }) => void} */
+test("manual title and speaker edits survive a pending notes response", async t => {
+  /** @type {(value: { title: string, summary: string, speakerNames: Record<string, string> }) => void} */
   let release = (_value) => { assert.fail("the notes request must be waiting for its response"); };
   let entered;
   const started = new Promise(resolve => { entered = resolve; });
@@ -1306,20 +1307,47 @@ test("manual title edits survive a pending notes response", async t => {
   const id = await record();
   await started;
   await service.renameRecording(id, "My meeting name");
-  release({ title: "Automatic name", summary: "Agreed Friday." });
+  await service.editTranscript(id, { type: "rename-speaker", speaker: 0, name: "My speaker name" });
+  release({ title: "Automatic name", summary: "Agreed Friday.", speakerNames: { 0: "Automatic speaker" } });
   await service.summaryJobs.get(id).promise;
   const detail = await service.getRecording(id);
   assert.equal(detail.meta.title, "My meeting name");
   assert.equal(detail.meta.summary, "Agreed Friday.");
+  assert.equal(detail.meta.speakerNames[0], "My speaker name");
 });
 
-test("summary-only settings leave the original meeting title intact", async t => {
-  const { service, record, settings } = await notesFixture(t, async () => ({ title: "Unrequested name", summary: "Agreed Friday." }));
-  const id = await record({ title: "Original meeting", meetingNotes: { ...settings, title: false } });
-  await service.summaryJobs.get(id)?.promise;
-  const detail = await service.getRecording(id);
-  assert.equal(detail.meta.title, "Original meeting");
-  assert.equal(detail.meta.summary, "Agreed Friday.");
+test("final acoustic reconciliation merges one input's identities and persists journal corrections", async t => {
+  const { service } = await notesFixture(t, async () => ({}));
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
+  const streamId = `${meta.id}:system`;
+  service.handleWorkerMessage({ type: "segment", streamId: `${meta.id}:microphone`, id: "mic", text: "Local", startMs: 0, endMs: 4000 });
+  for (const { id, startMs } of [{ id: "first", startMs: 0 }, { id: "second", startMs: 8000 }]) {
+    service.handleWorkerMessage({ type: "segment", streamId, id, text: id, startMs, endMs: startMs + 4000 });
+  }
+  service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: true, streamId, startMs: 0, endMs: 16000,
+    turns: [{ startMs: 0, endMs: 4000, speaker: 0 }, { startMs: 8000, endMs: 12000, speaker: 1 }] });
+  assert.equal((await service.getRecording(meta.id)).segments.at(-1).speaker, 2);
+  service.handleWorkerMessage({ type: "speaker-merge", streamId, aliases: { 1: 0 } });
+  const saved = await service.stopRecording(meta.id);
+  await fsp.rm(path.join(saved.folderPath, "transcript.json"));
+  const recovered = await service.getRecording(meta.id);
+  assert.deepEqual(recovered.segments.map(s => s.speaker), [0, 1, 1]);
+  assert.deepEqual(recovered.meta.speakerNames, { 0: "Microphone", 1: "System audio" });
+});
+
+test("late aligned words cannot move after the next caption on the same input", async t => {
+  const { service } = await notesFixture(t, async () => ({}));
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
+  const streamId = `${meta.id}:microphone`;
+  service.handleWorkerMessage({ type: "segment", streamId, id: "first", text: "First ending.", startMs: 0, endMs: 8000 });
+  service.handleWorkerMessage({ type: "segment", streamId, id: "second", text: "Next caption.", startMs: 7000, endMs: 10000 });
+  service.handleWorkerMessage({ type: "speaker-turns", voicesVerified: true, streamId, startMs: 0, endMs: 15000,
+    turns: [{ startMs: 0, endMs: 2000, speaker: 0 }, { startMs: 8000, endMs: 9000, speaker: 1 }],
+    words: [{ text: "First", startMs: 1000, endMs: 2000, speaker: 0 }, { text: "ending", startMs: 8000, endMs: 9000, speaker: 1 }] });
+  await service.stopRecording(meta.id);
+  const detail = await service.getRecording(meta.id);
+  assert.equal(detail.segments.map(segment => segment.text).join(" "), "First ending. Next caption.");
+  assert.ok(detail.segments.every((segment, i, segments) => !i || segment.startMs >= segments[i - 1].startMs));
 });
 
 test("notes failure preserves the recording and deletion cancels a pending request", async t => {
