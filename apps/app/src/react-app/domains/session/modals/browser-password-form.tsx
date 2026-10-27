@@ -45,7 +45,6 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
       if (active.current) setSaving(false);
     }
   };
-  const inputClass = "h-7 rounded-sm border-transparent bg-transparent px-0 text-sm shadow-none hover:enabled:border-transparent focus-visible:ring-0";
   const rowClass = "grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-3 border-b border-border/50 px-5 py-2.5 focus-within:bg-muted/20";
   return <InlineCard>
     <form data-private data-ph-mask onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -64,17 +63,16 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
           onChange={event => setSelectedId(event.currentTarget.value)}>
           {entries.map(entry => <option key={entry.id} value={entry.id}>{entry.label}{entry.username ? ` · ${entry.username}` : ""}</option>)}
         </select> : null}
-      </div> : <>
-        <div className={rowClass}>
-          <label htmlFor={`${id}-username`} className="text-xs text-muted-foreground">{t("browser_password_request.username")}</label>
-          <Input id={`${id}-username`} className={inputClass} autoComplete="username" value={username} placeholder={t("browser_password_request.optional")} maxLength={500} disabled={disabled || !available} onChange={event => setUsername(event.currentTarget.value)} />
+      </div> : <div className="space-y-3 px-5 py-4">
+        <div className="space-y-1.5">
+          <label htmlFor={`${id}-username`} className="text-xs font-medium">{t("settings.browser_passwords.username")}</label>
+          <Input id={`${id}-username`} autoComplete="username" value={username} placeholder={t("browser_password_request.username_placeholder")} maxLength={500} disabled={disabled || !available} onChange={event => setUsername(event.currentTarget.value)} />
         </div>
-        <div className={rowClass}>
-          <label htmlFor={`${id}-password`} className="text-xs text-muted-foreground">{t("settings.browser_passwords.password")}</label>
-          <Input id={`${id}-password`} className={inputClass} type="password" autoComplete="current-password" value={password} required maxLength={10000} disabled={disabled || !available} onChange={event => setPassword(event.currentTarget.value)} />
+        <div className="space-y-1.5">
+          <label htmlFor={`${id}-password`} className="text-xs font-medium">{t("settings.browser_passwords.password")}</label>
+          <Input id={`${id}-password`} type="password" autoComplete="current-password" value={password} placeholder={t("browser_password_request.password_placeholder")} required maxLength={10000} disabled={disabled || !available} onChange={event => setPassword(event.currentTarget.value)} />
         </div>
-        <p className="px-5 py-3 text-xs text-muted-foreground">{t("browser_password_request.description")}</p>
-      </>}
+      </div>}
       {error ? <p role="alert" className="mx-5 mb-3 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}</p> : null}
       <InlineCardFooter className="flex-wrap">
         <span className="mr-auto flex items-center gap-1.5 text-[11px] text-muted-foreground" title={t("browser_password_request.manage")}><LockKeyhole className="size-3" />{t("browser_password_request.privacy")}</span>

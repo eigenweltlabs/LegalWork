@@ -1,13 +1,15 @@
 /** @jsxImportSource react */
 import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { KeyRound, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
-import { LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionTitle } from "../settings-layout";
+import { LayoutSection } from "../settings-layout";
+import { Surface } from "@/react-app/design-system/surface";
+import { SecretsEmptyState, SecretsSectionHeader } from "./secrets-section";
 import { SettingsNotice } from "../settings-section";
 import type { LegalworkBrowserPassword, LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -29,33 +31,23 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
   const busy = save.isPending || remove.isPending;
   const open = (value: Draft) => { save.reset(); setDraft(value); };
   return <LayoutSection>
-    <LayoutSectionHeader>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <LayoutSectionTitle>{t("settings.browser_passwords.title")}</LayoutSectionTitle>
-          <LayoutSectionDescription>{t("settings.browser_passwords.description")}</LayoutSectionDescription>
-        </div>
-        <Button className="shrink-0" onClick={() => open({ label: "", origin: "", username: "", password: "" })}>
-          <Plus className="size-4" />{t("settings.browser_passwords.add")}
-        </Button>
-      </div>
-    </LayoutSectionHeader>
-    <p className="text-sm text-muted-foreground">{t("settings.browser_passwords.privacy")}</p>
+    <SecretsSectionHeader title={t("settings.browser_passwords.title")} description={t("settings.browser_passwords.description")}
+      addLabel={t("settings.browser_passwords.add")} disabled={busy} onAdd={() => open({ label: "", origin: "", username: "", password: "" })} />
     {list.error ? <SettingsNotice tone="error">{list.error.message}</SettingsNotice> : null}
     {list.isLoading ? <p className="text-sm text-muted-foreground">{t("settings.browser_passwords.loading")}</p> : null}
-    {list.data?.items.length === 0 ? <p className="text-sm text-muted-foreground">{t("settings.browser_passwords.empty")}</p> : null}
-    <div className="divide-y rounded-lg border">
+    {list.data?.items.length === 0 ? <SecretsEmptyState icon={<KeyRound />}>{t("settings.browser_passwords.empty")}</SecretsEmptyState> : null}
+    {list.data?.items.length ? <Surface className="divide-y divide-border/70 overflow-hidden rounded-xl">
       {list.data?.items.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <p className="font-medium break-words">{item.label}</p>
           <p className="text-sm text-muted-foreground break-all">{item.origin}{item.username ? ` · ${item.username}` : ""}</p>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => open({ ...item, password: "" })}>{t("settings.browser_passwords.edit")}</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => { remove.reset(); setRemoving(item); }}>{t("settings.environment.delete")}</Button>
+        <div className="flex gap-1">
+          <Button size="icon-sm" variant="ghost" className="text-muted-foreground" aria-label={`${t("settings.browser_passwords.edit")} ${item.label}`} title={t("settings.browser_passwords.edit")} disabled={busy} onClick={() => open({ ...item, password: "" })}><Pencil /></Button>
+          <Button size="icon-sm" variant="ghost" className="text-muted-foreground hover:text-destructive" aria-label={`${t("settings.environment.delete")} ${item.label}`} title={t("settings.environment.delete")} disabled={busy} onClick={() => { remove.reset(); setRemoving(item); }}><Trash2 /></Button>
         </div>
       </div>)}
-    </div>
+    </Surface> : null}
     <Dialog open={draft !== null} onOpenChange={value => { if (!value && !save.isPending) setDraft(null); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>{t(draft?.id ? "settings.browser_passwords.edit" : "settings.browser_passwords.add")}</DialogTitle></DialogHeader>

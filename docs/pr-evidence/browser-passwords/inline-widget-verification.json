@@ -362,16 +362,18 @@
   "testCleanupIncident": "A preliminary test controller ran against the old in-process backend, which ignored the new origin filter. Its cleanup mistakenly deleted an existing DeepL entry from the development vault. Recovery was unsuccessful and the user was informed. The controller was corrected to delete only its exact created ID before final validation. Production data was untouched.",
   "presentationRevision": {
     "date": "2026-10-27",
-    "layout": "The credential request uses the same InlineCard/header/footer as email drafts and renders in the conversation, outside the composer. Compact border-separated fields and footer actions replace the oversized form.",
+    "layout": "The credential request shares the email card surface, header and footer, and renders outside the composer. Username and password use visibly bordered, labelled inputs with explicit placeholders; the website remains read-only. The extra explanation row is removed.",
     "electronCheck": {
       "inConversation": true,
       "outsideComposer": true,
       "cardCount": 1,
       "width": 672,
-      "height": 319,
+      "height": 299,
       "masked": true,
       "headerCompact": "12px",
       "buttonsInsideForm": true,
+      "visibleInputBorders": true,
+      "explicitPlaceholders": true,
       "passed": true,
       "reloadRestored": true,
       "cancelViaUI": true,
@@ -382,5 +384,41 @@
     "appTests": 30,
     "typecheck": true,
     "note": "A separate native-form fixture verified the actual development renderer, reload and Cancel. Synthetic text was typed into the masked input and never saved. No model calls, mailbox operations or vault mutations were needed for this presentation check."
+  },
+  "settingsPresentation": {
+    "date": "2026-10-27",
+    "layout": "Browser passwords and environment variables share compact section headers, one outline add action per section, and matching 80 px empty states. Optional storage/access text is collapsed below both lists. Browser entry edit/delete actions use the same icon style as environment entries.",
+    "electronCheck": {
+      "passed": true,
+      "empty": {
+        "addButtons": [
+          "Add password",
+          "Add secret"
+        ],
+        "emptyHeights": [
+          80,
+          80
+        ],
+        "detailsCollapsed": true,
+        "paragraphs": [
+          2,
+          2
+        ]
+      },
+      "saved": {
+        "browserEntry": true,
+        "environmentEntry": true,
+        "addButtons": 2
+      },
+      "modalsOpenedAndCancelled": [
+        "Add password",
+        "Add secret"
+      ],
+      "detailsExpandable": true,
+      "realCredentialsRead": false,
+      "writesDisabled": true,
+      "modelCalls": 0
+    },
+    "fixture": "Actual components were rendered in the running Electron renderer with synthetic empty/populated lists; write methods and value reads were disabled. Both Add dialogs were opened then cancelled. The temporary fixture module was removed after verification."
   }
 }

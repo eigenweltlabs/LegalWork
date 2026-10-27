@@ -35,7 +35,7 @@ Authorizing a folder allows the assistant to access that location under its rule
 
 Enter API keys and passwords in the relevant connection/Secrets form. Local connection credentials belong to this LegalWork installation; team-managed connections have their own access rules. Do not expose secrets in screenshots, chat examples or diagnostic reports. Changing environment/configuration can require an engine reload; wait for active work or use the app's offered controls.
 
-In **Secrets**, add the exact environment-variable name expected by the integration and its value, then save. **Saved, not in use yet** means the running engine still needs the offered apply/reload action. Editing a stored value and applying it are distinct steps. If you use a separately operated LegalWork server, configure its integrations on that server.
+Open **Settings > Secrets**. Use **Browser passwords > Add password** for website logins or **Environment variables > Add secret** for API keys and other service credentials. Both sections show a compact list and one add action. Expand **Storage and access** below the lists for how these values are stored and used. For an environment variable, enter the exact name expected by the integration and its value, then save. **Saved, not in use yet** means the running engine still needs the offered apply/reload action. Editing a stored value and applying it are distinct steps. If you use a separately operated LegalWork server, configure its integrations on that server.
 
 ### Browser passwords
 
