@@ -17,6 +17,7 @@ import { gmailAdapter, outlookAdapter, mailDraftInput, mailListInput } from "./m
 import { startServer } from "../server.js";
 import { EnvService } from "../env-file.js";
 import { connectorRuntimeCapability } from "./capability.js";
+import { applyMailOrganization, previewMailOrganization, listMailContainers, createMailContainer, mailContainerCreateInput, mailContainersInput, mailOrganizeInput } from "./mail-organization.js";
 
 // Fixture accounts use a known capability unless a privacy test supplies one explicitly.
 const writeConnectorConnections = (config: ServerConfig, owner: string, id: string,
@@ -100,8 +101,177 @@ afterEach(async () => {
 
 test("registers discoverable tools for both mail providers", () => {
   for (const id of ["gmail", "outlook"]) {
-    expect(listExperimentalExtensionActions(id).map((item) => item.action)).toEqual(["status", "test_connection", "list_messages", "get_message", "get_attachment", "create_draft", "send_draft"]);
+    expect(listExperimentalExtensionActions(id).map((item) => item.action)).toEqual(["status", "test_connection", "list_messages", "get_message", "get_attachment", "create_draft", "send_draft", ...(id === "gmail" ? ["list_labels", "create_label"] : ["list_folders", "create_folder", "list_categories", "create_category"]), "preview_organize_messages", "apply_organization"]);
   }
+});
+
+async function gmailOrganizationFixture() {
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  const state = { labels: ["INBOX", "UNREAD", "keep"], identity: "alice@example.com", writes: 0, fail: false };
+  const previous = response;
+  response = (url, init) => {
+    if (url.hostname !== "gmail.googleapis.com") return previous(url, init);
+    if (url.pathname.endsWith("/profile")) return Response.json({ emailAddress: state.identity });
+    if (url.pathname.endsWith("/labels")) return Response.json({ labels: [{ id: "matter", name: "Clients/Müller", type: "user" }, { id: "keep", name: "Keep", type: "user" }] });
+    if (init?.method === "POST") { state.writes++; return state.fail ? new Response(null, { status: 500 }) : Response.json({ id: "message" }); }
+    return Response.json({ id: "message", labelIds: state.labels, payload: { headers: [{ name: "Subject", value: "Contract review" }] } });
+  };
+  return state;
+}
+
+test("Gmail previews without writes, then files the exact message once while preserving other labels", async () => {
+  const state = await gmailOrganizationFixture();
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: false });
+  const plan = await previewMailOrganization(config, "gmail", { messageIds: ["message"], addLabelIds: ["matter"], archive: true, isRead: true, starred: true });
+  expect(plan.messages[0].subject).toBe("Contract review");
+  expect(plan.destination).toEqual([{ id: "matter", name: "Clients/Müller", type: "user" }]);
+  expect(state.writes).toBe(0);
+  await expect(callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), { extensionId: "gmail", action: "apply_organization", args: { planId: plan.planId } }, { personalConnections: true })).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  const result = await applyMailOrganization(config, "gmail", { planId: plan.planId });
+  expect(result.applied).toBe(1);
+  const write = requests.find((item) => item.url.pathname.endsWith("/modify"));
+  expect(JSON.parse(String(write?.init?.body))).toEqual({ addLabelIds: ["matter", "STARRED"], removeLabelIds: ["INBOX", "UNREAD"] });
+  expect(state.writes).toBe(1);
+  await expect(applyMailOrganization(config, "gmail", { planId: plan.planId })).rejects.toMatchObject({ code: "connector_organization_preview_required" });
+  expect(requests.filter((item) => item.url.hostname === "broker.test").every((item) => !String(item.init?.body).includes("Contract review"))).toBe(true);
+});
+
+test("organization plans reject concurrent replay, changed labels, account replacement and expiration", async () => {
+  const state = await gmailOrganizationFixture();
+  const input = { messageIds: ["message"], archive: true };
+  let plan = await previewMailOrganization(config, "gmail", input);
+  const concurrent = await Promise.allSettled([applyMailOrganization(config, "gmail", { planId: plan.planId }), applyMailOrganization(config, "gmail", { planId: plan.planId })]);
+  expect(concurrent.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+  expect(state.writes).toBe(1);
+  plan = await previewMailOrganization(config, "gmail", input);
+  state.labels.push("external-change");
+  expect((await applyMailOrganization(config, "gmail", { planId: plan.planId })).results[0]).toMatchObject({ status: "failed", code: "connector_message_changed" });
+  expect(state.writes).toBe(1);
+  plan = await previewMailOrganization(config, "gmail", input);
+  state.identity = "other@example.com";
+  await expect(applyMailOrganization(config, "gmail", { planId: plan.planId })).rejects.toMatchObject({ code: "connector_organization_preview_required" });
+  plan = await previewMailOrganization(config, "gmail", input);
+  const clock = spyOn(Date, "now").mockReturnValue(plan.expiresAt + 1);
+  try { await expect(applyMailOrganization(config, "gmail", { planId: plan.planId })).rejects.toMatchObject({ code: "connector_organization_preview_required" }); }
+  finally { clock.mockRestore(); }
+  expect(state.writes).toBe(1);
+});
+
+test("ambiguous organization writes report uncertainty once and cannot be replayed", async () => {
+  const state = await gmailOrganizationFixture();
+  const plan = await previewMailOrganization(config, "gmail", { messageIds: ["message"], archive: true });
+  state.fail = true;
+  const result = await applyMailOrganization(config, "gmail", { planId: plan.planId });
+  expect(result.uncertain).toBe(1);
+  expect(state.writes).toBe(1);
+  await expect(applyMailOrganization(config, "gmail", { planId: plan.planId })).rejects.toMatchObject({ code: "connector_organization_preview_required" });
+});
+
+test("one write permission protects every mailbox mutation and is checked again after token refresh", async () => {
+  const env = new EnvService({ path: join(root, "env.json") });
+  await expect(callExperimentalExtensionAction(config, env, { extensionId: "gmail", action: "create_label", args: { name: "Matter" } }, { personalConnections: true })).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  expect(requests).toHaveLength(0);
+  await expect(callExperimentalExtensionAction(config, env, { extensionId: "gmail", action: "create_draft", args: {} }, { personalConnections: true })).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  let writes = 0;
+  const previous = response;
+  response = async (url, init) => {
+    if (url.hostname !== "gmail.googleapis.com") return previous(url, init);
+    writes++;
+    await saveConnectorWriteSetting(config, "gmail", { writeAccess: false });
+    return new Response(null, { status: 401 });
+  };
+  const request = await createConnectorRequest(config, "gmail");
+  await expect(request("/gmail/v1/users/me/labels", { method: "POST", organize: true, body: { name: "Matter" } })).rejects.toMatchObject({ code: "connector_writes_disabled" });
+  expect(writes).toBe(1);
+  config.readOnly = true;
+  await expect(callExperimentalExtensionAction(config, env, { extensionId: "gmail", action: "create_label", args: { name: "Matter" } }, { personalConnections: true })).rejects.toMatchObject({ code: "read_only" });
+});
+
+test("Outlook organization preserves existing categories, uses versions and stable IDs, and reports partial writes", async () => {
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  await setConnectorActivation(config, "outlook", connection.id, true);
+  let moveStatus = 201;
+  const previous = response;
+  response = (url, init) => {
+    if (url.hostname !== "graph.microsoft.com") return previous(url, init);
+    if (url.pathname === "/v1.0/me") return Response.json({ id: "owner" });
+    if (url.pathname.includes("/masterCategories")) return Response.json({ value: [{ id: "tag", displayName: "Matter", color: "preset0" }] });
+    if (url.pathname.includes("/mailFolders/")) return Response.json({ id: "destination", displayName: "Müller" });
+    if (url.pathname.endsWith("/move")) return moveStatus === 201 ? Response.json({ id: "moved" }, { status: 201 }) : new Response(null, { status: moveStatus });
+    return Response.json({ id: "message", subject: "Contract", parentFolderId: "inbox", categories: ["Keep", "Remove"], isRead: false, changeKey: "v1", "@odata.etag": 'W/"v1"' });
+  };
+  const input = { messageIds: ["message"], destinationFolderId: "destination", addCategories: ["Matter"], removeCategories: ["Remove"], isRead: true, flagged: true };
+  let plan = await previewMailOrganization(config, "outlook", input);
+  const result = await applyMailOrganization(config, "outlook", { planId: plan.planId });
+  expect(result.results[0]).toEqual({ messageId: "message", currentMessageId: "moved", status: "applied" });
+  const patch = requests.find((item) => item.init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.init?.body))).toEqual({ categories: ["Keep", "Matter"], isRead: true, flag: { flagStatus: "flagged" } });
+  expect(new Headers(patch?.init?.headers).get("If-Match")).toBe('W/"v1"');
+  expect(new Headers(patch?.init?.headers).get("Prefer")).toBe('IdType="ImmutableId"');
+  moveStatus = 403;
+  plan = await previewMailOrganization(config, "outlook", input);
+  expect((await applyMailOrganization(config, "outlook", { planId: plan.planId })).partial).toBe(1);
+  moveStatus = 500;
+  plan = await previewMailOrganization(config, "outlook", input);
+  expect((await applyMailOrganization(config, "outlook", { planId: plan.planId })).uncertain).toBe(1);
+});
+
+test("Gmail sublabels use the parent name, while system parents and pagination endpoint changes are rejected", async () => {
+  let writePath = "";
+  await createMailContainer("gmail", async (path, options) => {
+    if (!options?.method) return { id: "parent", name: "Clients", type: "user" };
+    writePath = path;
+    expect(options.body).toMatchObject({ name: "Clients/Müller" });
+    expect(options.organize).toBe(true);
+    return { id: "child", name: "Clients/Müller", type: "user" };
+  }, mailContainerCreateInput.parse({ name: "Müller", parentId: "parent" }));
+  expect(writePath).toBe("/gmail/v1/users/me/labels");
+  await expect(createMailContainer("gmail", async () => ({ id: "INBOX", name: "INBOX", type: "system" }), mailContainerCreateInput.parse({ name: "Matter", parentId: "INBOX" }))).rejects.toMatchObject({ code: "invalid_payload" });
+  await expect(listMailContainers("outlook", async () => { throw new Error("Must not make a provider request"); }, mailContainersInput.parse({ parentId: "parent", pageToken: "https://graph.microsoft.com/v1.0/me/mailFolders/other/childFolders" }))).rejects.toMatchObject({ code: "invalid_page_token" });
+  for (const invalid of [{ messageIds: [] }, { messageIds: ["a", "a"], archive: true }, { messageIds: ["a"], addLabelIds: ["x"], removeLabelIds: ["x"] }, { messageIds: ["a"], archive: true, destinationFolderId: "x" }]) expect(mailOrganizeInput.safeParse(invalid).success).toBe(false);
+});
+
+test("Outlook category changes refuse missing or changed versions before writing", async () => {
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  await setConnectorActivation(config, "outlook", connection.id, true);
+  const previous = response;
+  let version: string | undefined;
+  let writes = 0;
+  response = (url, init) => {
+    if (url.hostname !== "graph.microsoft.com") return previous(url, init);
+    if (url.pathname === "/v1.0/me") return Response.json({ id: "owner" });
+    if (url.pathname.includes("/masterCategories")) return Response.json({ value: [{ id: "tag", displayName: "Matter", color: "preset0" }] });
+    if (init?.method && init.method !== "GET") writes++;
+    return Response.json({ id: "message", subject: "Contract", categories: ["Keep"], changeKey: version, "@odata.etag": version });
+  };
+  const input = { messageIds: ["message"], addCategories: ["Matter"] };
+  await expect(previewMailOrganization(config, "outlook", input)).rejects.toMatchObject({ code: "connector_message_version_required" });
+  version = 'W/"1"';
+  const plan = await previewMailOrganization(config, "outlook", input);
+  version = 'W/"2"';
+  const result = await applyMailOrganization(config, "outlook", { planId: plan.planId });
+  expect(result.results[0]).toMatchObject({ status: "failed", code: "connector_message_changed" });
+  expect(writes).toBe(0);
+});
+
+test("native folder creation and folder-scoped message pagination stay in the selected resource", async () => {
+  await createMailContainer("outlook", async (path, options) => {
+    expect(path).toBe("/v1.0/me/mailFolders/parent%2Fid/childFolders");
+    expect(options).toMatchObject({ method: "POST", organize: true, body: { displayName: "Matter" } });
+    return { id: "child", displayName: "Matter", parentFolderId: "parent/id" };
+  }, mailContainerCreateInput.parse({ parentId: "parent/id", name: "Matter" }));
+  const nextPage = "https://graph.microsoft.com/v1.0/me/mailFolders/matter/messages?$skip=10";
+  const request: Parameters<typeof outlookAdapter.list>[0] = async (path, options) => {
+    expect(path).toStartWith("/v1.0/me/mailFolders/matter/messages?");
+    expect(options?.headers?.Prefer).toBe('IdType="ImmutableId"');
+    return { value: [{ id: "message", parentFolderId: "matter", categories: ["Keep"], isRead: true, flag: { flagStatus: "flagged" } }], "@odata.nextLink": nextPage };
+  };
+  const page = await outlookAdapter.list(request, mailListInput.parse({ folderId: "matter" }));
+  expect(page.messages[0]).toMatchObject({ folderId: "matter", categories: ["Keep"], isRead: true, flag: "flagged" });
+  expect(page.nextPageToken).toBe(nextPage);
+  await expect(outlookAdapter.list(request, mailListInput.parse({ folderId: "other", pageToken: nextPage }))).rejects.toMatchObject({ code: "invalid_page_token" });
 });
 
 test("all registered connectors expose status and native connection tests", () => {
