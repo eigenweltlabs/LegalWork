@@ -27,6 +27,10 @@ on:
         description: Verify normal Windows x64 and ARM64 engine archive installation only, with exact producer reuse
         type: boolean
         default: false
+      native_source_acceptance:
+        description: Only run all six native host cold-build, real integration and warm-cache engine checks
+        type: boolean
+        default: false
       engine_reuse_run_id:
         description: Optional same-repository producer run ID (requires independent manifest SHA256)
         type: string
@@ -40,7 +44,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && format('-windows-archive-{0}', github.run_id) || '' }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && format('-windows-archive-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && format('-native-source-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -54,15 +58,20 @@ jobs:
           SIGNING_ONLY: ${{ inputs.mac_signing_acceptance }}
           UNIT_ONLY: ${{ inputs.unit_acceptance }}
           WINDOWS_ONLY: ${{ inputs.windows_archive_acceptance }}
+          NATIVE_SOURCE_ONLY: ${{ inputs.native_source_acceptance }}
           REUSE_RUN: ${{ inputs.engine_reuse_run_id }}
           REUSE_PIN: ${{ inputs.engine_reuse_manifest_sha256 }}
         run: |
+          if [ "$NATIVE_SOURCE_ONLY" = true ] && { [ "$PRODUCTION_ENGINE" = true ] || [ "$PACKAGE_DESKTOP" = true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
+            echo 'native_source_acceptance cannot be combined with production, package, signing, unit, Windows archive or engine reuse inputs.' >&2
+            exit 1
+          fi
           if [ "$PRODUCTION_ENGINE" = true ] && { [ "$PACKAGE_DESKTOP" != true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
             echo 'production_engine requires package_desktop with a fresh source build and no other focused mode.' >&2
             exit 1
           fi
   signing-inputs:
-    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.native_source_acceptance
     runs-on: ubuntu-latest
     steps:
       - name: Reject contradictory manual modes
@@ -76,7 +85,7 @@ jobs:
             exit 1
           fi
   unit-inputs:
-    if: github.event_name == 'workflow_dispatch' && inputs.unit_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.native_source_acceptance
     runs-on: ubuntu-latest
     steps:
       - name: Require an exclusive focused mode and exact engine reuse
@@ -96,7 +105,7 @@ jobs:
             exit 1
           fi
   windows-archive-inputs:
-    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance
     runs-on: ubuntu-latest
     steps:
       - name: Require only Windows archive acceptance and exact engine reuse
@@ -113,20 +122,20 @@ jobs:
           fi
   windows-archive-acceptance:
     needs: [windows-archive-inputs, opencode-derivative]
-    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success'
     uses: ./.github/workflows/ci-windows-opencode-install.yml
     with:
       manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
   mac-signing-acceptance:
     needs: [signing-inputs, engine-build-inputs]
-    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance
     uses: ./.github/workflows/mac-engine-signing-acceptance.yml
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-changes:
     needs: engine-build-inputs
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.changes.outputs.required }}
@@ -155,7 +164,9 @@ jobs:
     uses: ./.github/workflows/sandbox-runtime.yml
   engine-source-build:
     needs: engine-build-inputs
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance
+    if: >-
+      github.event_name == 'workflow_dispatch' && needs.engine-build-inputs.result == 'success' &&
+      (inputs.native_source_acceptance || (inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance))
     permissions:
       contents: read
     uses: ./.github/workflows/ci-opencode-source-hosts.yml
@@ -163,7 +174,7 @@ jobs:
     needs: engine-build-inputs
     if: >-
       always() && !cancelled() && needs.engine-build-inputs.result == 'success' && (
-      github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance &&
+      github.event_name != 'workflow_dispatch' || (!inputs.native_source_acceptance && !inputs.mac_signing_acceptance &&
       ((!inputs.unit_acceptance && !inputs.windows_archive_acceptance) ||
       (inputs.unit_acceptance && !inputs.package_desktop && !inputs.windows_archive_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != '') ||
       (inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))))
@@ -192,7 +203,7 @@ jobs:
       derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
       engine-build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
   windows-meetings:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -204,7 +215,7 @@ jobs:
         run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
 
   windows-drafts:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -228,7 +239,7 @@ jobs:
 
   legalwork-tests:
     needs: opencode-derivative
-    if: always() && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance)) && needs.opencode-derivative.result == 'success'
+    if: always() && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && needs.opencode-derivative.result == 'success'
     runs-on: ${{ matrix.os }}
 
     strategy:
