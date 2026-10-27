@@ -1,4 +1,13 @@
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
+import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
+import type { Client } from "@/app/types";
+import { snapshotQueuedDraft } from "@/react-app/domains/session/surface/use-session-message-queue";
+import { readConfig } from "@/app/lib/opencode-config";
+import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
+import { projectSession } from "@/app/lib/opencode-view";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { sendSessionCommand } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
@@ -52,16 +61,12 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUpdateCheckRequestStore } from "@/react-app/domains/settings/state/update-check-request";
-import type {
-  AgentPartInput,
-  FilePartInput,
-  ProviderListResponse,
-  TextPartInput,
-} from "@opencode-ai/sdk/v2/client";
+import type { AgentPartInput, FilePartInput, TextPartInput } from "@/app/lib/opencode-view";
+import type { ProviderListView as ProviderListResponse } from "@/app/types";
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
+import { buildSessionPromptRequest, systemReminderPart, queuedNativePrompt, nativeModel, resolvePromptSkill } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -109,7 +114,6 @@ import {
   isDesktopRuntime,
   isElectronRuntime,
   isOfficeAddinRuntime,
-  isSandboxWorkspace,
   normalizeDirectoryPath,
   normalizeSessionStatus,
   resolveModelDisplayName,
@@ -163,6 +167,7 @@ import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { EngineProjectApproval } from "@/react-app/domains/workspace/engine-project-approval";
 import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
@@ -310,8 +315,8 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
-  const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client) {
+  const parts: import("@/app/lib/opencode-view").PromptPart[] = [];
   const root = workspaceRoot.trim();
 
   const toAbsolutePath = (path: string) => {
@@ -343,7 +348,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
       continue;
     }
     if (part.type === "skill") {
-      parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
+      parts.push(await resolvePromptSkill(client,part.name,root));
       continue;
     }
     if (part.type === "plugin") {
@@ -839,20 +844,7 @@ export function SessionRoute() {
     return selectedWorkspaceId;
   }, [selectedSessionId, selectedWorkspaceId, workspaceSessionGroups]);
 
-  const workspaceConnectionStateById = useMemo(() => {
-    const next: Record<string, WorkspaceConnectionState> = { ...workspaceConnectionOverrides };
-    for (const workspace of workspaces) {
-      if (workspace.workspaceType !== "remote") continue;
-      const error = errorsByWorkspaceId[workspace.id]?.trim();
-      if (!error || next[workspace.id]?.status === "connecting") continue;
-      next[workspace.id] ??= {
-        status: "error",
-        message: getWorkspaceTaskLoadErrorDisplay(workspace, error).message || error,
-        checkedAt: null,
-      };
-    }
-    return next;
-  }, [errorsByWorkspaceId, workspaceConnectionOverrides, workspaces]);
+  const workspaceConnectionStateById = workspaceConnectionOverrides;
 
   const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
 
@@ -874,7 +866,7 @@ export function SessionRoute() {
   // The workspace route can have a visible chat without a session in its URL.
   // Pick that chat too, while leaving parked tabs and other workspaces alone.
   useEffect(() => {
-    if (!routeWorkspaceId || !recordingChatSessionId || selectedWorkspace?.workspaceType === "remote"
+    if (!routeWorkspaceId || !recordingChatSessionId
       || !activeRecording || activeRecording.ephemeral || !activeRecording.projectIds?.includes(routeWorkspaceId)
       || !selectedWorkspaceRoot || !opencodeClient) return;
     void useRecorderStore.getState().startLiveTranscriptShare(
@@ -1438,20 +1430,7 @@ export function SessionRoute() {
     };
 
     void (async () => {
-      let disabledProviders: string[] = [];
-      try {
-        const config = unwrap(
-          await opencodeClient.config.get({
-            directory: selectedWorkspaceRoot || undefined,
-          }),
-        ) as { disabled_providers?: string[] };
-        disabledProviders = Array.isArray(config.disabled_providers)
-          ? config.disabled_providers
-          : [];
-        if (!cancelled) setDisabledProviderIds(disabledProviders);
-      } catch {
-        // ignore config read failures and continue with provider discovery
-      }
+      const disabledProviders=disabledProviderIds;
 
       try {
         applyProviderState(
@@ -1499,9 +1478,10 @@ export function SessionRoute() {
     // agent files become available, even when the inline picker is hidden.
     void engineReloadVersion;
     if (!opencodeClient) return [];
-    const list = unwrap(await opencodeClient.app.agents());
+    await ensureNativeCatalogReady(opencodeClient,selectedWorkspaceRoot ?? undefined);
+    const list = (await opencodeClient.agent.list({location:selectedWorkspaceRoot ? {directory:selectedWorkspaceRoot}:undefined})).data;
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
-  }, [engineReloadVersion, opencodeClient]);
+  }, [engineReloadVersion, opencodeClient,selectedWorkspaceRoot]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
     const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
@@ -1646,10 +1626,11 @@ export function SessionRoute() {
         }
 
         if (draft.command) {
-          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, arguments: draft.command.arguments, model: `${sendModel.providerID}/${sendModel.modelID}`, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined }); return; }
-          const result = await opencodeClient.session.command({
+          if (options?.queue) { await enqueue({ kind: "command", command: draft.command.name, args: draft.command.arguments, model:nativeModel(sendModel,sendVariant ?? undefined), agent:selectedAgent ?? undefined }); return; }
+          const result = await sendSessionCommand(opencodeClient,{
             sessionID: targetSessionId,
             command: draft.command.name,
+            draft:await snapshotQueuedDraft(draft,useComposerStateStore.getState().sessions[targetSessionId]),
             arguments: draft.command.arguments,
             model: sendModel
               ? `${sendModel.providerID}/${sendModel.modelID}`
@@ -1657,9 +1638,6 @@ export function SessionRoute() {
             agent: selectedAgent ?? undefined,
             variant: sendVariant ?? undefined,
           });
-          if (result.error) {
-            throw new Error(serializeSDKError(result.error));
-          }
           return;
         }
 
@@ -1667,9 +1645,9 @@ export function SessionRoute() {
           parts: draft.parts,
           client,
           workspaceId: selectedWorkspaceId,
-          readStatuses: async () => unwrap(await opencodeClient.mcp.status({ directory: selectedWorkspaceRoot || undefined })),
+          readStatuses: async () => await readMcpStatuses(opencodeClient,selectedWorkspaceRoot || undefined),
         });
-        const parts = await draftToParts(draft, selectedWorkspaceRoot);
+        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
@@ -1684,7 +1662,7 @@ export function SessionRoute() {
             const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
             parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
           }
-          await enqueue({ kind: "prompt", parts, model: sendModel, agent: selectedAgent ?? undefined, variant: sendVariant ?? undefined });
+          await enqueue(queuedNativePrompt({sessionID:targetSessionId,parts,model:sendModel,agent:selectedAgent ?? undefined,variant:sendVariant ?? undefined}));
           return;
         }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
@@ -1720,21 +1698,14 @@ export function SessionRoute() {
         }
 
         const request = buildSessionPromptRequest({
+          draft:await snapshotQueuedDraft(draft,useComposerStateStore.getState().sessions[targetSessionId]),
           sessionID: targetSessionId,
           parts,
           model: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(sendVariant ? { variant: sendVariant } : {}),
         });
-        if (options?.waitForCompletion) {
-          // The queue advances after the engine's whole loop, not after a tool
-          // step, a streamed assistant message, or the prompt_async HTTP 204.
-          const result = unwrap(await opencodeClient.session.prompt(request));
-          if (result.info.error) throw new Error(serializeSDKError(result.info.error));
-        } else {
-          const result = await opencodeClient.session.promptAsync(request);
-          if (result.error) throw new Error(serializeSDKError(result.error));
-        }
+        await sendSessionPrompt(opencodeClient,request,{waitForCompletion:options?.waitForCompletion});
       },
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
@@ -1757,17 +1728,16 @@ export function SessionRoute() {
         const trimmed = query.trim();
         if (!trimmed) return [];
         const result = unwrap(
-          await opencodeClient.find.files({
+          await opencodeClient.file.find({
             query: trimmed,
-            dirs: "true",
             limit: 50,
-            directory: selectedWorkspaceRoot || undefined,
+            location: selectedWorkspaceRoot ? {directory:selectedWorkspaceRoot}:undefined,
           }),
         );
-        return result;
+        return result.data.map(file=>file.path);
       },
-      isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
-      isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
+      isRemoteWorkspace: false,
+      isSandboxWorkspace: false,
       onRevertToMessage: async (messageId: string, sessionId: string) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return false;
@@ -1815,7 +1785,7 @@ export function SessionRoute() {
         }));
       },
       environmentRuntimeKey,
-      onApplyEnvironmentChanges: isDesktopRuntime() && selectedWorkspace?.workspaceType !== "remote"
+      onApplyEnvironmentChanges: isDesktopRuntime()
         ? handleApplyEnvironmentChanges
         : undefined,
     };
@@ -1944,13 +1914,11 @@ export function SessionRoute() {
         if (!window.confirm(message)) return;
       }
       try {
-        const workspace = workspaces.find(item => item.id === workspaceId);
-        if (workspace?.workspaceType !== "remote") {
-          if (!client) throw new Error(t("session_route.create_server_unavailable"));
-          await client.deleteWorkspace(workspaceId).catch(error => {
-            if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-          });
-        }
+        if (!client) throw new Error(t("session_route.create_server_unavailable"));
+        await client.deleteWorkspace(workspaceId).catch(error => {
+          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
+        });
+
         await forgetWorkspaceHere(workspaceId);
         await refreshRouteState();
       } catch (error) {
@@ -1987,7 +1955,7 @@ export function SessionRoute() {
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
       setRouteError(null);
       const session = unwrap(
-        await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
+        await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
       );
       registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
@@ -2217,7 +2185,7 @@ export function SessionRoute() {
   };
 
   const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
-    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
+    id: workspace.id, title: workspace.displayNameResolved, local: true,
     server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
   })), [sidebarWorkspaces, endpointForWorkspace]);
 
@@ -2344,11 +2312,11 @@ export function SessionRoute() {
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
         const session = createdOnServer && baseUrl && token
-          ? unwrap(await createClient(
+          ? projectSession(await createClient(
               `${(buildLegalworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
               { token, hostToken, mode: "legalwork" },
-            ).session.create({ directory: workspacePath || undefined }))
+            ).session.create({ location:workspacePath ? {directory:workspacePath}:undefined }))
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
         writeActiveWorkspaceId(targetWorkspaceId);
@@ -2409,7 +2377,7 @@ export function SessionRoute() {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
           const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
           const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
-          const session = unwrap(await firstClient.session.create({ directory: workspacePath }));
+          const session = unwrap(await createSessionView(firstClient,{ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);
           writeLastSessionFor(id, session.id);
           setSessionsByWorkspaceId((current) => {
@@ -2418,8 +2386,7 @@ export function SessionRoute() {
             return next;
           });
           navigateToWorkspaceSession(id, session.id, { replace: true });
-          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
-          if (result.error) throw new Error(serializeSDKError(result.error));
+          const result = await sendSessionPrompt(firstClient,{ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
         } catch (error) {
           toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
         }
@@ -2497,7 +2464,7 @@ export function SessionRoute() {
         pending,
         client: endpoint.client,
         createSession: async () => {
-          const session = unwrap(await workspaceClient.session.create({ directory: targetWorkspace.path || undefined }));
+          const session = unwrap(await createSessionView(workspaceClient,{ directory: targetWorkspace.path || undefined }));
           rememberPendingCreatedSession(targetWorkspace.id, session.id);
           setSessionsByWorkspaceId((current) => {
             const next = { ...current, [targetWorkspace.id]: [session, ...(current[targetWorkspace.id] ?? [])] };
@@ -2510,7 +2477,7 @@ export function SessionRoute() {
         sendPrompt: async (sessionId, prompt, fileContext, message) => {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
-          const result = await workspaceClient.session.promptAsync({
+          const result = await sendSessionPrompt(workspaceClient,{
             sessionID: sessionId,
             messageID: message.id,
             parts: [{ id: message.partId, type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
@@ -2518,7 +2485,6 @@ export function SessionRoute() {
             agent: selectedAgent ?? undefined,
             ...(modelVariantValue ? { variant: modelVariantValue } : {}),
           });
-          if (result.error) throw new Error(serializeSDKError(result.error));
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
             role: "user",
@@ -2547,7 +2513,7 @@ export function SessionRoute() {
     const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("wiki.offline"));
     const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
-    const session = unwrap(await wikiClient.session.create({ directory: wiki.root, title: wiki.name }));
+    const session = unwrap(await createSessionView(wikiClient,{ directory: wiki.root, title: wiki.name }));
     if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
     setLegacySelectedWorkspaceId(wiki.workspaceId);
     writeActiveWorkspaceId(wiki.workspaceId);
@@ -2654,6 +2620,7 @@ export function SessionRoute() {
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
+        projectApproval={selectedWorkspaceEndpoint ? <EngineProjectApproval client={selectedWorkspaceEndpoint.client} workspaceId={selectedWorkspaceEndpoint.workspaceId} onApproved={() => void refreshRouteState()} /> : null}
         initialSeats={eigenweltView?.entitlements?.seats}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
@@ -2711,6 +2678,7 @@ export function SessionRoute() {
       clientConnected={canCreateChat}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
+      onEngineProjectApproved={() => void refreshRouteState()}
       environmentClient={client}
       wikiWorkspace={activeWiki}
       wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, onOpenWiki: openWikiWorkspace, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined, onManageWikis: () => navigate("/wikis?manage=1") }}
@@ -2827,14 +2795,14 @@ export function SessionRoute() {
         openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
-            projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
+            projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
             openTaskId={new URLSearchParams(location.search).get("task")}
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
         ) : calendarPage ? (
           <CalendarView client={client}
             projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
-            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
+            remoteSources={[]} />
         ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}
@@ -2904,7 +2872,7 @@ export function SessionRoute() {
             }))}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
-              .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
+              .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
                 name: workspace.displayNameResolved,
@@ -3004,7 +2972,7 @@ export function SessionRoute() {
             );
             try {
               const session = unwrap(
-                await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
+                await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
               );
               saveSessionDraft(workspaceId, session.id, { text: prompt, mode: "prompt" });
               writeActiveWorkspaceId(workspaceId || null);
@@ -3057,7 +3025,7 @@ export function SessionRoute() {
               const trimmed = nextTitle.trim();
               if (!trimmed) return;
               const target = sessionTarget(sessionId);
-              await target.client.session.update({ sessionID: sessionId, title: trimmed, directory: target.workspace.path || undefined });
+              await target.client.session.update({ sessionID: sessionId, title: trimmed,  });
               await loadWorkspaceSessionsInBackground([target.workspace]);
               await refreshRouteState();
             }
@@ -3171,16 +3139,8 @@ export function SessionRoute() {
       disabledProviders={disabledProviderIds}
       onBehaviorChange={() => {}}
       onToggleProvider={async (providerId, enable) => {
-        if (!opencodeClient) return;
-        try {
-          const config = unwrap(await opencodeClient.config.get()) as { disabled_providers?: string[] };
-          const current = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
-          const next = enable
-            ? current.filter((id: string) => id !== providerId)
-            : [...current, providerId];
-          await opencodeClient.config.update({ config: { ...config, disabled_providers: next } });
-          setDisabledProviderIds(next);
-        } catch {}
+        try {await sessionProviderAuthStore.ensureProjectProviderDisabledState(providerId,!enable);await sessionProviderAuthStore.refreshProviders({dispose:true});}
+        catch(error) {toast.error(error instanceof Error ? error.message:t("app.error_request_failed"));}
       }}
       onOpenSettings={() => {
         modelPicker.setOpen(false);

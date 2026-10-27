@@ -1,3 +1,4 @@
+import { LegalMemoryPermissions } from "../domains/connections/legalmemory-permissions";
 import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
@@ -62,6 +63,7 @@ export function AppRoot() {
         <LegalworkControlProvider>
           <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
+          <LegalMemoryPermissions />
           <Routes>
               <Route
                 path="/welcome"
