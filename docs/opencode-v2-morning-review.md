@@ -1,14 +1,40 @@
 # Review when you return
 
 The migration is unfinished. Confirmed model charges are **€17.12 across 638 calls**,
-checked twice on 26 October at 19:44–19:47 UTC. All 80 newer calls match full
-response IDs. The conservative ledger still holds €57.76 because its existing
-settlement API cannot update those already settled estimates; originals and two
-uncertain historical holds are preserved. This is distinct from actual charges.
+confirmed again by two read-only gateway balance reads and the complete charge
+list on27October at11:57:54UTC. All 80 newer calls match full
+response IDs. The separate conservative ledger retains settled estimates and two
+uncertain historical holds; its exposure is not the gateway's confirmed charge.
+The existing settlement API cannot replace those settled estimates. Original
+records are preserved, and a fresh per-case budget guard precedes another task.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 27 October, 11:06 UTC
+## Current checkpoint — 27 October, 12:05 UTC
+
+Both Windows architectures now pass real engine/tool execution and cleanup, with
+all original checks retained. Both Macs and both Linux configurations pass actual
+production app/package/startup on the final engine distribution. The older Intel
+startup failure did not repeat, and no speculative production fix was applied.
+Windows app startup, the final latest-source six-platform run and full Mac unit
+result are still outstanding. The latest full Linux unit job has passed.
+
+The latest `dev` help/navigation commit is merged. The merged app builds normally;
+a checker-only relative-import correction passes against its unchanged packaged
+bytes. Final [run40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
+includes that correction and verifies reused engine archives on Linux, preserving
+all twelve file/archive pins without waiting for a Mac builder. Its development
+TEST metadata and the actual production-produced engine bytes are distinguished.
+
+The final Mac real-agent attempt has not sent a paid task: its native catalog
+includes three extra personal skills despite a private app profile. This is
+separate from the previously accepted same-user trace ownership. An isolated Linux
+VM is being prepared using the original benchmark and selected skills, without
+changing or limiting production capabilities. The user explicitly selected the
+isolated Linux VM. It has no service account and automatically
+deletes at15:48UTC; full evidence must be preserved before explicit cleanup.
+
+## Previous checkpoint — 27 October, 11:06 UTC
 
 All twelve final engine targets are built; all six protected runtimes pass. The
 actual six-platform app jobs have started in

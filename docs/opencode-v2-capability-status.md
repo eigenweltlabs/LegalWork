@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 27 October 2026, 11:06 UTC. Migration remains unfinished. The
+Checkpoint: 27 October 2026, 12:05 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -20,6 +20,63 @@ before hashing, and hands the exact distribution to app builds. Generated runtim
 selection is checked against the committed source policy and recipe. Cache and
 installed-runtime directories use full manifest identities, preserving older
 same-version outputs. Runtime startup never compiles source.
+
+Latest source includes `dev` commit `14b76cc99189a5525dd291f09d52b6d47768d7ee`
+(the new bundled help and app navigation), merged at `ee67b1f7`. The imported help
+uses the native v2 plugin test API, and its guidance reflects the approved removal
+of remote agent workspaces. Existing manual LegalWork-server connections and
+external connectors remain supported. Build and source tests generate the full
+translation reference without committing duplicate payloads.
+
+The latest [integrated acceptance40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
+at `5016c34d` reuses all twelve exact production-produced engine archives. Its
+independent verifier runs on Linux, avoiding a Mac builder for a portable hash
+check. Full archive/source/pin checks remain required. This run uses development
+TEST preparation metadata, not another production producer. Since `ee67b1f7`, only
+the packaged checker and CI verifier routing changed; actual app inputs are identical.
+
+Both Windows architectures now pass actual cold source compilation, seven native
+integration tests and warm reuse on `ee67b1f7`. The corrected raw-HTTP fixture runs
+its entire original body in a child process, then removes the profile only after
+that process exits. Actual server stores retain process-lifetime SQLite handles;
+a local open-file probe confirms that ownership. No production store APIs, retry,
+assertion or time limit changed. The nested raw test has 112 assertions and the
+outer suite 52, totaling the original 162 plus two parent-exit/removal assertions.
+
+All four Mac/Linux actual production app configurations have passed on the final
+`7e221edd…` distribution, including Intel Mac's original 90-second startup check.
+The old opaque Intel startup failure did not repeat; its cause remains unproven.
+Windows actual app/package/startup results on the corrected checkout remain open.
+The latest-source full Linux unit job has passed. The full Mac unit job and final
+latest-source six-platform app run remain required. An engine test or protected
+runtime pass does not substitute for an actual app/package/startup pass.
+
+The merged app initially exposed a package-checker fixture issue: a data-URL import
+could not resolve the new help module's relative import. Both exact modules are
+present in the shipped ASAR. The checker now extracts both shipped modules into its
+owned temporary directory and imports their file URL. The same unchanged merged
+Mac app passes the original document, security and engine checks after that fix.
+
+The Mac functional preflight started the final actual app/engine and exercised a
+real protected VM without inference. Its native skill catalog also exposes three
+unselected skills from the operating-system user's global directories; a private
+app profile does not exclude them. No paid task was sent with that mixed catalog,
+and no new skill cap or production override was added. An isolated Linux VM is
+being prepared using the original benchmark infrastructure and source-only skills.
+Its final actual-model task still requires independent source/catalog/trace/budget
+preflight. The user explicitly selected this isolated Linux setup. Mac static,
+startup and zero-model proofs are retained under their exact identities.
+
+A fresh read-only gateway check at11:57:54UTC confirms **€17.12375031 across638
+unique calls**, unchanged across both balance reads. The gateway key remains
+active with€82.87624969 of its existing€100 budget; the authorized€250 session
+ceiling and conservative historical ledger are separate. No new paid task has
+been sent during these build and preflight checks.
+
+## Earlier checkpoints
+
+The paragraphs below retain prior checkpoints and their exact scopes. Their
+pending items and dated balances do not override the current checkpoint above.
 
 The final [production source run40486260728](https://github.com/eigenweltlabs/legalwork/actions/runs/40486260728)
 has built all twelve engine targets, including the three production-signed Mac
