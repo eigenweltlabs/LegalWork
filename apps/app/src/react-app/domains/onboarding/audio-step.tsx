@@ -20,11 +20,12 @@ import type { AudioDictationPermissionKind, AudioPermissionState } from "@legalw
 
 import { RecorderFlow, type RecorderSetupRequirement, type RecorderFeature } from "./recorder-flow";
 import { dictationPermissionReady, dictationSetupPermissions, onboardingDictationPermissions, type DictationSetupPermission } from "./recorder-permissions";
-import { MODEL_TIERS } from "../recorder/model-tiers";
+import { MODEL_TIERS, tierName } from "../recorder/model-tiers";
 import { cloudModelName } from "../recorder/cloud-model-list";
 import { recommendedTier } from "../recorder/recorder-setup";
 import { useRecorderStore, isTranscriptionReady } from "../recorder/recorder-store";
 import { onboardingDemoActive } from "./onboarding-cover";
+import { confirmTranscriptionChoice, TranscriptionChoices, type TranscriptionChoice, type TranscriptionOption } from "./transcription-choice";
 
 /** How often the step re-probes the OS while something is still missing. */
 const PERMISSION_POLL_MS = 4000;
@@ -65,6 +66,7 @@ export function AudioStep(props: {
   const [sysWaiting, setSysWaiting] = useState(false);
   const [requestingDictation, setRequestingDictation] = useState<AudioDictationPermissionKind | null>(null);
   const [checkingReadiness, setCheckingReadiness] = useState(!demo);
+  const [transcriptionChoice, setTranscriptionChoice] = useState<TranscriptionChoice | null>(null);
   const simTimers = useRef<number[]>([]);
   useEffect(
     () => () => {
@@ -118,17 +120,10 @@ export function AudioStep(props: {
   const modelInstalled = demo
     ? sim.model === "installed"
     : isTranscriptionReady(store);
-  // Reuse a usable installed model when an earlier choice is absent or no
-  // longer installed. Keep an intentional download selected until it finishes.
-  useEffect(() => {
-    if (demo || !bootstrap || store.transcriptionSource === "cloud" || modelInstalled || bootstrap.models.some(model => model.id === store.modelId && model.state === "downloading")) return;
-    const installed = bootstrap.models.find(model => model.id === recommended.modelId && model.state === "installed")
-      ?? bootstrap.models.find(model => model.state === "installed" && (model.plan !== "premium" || premiumEntitled || store.unlockedModels.includes(model.id)));
-    if (installed) store.setModelId(installed.id);
-  }, [demo, bootstrap, modelInstalled, store.modelId, store.transcriptionSource, store.setModelId, store.unlockedModels, recommended.modelId, premiumEntitled]);
-  const modelDownloading = demo
+  const localDownloading = demo
     ? sim.model === "downloading"
     : recommendedModel?.state === "downloading";
+  const modelDownloading = transcriptionChoice?.source === "local" && localDownloading;
   const totalBytes = demo
     ? DEMO_MODEL_BYTES
     : recommendedModel?.totalBytes || recommendedModel?.approxSizeBytes || 0;
@@ -184,16 +179,6 @@ export function AudioStep(props: {
     void store.openPermissionSettings("systemAudio");
   };
 
-  const startDownload = () => {
-    captureAnalyticsEvent("onboarding_audio_model_download");
-    if (demo) {
-      setSim((state) => ({ ...state, model: "downloading", progress: 0 }));
-      return;
-    }
-    store.setModelId(recommended.modelId);
-    void store.downloadModel(recommended.modelId);
-  };
-
   useEffect(() => {
     if (!demo || sim.model !== "downloading") return;
     const timer = window.setInterval(() => setSim(state => {
@@ -241,24 +226,53 @@ export function AudioStep(props: {
       {t("recorder.perm_allow")}
     </Button>,
   };
-  const cloud = !demo && store.transcriptionSource === "cloud";
-  const selectedCloud = bootstrap?.cloud?.models.find(model => model.model === store.cloudModelId);
+  const localInstalled = demo ? sim.model === "installed" : recommendedModel?.state === "installed";
+  const transcriptionOptions: TranscriptionOption[] = [
+    {
+      source: "local", modelId: recommended.modelId,
+      title: t("onboarding_audio.transcription_device"),
+      description: t("recorder.transcription_local_description"),
+      disabled: !demo && (!recommendedModel || bootstrap?.engine.available === false),
+    },
+    ...(demo ? [] : bootstrap?.cloud?.models ?? []).filter(model => model.enabled && model.available).map<TranscriptionOption>(model => ({
+      source: "cloud", modelId: model.model, title: cloudModelName(model.region),
+      description: t("recorder.transcription_cloud_note"),
+    })),
+  ];
+  const chosenOption = transcriptionOptions.find(option => option.source === transcriptionChoice?.source && option.modelId === transcriptionChoice.modelId && !option.disabled);
   const model: RecorderSetupRequirement = {
     id: "model",
-    title: cloud ? selectedCloud ? cloudModelName(selectedCloud.region) : t("recorder.transcription_cloud_unavailable") : t(modelInstalled ? "onboarding_audio.model_title" : "onboarding_audio.local_transcription_title"),
-    description: cloud ? t("recorder.transcription_cloud_note") : t(modelInstalled ? "recorder.transcription_local_description" : "onboarding_audio.local_transcription_description", { size: modelSize }),
+    title: t("onboarding_audio.transcription_title"),
+    description: t("onboarding_audio.transcription_description"),
     ready: modelInstalled,
-    readyLabel: !demo && !cloud ? bootstrap?.models.find(model => model.id === store.modelId)?.label : undefined,
     downloading: modelDownloading === true,
-    hint: !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
-    action: modelDownloading ? <div className="space-y-3" role="status">
-      <div className="flex items-center gap-3">
-        <Progress value={pct} className="h-1.5 flex-1" />
-        <span className="text-xs tabular-nums text-subtext">{pct}%</span>
-        <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
-      </div>
-      <p className="text-xs text-subtext">{t("onboarding_audio.background_note")}</p>
-    </div> : <Button onClick={startDownload}>{t("recorder.model_download")}</Button>,
+    hint: transcriptionChoice?.source === "local" && !demo && recommendedModel?.state === "error" ? recommendedModel.error : null,
+    configure: {
+      canContinue: !!chosenOption,
+      label: transcriptionChoice?.source === "local" && !localInstalled ? t("recorder.model_download") : undefined,
+      onContinue: async () => {
+        if (!chosenOption || !transcriptionChoice) return false;
+        if (demo) {
+          if (sim.model === "installed") return true;
+          setSim(state => ({ ...state, model: "downloading", progress: 0 }));
+          return false;
+        }
+        return confirmTranscriptionChoice(transcriptionChoice);
+      },
+    },
+    action: <div className="space-y-4">
+      <TranscriptionChoices value={transcriptionChoice} options={transcriptionOptions} onChange={setTranscriptionChoice} />
+      {transcriptionChoice?.source === "local" ? <p className="text-xs leading-relaxed text-subtext">{t(localInstalled ? "onboarding_audio.local_model_installed" : "onboarding_audio.local_model_download", { model: tierName(recommended.key), size: modelSize })}</p> : null}
+      {!demo && !transcriptionOptions.some(option => option.source === "cloud") ? <p className="text-xs leading-relaxed text-subtext">{t("recorder.transcription_cloud_access")}</p> : null}
+      {modelDownloading ? <div className="space-y-3" role="status">
+        <div className="flex items-center gap-3">
+          <Progress value={pct} className="h-1.5 flex-1" />
+          <span className="text-xs tabular-nums text-subtext">{pct}%</span>
+          <Button variant="ghost" size="icon-sm" aria-label={t("recorder.model_cancel")} onClick={cancelDownload}><X /></Button>
+        </div>
+        <p className="text-xs text-subtext">{t("onboarding_audio.background_note")}</p>
+      </div> : null}
+    </div>,
   };
   const dictationAccess: RecorderSetupRequirement[] = extraPermissions.map(kind => ({
     id: kind,
@@ -281,6 +295,7 @@ export function AudioStep(props: {
     feature={props.feature}
     demo={demo}
     loading={checkingReadiness}
+    onSetupStart={() => setTranscriptionChoice(null)}
     meetingRequirements={[microphone, ...(sysApplies ? [systemAudio] : []), model]}
     dictationRequirements={[microphone, ...dictationAccess, model]}
     onBack={props.onBack}

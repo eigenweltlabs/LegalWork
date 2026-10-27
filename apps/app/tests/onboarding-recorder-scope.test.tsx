@@ -42,7 +42,7 @@ test("configured recording setup remains reopenable without resetting permission
   const html = renderToStaticMarkup(<RecorderFlow feature="meetings" demo loading={false}
     meetingRequirements={requirements} dictationRequirements={[]} onBack={() => {}} onDone={() => {}} />);
   expect(html).toContain("Ready to use");
-  expect(html).toContain("Review setup");
+  expect(html).toContain("Set up again");
   expect(html).toContain(">Continue</button>");
   expect(html).not.toContain("Request access");
   expect(requirements.every(item => item.ready)).toBe(true);
