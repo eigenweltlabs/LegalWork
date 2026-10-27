@@ -19,7 +19,7 @@ export function prepareForBuild(input: {
   outputDirectory?: string;
   distributionDirectory?: string;
   manifestSha256?: string;
-  macSigning?: { mode: "developer-id"; identitySha1: string; certificateSha256: string; teamId: string; keychainPath: string };
+  macSigning?: { mode: "developer-id"; identitySha1: string; certificateSha256: string; teamId: string; keychainPath?: string };
 }): Promise<PreparedEngineBuild>;
 export function stagePreparedEngineBuild(options: { prepared: PreparedEngineBuild; outputDirectory: string; targets?: string[] }): Promise<string[]>;
 export function developmentEngineEnvironment(options?: { checkOnly?: boolean; includeBinary?: boolean }): Promise<{
