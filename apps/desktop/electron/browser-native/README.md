@@ -24,7 +24,8 @@ Adapted source:
 - `pane.ts`: inject LegalWork's shared partition, desktop network, per-binding
   authority/download/page callbacks and panel embeds; guard shared-profile file
   URLs against their owning WebContents; return native UI command results; forward
-  the optional host screenshot queue into each page.
+  the optional host screenshot queue into each page. A host callback retains live
+  pages during trusted app reloads; other host navigation still closes the pane.
 - `chromium.ts`: reserve the existing project-bound download destination; preserve
   complete locally retained downloads above the native RPC transfer limit;
   expose completed owned files to the capability-preserving adapter; let the host
@@ -37,6 +38,11 @@ Adapted source:
   upstream setting. Screenshot limits remain unchanged.
   The compositor capture used after element scrolling acquires the same queue;
   a screenshot already holding it reuses that lease instead of nesting acquisition.
+  Default accessibility observations traverse nested controls without an AX depth
+  cutoff, omit unnamed layout wrappers and retain the existing rendered output
+  limits. Explicit depth bounds the displayed tree. Focused find filters during
+  traversal; editor values are included unless protected. Condition waits follow
+  navigation generations while stale mutations continue to fail.
 - `files.ts`: expose retained local file metadata to the adapter without changing
   the native RPC file schemas or their 5 MiB transfer limit.
 

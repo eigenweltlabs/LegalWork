@@ -5,7 +5,7 @@ import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { nativeEvents } from "./native-events.js";
 import { browserPasswordRequestTool } from "./browser-password-request.js";
-import { compactBrowserResult } from "./browser-snapshot.js";
+import { browserConnectionOutput, browserConnectionResult, compactBrowserResult } from "./browser-snapshot.js";
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { uiBridgeRequest as requestUiBridge, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "../inapp-document-bridge.js";
@@ -162,7 +162,7 @@ Finish all planned text and layout edits for a slide, then call inapp_pptx_previ
 ## Built-in Browser (external websites)
 Use the native browser namespace for navigation, snapshots, observed element refs, interaction, evaluation, console/network diagnostics and profiling. browser.tabs.open creates a tab owned by this chat; browser.tabs.list lists only its tabs. Reuse the exact tabID and current generation/refs returned by native observations. Do not invent refs or operate another chat's tabs. Shared site login/storage follows the desktop browser profile; the desktop's network and configured proxy are used even when connected to a separate LegalWork server.
 For browser tool discovery in Code Mode, search for the specific operations needed for the task together in one execute call. For example, search({namespace:"browser",query:"fill"}), search({namespace:"browser",query:"click"}) and search({namespace:"browser",query:"wait"}) retrieve interaction schemas. Return their complete signatures and descriptions; never slice or abbreviate signatures. Reuse definitions already retrieved instead of rediscovering them. Do not enumerate the entire browser namespace for an ordinary form. Read the actual schemas before calling tools: native fill uses text, find uses text, evaluate uses script, and wait requires condition (load, text or textGone), with text for a text condition.
-legalwork_browser_open_url opens a native tab and returns its native snapshot (snapshot.content, snapshot.tab and snapshot.truncated), exact tab_id and extension browser_url. legalwork_browser_connect returns the same for an existing native tab. Use the native refs in this initial observation directly; do not take another snapshot just to obtain refs. After navigation or a page update, wait for the observed load/text condition and inspect the new page. Use scoped native snapshots for additional detail. The optional legalwork_browser_batch extension uses observed CSS selectors and returns a paged legacy snapshot; use steps:[] and snapshot.pagination for its remaining content. CSS selectors and legacy node_id values are not native refs.
+legalwork_browser_open_url opens a native tab and returns its native snapshot (snapshot.content, snapshot.tab and snapshot.truncated), exact tabID and extension browser_url directly, without a result envelope. legalwork_browser_connect returns the same for an existing native tab. Use the native refs in this initial observation directly; do not take another snapshot just to obtain refs. For example, const page = await tools.legalwork_browser_open_url({url}); then use page.tabID, page.browser_url and page.snapshot.content. Reuse an opened tab; inspect it instead of opening duplicates after an argument error. After navigation or a page update, wait for the observed load/text condition and inspect the new page. Code Mode has no setTimeout; use browser.wait for observed conditions rather than sleeping in execute. Use scoped native snapshots for additional detail. The optional legalwork_browser_batch extension uses observed CSS selectors and returns a paged legacy snapshot; use steps:[] and snapshot.pagination for its remaining content. CSS selectors and legacy node_id values are not native refs.
 Batch already-observed, authorized steps as sequential awaited tool calls in one Code Mode execute. For a login, open the page and list matching saved entries in the same execute when possible; once the fields and saved entry are known, fill the username with browser.fill, fill the password with legalwork_browser_fill_password, and click the observed sign-in button in one execute if the user requested sign-in. Then wait for navigation or an observed result condition before verifying the new page. Stop when a step fails or reveals a new page, MFA, CAPTCHA, ambiguity or a required user decision; inspect before continuing and never blindly replay earlier mutations. A two-step login requires a new observation between the username and password pages.
 For saved website passwords, use legalwork_browser_passwords with the tab’s extension browser_url, then legalwork_browser_fill_password with the selected ID and a current native password-field ref from open/connect, browser.snapshot or browser.find. Main domains and their subdomains share saved entries. The list reports the current website after redirects; an empty list only establishes no matching entry for that website. When sign-in is needed and no matching saved entry exists, call legalwork_browser_request_password to display the inline credential card and wait for the user to save or cancel. Do not ask for passwords through chat, the generic question tool or text form fields, and do not send the user to Settings instead of offering the card. After saving, use the returned ID and inspect the current page for fresh refs before continuing; the user may have navigated while entering credentials. On cancellation, stop the login attempt. Users can also manage entries in Settings > Secrets > Browser passwords. On a website mismatch, do not retry alternative refs. Filling uses the existing local tab and does not itself submit the form. Values stay out of these tools’ arguments/results, but unrestricted host commands and browser readback remain available.
 Native file transfers have a 5 MiB limit. Use legalwork_browser_upload for complete larger local files under normal read permission, and legalwork_browser_capture to save complete screenshots of background tabs under normal edit permission. Native screenshots require a visible focused tab; captures may run in the background. Use legalwork_browser_downloads for completion and exact project paths: local downloads save in the project's Downloads folder; a manually connected server receives the complete desktop download there under its native edit permission. Read only completed, successfully saved files. Switching projects never changes ownership or download destination. Do not re-fetch an existing download into scratch storage.
@@ -662,8 +662,9 @@ export function extensionToolDefinitions() {
     },
     ...legalworkBrowserTools,
     legalwork_browser_open_url: {
-      description: "Open a native browser tab owned by this chat and project. Returns snapshot.content with immediately usable native refs, snapshot.tab with its generation, snapshot.truncated, exact tab_id, and extension browser_url. Use these refs directly with native browser tools; no extra snapshot is needed for the same page. Discover the specific interaction schemas together and retain complete signatures. Use legalwork_browser_downloads for completed project file paths. Without show, the tab runs in the background; never claim it is visible to the user. Retained task tabs can be reopened from their cards.",
+      description: "Open a native browser tab owned by this chat and project. Returns {tabID, browser_url, url, snapshot:{content, tab, truncated}} directly. Use snapshot.content refs immediately with native browser tools; no extra snapshot is needed for the same page. Discover specific interaction schemas together and retain complete signatures. Use legalwork_browser_downloads for completed project file paths. Without show, the tab runs in the background; never claim it is visible to the user. Retained task tabs can be reopened from their cards.",
       args: browserOpenUrlArgsSchema.shape,
+      outputSchema: browserConnectionOutput,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
         const browserContext = await requireBrowserNetwork(context);
@@ -675,7 +676,7 @@ export function extensionToolDefinitions() {
           },
           timeoutMs: 45000,
         });
-        return JSON.stringify(compactBrowserResult(result));
+        return JSON.stringify(browserConnectionResult(result));
       },
     },
     legalwork_browser_set_proxy: {
@@ -737,7 +738,9 @@ export const LegalWorkExtensionsPreview = Plugin.define({
     await ctx.tool.transform(editor => {
       editor.add(browserPasswordRequestTool(ctx));
       for (const [name, definition] of Object.entries(extensionToolDefinitions())) {
-        editor.add(nativeTool(ctx, { name, description: definition.description, schema: z.object(definition.args),
+        editor.add(nativeTool(ctx, { name, description: definition.description,
+          schema: "inputSchema" in definition ? definition.inputSchema : z.object(definition.args),
+          ...("outputSchema" in definition ? { outputSchema: definition.outputSchema } : {}),
           ...(name === "inapp_docx_edit" ? { prevalidate: (raw: unknown) => { parseDocxEdit(raw); } } : {}),
           async execute(input, context) {
             const result = await definition.execute(input, context);

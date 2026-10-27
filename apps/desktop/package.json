@@ -23,6 +23,7 @@
     "test:browser-workflow": "electron scripts/browser-workflow-regression.mjs",
     "test:browser-passwords": "electron scripts/browser-passwords-regression.mjs",
     "test:browser-opening": "electron scripts/browser-opening-regression.mjs",
+    "test:browser-observation": "electron scripts/browser-observation-regression.mjs",
     "test:browser-passwords:website": "electron scripts/browser-passwords-website-smoke.mjs",
     "test:browser-network": "electron scripts/browser-network-regression.mjs",
     "test:native": "electron scripts/native-modules-regression.mjs",

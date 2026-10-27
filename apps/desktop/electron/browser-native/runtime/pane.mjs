@@ -82,7 +82,7 @@ export function createBrowserPane(input) {
             let attached = false;
             const stop = () => close(entry, reason);
             const navigate = (event) => {
-                if (event.isMainFrame && !event.isSameDocument)
+                if (event.isMainFrame && !event.isSameDocument && !input.retainOnNavigation?.(event.url))
                     stop();
             };
             win.webContents.once("destroyed", stop);

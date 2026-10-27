@@ -1,4 +1,4 @@
-import { compactBrowserResult } from "./browser-snapshot.js";
+import { browserConnectionOutput, browserConnectionResult, compactBrowserResult } from "./browser-snapshot.js";
 import { z } from "zod";
 import { readFile, mkdir, writeFile, link, copyFile, rm } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -12,6 +12,10 @@ import { requireBrowserNetwork } from "./browser-network-policy.js";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
 
 export const browserUrl = z.string().describe("Exact browser_url capability returned by legalwork_browser_open_url. Do not construct one or use a general debugging endpoint.");
+const browserConnectInput = z.union([
+  z.object({ tabID: z.string().min(1).describe("Exact native tabID from browser.tabs.list/open or legalwork_browser_open_url.") }),
+  z.object({ tab_id: z.string().min(1).describe("Legacy spelling of tabID; prefer tabID for new calls.") }),
+]);
 const batchArgs = z.object({
   browser_url: browserUrl,
   steps: z.array(z.object({
@@ -124,6 +128,7 @@ export const legalworkBrowserTools = {
   legalwork_browser_passwords: {
     description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. Use browser_url from legalwork_browser_open_url or legalwork_browser_connect; opening and listing can share one Code Mode execute. If sign-in is needed and the list is empty, call legalwork_browser_request_password for the inline credential card. Never request passwords in chat. No password values are returned.",
     args: { browser_url: browserUrl },
+    outputSchema: z.object({ website: z.string(), passwords: z.array(z.object({ id: z.string(), label: z.string(), username: z.string() })) }),
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl }).parse(rawArgs);
       await requireBrowserNetwork(context);
@@ -133,6 +138,7 @@ export const legalworkBrowserTools = {
   legalwork_browser_fill_password: {
     description: "Fill a saved password by ID into a password field in this chat's existing local browser tab. Use a fresh native browser snapshot ref and a password_id from legalwork_browser_passwords. The desktop checks that the page and field belong to the saved website or its subdomains, resolves the vault value locally and returns only confirmation. This does not submit the login. Passwords stay out of this tool's arguments/results; unrestricted host and browser readback tools can still access them.",
     args: { browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200).describe("Current password-field ref such as @e5 from legalwork_browser_open_url/connect snapshot.content, tools.browser.snapshot or tools.browser.find. CSS selectors and legacy snapshot node_id values are not native refs.") },
+    outputSchema: z.object({ filled: z.boolean(), password_id: z.string().optional() }),
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200) }).parse(rawArgs);
       await requireBrowserNetwork(context);
@@ -141,12 +147,16 @@ export const legalworkBrowserTools = {
   },
   legalwork_browser_connect: {
     description: "Connect to an existing native browser tab owned by this chat. Use the exact tabID from browser.tabs.list/open. Returns a fresh native snapshot with immediately usable refs in snapshot.content, tab state in snapshot.tab and snapshot.truncated, plus browser_url for saved-password filling, background captures, large file uploads and completed project download paths. Connecting refreshes refs; use its returned refs instead of taking another snapshot.",
-    args: { tab_id: z.string().min(1) },
+    args: browserConnectInput.options[0].shape,
+    inputSchema: browserConnectInput,
+    outputSchema: browserConnectionOutput,
     async execute(rawArgs: unknown, context: OpenCodeContext) {
-      const { tab_id } = z.object({ tab_id: z.string().min(1) }).parse(rawArgs);
+      // Accept the earlier spelling for conversations that already discovered it.
+      const args = browserConnectInput.parse(rawArgs);
+      const tabID = "tabID" in args ? args.tabID : args.tab_id;
       const browserContext = await requireBrowserNetwork(context);
-      return JSON.stringify(compactBrowserResult(await uiBridgeRequest("/execute", { method: "POST", signal: context.abort,
-        body: { actionId: "browser.connection", args: { tabId: tab_id, ...browserContext }, callerSessionId: context.sessionID } })));
+      return JSON.stringify(browserConnectionResult(await uiBridgeRequest("/execute", { method: "POST", signal: context.abort,
+        body: { actionId: "browser.connection", args: { tabId: tabID, ...browserContext }, callerSessionId: context.sessionID } })));
     },
   },
   legalwork_browser_upload: {

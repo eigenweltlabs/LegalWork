@@ -51,6 +51,7 @@ export function createNativeBrowserHost(options) {
     const views = new Map();
     return createBrowserPane({
       partition: options.partition,
+      retainOnNavigation: options.isAllowedAppNavigation,
       // Shared persistent site storage must never receive a per-attachment tunnel proxy.
       network: () => ({ attach: () => () => {}, icon: url => fetchIcon(electron.net, electron.session.fromPartition(options.partition), url) }),
       authorize: async binding => {

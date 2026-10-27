@@ -104,6 +104,16 @@ app.whenReady().then(async () => {
     await assert.rejects(invoke("connection", opened.tab_id, { ...context, sessionId: "another-chat" }), /does not belong/);
     assert.equal((await run("evaluate", { tabID: opened.tab_id, ref: ref(connected.snapshot, "Username"), script: "element => element.value" })).value, "opening ref works");
     checks.push("Reconnect refreshes refs and retains exact chat ownership");
+    const beforeReload = connected.snapshot.tab;
+    await run("evaluate", { tabID: opened.tab_id, script: "window.unsavedBrowserDraft = 'must survive renderer reload'" });
+    const reloaded = once(window.webContents, "did-finish-load");
+    window.webContents.reload(); await reloaded;
+    await invoke("attachSession", context);
+    const retained = await run("evaluate", { tabID: opened.tab_id, ref: ref(connected.snapshot, "Username"), script: "element => ({value:element.value,draft:window.unsavedBrowserDraft})" });
+    assert.deepEqual(retained.value, { value: "opening ref works", draft: "must survive renderer reload" });
+    assert.equal(retained.tab.generation, beforeReload.generation);
+    assert.equal((await invoke("connection", opened.tab_id, context)).tab_id, opened.tab_id);
+    checks.push("Reloading the trusted LegalWork renderer preserves the exact browser page, unsaved input, refs and generation");
     const login = await invoke("openUrl", origin, "builtin", context);
     const headers = { "x-legalwork-browser-session": chat.id, "content-type": "application/json" };
     const listed = await (await fetch(`${login.browser_url}/passwords`, { headers })).json();
@@ -122,6 +132,9 @@ app.whenReady().then(async () => {
     assert.equal(JSON.stringify(after).includes(secret), false);
     assert.ok(after.tab.generation > login.snapshot.tab.generation);
     checks.push("Username, vault password and authorized submit compose without an intermediate snapshot; condition wait verifies navigation");
+    await window.loadURL("data:text/html,<title>Untrusted host navigation</title>");
+    await until(() => invoke("state").tabs.length === 0);
+    checks.push("Navigating the host outside the trusted app still closes its browser attachment");
     assert.equal(BrowserWindow.getAllWindows().some(win => win.isVisible() || win.isFocused()), false);
     checks.push("All windows remained hidden and unfocused");
     console.log(JSON.stringify({ passed: true, checks, openingSnapshotChars: opened.snapshot.content.length, submitMethod: "native-evaluate-on-observed-button", modelCalls: 0, realCredentials: false }, null, 2));
