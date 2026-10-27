@@ -116,6 +116,7 @@ type SyncOptions = {
   workspaceId: string;
   baseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   onSessionUpdated?: (update: {
     sessionId: string;
     info: Record<string, unknown>;
@@ -178,7 +179,7 @@ export const todoKey = (workspaceId: string, sessionId: string) =>
   ["react-session-todos", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
-  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}`;
+  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.legalworkHostToken ?? ""}`;
 }
 
 function getErrorStatus(error: unknown) {
@@ -870,6 +871,7 @@ async function stopUsageLimitRetry(
   );
   const client = createClient(entry.input.baseUrl, undefined, {
     token: entry.input.legalworkToken,
+    hostToken: entry.input.legalworkHostToken,
     mode: "legalwork",
   });
   let ownsStop = false;
@@ -922,6 +924,7 @@ async function stopUsageLimitRetry(
       const server = createLegalworkServerClient({
         baseUrl: mount.baseUrl,
         token: entry.input.legalworkToken,
+        hostToken: entry.input.legalworkHostToken,
       });
       await server.recordSessionUsageLimit(
         mount.workspaceId,
@@ -1625,6 +1628,7 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
 function startSync(input: SyncOptions) {
   const client = createClient(input.baseUrl, undefined, {
     token: input.legalworkToken,
+    hostToken: input.legalworkHostToken,
     mode: "legalwork",
   });
   const controller = new AbortController();

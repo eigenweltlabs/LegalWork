@@ -15,13 +15,13 @@ import type { ModelRef } from "@/app/types";
  * tab changes navigation, never the session to which an action is addressed. */
 export function WorkspaceChat(props: SessionSurfaceProps) {
   const client = useMemo(() => createClient(props.opencodeBaseUrl, props.workspaceRoot || undefined,
-    { token: props.legalworkToken, mode: "legalwork" }), [props.opencodeBaseUrl, props.workspaceRoot, props.legalworkToken]);
+    { token: props.legalworkToken, hostToken: props.legalworkHostToken, mode: "legalwork" }), [props.opencodeBaseUrl, props.workspaceRoot, props.legalworkToken, props.legalworkHostToken]);
   useEffect(() => {
-    const input = { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken };
+    const input = { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, legalworkHostToken: props.legalworkHostToken };
     const releaseWorkspace = ensureWorkspaceSessionSync(input);
     const releaseSession = trackWorkspaceSessionSync(input, props.sessionId);
     return () => { releaseSession(); releaseWorkspace(); };
-  }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.sessionId]);
+  }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken, props.sessionId]);
   const interactions = useSessionInteractions({ client, serverClient: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: props.workspaceRoot });
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);

@@ -190,7 +190,7 @@ export type SessionPageSidebarProps = {
 
 export type SessionPageSurfaceProps = Omit<
   SessionSurfaceProps,
-  "client" | "workspaceId" | "sessionId" | "opencodeBaseUrl" | "legalworkToken"
+  "client" | "workspaceId" | "sessionId" | "opencodeBaseUrl" | "legalworkToken" | "legalworkHostToken"
 >;
 
 export type SessionPageProps = {
@@ -218,6 +218,7 @@ export type SessionPageProps = {
   onEngineProjectApproved?: () => void;
   environmentClient?: LegalworkServerClient | null;
   legalworkServerToken?: string | null;
+  legalworkServerHostToken?: string;
   developerMode: boolean;
   headerStatus: string;
   busyHint: string | null;
@@ -1588,6 +1589,7 @@ export function SessionPage(props: SessionPageProps) {
               sessionId={sessionId}
               opencodeBaseUrl={reactSessionBaseUrl}
               legalworkToken={reactSessionToken}
+              legalworkHostToken={props.legalworkServerHostToken}
               onOpenInteractionSession={props.onOpenInteractionSession}
               onOpenTarget={(target, options) => openTarget(target, options, sessionId)}
               realtimeVoiceSupported={active && realtimeVoiceSupported}
