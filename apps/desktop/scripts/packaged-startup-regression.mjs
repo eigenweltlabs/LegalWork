@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { assertPackagedServerImports } from "./check-packaged-server-imports.mjs";
@@ -11,6 +11,7 @@ import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 import { createWorkspaceStore } from "../electron/workspace-store.mjs";
 import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 import { Service } from "@opencode/client/service";
+import { collectStartupFailure, snapshotStartupLogs } from "./packaged-startup-diagnostics.mjs";
 
 const target = process.argv[2];
 if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packaged executable>");
@@ -34,6 +35,12 @@ await chmod(discoveryPath, 0o644);
 let output = "";
 let launchError;
 let passed = false;
+const logDirectories = [path.join(userData, "logs"),
+  path.join(root, "home", "Library", "Logs", "LegalWork Package Test"),
+  path.join(homedir(), "Library", "Logs", "LegalWork Package Test")];
+const logBaseline = await snapshotStartupLogs(logDirectories);
+const startedAt = Date.now();
+const milestones = [{ event: "launch-requested", elapsedMs: 0 }];
 const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [], {
   env: {
     ...process.env,
@@ -57,6 +64,8 @@ const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-
   stdio: ["ignore", "pipe", "pipe"],
 });
 child.on("error", (error) => { launchError = error; });
+child.on("spawn", () => milestones.push({ event: "process-spawned", elapsedMs: Date.now() - startedAt }));
+child.on("exit", (code, signal) => milestones.push({ event: "process-exited", elapsedMs: Date.now() - startedAt, code, signal }));
 child.stdout.on("data", (chunk) => { output += chunk; });
 child.stderr.on("data", (chunk) => { output += chunk; });
 try {
@@ -72,7 +81,10 @@ try {
           headers: { authorization: `Bearer ${discovery.token}` }, signal: AbortSignal.timeout(5000),
         });
         const result = await actions.json();
-        if (actions.ok && result.ok && Array.isArray(result.actions)) { ready = true; break; }
+        if (actions.ok && result.ok && Array.isArray(result.actions)) {
+          milestones.push({ event: "renderer-controls-ready", elapsedMs: Date.now() - startedAt });
+          ready = true; break;
+        }
       }
     } catch { /* Main process has not published its health endpoint yet. */ }
     await setTimeout(500);
@@ -84,6 +96,8 @@ try {
     try {
       const key = path.resolve(workspace).replace(/\\/g, "/").toLowerCase();
       const state = JSON.parse(await readFile(path.join(userData, "legalwork-server-state.json"), "utf8"));
+      if (!milestones.some(item => item.event === "server-state-observed"))
+        milestones.push({ event: "server-state-observed", elapsedMs: Date.now() - startedAt });
       const tokens = JSON.parse(await readFile(path.join(userData, "legalwork-server-tokens.json"), "utf8"));
       const base = `http://127.0.0.1:${state.workspacePorts[key]}`;
       const headers = { authorization: `Bearer ${tokens.workspaces[key].clientToken}` };
@@ -102,6 +116,7 @@ try {
       const info = await get(`${native}/api/info`);
       assert.equal(info.version, opencodeEngineSelection.version, "Actual packaged engine must match its build-owned selection");
       engineReady = true;
+      milestones.push({ event: "actual-engine-ready", elapsedMs: Date.now() - startedAt });
       break;
     } catch (error) { lastEngineError = error; }
     await setTimeout(500);
@@ -114,7 +129,19 @@ try {
   console.log(`PASS: packaged app, renderer and actual ${opencodeEngineSelection.version} engine start; workspace metadata contains no engine credentials`);
   passed = true;
 } catch (error) {
-  console.error(output);
+  try {
+    const evidence = await collectStartupFailure({
+      artifactDirectory: path.resolve(import.meta.dirname, "../.test-artifacts/packaged-startup"),
+      root, userData, runtime, child, output, milestones, startedAt, logBaseline, logDirectories, failure: error,
+      selection: { kind: opencodeEngineSelection.kind, version: opencodeEngineSelection.version,
+        artifactId: opencodeEngineSelection.artifactId,
+        manifestSha256: opencodeEngineSelection.kind === "derivative" ? opencodeEngineSelection.artifactId : null },
+    });
+    console.error(evidence.consoleOutput);
+    console.error(`Scrubbed startup failure diagnostics: ${evidence.directory}`);
+  } catch {
+    console.error("Startup diagnostics could not be retained; original startup assertion follows.");
+  }
   throw error;
 } finally {
   try {
