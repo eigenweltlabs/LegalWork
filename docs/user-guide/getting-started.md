@@ -11,6 +11,8 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 5. Choose **New Chat**, select an available model, and state the task. Attach a file or mention a workspace file with `@`. For example: "Read this agreement and identify the termination provisions, citing the clauses."
 6. Review the assistant's output and any permission request. Open output file links in the document panel. A chat response is not proof that a file was saved: check the named output and any tool errors.
 
+If **Allow automation from this project?** appears during AI setup, review the listed folders and plugins before choosing **Allow project automation**. This approval lets the project's agent load its configuration; signing in to Eigenwelt is a separate step and does not approve the project.
+
 ## Set up meeting recording
 
 On the **Record meetings.** welcome screen, open setup and complete the permission prompts. Available cloud regions appear first, with a cloud option selected by default. Cloud transcription runs in your selected region with zero data retention (ZDR). Local transcription requires a model download and uses your computer’s CPU power. Select your source and choose **Continue**; an installed local model is reused.
