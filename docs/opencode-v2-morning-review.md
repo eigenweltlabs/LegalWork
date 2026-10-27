@@ -8,7 +8,32 @@ uncertain historical holds are preserved. This is distinct from actual charges.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 27 October, 09:55 UTC
+## Current checkpoint — 27 October, 11:06 UTC
+
+All twelve final engine targets are built; all six protected runtimes pass. The
+actual six-platform app jobs have started in
+[40486260728](https://github.com/eigenweltlabs/legalwork/actions/runs/40486260728).
+Final completion still needs those package/startup results, the corrected full
+Linux/Mac unit run, and one actual-model check using the final compiled engine.
+
+Two Windows follow-ups remain. A native engine test completes all 162 semantic
+assertions, then cannot remove its temporary directory; the production lifetime
+alignment alone did not fix that cleanup. The next run retains the exact remaining
+paths and process state to identify the open resource. Separately, Windows app
+build rejects generated browser output after Git changes its line endings. A
+scoped checkout rule passes the real Git reproduction while still rejecting stale
+output; actual Windows app acceptance must consume the correction.
+
+The user accepted keeping broader legal-quality findings separate, retaining the
+exact NDA55/56 versus53/56 and delegation8/9 versus9/9 findings and their caveats.
+Any established new migration regression still needs correction. The final Mac
+functional check is authorized with full traces and ordinary outside-folder
+permission denial; the user explicitly accepted that its trace files are owned by
+the Mac user rather than Linux root. This is not equivalent OS-level isolation.
+Original Linux evidence is retained. No new content limit or production behavior
+change is introduced by these test and checkout corrections.
+
+## Previous checkpoint — 27 October, 09:55 UTC
 
 The user chose to finish and freeze OpenCode 2.1.4. Stable 2.2.0 appeared today;
 its source audit is retained for a later upgrade. It needs a real patch/build
