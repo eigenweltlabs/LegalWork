@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 27 October 2026, 09:55 UTC. Migration remains unfinished. The
+Checkpoint: 27 October 2026, 11:06 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -21,14 +21,42 @@ selection is checked against the committed source policy and recipe. Cache and
 installed-runtime directories use full manifest identities, preserving older
 same-version outputs. Runtime startup never compiles source.
 
-The fresh [source production run40482058927](https://github.com/eigenweltlabs/legalwork/actions/runs/40482058927)
-at09bea36f has four passing cold native-source hosts: both Macs and both Linux
-architectures, each including seven real engine integrations/162 assertions and
-byte-stable warm reuse. Windows x64/ARM64 both stop at the pinned patch check after
-Git converts LF to CRLF. The successor correction72c76604/f713de2e preserves
-reviewed bytes through the LegalWork checkout and upstream clones; no content
-hash or compiler pin is weakened. Actual Windows re-execution is still required.
-All six final app/package/startup checks remain a distinct completion gate.
+The final [production source run40486260728](https://github.com/eigenweltlabs/legalwork/actions/runs/40486260728)
+has built all twelve engine targets, including the three production-signed Mac
+variants, and passed all six protected runtime configurations. Its independently
+verified distribution manifest is
+`7e221edd90abed59a0659393a5eaa9a960000263240e6094cbb7a6f07825e558`.
+The six actual app/package/startup jobs have started; their results remain required.
+
+Both Windows native integration fixtures execute all 162 semantic assertions but
+fail while removing their temporary directory after shutdown. Matching the
+production parent-process lifetime alone did not resolve it. The diagnostic
+[follow-up40492613469](https://github.com/eigenweltlabs/legalwork/actions/runs/40492613469)
+retains process state and remaining path names after the original removal failure;
+no cleanup retry, test waiver or timing increase is introduced. Other four native
+source hosts have passed actual compilation, integration and warm reuse.
+
+The Windows x64 app build also found that Git's automatic CRLF conversion makes
+the browser generator's exact-byte check reject its tracked output before app
+build. A real Git checkout reproduces the failure. Scoped LF attributes retain
+all 31 reviewed browser files byte-for-byte and preserve rejection of genuinely
+stale output. Actual Windows package re-execution is still required.
+
+The corrected full Linux/Mac unit [follow-up40492117543](https://github.com/eigenweltlabs/legalwork/actions/runs/40492117543)
+uses the exact production-produced engine bytes, under development test
+preparation metadata. This is a unit acceptance run, not another production
+producer or six-platform app result. The changes correct two test expectations
+and use an ordinary newly compiled Mac signing fixture, without changing product
+signing behavior. Engine build inputs remain unchanged from the final producer.
+
+The user accepted tracking broader legal-quality findings separately while
+requiring final migration checks. Existing NDA and delegation grades remain exact;
+this does not establish universal quality parity. A final actual-model Electron
+check will use the same final engine distribution on Mac. The user accepted that
+its full traces belong to the Mac user, protected by normal app permissions and a
+process-bound recorder, rather than the Linux benchmark's root-owned filesystem
+boundary. The original Linux benchmark remains unchanged. An actual outside-folder
+permission refusal and independent recorder/transport review precede inference.
 
 The older candidate40475853243 passes full Linux x64/ARM64 and Mac ARM64 app
 acceptance plus both full unit jobs. Both Windows app jobs stop at two fixture
@@ -39,8 +67,8 @@ The original assertion remains required; failure diagnostics are being added to
 preserve the cause from the ephemeral runner. Historical results remain under
 their original identities, rather than counted as final adopted-build evidence.
 
-The user approved retiring bare standalone downloads. Remove automatic URL/mirror
-fallbacks and raw-sidecar release assets; preserve desktop, Node development,
+The user approved retiring bare standalone downloads. Automatic URL/mirror
+fallbacks and raw-sidecar release assets are removed; preserved routes are desktop, Node development,
 manual URL/token connections and complete NPM platform bundles. Desktop's embedded
 server and packaged sandbox do not depend on this downloader. No new standalone
 archive delivery format or runtime dependency is introduced.
