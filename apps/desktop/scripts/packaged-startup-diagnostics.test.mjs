@@ -21,6 +21,9 @@ test("failure evidence redacts known and unknown credentials/cookies, retaining 
   const startedAt = Date.now() - 1000;
   const password = 'native-long-password-"line\\value';
   const token = "client-private-token", apiKey = "provider-private-api-key";
+  const credentialUrl = new URL("https://invalid.test/path");
+  credentialUrl.username = "unknown-user";
+  credentialUrl.password = "unknown-password";
   await writeFile(path.join(base.userData, "legalwork-server-tokens.json"), JSON.stringify({ token, username: "native-user", password }));
   await writeFile(path.join(base.runtime, "server.json"), JSON.stringify({ providers: { fixture: { apiKey } } }));
   await writeFile(path.join(base.runtime, "runtime.db"), "PRIVATE_DATABASE_CONTENT_MUST_NOT_BE_COPIED");
@@ -29,7 +32,7 @@ test("failure evidence redacts known and unknown credentials/cookies, retaining 
     `bare password ${password}`, `encoded password ${encodeURIComponent(password)}`, `API key ${apiKey}`,
     `Authorization: Basic ${Buffer.from(`native-user:${password}`).toString("base64")}`,
     "Cookie: session=unknown-cookie-value; other=unknown-second-cookie", "Set-Cookie: sid=unknown-set-cookie; HttpOnly",
-    'api_key="unknown-api-key-value"', "https://unknown-user:unknown-password@invalid.test/path", "Uncaught renderer exception"].join("\n");
+    'api_key="unknown-api-key-value"', credentialUrl.href, "Uncaught renderer exception"].join("\n");
   await writeFile(path.join(logs, "main.log"), text);
   const result = await collectStartupFailure({ ...base, startedAt, logBaseline, output: text,
     milestones: [{ event: "renderer-controls-ready", elapsedMs: 250 }] });
