@@ -168,6 +168,7 @@ export type SessionSurfaceProps = {
   sessionId: string;
   opencodeBaseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   developerMode: boolean;
   modelLabel: string;
   onModelClick: () => void;
@@ -673,8 +674,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [props.sessionId, setFusionModels]);
   const fusionConfigured = (fusionModels?.length ?? 0) > 0;
   const opencodeClient = useMemo(
-    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, mode: "legalwork" }),
-    [props.opencodeBaseUrl, props.legalworkToken],
+    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, hostToken: props.legalworkHostToken, mode: "legalwork" }),
+    [props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken],
   );
 
   // Live-transcript sharing. `recording` is a stable object for the whole
