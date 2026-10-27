@@ -35,8 +35,10 @@ checks do not replace final app/package/startup acceptance on all six platforms.
 The preceding candidate run40475853243 passed complete Linux x64/ARM64 and Mac
 ARM64 app checks. Its Windows app jobs stopped at two test comparisons between
 short and long spellings of the same physical path; the tests now canonicalize
-both sides while retaining escape/missing-file checks. Intel Mac app checks are
-still being collected. Both complete Linux/Mac unit jobs passed. Earlier results
+both sides while retaining escape/missing-file checks. Intel Mac passes its
+corrected network probe, then fails final startup without a server-state file.
+The next probe will retain redacted synthetic failure diagnostics; its original
+startup allowance and assertions stay required. Both full unit jobs passed. Earlier results
 retain their exact source/distribution identities; they cannot be relabelled as
 the final normal source build.
 
