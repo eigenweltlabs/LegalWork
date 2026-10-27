@@ -50,9 +50,14 @@ test.skipIf(!binary)("one managed native engine serves fresh registered cases, s
     expect(modelsA.data.find(model=>model.providerID==="custom"&&model.id==="custom")).toMatchObject({variants:[{id:"custom",body:{temperature:0.4}}]});
     expect(modelsB.data.some(model=>["fixture","custom"].includes(model.providerID))).toBe(false);
     for (const location of [locationA,locationB]) {
-      expect((await client.skill.list({location})).data.some(skill=>skill.id==="shared")).toBe(true);
-      expect((await client.agent.list({location})).data.find(agent=>agent.id==="global-helper")).toBeDefined();
-      expect((await client.command.list({location})).data.some(command=>command.name==="shared")).toBe(true);
+      const skills = (await client.skill.list({location})).data;
+      expect(skills.map(skill=>skill.id)).toEqual(expect.arrayContaining(["shared", "docx-edit", "pdf-tools", "legalwork-help", "author-review-prompts", "start-tabular-review", "benchmark-task"]));
+      const docx = skills.find(skill=>skill.id==="docx-edit");
+      if (!docx) throw new Error("Bundled Word capability is missing");
+      expect(await readFile(join(docx.path,"../assets/docx-agent.mjs"),"utf8")).toContain("docx");
+      expect(docx.path.startsWith(a) || docx.path.startsWith(b)).toBe(false);
+      expect((await client.agent.list({location})).data.map(agent=>agent.id)).toEqual(expect.arrayContaining(["global-helper", "document-extractor", "fusion-candidate", "docx-redliner"]));
+      expect((await client.command.list({location})).data.map(command=>command.name)).toEqual(expect.arrayContaining(["shared", "edit-docx", "open", "annotate", "fill-form", "sign"]));
       expect((await client.rpc.call({location,rpcID:"fixture.probe",method:"tools",input:{}})).output).toContain("shared_tool");
       const session=await client.session.create({location,title:"Fresh unapproved matter",agent:"legalwork"});
       expect(session.id).toBeDefined();

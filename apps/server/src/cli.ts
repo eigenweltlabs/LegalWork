@@ -68,7 +68,7 @@ if (!config.readOnly) {
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
     if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the

@@ -16,6 +16,19 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("managed projects keep metadata without seeding or overwriting bundled capability copies", async () => {
+    await withWorkspace(async root => {
+      await ensureWorkspaceFiles(root, "starter", { bundledCore: false });
+      expect(await readFile(join(root, ".opencode", "legalwork.json"), "utf8")).toContain('"authorizedRoots"');
+      expect(await stat(join(root, ".opencode", "skills")).catch(() => null)).toBeNull();
+      expect(await stat(join(root, ".opencode", "agents")).catch(() => null)).toBeNull();
+      expect(await stat(join(root, ".opencode", "commands")).catch(() => null)).toBeNull();
+      const oldCopy = join(root, ".opencode", "skills", "docx-edit", "SKILL.md");
+      await mkdir(dirname(oldCopy), { recursive: true }); await writeFile(oldCopy, "Preserve this existing copy.");
+      await ensureWorkspaceFiles(root, "starter", { bundledCore: false });
+      expect(await readFile(oldCopy, "utf8")).toBe("Preserve this existing copy.");
+    });
+  });
   test("startup leaves a disconnected project folder missing", async () => {
     await withWorkspace(async (root) => {
       const disconnected = join(root, "Disconnected project");

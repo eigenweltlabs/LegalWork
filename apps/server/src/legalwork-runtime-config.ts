@@ -32,6 +32,7 @@ import { basename, dirname, join } from "node:path";
 import { listGlobalSkills, listSkills } from "./skills.js";
 import { commonManagedConfiguration } from "./managed-config-sources.js";
 import { prepareManagedGlobalLibrary } from "./managed-global-library.js";
+import { managedCoreLibraryRoot, managedCoreConfiguration, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
@@ -354,7 +355,10 @@ export async function buildLegalworkRuntimeSettings(
       ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
       : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
-  const { config: configuration, ...native } = nativeOpencodeConfig(result);
+  const { config: normalized, ...native } = nativeOpencodeConfig(result);
+  const core = config?.engineConfigurationMode === "managed" ? managedCoreConfiguration() : undefined;
+  const configuration = core ? { ...normalized, agents: { ...core.config.agents, ...normalized.agents }, commands: { ...core.config.commands, ...normalized.commands } } : normalized;
+  native.agentRequests = { ...core?.agentRequests, ...native.agentRequests };
   const firmFilters = config ? nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...runtimeConfig.permission } })).modelFilters : {};
   // A member selection may narrow the firm's catalog, never expand it. These
   // legacy filters also guard explicit requests, not only catalog display.
@@ -366,7 +370,7 @@ export async function buildLegalworkRuntimeSettings(
       deny: [...new Set([...firm.deny ?? [], ...member?.deny ?? []])],
     };
   }
-  const library = workspace ? await resolveCapabilityLibrary(workspace.path, config?.engineConfigurationMode === "managed") : { nativeSkills: [] };
+  const library = workspace ? await resolveCapabilityLibrary(workspace.path, config?.engineConfigurationMode === "managed", config?.engineConfigurationMode === "managed" ? managedCoreLibraryRoot(config) : undefined) : { nativeSkills: [] };
   const providerActivation = { ...runtimeConfig.providerActivation };
   // The firm's own providers remain enabled, as before the migration.
   for (const id of firmProviderIds) delete providerActivation[id];
@@ -469,6 +473,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const workspaces: ManagedSettingsFile["workspaces"] = {};
     const commonPlugins = new Set<string>();
     const managed = config.engineConfigurationMode === "managed";
+    if (managed) await prepareManagedCoreLibrary(config);
     const library = managed ? await prepareManagedGlobalLibrary(config) : { plugins: [] };
     const sharedPlugins = (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : library.plugins ?? [];
     for (const directory of config.managedEnginePluginDirectories ?? []) {

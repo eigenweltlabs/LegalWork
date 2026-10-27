@@ -5269,7 +5269,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
       bootstrap = (async () => {
-        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
+        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
         const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
         if (await repairCommands(resolvedWorkspace)) {
           bootstrapReloadReasons.add("commands");
