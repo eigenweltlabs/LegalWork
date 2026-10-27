@@ -355,7 +355,7 @@ export default {
   "sandbox.preparing": "Checking the protected environment...",
   "sandbox.ready": "The protected environment is ready.",
   "sandbox.available": "The protected environment is ready. No additional software is needed.",
-  "sandbox.setup": "The protected environment is unavailable. Repair or reinstall LegalWork. Commands remain blocked until protection is restored.",
+  "sandbox.setup": "Sandboxing is unavailable on this computer. Commands are blocked while sandboxing is on.",
   "sandbox.prepare": "Check again",
   "sandbox.status_unavailable": "Could not check command protection. Try again when the worker is connected.",
   "sandbox.restore_application_settings": "Open Settings > Permissions > Sandboxing to restore the application settings.",
@@ -4558,8 +4558,9 @@ export default {
   // Onboarding: the tool-permissions cover (Settings -> Tool Permissions, quick)
   "onboarding_permissions.title": "Decide what needs your approval.",
   "onboarding_permissions.sandbox_description": "Keep commands inside a protected environment. Off by default.",
-  "onboarding_permissions.network_description": "Allow connections, block them, or ask you in the chat first.",
+  "onboarding_permissions.network_description": "Choose whether commands and web searches can use the internet. Your AI connection, connected apps and browser are unaffected.",
   "onboarding_permissions.network_disabled": "Turn on sandboxing to control internet access for commands, page reads and web searches.",
+  "onboarding_permissions.sandbox_scope": "You can change this in Settings or for each chat.",
   "onboarding_permissions.network_scope": "Covers commands, page reads and web searches. Model providers, connected apps and browser tools keep their own permissions.",
   "onboarding_permissions.subtitle":
     "LegalWork works on this computer for you. Set how much it may do on its own, and when it should ask you first.",
