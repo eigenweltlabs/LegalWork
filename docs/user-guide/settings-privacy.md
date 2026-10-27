@@ -33,6 +33,10 @@ Firm policies can supply models, connectors or settings and can lock individual 
 
 Authorizing a folder allows the assistant to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Firm roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.
 
+File access outside the project and its added folders requires approval before the agent can list, read or change those files. This also applies to helper agents. Choose **Allow once** for the current request, **Add folder to project** to remember access for this project, or **Deny** to refuse it. Remembered folders appear in **Settings > Permissions** for the selected project; remove a folder there to revoke access. Other projects do not inherit that grant, and stricter tool, agent and firm restrictions still apply.
+
+Unprotected shell commands require a separate **Computer access for commands** approval. With sandboxing off, a command can read and change files anywhere your computer account can access. **Allow once** approves the current command; **Allow for session** remembers the broader access for that chat. Turn on **Sandboxing** in **Settings > Permissions** or for the current chat to confine commands to shared folders. macOS or Windows can still deny access independently of LegalWork's approval.
+
 Enter API keys and passwords in the relevant connection/Secrets form. Local connection credentials belong to this LegalWork installation; team-managed connections have their own access rules. Do not expose secrets in screenshots, chat examples or diagnostic reports. Changing environment/configuration can require an engine reload; wait for active work or use the app's offered controls.
 
 In **Secrets**, add the exact environment-variable name expected by the integration and its value, then save. **Saved, not in use yet** means the running engine still needs the offered apply/reload action. Editing a stored value and applying it are distinct steps. If you use a separately operated LegalWork server, configure its integrations on that server.
