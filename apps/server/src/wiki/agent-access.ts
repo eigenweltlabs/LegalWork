@@ -161,7 +161,7 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
     ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|sessions\/[^/]+\/review-recovery|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
+    : method === "POST" && /^(?:pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|sessions\/[^/]+\/review-recovery|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 
