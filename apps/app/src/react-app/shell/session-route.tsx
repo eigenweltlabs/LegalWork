@@ -2690,7 +2690,7 @@ export function SessionRoute() {
           );
         } finally { recordingSessionStarting.current = false; }
       }}
-      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
+      projectCalendarView={<CalendarView projectId={selectedWorkspaceId} projectName={selectedWorkspace?.displayNameResolved || selectedWorkspaceId} client={selectedWorkspaceEndpoint?.client ?? client} personalClient={client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} />}
       projectTasksView={(embedded, inWorkspace) =>
         <TasksPane embedded={embedded} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(projectId, task) => {
           const route = openTaskProject({ projectId, task, workspaces, sourceBaseUrl: (selectedWorkspaceEndpoint?.client ?? client)?.baseUrl, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });

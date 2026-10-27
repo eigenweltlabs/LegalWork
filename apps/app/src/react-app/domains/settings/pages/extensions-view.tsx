@@ -53,7 +53,7 @@ export type ExtensionsViewProps = {
   selectedWorkspaceRoot: string;
   workspaceKey?: string;
   /** Re-read the library when the server starts or reconnects. */
-  libraryConnection?: object | null;
+  libraryConnection?: { baseUrl: string } | null;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
   canUseGlobalScope: boolean;
@@ -114,17 +114,19 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [importVersion, setImportVersion] = useState(0);
   const [packageLibrary, setPackageLibrary] = useState<{ target: string; items: ImportedPlugin[] } | null>(null);
   const packageTarget = props.workspaceKey ?? props.selectedWorkspaceRoot;
+  const libraryServer = props.libraryConnection?.baseUrl;
+  const libraryReady = props.libraryConnection !== null;
   const currentPackageTarget = useRef(packageTarget);
   currentPackageTarget.current = packageTarget;
   useEffect(() => setCreatePluginOpen(false), [packageTarget]);
   useEffect(() => {
     let stopped = false;
-    if (props.libraryConnection === null) { setPackageLibrary(null); return; }
+    if (!libraryReady) { setPackageLibrary(null); return; }
     if (props.skillTools) void props.skillTools.importedPackages()
       .then(items => { if (!stopped) setPackageLibrary({ target: packageTarget, items }); })
       .catch(error => { if (!stopped) toast.error(error instanceof Error ? error.message : t("skills.unknown_error")); });
     return () => { stopped = true; };
-  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, props.libraryConnection, importVersion]);
+  }, [props.skillTools, packageTarget, props.isRemoteWorkspace, libraryServer, libraryReady, importVersion]);
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [pluginSearch, setPluginSearch] = useState("");
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
