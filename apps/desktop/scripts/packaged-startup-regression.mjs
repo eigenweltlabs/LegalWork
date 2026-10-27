@@ -37,11 +37,14 @@ let launchError;
 let passed = false;
 const logDirectories = [path.join(userData, "logs"),
   path.join(root, "home", "Library", "Logs", "LegalWork Package Test"),
-  path.join(homedir(), "Library", "Logs", "LegalWork Package Test")];
+  path.join(homedir(), "Library", "Logs", "LegalWork Package Test"),
+  ...(process.platform === "win32" ? [root] : [])];
 const logBaseline = await snapshotStartupLogs(logDirectories);
 const startedAt = Date.now();
 const milestones = [{ event: "launch-requested", elapsedMs: 0 }];
-const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [], {
+const args = process.platform === "win32" ? ["--enable-logging=file", `--log-file=${path.join(root, "chromium-startup.log")}`]
+  : process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
+const child = spawn(path.resolve(target), args, {
   env: {
     ...process.env,
     NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "",
