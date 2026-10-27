@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 27 October 2026, 13:40 UTC. Migration remains unfinished. The
+Checkpoint: 27 October 2026, 14:22 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -46,12 +46,28 @@ assertion or time limit changed. The nested raw test has 112 assertions and the
 outer suite 52, totaling the original 162 plus two parent-exit/removal assertions.
 
 The final-source run has passed all six protected runtimes and both full Linux
-and Mac unit jobs. Actual app/package/startup passes are closed for both Macs and both Linux architectures. Both Windows configurations pass the preceding
-engine, build, package, security, protected-VM, native-module and preview checks,
-but fail the original 90-second startup gate: the process remains alive without
-observable app bootstrap. The cause is unproven. The focused [Windows follow-up40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
-adds scoped diagnostic logs and a real engine-to-protected-VM check; no timeout, assertion or
-startup gate is relaxed.
+and Mac unit jobs. Actual app/package/startup passes are closed for both Macs and
+both Linux architectures. Both Windows configurations pass the preceding engine,
+build, package, security, protected-VM, native-module and preview checks, but fail
+the original 90-second startup gate.
+
+The focused [Windows diagnostic run40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
+recovered the actual main-process error: Electron cannot resolve the Documents
+known folder when `createRuntimeManager` starts, before engine boot. The synthetic
+Windows profile does not create that standard directory. A two-line fixture
+correction creates its own `home/Documents`; the [verification40517342408](https://github.com/eigenweltlabs/legalwork/actions/runs/40517342408)
+still must establish actual startup success. No production code, registry,
+profile-isolation boundary, assertion or deadline changes. The same diagnostic
+run separately passes the actual engine-to-protected-VM integration on both
+Windows x64 and ARM64: each has 1 test, 33 assertions, zero skips and full
+synthetic exchanges retained. ARM64's native-window diagnostic timed out, so its
+startup failure has not independently yielded the same Documents error.
+
+A final source audit corrected comments that still described the old v1 output
+ceiling as current. The compiled model-limit module is byte-identical before and
+after. Production v2 callers preserve reported model limits; the final primary
+requests retain the gateway's 65,536-token setting. The existing unknown-model
+fallback remains 32,000, matching native 2.1.4; no lower v2 cap was introduced.
 
 Intel Mac's initial final-source attempt failed while downloading dependencies,
 before building the app. Its unchanged Intel-only retry passed the full app,
