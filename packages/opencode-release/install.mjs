@@ -9,7 +9,7 @@ import { installSelectedOpencodeEngine, opencodeEngineSelection } from "./select
  * the manifest and independent pin, including for unpublished offline builds. */
 export async function installSelectedEngineForHost({ installRoot, cacheDirectory, archiveDirectory, target = opencodeReleaseTarget(), fetcher }) {
   const installed = await installSelectedOpencodeEngine({
-    directory: path.join(path.resolve(installRoot), opencodeEngineSelection.version, target),
+    directory: path.join(path.resolve(installRoot), opencodeEngineSelection.artifactId, target),
     cacheDirectory: path.resolve(cacheDirectory), archiveDirectory, target, fetcher,
   });
   await expectedOpencodeVersion(installed.path, installed.candidateBuild);

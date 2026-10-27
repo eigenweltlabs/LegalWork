@@ -2378,8 +2378,8 @@ async function resolveOpencodeBin(options: {
     }
     const binaryName = target.startsWith("windows-") ? "opencode.exe" : "opencode";
     const bundledDirectories = [
-      ...(options.manifest ? [join(options.manifest.dir, "..", "opencode-engine", opencodeEngineSelection.version, target), join(options.manifest.dir, "opencode-engine", opencodeEngineSelection.version, target)] : []),
-      join(dirname(process.execPath), "opencode-engine", opencodeEngineSelection.version, target),
+      ...(options.manifest ? [join(options.manifest.dir, "..", "opencode-engine", opencodeEngineSelection.artifactId, target), join(options.manifest.dir, "opencode-engine", opencodeEngineSelection.artifactId, target)] : []),
+      join(dirname(process.execPath), "opencode-engine", opencodeEngineSelection.artifactId, target),
     ];
     if (options.source !== "downloaded") {
       for (const directory of bundledDirectories) {
@@ -2391,7 +2391,7 @@ async function resolveOpencodeBin(options: {
       if (options.source === "bundled") throw new Error("The selected OpenCode distribution is missing from this bundle; rebuild the sidecars for this target.");
     }
     const installed = await installSelectedOpencodeEngine({
-      directory: join(options.sidecar.dir, "opencode", opencodeEngineSelection.version, target),
+      directory: join(options.sidecar.dir, "opencode", opencodeEngineSelection.artifactId, target),
       cacheDirectory: join(options.sidecar.dir, "opencode-archives"),
       archiveDirectory: process.env.LEGALWORK_OPENCODE_ARCHIVES,
       target,
@@ -3088,7 +3088,7 @@ async function stageSandboxRuntime(options: {
     const target = opencodeReleaseTarget("linux", process.arch);
     stagedOpencode = await stageSelectedOpencodeEngine({
       binary: options.sidecars.opencode,
-      directory: join(baseDir, "opencode-engine", opencodeEngineSelection.version, target),
+      directory: join(baseDir, "opencode-engine", opencodeEngineSelection.artifactId, target),
       target,
     });
   } else {
