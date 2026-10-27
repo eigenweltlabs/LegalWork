@@ -63,7 +63,7 @@ jobs:
           const candidate = await verifySelectedOpencodeEngine(process.env.LEGALWORK_TEST_OPENCODE_BIN);
           assert.equal(JSON.parse(await readFile(path.join(candidate.directory, 'provenance.json'), 'utf8')).target, target);
           const version = spawnSync(candidate.path, ['--version'], { encoding: 'utf8', windowsHide: true });
-          assert.equal(version.status, 0, version.stderr); assert.equal(version.stdout.trim(), opencodeEngineSelection.version);
+          assert.equal(version.status, 0, version.stderr); assert.equal(version.stdout.trim(), `opencode v${opencodeEngineSelection.version}`);
           // Exercise the public official archive path too, without executing or
           // shipping the old upstream binary. Its pinned SRI remains mandatory.
           const official = await downloadOpencodeBinary({ destination: path.join(root, 'official-opencode.exe'), cacheDirectory: path.join(root, 'official-cache'), target });
