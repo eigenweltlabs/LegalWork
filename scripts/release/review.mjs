@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { opencodeRelease } from "../../packages/opencode-release/index.mjs";
-import { opencodeEngineSelection } from "../../packages/opencode-release/selection.mjs";
 import { verifyDerivativeDistributionContent } from "../../packages/opencode-release/derivative.mjs";
-import selection from "../../packages/opencode-release/selection.json" with { type: "json" };
+import { sourceBuildPolicy, validateBuildSelection } from "../../packages/opencode-release/build-policy.mjs";
+import recipe from "../../packages/opencode-release/build/recipe.json" with { type: "json" };
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const args = process.argv.slice(2);
@@ -25,16 +25,18 @@ const pinnedOpencodeBaseVersion = String(
   .trim()
   .replace(/^v/, "");
 const serverPkg = readJson(resolve(root, "apps", "server", "package.json"));
+const preparedSelectionPath = resolve(root, "packages/opencode-release/generated/selection.json");
+const selection = existsSync(preparedSelectionPath) ? readJson(preparedSelectionPath) : undefined;
 
 const versions = {
   app: appPkg.version ?? null,
   desktop: desktopPkg.version ?? null,
   server: serverPkg.version ?? null,
   orchestrator: orchestratorPkg.version ?? null,
-  opencode: opencodeEngineSelection.version,
-  opencodeKind: opencodeEngineSelection.kind,
-  opencodeBaseVersion: opencodeEngineSelection.baseVersion,
-  opencodeManifestSha256: selection.kind === "derivative" ? selection.manifestSha256 : null,
+  opencode: sourceBuildPolicy.version,
+  opencodeKind: sourceBuildPolicy.kind,
+  opencodeBaseVersion: sourceBuildPolicy.baseVersion,
+  opencodeManifestSha256: selection?.manifestSha256 ?? null,
   orchestratorLegalworkServerRange:
     orchestratorPkg.dependencies?.["legalwork-server"] ?? null,
 };
@@ -84,8 +86,12 @@ addCheck(
   pinnedOpencodeBaseVersion === versions.opencodeBaseVersion && versions.opencodeBaseVersion === opencodeRelease.version,
   `${versions.opencodeKind} ${versions.opencode}; base ABI ${versions.opencodeBaseVersion} vs constants ${pinnedOpencodeBaseVersion || "?"}`,
 );
-if (versions.opencodeKind === "derivative") {
+addCheck("OpenCode source policy matches the reviewed recipe", sourceBuildPolicy.kind === "source-build"
+  && sourceBuildPolicy.schemaVersion === 1 && sourceBuildPolicy.version === recipe.version && sourceBuildPolicy.baseVersion === recipe.baseVersion,
+  `${sourceBuildPolicy.kind} ${sourceBuildPolicy.version}; reviewed source ${recipe.upstream.commit}`);
+if (selection) {
   try {
+    validateBuildSelection(selection);
     const distribution = await verifyDerivativeDistributionContent({ manifestContent: selection.manifestContent, manifestSha256: selection.manifestSha256 });
     addCheck(
       "OpenCode derivative manifest matches its independent pin and selection",
@@ -95,6 +101,8 @@ if (versions.opencodeKind === "derivative") {
   } catch (error) {
     addCheck("OpenCode derivative manifest matches its independent pin and selection", false, error.message);
   }
+} else {
+  addWarning("Engine source policy is pinned; no generated engine build is prepared in this checkout. App preparation will create and verify it before packaging.");
 }
 
 const legalworkServerRange = versions.orchestratorLegalworkServerRange ?? "";
