@@ -90,6 +90,20 @@ function pluginTargets(plugins: NativeConfig["plugins"]) {
   return (plugins ?? []).map(plugin => typeof plugin === "string" ? plugin : plugin.package);
 }
 
+test.each(["managed", "native-project"] satisfies Array<NonNullable<ServerConfig["engineConfigurationMode"]>>)("%s file permissions ask outside added folders by default and retain specific grants", async engineConfigurationMode => {
+  const { root, config } = await setup();
+  config.engineConfigurationMode = engineConfigurationMode;
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "external_directory", resource: "*", effect: "ask" });
+  const added = join(root, "..", "added", "*");
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permission: { external_directory: { [added]: "allow" } } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect((await readSettings(config)).configuration.permissions?.filter(rule => rule.action === "external_directory")).toEqual([
+    { action: "external_directory", resource: "*", effect: "ask" },
+    { action: "external_directory", resource: added, effect: "allow" },
+  ]);
+});
+
 async function bundledSources(plugins: NativeConfig["plugins"]) {
   return Promise.all(pluginTargets(plugins).map(async target => ({ target, source: await readFile(join(target, "index.js"), "utf8") })));
 }
