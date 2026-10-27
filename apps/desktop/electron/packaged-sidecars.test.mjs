@@ -29,9 +29,9 @@ async function fixture(platform, arch, kind, run) {
       const distribution = await writeFixtureDerivativeDistribution(distributionRoot);
       selection = distribution.selection;
       const target = opencodeReleaseTarget(platform, arch);
-      engineDirectory = join(resources, "opencode-engine", selection.version, target);
+      engineDirectory = join(resources, "opencode-engine", selection.manifestSha256, target);
       await cp(distribution.builds.find(build => build.target === target).directory, engineDirectory, { recursive: true });
-      await mkdir(join(resources, "opencode-engine", selection.version, "stale-target"));
+      await mkdir(join(resources, "opencode-engine", selection.manifestSha256, "stale-target"));
       await mkdir(join(resources, "opencode-engine", "stale-version"));
     }
     await writeFixtureReleaseLibrary(join(root, "node_modules", "@legalwork", "opencode-release"), selection);
@@ -82,8 +82,8 @@ for (const kind of ["official", "derivative"]) test(`normal afterPack preserves 
       if (engineDirectory) {
         assert.deepEqual(await readFile(join(engineDirectory, `opencode${suffix}`)), pinned);
         assert.deepEqual((await readdir(engineDirectory)).sort(), ["LICENSE", "NOTICE", "SHA256SUMS", `opencode${suffix}`, "provenance.json"].sort());
-        assert.deepEqual(await readdir(join(resources, "opencode-engine")), [selection.version]);
-        assert.deepEqual(await readdir(join(resources, "opencode-engine", selection.version)), [opencodeReleaseTarget(platform, arch)]);
+        assert.deepEqual(await readdir(join(resources, "opencode-engine")), [selection.manifestSha256]);
+        assert.deepEqual(await readdir(join(resources, "opencode-engine", selection.manifestSha256)), [opencodeReleaseTarget(platform, arch)]);
       }
     });
   }
