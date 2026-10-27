@@ -58,7 +58,15 @@ async function requestBrowser(capability: string, route: BrowserRoute, body?: un
     signal: route === "batch" || route === "downloads" ? nativeToolSignal(35000) : nativeToolAbortSignal(),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!response.ok) throw new Error(`Built-in browser request failed (${response.status}). Read the current page before retrying actions; the previous batch may have partially completed.`);
+  if (!response.ok) {
+    // Password actions already replace page exceptions with fixed host messages.
+    // Preserve the reason so a website mismatch does not become a ref-retry loop.
+    if (["passwords", "fill-password"].includes(route)) {
+      const failure = z.object({ error: z.string() }).safeParse(await response.json().catch(() => null));
+      if (failure.success) throw new Error(failure.data.error);
+    }
+    throw new Error(`Built-in browser request failed (${response.status}). Read the current page before retrying actions; the previous batch may have partially completed.`);
+  }
   const payload: unknown = await response.json();
   return payload;
 }
@@ -114,7 +122,7 @@ async function receiveDownloads(capability: string, files: z.infer<typeof downlo
 
 export const legalworkBrowserTools = {
   legalwork_browser_passwords: {
-    description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. First get browser_url with legalwork_browser_connect. Never ask the user to paste passwords in chat; they can save them in Settings > Secrets > Browser passwords. No password values are returned.",
+    description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. First get browser_url with legalwork_browser_connect. Never ask the user to paste passwords in chat; they can save them in Settings > Secrets > Browser passwords. No password values are returned.",
     args: { browser_url: browserUrl },
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl }).parse(rawArgs);
@@ -123,8 +131,8 @@ export const legalworkBrowserTools = {
     },
   },
   legalwork_browser_fill_password: {
-    description: "Fill a saved password by ID into a password field in this chat's existing local browser tab. Use a fresh native browser snapshot ref and a password_id from legalwork_browser_passwords. The desktop checks the exact website and frame origin, resolves the vault value locally and returns only confirmation. This does not submit the login. Passwords stay out of this tool's arguments/results; unrestricted host and browser readback tools can still access them.",
-    args: { browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200) },
+    description: "Fill a saved password by ID into a password field in this chat's existing local browser tab. Use a fresh native browser snapshot ref and a password_id from legalwork_browser_passwords. The desktop checks that the page and field belong to the saved website or its subdomains, resolves the vault value locally and returns only confirmation. This does not submit the login. Passwords stay out of this tool's arguments/results; unrestricted host and browser readback tools can still access them.",
+    args: { browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200).describe("Password field ref such as @e5 from tools.browser.snapshot or tools.browser.find. CSS selectors and legacy snapshot node_id values are not native refs.") },
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200) }).parse(rawArgs);
       await requireBrowserNetwork(context);

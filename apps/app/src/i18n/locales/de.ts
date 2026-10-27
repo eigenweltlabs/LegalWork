@@ -3929,7 +3929,7 @@ const de = {
   "settings.browser_passwords.edit": "Passwort bearbeiten",
   "settings.browser_passwords.label": "Name",
   "settings.browser_passwords.website": "Website",
-  "settings.browser_passwords.website_hint": "Verwenden Sie die genaue HTTPS-Website einschließlich der Login-Subdomain. Pfade werden ignoriert; andere Subdomains sind nicht erlaubt.",
+  "settings.browser_passwords.website_hint": "Verwenden Sie eine HTTPS-Adresse. Hauptdomain und Subdomains teilen das Passwort; Pfade werden ignoriert.",
   "settings.browser_passwords.username": "Benutzername (optional)",
   "settings.browser_passwords.password": "Passwort",
   "settings.browser_passwords.keep_password": "Leer lassen, um das gespeicherte Passwort zu behalten. Bei einer anderen Website muss es erneut eingegeben werden.",

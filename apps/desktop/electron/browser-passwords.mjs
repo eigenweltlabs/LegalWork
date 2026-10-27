@@ -11,29 +11,37 @@ export function createBrowserPasswordActions(page, loadStore) {
       const store = await loadStore();
       check(signal);
       const website = origin(page.contents.getURL());
-      return { passwords: website && website !== "null" ? await store.list(website) : [] };
+      return { website: website === "null" ? null : website, passwords: website && website !== "null" ? await store.list(website) : [] };
     },
     async fill(body, signal) {
       // Errors from page scripts must never echo the password through this tool.
+      let failure = "Password fill could not be confirmed. Inspect the page before retrying; use a current native password-field ref in this chat's local browser.";
       try {
         if (typeof body?.password_id !== "string" || typeof body.ref !== "string" || !body.ref || body.ref.length > 200) throw new Error();
         check(signal);
         const store = await loadStore(), saved = await store.get(body.password_id);
         check(signal);
         const generation = page.state().generation;
-        if (origin(page.contents.getURL()) !== saved.origin) throw new Error();
+        const matches = url => store.matchesWebsite(saved.origin, url);
+        if (!matches(page.contents.getURL())) {
+          failure = "The current website does not match the saved password's website. Check the current website and saved entry; retrying different refs will not fix a website mismatch.";
+          throw new Error();
+        }
         const action = { type: "fill", tabID: page.state().id, ref: body.ref, text: "" };
         const { value: target } = await page.execute({ action, files: [], inspect: true }, signal);
-        if (!target?.resources?.length || target.resources.some(url => origin(url) !== saved.origin)) throw new Error();
+        if (!target?.resources?.length || target.resources.some(url => !matches(url))) {
+          failure = "The password field belongs to a different website. Use a password field on the saved website or one of its subdomains.";
+          throw new Error();
+        }
         const checked = await page.execute({ action: { type: "evaluate", tabID: action.tabID, ref: body.ref,
           script: "function(element) { return element instanceof HTMLInputElement && element.type === 'password' && !element.disabled && !element.readOnly; }" },
           files: [], generation, target }, signal);
-        if (checked.value?.value !== true || origin(page.contents.getURL()) !== saved.origin) throw new Error();
+        if (checked.value?.value !== true || !matches(page.contents.getURL())) throw new Error();
         check(signal);
         await page.execute({ action: { ...action, text: saved.password }, files: [], generation, target }, signal);
         return { filled: true, password_id: saved.id };
       } catch {
-        throw new Error("Password fill could not be confirmed. Use a current password-field ref on the saved website in this chat's local browser. Inspect the page before retrying.");
+        throw new Error(failure);
       }
     },
   };

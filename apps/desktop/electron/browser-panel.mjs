@@ -334,7 +334,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     return {
       id: tabId,
       background: tab.background,
-      taskSessionId: tab.taskActive ? tab.taskSessionId : undefined,
+      taskSessionId: tab.taskSessionId || undefined,
       workspaceId: tab.workspaceId,
       dismissed: tab.dismissed,
       type: "browser",
@@ -880,7 +880,11 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     });
     ipcMain.handle("legalwork:browser:attachSession", async (_event, context) => {
       if (!nativeHost) throw new Error("Native browser integration is unavailable.");
-      await nativeHost.attach(window(), context); return { attached: true };
+      await nativeHost.attach(window(), context);
+      for (const tab of browserTabs.values()) {
+        if (tab.taskSessionId === context.sessionId && tab.workspaceId === context.workspaceId && tab.nativeContext?.connectionId === context.connectionId) tab.taskActive = true;
+      }
+      return { attached: true };
     });
     ipcMain.handle("legalwork:browser:connection", (_event, tabID, context) => browserConnection(getBrowserTab(tabID), context));
     ipcMain.handle("legalwork:browser:show", (event, bounds, tabId) => {
@@ -957,7 +961,9 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       for (const tab of [...browserTabs.values()]) {
         if (tab.taskSessionId !== sessionId) continue;
         tab.taskActive = false;
-        if (tab.background) closeBrowserTab(tab.tabId);
+        // Keep undismissed tabs and their chat ownership for follow-up turns.
+        // An explicit dismissal during active work still closes at turn end.
+        if (tab.background && tab.dismissed) closeBrowserTab(tab.tabId);
       }
       sendBrowserState();
     });

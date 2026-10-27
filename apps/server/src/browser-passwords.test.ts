@@ -22,12 +22,17 @@ test("browser passwords share the encrypted vault without replacing OAuth entrie
       vault.setEntry("other-consumer", z.object({ token: z.string() }), { token: "connector-token" }),
     ]);
     expect(await store.list(first.origin)).toHaveLength(2);
-    expect(await store.list("https://example.org")).toEqual([]);
+    expect(await store.list("https://example.org")).toHaveLength(2);
+    expect(await store.list("https://auth.example.org/login")).toHaveLength(2);
+    expect(await store.list("https://different.example.net")).toEqual([]);
+    expect(await store.list("")).toEqual([]);
     expect((await store.get(first.id)).password).toBe("fixture-secret-123");
     expect((await store.get(first.id)).label).toBe("Renamed");
     expect(await vault.get("existing-oauth")).toEqual({ accessToken: "access", refreshToken: "refresh", expiresAt: 999 });
     expect(await vault.getEntry("other-consumer", z.object({ token: z.string() }))).toEqual({ token: "connector-token" });
-    await expect(store.save({ ...first, origin: "https://other.example.org", password: "" })).rejects.toThrow("Enter a password");
+    await store.save({ ...first, origin: "https://other.example.org", password: "" });
+    expect((await store.get(first.id)).password).toBe("fixture-secret-123");
+    await expect(store.save({ ...first, origin: "https://different.example.net", password: "" })).rejects.toThrow("Enter a password");
     await store.save({ ...first, password: "replacement" });
     expect((await new BrowserPasswordStore(new OAuthVault(vault.path)).get(first.id)).password).toBe("replacement");
     await store.delete(first.id);
@@ -36,7 +41,7 @@ test("browser passwords share the encrypted vault without replacing OAuth entrie
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("website binding rejects unsafe URLs and treats ports, schemes and subdomains exactly", () => {
+test("website addresses reject unsafe URLs and preserve scheme and port", () => {
   for (const url of ["file:///tmp/password", "javascript:alert(1)", "http://example.org", "example.org"]) {
     expect(() => browserPasswordOrigin(url)).toThrow();
   }
@@ -46,4 +51,30 @@ test("website binding rejects unsafe URLs and treats ports, schemes and subdomai
   expect(() => browserPasswordOrigin(authenticated.href)).toThrow();
   expect(browserPasswordOrigin("https://LOGIN.Example.org:443/path?q=1")).toBe("https://login.example.org");
   expect(browserPasswordOrigin("http://127.0.0.1:8123/login")).toBe("http://127.0.0.1:8123");
+});
+
+test("website matching shares main domains and subdomains while separating unrelated sites and private tenants", () => {
+  const store = new BrowserPasswordStore(new OAuthVault("unused-fixture.vault"));
+  for (const [saved, current] of [
+    ["https://www.deepl.com", "https://deepl.com/login"],
+    ["https://www.deepl.com", "https://auth.deepl.com/login"],
+    ["https://auth.deepl.com", "https://www.deepl.com"],
+    ["https://login.firm.co.uk", "https://firm.co.uk"],
+    ["https://login.firm.co.uk", "https://accounts.firm.co.uk"],
+    ["https://a.github.io", "https://login.a.github.io"],
+    ["https://bücher.de", "https://login.xn--bcher-kva.de"],
+    ["http://127.0.0.1:8123", "http://127.0.0.1:8123/form"],
+  ]) expect(store.matchesWebsite(saved, current)).toBe(true);
+  for (const [saved, current] of [
+    ["https://deepl.com", "https://notdeepl.com"],
+    ["https://deepl.com", "https://deepl.com.evil.net"],
+    ["https://firm.co.uk", "https://other.co.uk"],
+    ["https://a.github.io", "https://b.github.io"],
+    ["https://co.uk", "https://firm.co.uk"],
+    ["https://deepl.com", "https://auth.deepl.com:444"],
+    ["https://deepl.com", "http://auth.deepl.com"],
+    ["http://127.0.0.1:8123", "http://127.0.0.1:8124"],
+    ["https://127.0.0.1", "https://127.0.0.2"],
+    ["https://deepl.com", "about:blank"],
+  ]) expect(store.matchesWebsite(saved, current)).toBe(false);
 });

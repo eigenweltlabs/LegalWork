@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { getDomain } from "tldts";
 import { ApiError } from "./errors.js";
 import { OAuthVault, oauthVaultPath, vaultLock } from "./file-storage/oauth/vault.js";
 import type { ServerConfig } from "./types.js";
@@ -30,12 +31,22 @@ export function browserPasswordOrigin(value: string) {
   return url.origin;
 }
 
+function website(value: string) {
+  const url = new URL(browserPasswordOrigin(value));
+  // Private suffixes keep independently owned sites such as a.github.io separate.
+  url.hostname = getDomain(url.hostname, { allowPrivateDomains: true }) ?? url.hostname;
+  return url.origin;
+}
+
 /** A separate namespace in the existing vault; never exported as environment variables. */
 export class BrowserPasswordStore {
   constructor(readonly vault: OAuthVault) {}
   private async read() { return await this.vault.getEntry(key, entries) ?? []; }
+  matchesWebsite(saved: string, current: string) {
+    try { return website(saved) === website(current); } catch { return false; }
+  }
   async list(origin?: string) {
-    return (await this.read()).filter(value => !origin || value.origin === origin).map(summary);
+    return (await this.read()).filter(value => origin === undefined || this.matchesWebsite(value.origin, origin)).map(summary);
   }
   async get(id: string) {
     const value = (await this.read()).find(value => value.id === id);
@@ -49,7 +60,7 @@ export class BrowserPasswordStore {
     return vaultLock(`${this.vault.path}:${key}`, async () => {
       const current = await this.read(), previous = current.find(item => item.id === value.id);
       if (value.id && !previous) throw new ApiError(404, "browser_password_not_found", "The saved browser password no longer exists.");
-      const password = value.password || (previous?.origin === origin ? previous.password : undefined);
+      const password = value.password || (previous && this.matchesWebsite(previous.origin, origin) ? previous.password : undefined);
       if (!password) throw new ApiError(400, "browser_password_required", "Enter a password when adding an entry or changing its website.");
       const next = entry.parse({ ...value, origin, password, id: previous?.id ?? randomUUID(), updatedAt: new Date().toISOString() });
       await this.vault.setEntry(key, entries, [...current.filter(item => item.id !== next.id), next]);

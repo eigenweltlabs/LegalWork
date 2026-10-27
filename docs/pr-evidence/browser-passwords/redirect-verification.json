@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-27",
+  "observed_user_attempt": {
+    "elapsedMs": 132465,
+    "outerToolRounds": 18,
+    "underlyingCallsIncludingDiscovery": 35,
+    "failedUnderlyingCalls": 11,
+    "recordedToolExecutionMs": 2701,
+    "reportedModel": "Eigenwelt Europe Claude Sonnet",
+    "findings": [
+      "The saved www.deepl.com entry was queried after the tab redirected to auth.deepl.com.",
+      "Background tabs were closed at turn completion, preventing reuse in a follow-up.",
+      "Password errors lost the fixed host diagnostic and became generic HTTP 400 errors.",
+      "The model retried refs, used a wrong native fill argument and reopened tabs."
+    ]
+  },
+  "live_website_smoke": {
+    "command": "pnpm --filter @legalwork/desktop test:browser-passwords:website https://www.deepl.com/login auth.deepl.com",
+    "passed": true,
+    "savedWebsite": "https://www.deepl.com",
+    "currentWebsite": "https://auth.deepl.com",
+    "redirected": true,
+    "found": 1,
+    "filled": true,
+    "submitted": false,
+    "passwordInResultOrSnapshot": false,
+    "windowsHidden": true,
+    "realCredentials": false,
+    "modelCalls": 0
+  },
+  "regressions": {
+    "serverTestsPassed": 50,
+    "desktopTestsPassed": 34,
+    "serverAppDesktopTypechecks": "passed",
+    "frozenLockfileSupplyChainCheck": "passed"
+  },
+  "qualification": "This records the existing user session and deterministic/native verification. It does not claim a new successful real-model login, authenticated account session, or improved model latency."
+}

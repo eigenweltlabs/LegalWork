@@ -10,11 +10,14 @@ const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-browser-tool
 const native = nativePluginTestRuntime(root), calls: Array<{ route: string; body: unknown; session: string | null }> = [];
 const token = "b".repeat(64), bytes = Buffer.alloc(6 * 1024 * 1024, 97), png = Buffer.from("complete-image-bytes");
 let holdCapture = false;
+let rejectPasswordFill = false;
 const broker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const url = new URL(request.url), body: unknown = request.method === "POST" ? await request.json() : undefined;
   calls.push({ route: url.pathname, body, session: request.headers.get("x-legalwork-browser-session") });
   if (url.pathname.endsWith("/passwords")) return Response.json({ passwords: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", username: "user" }] });
-  if (url.pathname.endsWith("/fill-password")) return Response.json({ filled: true });
+  if (url.pathname.endsWith("/fill-password")) return rejectPasswordFill
+    ? Response.json({ ok: false, error: "The current website does not match the saved password's website." }, { status: 400 })
+    : Response.json({ filled: true });
   if (url.pathname.endsWith("/upload")) return Response.json({ uploaded: [{ name: "source.bin", bytes: bytes.length }] });
   if (url.pathname.endsWith("/capture")) { if (holdCapture) await Bun.sleep(200); return Response.json({ data: png.toString("base64"), mime: "image/png" }); }
   return Response.json({ downloads: [] });
@@ -42,6 +45,10 @@ test("native password tools send only the ID/ref, preserve calling identity and 
   expect((await tool("legalwork_browser_passwords").execute({ browser_url }, nativeTestInvocation("ses_upload"))).output).toEqual({ passwords: [{ id: password_id, label: "Portal", username: "user" }] });
   expect((await tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).output).toEqual({ filled: true });
   expect(calls.at(-1)).toEqual({ route: `/${token}/fill-password`, body: { password_id, ref: "@e2" }, session: "ses_upload" });
+  rejectPasswordFill = true;
+  try {
+    await expect(tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("current website does not match");
+  } finally { rejectPasswordFill = false; }
   const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;
   await expect(tool("legalwork_browser_fill_password").execute({ browser_url: capability, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("local LegalWork desktop");
 });

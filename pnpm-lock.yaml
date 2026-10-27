@@ -528,6 +528,9 @@ importers:
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
+      tldts:
+        specifier: 7.0.30
+        version: 7.0.30
       undici-transport:
         specifier: npm:undici@8.12.3
         version: undici@8.12.3
@@ -704,6 +707,9 @@ importers:
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
+      tldts:
+        specifier: 7.0.30
+        version: 7.0.30
       undici-transport:
         specifier: npm:undici@8.12.3
         version: undici@8.12.3
