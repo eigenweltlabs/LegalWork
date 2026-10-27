@@ -10,6 +10,7 @@ import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 import { checkOpencodeRuntime } from "./check-opencode-runtime.mjs";
 import { opencodeRelease, opencodeReleaseTarget } from "@legalwork/opencode-release";
 import { verifyDerivativeDistributionContent, verifyInstalledDerivativeEngine } from "@legalwork/opencode-release/derivative";
+import { validateBuildSelection } from "../../../packages/opencode-release/build-policy.mjs";
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
@@ -38,8 +39,14 @@ assert.equal(node.status, 0, node.stderr);
 assert.deepEqual(JSON.parse(node.stdout), { version: metadata.source.version, electron: null, arch: expectedArch });
 console.log(`PASS: bundled Node ${metadata.source.version} runs with no system Node on PATH`);
 assertPackagedOpencodeSdk(resources);
-const packagedSelection = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join("node_modules", "@legalwork", "opencode-release", "selection.json")).toString("utf8"));
-assert.deepEqual(packagedSelection, JSON.parse(await readFile(new URL("../../../packages/opencode-release/selection.json", import.meta.url), "utf8")), "Packaged OpenCode selection must exactly match its reviewed build input");
+const enginePackage = path.join("node_modules", "@legalwork", "opencode-release");
+const packagedSelection = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join(enginePackage, "generated", "selection.json")).toString("utf8"));
+assert.deepEqual(packagedSelection, JSON.parse(await readFile(new URL("../../../packages/opencode-release/generated/selection.json", import.meta.url), "utf8")), "Packaged OpenCode selection must exactly match its prepared build input");
+for (const name of ["selection.json", "build/recipe.json"]) {
+  const bundled = JSON.parse(extractFile(path.join(resources, "app.asar"), path.join(enginePackage, name)).toString("utf8"));
+  assert.deepEqual(bundled, JSON.parse(await readFile(new URL(`../../../packages/opencode-release/${name}`, import.meta.url), "utf8")), `Packaged engine ${name} must match its committed source policy`);
+}
+validateBuildSelection(packagedSelection);
 assert.equal(packagedSelection.schemaVersion, 1);
 assert.equal(packagedSelection.baseVersion, opencodeRelease.version);
 const engineTarget = opencodeReleaseTarget(process.platform, expectedArch);
@@ -47,7 +54,7 @@ let engineBinary, candidateBuild;
 if (packagedSelection.kind === "derivative") {
   const distribution = await verifyDerivativeDistributionContent({ manifestContent: packagedSelection.manifestContent, manifestSha256: packagedSelection.manifestSha256 });
   assert.equal(distribution.version, packagedSelection.version);
-  const directory = path.join(resources, "opencode-engine", distribution.version, engineTarget);
+  const directory = path.join(resources, "opencode-engine", packagedSelection.manifestSha256, engineTarget);
   candidateBuild = await verifyInstalledDerivativeEngine({ distribution, directory, target: engineTarget });
   engineBinary = candidateBuild.path;
 } else {

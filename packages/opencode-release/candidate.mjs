@@ -49,8 +49,8 @@ async function assertFresh(descriptor, binary) {
   if (await realpath(binary) !== descriptor.path || current.path !== descriptor.path || current.sha256 !== descriptor.sha256 || current.version !== descriptor.version) throw new Error("The requested engine path does not match its verified candidate descriptor.");
 }
 
-/** Explicit host descriptors, or registration by the dedicated validation
- * preload, retain exact version checks. Ordinary startup remains official. */
+/** Explicit host descriptors and the validation preload retain exact checks.
+ * Ordinary startup verifies the statically prepared engine selection. */
 async function selectedCandidate(binary, descriptor) {
   let selected = descriptor;
   if (!selected && testCandidates.size) selected = testCandidates.get(await realpath(binary).catch(() => ""));

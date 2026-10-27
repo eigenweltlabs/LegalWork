@@ -41,11 +41,17 @@ export async function writeCandidateArchive({ directory, filenames, destination,
   await pipeline(Readable.from(entries()), createGzip({ level: 9 }), createWriteStream(destination, { flags: "wx", mode: 0o600 }));
 }
 
-export async function assembleDerivativeDistribution({ builds, outputDirectory, manifestPath, onProgress = console.log }) {
-  if (JSON.stringify(builds.map(build => build.target).sort()) !== JSON.stringify([...recipe.targets].sort())) throw new Error("A distribution requires exactly one reviewed build for every declared target.");
+export async function assembleDerivativeDistribution({ builds, outputDirectory, manifestPath, onProgress = console.log, developmentTargets = undefined }) {
+  if (developmentTargets !== undefined && (!Array.isArray(developmentTargets) || !developmentTargets.length
+    || developmentTargets.some(target => !recipe.targets.includes(target)) || new Set(developmentTargets).size !== developmentTargets.length)) {
+    throw new Error("A development distribution requires unique reviewed targets.");
+  }
+  const targets = developmentTargets ?? recipe.targets;
+  if (JSON.stringify(builds.map(build => build.target).sort()) !== JSON.stringify([...targets].sort())) throw new Error("A distribution requires exactly one reviewed build for every declared target.");
   const output = path.resolve(outputDirectory);
   await mkdir(path.dirname(output), { recursive: true }); await mkdir(output);
-  const manifest = { schemaVersion: 1, kind: "legalwork-patched-engine-distribution", status: "local-candidate-not-adopted",
+  const manifest = { schemaVersion: developmentTargets === undefined ? 1 : 2, kind: "legalwork-patched-engine-distribution", status: "local-candidate-not-adopted",
+    ...(developmentTargets === undefined ? {} : { scope: { kind: "development", targets: [...developmentTargets].sort() } }),
     version: recipe.version, baseVersion: recipe.baseVersion, channel: recipe.channel, upstream: recipe.upstream,
     source: { patchSha256: recipe.inputs.patch.sha256, lockfileSha256: recipe.inputs.lockfile.sha256, testReceiptSha256: recipe.inputs.testReceipt.sha256 }, artifacts: {} };
   for (const build of [...builds].sort((a, b) => a.target.localeCompare(b.target))) {

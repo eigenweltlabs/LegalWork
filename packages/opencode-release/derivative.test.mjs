@@ -102,7 +102,7 @@ test("a streamed download must match the compiled archive pin before offline ins
     assert.equal(installed.candidateBuild.version, recipe.version);
     await downloadDerivativeArchive({ distribution, cacheDirectory: cache, downloadBaseUrl: "https://downloads.invalid/engine/", target, fetcher });
     assert.equal(requests, 1);
-    const cached = path.join(cache, artifact.archive.filename);
+    const cached = path.join(cache, distribution.manifestSha256, artifact.archive.filename);
     await writeFile(cached, "corrupt existing cache");
     await assert.rejects(downloadDerivativeArchive({ distribution, cacheDirectory: cache, downloadBaseUrl: "https://downloads.invalid/engine/", target, fetcher }), /integrity/);
     assert.equal(requests, 1);
@@ -113,9 +113,9 @@ test("wrong or interrupted downloads never publish an executable archive", async
   await fixture(async ({ cache, distribution }) => {
     const base = { distribution, cacheDirectory: cache, downloadBaseUrl: "https://downloads.invalid/engine/", target };
     await assert.rejects(downloadDerivativeArchive({ ...base, fetcher: async () => new Response("unreviewed bytes") }), /integrity/);
-    assert.deepEqual(await import("node:fs/promises").then(fs => fs.readdir(cache)), []);
+    assert.deepEqual(await readdir(path.join(cache, distribution.manifestSha256)), []);
     await assert.rejects(downloadDerivativeArchive({ ...base, fetcher: async () => new Response(new ReadableStream({ start(controller) { controller.error(new Error("connection interrupted")); } })) }), /connection interrupted/);
-    assert.deepEqual(await import("node:fs/promises").then(fs => fs.readdir(cache)), []);
+    assert.deepEqual(await readdir(path.join(cache, distribution.manifestSha256)), []);
     await assert.rejects(downloadDerivativeArchive({ ...base, downloadBaseUrl: "http://downloads.invalid/engine/" }), /plain HTTPS/);
   });
 });
@@ -217,7 +217,7 @@ test("independent manifest pin, complete target matrix and opaque host capabilit
 test("corrupt cached bytes fail explicitly even when the original archive remains available", async () => {
   await fixture(async ({ root, archives, cache, distribution, manifest }) => {
     await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: path.join(root, "initial"), target });
-    const cached = path.join(cache, manifest.artifacts[target].archive.filename), bytes = await readFile(cached);
+    const cached = path.join(cache, distribution.manifestSha256, manifest.artifacts[target].archive.filename), bytes = await readFile(cached);
     bytes[0] ^= 1; await writeFile(cached, bytes);
     await assert.rejects(installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: path.join(root, "corrupt"), target }), /archive integrity/);
     assert.deepEqual(await readFile(cached), bytes);
@@ -274,5 +274,33 @@ test("archive member symlinks are rejected without touching their outside target
     const reviewed = await verifyDerivativeDistribution({ manifestPath, manifestSha256: sha(bytes) });
     await assert.rejects(installLocalDerivativeEngine({ distribution: reviewed, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: path.join(root, "linked-member"), target }), /ordinary files/);
     assert.equal(await readFile(outside, "utf8"), "preserved outside");
+  });
+});
+
+test("an explicit development scope installs only its reviewed targets without weakening complete distributions", async () => {
+  await fixture(async ({ root, builds }) => {
+    const manifestPath = path.join(root, "host-only.json"), archives = path.join(root, "host-only-archives");
+    const assembled = await assembleDerivativeDistribution({ builds: builds.filter(build => build.target === target),
+      developmentTargets: [target], outputDirectory: archives, manifestPath, onProgress: () => {} });
+    const distribution = await verifyDerivativeDistribution({ manifestPath, manifestSha256: assembled.manifestSha256 });
+    assert.deepEqual(distribution.targets, [target]);
+    assert.equal(distribution.scope, "development");
+    const installed = await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: path.join(root, "host-cache"),
+      destinationDirectory: path.join(root, "host-installed"), target });
+    assert.equal(installed.candidateBuild.version, recipe.version);
+    await assert.rejects(installLocalDerivativeEngine({ distribution, cacheDirectory: path.join(root, "host-cache"),
+      destinationDirectory: path.join(root, "wrong-host"), target: "windows-arm64" }), /Unsupported derivative target/);
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const verify = value => {
+      const manifestContent = JSON.stringify(value);
+      return verifyDerivativeDistributionContent({ manifestContent, manifestSha256: sha(manifestContent) });
+    };
+    await assert.rejects(verify({ ...manifest, schemaVersion: 1, scope: undefined }), /all twelve/);
+    await assert.rejects(verify({ ...manifest, scope: { kind: "production", targets: [target] } }), /development distribution/);
+    await assert.rejects(verify({ ...manifest, scope: { kind: "development", targets: [target, target] } }), /unique reviewed/);
+    await assert.rejects(verify({ ...manifest, scope: { kind: "development", targets: ["unreviewed-target"] } }), /unique reviewed/);
+    await assert.rejects(verify({ ...manifest, scope: { kind: "development", targets: [target, "windows-arm64"] } }), /exactly its declared/);
+    await assert.rejects(assembleDerivativeDistribution({ builds, developmentTargets: [target], outputDirectory: path.join(root, "unexpected-all"),
+      manifestPath: path.join(root, "unexpected-all.json") }), /exactly one reviewed build/);
   });
 });
