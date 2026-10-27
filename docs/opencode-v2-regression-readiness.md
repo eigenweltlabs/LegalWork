@@ -1,7 +1,13 @@
 # Regression fixture migration evidence
 
-Adoption is held for remaining real-model and final packaged acceptance,
-including the browser capture failure described below. The user accepted the
+Final acceptance remains open for the final actual-model check and latest-source
+app/package/startup execution on all six OS/CPU configurations. The latest full
+Linux unit job passes; the Mac unit result remains required. See the
+[current capability checkpoint](opencode-v2-capability-status.md) for exact
+build identities and current results. Earlier checkpoints below retain their
+original failures and qualifications. The user explicitly separated inherited
+browser problems from migration completion, requiring no regression from v1.
+The user accepted the
 working Node development-server route; repairing the older compiled Mac
 standalone executable is outside the agreed migration scope.
 The earlier candidate exposed a Code Mode `fetch` permission bypass; the new
@@ -12,7 +18,7 @@ and current checkpoint below. Individual positive results do not authorize
 production adoption. Paid migration tests are authorized within the reviewed
 EUR250 token ceiling, with EUR100 retained as the planning/notification target.
 
-## Current execution boundary — 2026-10-26, 11:45 UTC
+## Historical execution boundary — 2026-10-26, 11:45 UTC
 
 Final6 is the current common candidate: archive
 `ab22c58f824d8136daab2c94a8e471fc3b231ea3a8217cc14b887712aa924bf9`,
