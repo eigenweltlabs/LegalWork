@@ -1027,9 +1027,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   function findSelectedOpencodeBinary() {
     const target = opencodeReleaseTarget(), filename = process.platform === "win32" ? "opencode.exe" : "opencode";
     const resources = app.isPackaged ? process.resourcesPath : path.join(desktopRoot, "resources");
-    const bundled = path.join(resources, "opencode-engine", opencodeEngineSelection.version, target, filename);
+    const bundled = path.join(resources, "opencode-engine", opencodeEngineSelection.artifactId, target, filename);
     if (existsSync(bundled)) return { path: bundled, source: "bundled" };
-    const installed = path.join(userDataDir, "engines", opencodeEngineSelection.version, target, filename);
+    const installed = path.join(userDataDir, "engines", opencodeEngineSelection.artifactId, target, filename);
     if (existsSync(installed)) return { path: installed, source: "installed" };
     return null;
   }
@@ -1919,7 +1919,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           return { ok: true, status: 0, stdout: `Verified selected LegalWork engine ${opencodeEngineSelection.version}.`, stderr: "" };
         }
         const target = opencodeReleaseTarget();
-        const installed = await installSelectedOpencodeEngine({ directory: path.join(userDataDir, "engines", opencodeEngineSelection.version, target),
+        const installed = await installSelectedOpencodeEngine({ directory: path.join(userDataDir, "engines", opencodeEngineSelection.artifactId, target),
           cacheDirectory: path.join(userDataDir, "downloads", "opencode"), target });
         await expectedOpencodeVersion(installed.path, installed.candidateBuild);
         return { ok: true, status: 0, stdout: `Installed selected LegalWork engine ${installed.version} from its verified cache.`, stderr: "" };

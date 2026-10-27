@@ -16,7 +16,7 @@ test("doctor and boot diagnostics never execute a candidate rejected after verif
   try {
     const target = opencodeReleaseTarget();
     const directory = opencodeEngineSelection.kind === "derivative"
-      ? path.join(root, "resources", "opencode-engine", opencodeEngineSelection.version, target)
+      ? path.join(root, "resources", "opencode-engine", opencodeEngineSelection.artifactId, target)
       : path.join(root, "resources", "sidecars");
     await mkdir(directory, { recursive: true });
     const recipe = JSON.parse(await readFile(new URL("../../../packages/opencode-release/build/recipe.json", import.meta.url), "utf8"));
