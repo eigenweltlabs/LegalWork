@@ -26,6 +26,8 @@ await mkdir(runtime);
 const workspace = path.join(root, "workspace");
 await mkdir(workspace);
 for (const name of ["home", "config", "data", "state", "cache", "appdata", "localappdata"]) await mkdir(path.join(root, name));
+// Windows verifies that the isolated profile's Documents known folder exists.
+if (process.platform === "win32") await mkdir(path.join(root, "home", "Documents"));
 const workspaceStore = createWorkspaceStore({ app: { getPath: () => userData } });
 await workspaceStore.writeWorkspaceState({ selectedId: "package-test", activeId: "package-test", watchedId: "package-test",
   workspaces: [{ id: "package-test", path: workspace, name: "Package test", workspaceType: "local", preset: "starter" }] });
