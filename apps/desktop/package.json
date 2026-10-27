@@ -22,6 +22,7 @@
     "test:browser-panel": "electron scripts/browser-panel-regression.mjs",
     "test:browser-workflow": "electron scripts/browser-workflow-regression.mjs",
     "test:browser-network": "electron scripts/browser-network-regression.mjs",
+    "test:browser-observation": "node scripts/build-browser-controller.mjs --check && electron scripts/browser-observation-regression.mjs",
     "test:native": "electron scripts/native-modules-regression.mjs",
     "test:dictation-paste": "electron scripts/dictation-paste-regression.mjs",
     "test:dictation-recovery": "electron scripts/dictation-hud-regression.mjs --clipboard",

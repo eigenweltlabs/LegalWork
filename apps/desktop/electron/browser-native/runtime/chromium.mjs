@@ -1148,8 +1148,10 @@ export function createBrowserPage(win, options) {
         if (!frameID || !tree.some((frame) => frame.id === frameID))
             throw new Error("Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.");
         const sessionID = sessionFor(frameID, tree);
-        const depth = action.type === "snapshot" ? (action.depth ?? 8) : 8;
-        const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID, depth }, sessionID);
+        // Layout nesting must not hide useful controls. Apply explicit depth limits
+        // to meaningful observations, and search the full tree before limiting output.
+        const depth = action.type === "snapshot" ? (action.depth ?? Infinity) : Infinity;
+        const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID }, sessionID);
         const nodes = new Map(ax.nodes.map((node) => [node.nodeId, node]));
         const root = selected ? ax.nodes.find((node) => node.backendDOMNodeId === selected.backendID) : ax.nodes[0];
         if (!root)
@@ -1159,7 +1161,7 @@ export function createBrowserPage(win, options) {
         const lines = [];
         let truncated = false;
         const walk = async (node, level) => {
-            if (level > depth || lines.length >= 500) {
+            if (level > depth || (action.type === "snapshot" && lines.length >= 500)) {
                 truncated = true;
                 return;
             }
@@ -1167,9 +1169,14 @@ export function createBrowserPage(win, options) {
                 .replace(/[^a-zA-Z0-9_-]/g, "")
                 .slice(0, 40);
             const properties = new Map(node.properties?.map((property) => [property.name, property.value.value]) ?? []);
-            if (!node.ignored) {
-                const actionable = role !== "RootWebArea" &&
-                    (properties.get("focusable") || /^(button|link|textbox|combobox|checkbox|radio|option)$/.test(role));
+            const name = String(node.name?.value ?? "").replace(/\s+/g, " ").slice(0, 300);
+            const actionable = role !== "RootWebArea" &&
+                (properties.get("focusable") || /^(button|link|textbox|searchbox|combobox|checkbox|radio|option)$/.test(role));
+            // Empty layout wrappers and duplicate text fragments consume neither
+            // semantic depth nor the model's observation budget.
+            const visible = !node.ignored && role !== "InlineTextBox" &&
+                (actionable || name || !/^(generic|none|presentation)$/.test(role));
+            if (visible) {
                 // A picked element keeps the ref its comment names, even when it is not otherwise actionable.
                 const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined;
                 const ref = known ?? (actionable && node.backendDOMNodeId ? options.shared.ref() : "");
@@ -1180,20 +1187,20 @@ export function createBrowserPage(win, options) {
                 const box = action.type === "snapshot" && action.boxes && ref && element
                     ? await rect(element).catch(() => undefined)
                     : undefined;
-                lines.push(`${"  ".repeat(level)}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(String(node.name?.value ?? "")
-                    .replace(/\s+/g, " ")
-                    .slice(0, 300))} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`);
+                lines.push(`${"  ".repeat(level)}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(name)} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`);
             }
             if (["textbox", "searchbox"].includes(role) || properties.get("editable"))
                 return;
             for (const childID of node.childIds ?? []) {
                 const child = nodes.get(childID);
                 if (child)
-                    await walk(child, level + 1);
+                    await walk(child, level + (visible ? 1 : 0));
             }
         };
         await walk(root, 0);
-        const content = (action.type === "find" ? lines.filter((line) => line.toLowerCase().includes(action.text.toLowerCase())) : lines).join("\n");
+        const selectedLines = (action.type === "find" ? lines.filter((line) => line.toLowerCase().includes(action.text.toLowerCase())) : lines);
+        truncated ||= selectedLines.length > 500;
+        const content = selectedLines.slice(0, 500).join("\n");
         return { content: content.slice(0, Browser.MAX_TEXT), truncated: truncated || content.length > Browser.MAX_TEXT };
     }
     async function toggleInspect(enabled) {
