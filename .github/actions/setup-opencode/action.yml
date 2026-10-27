@@ -1,8 +1,18 @@
 name: Set up pinned OpenCode
 description: Install LegalWork's selected, independently pinned OpenCode engine
 inputs:
+  build-mode:
+    description: Explicit development or production source preparation mode
+    required: false
+    default: development
   archive-directory:
     description: Exact reviewed local derivative archive directory (optional)
+    required: false
+  manifest-sha256:
+    description: Independent manifest digest required with a supplied archive directory
+    required: false
+  build-cache-directory:
+    description: Owned cache for verified source preparation (optional)
     required: false
   cache-directory:
     description: Verified archive cache directory (optional)
@@ -10,10 +20,41 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Prepare the current source policy or verify its same-run handoff
+      id: prepared
+      shell: bash
+      env:
+        BUILD_MODE: ${{ inputs.build-mode }}
+        BUILD_ARCHIVES: ${{ inputs.archive-directory }}
+        BUILD_MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
+        BUILD_CACHE_DIRECTORY: ${{ inputs.build-cache-directory }}
+      run: |
+        node --input-type=module <<'NODE'
+        import assert from 'node:assert/strict';
+        import { appendFile } from 'node:fs/promises';
+        import path from 'node:path';
+        import { prepareOpencodeEngine } from './packages/opencode-release/build/prepare.mjs';
+        import recipe from './packages/opencode-release/build/recipe.json' with { type: 'json' };
+        const mode = process.env.BUILD_MODE;
+        assert.ok(['development', 'production'].includes(mode), 'An explicit development or production build mode is required');
+        const archiveDirectory = process.env.BUILD_ARCHIVES;
+        const manifestSha256 = process.env.BUILD_MANIFEST_SHA256;
+        assert.equal(Boolean(archiveDirectory), Boolean(manifestSha256), 'A supplied archive directory requires its independent manifest SHA256 together');
+        if (archiveDirectory) assert.equal(path.basename(path.resolve(archiveDirectory)), 'archives');
+        if (mode === 'production') assert.ok(archiveDirectory, 'Production setup requires the complete independently pinned same-run signed distribution');
+        const prepared = await prepareOpencodeEngine({ mode,
+          ...(mode === 'production' ? { targets: recipe.targets } : {}),
+          ...(process.env.BUILD_CACHE_DIRECTORY ? { cacheDirectory: path.resolve(process.env.BUILD_CACHE_DIRECTORY) } : {}),
+          ...(archiveDirectory ? { distributionDirectory: path.dirname(path.resolve(archiveDirectory)), manifestSha256 } : {}) });
+        assert.ok(!/[\r\n]/.test(prepared.archiveDirectory), 'Prepared archive paths cannot contain newlines');
+        await appendFile(process.env.GITHUB_OUTPUT, `archive-directory=${prepared.archiveDirectory}\n`);
+        await appendFile(process.env.GITHUB_ENV, `LEGALWORK_OPENCODE_ARCHIVES=${prepared.archiveDirectory}\n`);
+        console.log(JSON.stringify({ mode: prepared.mode, sourceKey: prepared.sourceKey, manifestSha256: prepared.manifestSha256, targets: prepared.targets }));
+        NODE
     - name: Install OpenCode CLI
       shell: bash
       env:
-        LEGALWORK_OPENCODE_ARCHIVES: ${{ inputs.archive-directory }}
+        LEGALWORK_OPENCODE_ARCHIVES: ${{ steps.prepared.outputs.archive-directory }}
         LEGALWORK_OPENCODE_SETUP_CACHE: ${{ inputs.cache-directory }}
       run: |
         set -euo pipefail
