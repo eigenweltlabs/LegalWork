@@ -111,8 +111,10 @@ function RecorderSetup(props: {
   const [changing, setChanging] = useState(false);
   const [text, setText] = useState("");
   const [currentStep, setCurrentStep] = useState(0);
-  const [meetingDetection, setMeetingDetection] = useState(false);
-  const [meetingNotes, setMeetingNotes] = useState(false);
+  const [meetingDetection, setMeetingDetection] = useState(true);
+  const [meetingNotes, setMeetingNotes] = useState<boolean | null>(null);
+  const cloudTranscription = !props.demo && store.transcriptionSource === "cloud";
+  const summarisationEnabled = cloudTranscription && (meetingNotes ?? true);
   const heading = useRef<HTMLHeadingElement>(null);
   const [stepIds] = useState(() => props.requirements.filter(item => item.configure || !item.ready).map(item => item.id));
   const steps = stepIds.map(id => props.requirements.find(item => item.id === id)).filter(item => item !== undefined);
@@ -161,7 +163,7 @@ function RecorderSetup(props: {
           const meeting = useRecorderStore.getState().meeting;
           if (meeting?.error || meeting?.detectionEnabled !== meetingDetection) return;
         }
-        if (store.transcriptionSource === "cloud") store.setMeetingNotes({ enabled: meetingNotes });
+        store.setMeetingNotes({ enabled: summarisationEnabled });
       }
       props.onClose();
     } finally { setChanging(false); }
@@ -185,18 +187,18 @@ function RecorderSetup(props: {
         </div> : props.feature === "meetings" ? <div className="space-y-4">
           <div className="rounded-xl border border-dls-border p-4">
             <label className="flex cursor-pointer items-center justify-between gap-4 text-sm font-medium">
+              {t("recorder.meeting_notes_title")}
+              <Switch aria-label={t("recorder.meeting_notes_title")} checked={summarisationEnabled} disabled={!cloudTranscription || changing} onCheckedChange={setMeetingNotes} />
+            </label>
+            <p className="mt-2 text-xs leading-relaxed text-subtext">{t(cloudTranscription ? "recorder.meeting_notes_description" : "onboarding_audio.summarisation_requires_cloud")}</p>
+          </div>
+          <div className="rounded-xl border border-dls-border p-4">
+            <label className="flex cursor-pointer items-center justify-between gap-4 text-sm font-medium">
               {t("recorder.meeting_detection_title")}
-              <Switch aria-label={t("recorder.meeting_detection_title")} checked={meetingDetection} disabled={!detectionSupported || changing} onCheckedChange={setMeetingDetection} />
+              <Switch aria-label={t("recorder.meeting_detection_title")} checked={detectionSupported && meetingDetection} disabled={!detectionSupported || changing} onCheckedChange={setMeetingDetection} />
             </label>
             <p className="mt-2 text-xs leading-relaxed text-subtext">{t(detectionSupported ? "onboarding_audio.meeting_detection_description" : "onboarding_audio.detection_unavailable")}</p>
           </div>
-          {!props.demo && store.transcriptionSource === "cloud" ? <div className="rounded-xl border border-dls-border p-4">
-            <label className="flex cursor-pointer items-center justify-between gap-4 text-sm font-medium">
-              {t("recorder.meeting_notes_title")}
-              <Switch aria-label={t("recorder.meeting_notes_title")} checked={meetingNotes} disabled={changing} onCheckedChange={setMeetingNotes} />
-            </label>
-            <p className="mt-2 text-xs leading-relaxed text-subtext">{t("recorder.meeting_notes_description")}</p>
-          </div> : null}
         </div> : !isPractice ? <DictationShortcutControl compact demo={props.demo} disabled={changing} /> : <div>
           {!props.demo && store.systemDictation ? <p className="mb-3 text-xs text-subtext">{t("recorder.dictation_test_shortcut", { shortcut: formatDictationShortcut(store.systemDictation.accelerator, store.systemDictation.platform) })}</p> : null}
           <Textarea autoFocus id="onboarding-dictation-test" aria-label={t("recorder.dictation_test_label")} value={text} onChange={event => setText(event.currentTarget.value)} disabled={dictation.active} placeholder={t("recorder.dictation_test_placeholder")} className="min-h-32 resize-none text-sm" />
