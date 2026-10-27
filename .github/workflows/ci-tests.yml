@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - codex/projects-akte-workspace
+      - codex/opencode-v2-migration
   workflow_dispatch:
     inputs:
       mac_signing_acceptance:
