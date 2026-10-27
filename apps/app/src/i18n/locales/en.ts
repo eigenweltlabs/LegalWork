@@ -2475,6 +2475,7 @@ export default {
   "common.hide": "Hide",
   "common.navigate": "navigate",
   "common.next": "Next",
+  "common.continue": "Continue",
   "common.off": "Off",
   "common.on": "On",
   "common.path": "Path",
