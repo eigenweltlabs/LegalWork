@@ -21,6 +21,7 @@ export const LegalWorkCommands = Plugin.define({
   id: "legalwork.commands",
   async setup(ctx) {
     const running = new Map<string, Set<{ controller: AbortController; settled: Promise<void> }>>();
+    const delegatedRoles = new Map<string, { dispose(): Promise<void> }>();
     const registrations: Array<{ dispose(): Promise<void> }> = [];
     const read = async () => {
       const context = { directory: ctx.location.directory };
@@ -109,6 +110,15 @@ export const LegalWorkCommands = Plugin.define({
     async function delegate(command: ConfigCommand.Info, name: string, input: CommandInvocation, selected: Agent.Info, text: string,
       model: Agent.Info["model"], parentAgent: Agent.ID, signal: AbortSignal) {
       const agent = selected.id;
+      // Native configured agents are folded after external plugin transforms.
+      // Register the command's dual-purpose role at invocation time so a saved
+      // primary role cannot undo it. Keep the real agent and its permissions.
+      if (selected.mode === "primary") {
+        await delegatedRoles.get(agent)?.dispose();
+        delegatedRoles.set(agent, await ctx.agent.transform(editor => {
+          if (editor.get(agent)?.mode === "primary") editor.update(agent, value => { value.mode = "all"; });
+        }));
+      }
       const tool = (await ctx.tool.list()).find(item => item.name === "subagent");
       if (!tool) throw new Error("The native subagent capability is unavailable for this command.");
       const child = await ctx.session.create({ parentID: input.sessionID, agent, title: command.description ?? name,
@@ -133,6 +143,7 @@ export const LegalWorkCommands = Plugin.define({
     return async () => {
       stop();
       await Promise.all([...running.keys()].map(cancel));
+      for (const registration of delegatedRoles.values()) await registration.dispose();
       for (const registration of registrations.reverse()) await registration.dispose();
     };
   },

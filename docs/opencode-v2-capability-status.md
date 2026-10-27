@@ -1,6 +1,23 @@
 # Engine and capability acceptance status
 
-Final acceptance: 27 October 2026. The engineering migration is complete on
+Direct debugging follow-up, 27 October: the user approved one shared managed
+configuration with automatic project/ancestor discovery disabled. This replaces
+the folder-approval flow in the candidate below without changing the pinned
+engine. Local released-engine checks pass: two-project isolation, shared native
+skills/agents/commands/plugins, custom provider variants and enablement, inactive
+project/ancestor executables, registered-root admission, command delegation,
+permission refusal, cancellation and lossless retirement of owned generated files
+(36 tests, 391 assertions). This follow-up still needs its own final app/CI checks;
+the six-platform results below describe the previously accepted source snapshot.
+
+Checkpoint blockers: the bundled core skills/agents/commands are still seeded in
+project folders and must be made available from the shared library before this
+follow-up is complete. The full local server run also found a stale disabled MCP
+entry after removal; the duplicate file-backed source has been removed, with its
+recovery/removal verification still running. Do not count this checkpoint as
+final capability acceptance.
+
+Baseline final acceptance: 27 October 2026. The engineering migration was complete on
 `codex/opencode-v2-migration` for the user-frozen OpenCode 2.1.4/dev snapshot.
 No app/engine release, tag or release assets have been published. Existing CI
 test artifacts were retained under the user's branch/CI authorization.
