@@ -883,13 +883,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return legalworkClient;
   };
 
-  /**
-   * Persist an Eigenwelt connection: write the provider block (dynamic model
-   * list included) into the per-workspace runtime config via the same server
-   * patchConfig path used by removeCustomProviderFromConfig / custom-provider
-   * installs (with the project opencode.jsonc fallback for desktop-local
-   * workspaces), store the API key in the engine auth store, then reload.
-   */
+  /** Save the account through LegalWork even before the project's agent is
+   * connected or approved. Refresh its providers only when it is connected. */
   const finalizeEigenweltConnect = async (payload: {
     systemOne?: SystemOneConfiguration;
     apiKey: string;
@@ -902,10 +897,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     refreshToken?: string;
     platformURL?: string;
   }) => {
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
-    }
     const baseURL = payload.baseURL?.trim();
     const models = Array.isArray(payload.models) ? payload.models : [];
     // "Signed in with Eigenwelt" = the account connection (entitlements +

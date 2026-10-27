@@ -11,6 +11,8 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 5. Choose **New Chat**, select an available model, and state the task. Attach a file or mention a workspace file with `@`. For example: "Read this agreement and identify the termination provisions, citing the clauses."
 6. Review the assistant's output and any permission request. Open output file links in the document panel. A chat response is not proof that a file was saved: check the named output and any tool errors.
 
+If **Allow automation from this project?** appears during AI setup, review the listed folders and plugins before choosing **Allow project automation**. This approval lets the project's agent load its configuration; signing in to Eigenwelt is a separate step and does not approve the project.
+
 ## Choose a suitable surface
 
 Use a chat for drafting, research or a question. Use **Tasks** for work that needs an owner, status, due date and attachments. Use **Workflows** for reusable drafting or review instructions and firm templates. Use **Evaluations** to measure model performance on explicit criteria. A benchmark task, a work-list task and a chat are separate records.
