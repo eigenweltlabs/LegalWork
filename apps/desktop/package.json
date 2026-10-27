@@ -12,10 +12,10 @@
   "scripts": {
     "dev": "node ./scripts/electron-dev.mjs",
     "dev:electron": "node ./scripts/electron-dev.mjs",
-    "build": "node ./scripts/electron-build.mjs",
-    "build:electron": "node ./scripts/electron-build.mjs",
-    "package:electron": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.yml",
-    "package:electron:dir": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.yml --dir",
+    "build": "node ./scripts/electron-build.mjs --engine-mode development",
+    "build:electron": "node ./scripts/electron-build.mjs --engine-mode development",
+    "package:electron": "pnpm run build:electron:production && pnpm exec electron-builder --config electron-builder.yml",
+    "package:electron:dir": "pnpm run build:electron:production && pnpm exec electron-builder --config electron-builder.yml --dir",
     "electron": "pnpm exec electron ./electron/main.mjs",
     "check:electron": "node ./scripts/check-electron-bridge.mjs",
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
@@ -35,7 +35,8 @@
     "office:sideload": "node ./scripts/office-addin-sideload.mjs",
     "test:preview-security": "node scripts/run-preview-security.mjs",
     "test:updater-quit": "node scripts/updater-quit-regression.mjs",
-    "check:packaged-security": "node scripts/check-packaged-security.mjs"
+    "check:packaged-security": "node scripts/check-packaged-security.mjs",
+    "build:electron:production": "node ./scripts/electron-build.mjs --engine-mode production"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",

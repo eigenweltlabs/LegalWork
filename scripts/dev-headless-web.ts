@@ -4,6 +4,7 @@ import { access, mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { prepareForBuild } from "../packages/opencode-release/prepare.mjs";
 
 const cwd = process.cwd();
 const tmpDir = path.join(cwd, "tmp");
@@ -132,6 +133,7 @@ const legalworkServerBin = path.join(
 );
 
 const ensureLegalworkServer = async () => {
+  await prepareForBuild({ mode: "development", checkOnly: !autoBuildEnabled });
   try {
     await access(legalworkServerBin);
   } catch {

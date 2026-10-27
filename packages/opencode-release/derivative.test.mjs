@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -153,10 +153,8 @@ test("embedded manifests survive removal of source metadata and reject changed c
 test("container staging copies all five pinned guest files and rejects partial or changed artifacts", async () => {
   await fixture(async ({ root, builds, manifestPath, distribution }) => {
     const library = path.join(root, "staging-release-library");
-    await mkdir(path.join(library, "build"), { recursive: true });
-    for (const name of ["index.mjs", "release.json", "candidate.mjs", "derivative.mjs", "selection.mjs", "build/recipe.json"]) await copyFile(new URL(name, import.meta.url), path.join(library, name));
-    await writeFile(path.join(library, "selection.json"), JSON.stringify({ schemaVersion: 1, kind: "derivative", version: recipe.version, baseVersion: release.version,
-      manifestContent: await readFile(manifestPath, "utf8"), manifestSha256: distribution.manifestSha256 }));
+    await writeFixtureReleaseLibrary(library, { schemaVersion: 1, kind: "derivative", version: recipe.version, baseVersion: release.version,
+      manifestContent: await readFile(manifestPath, "utf8"), manifestSha256: distribution.manifestSha256 });
     const { stageSelectedOpencodeEngine } = await import(pathToFileURL(path.join(library, "selection.mjs")));
     const guestTarget = "linux-x64-baseline";
     const source = builds.find(build => build.target === guestTarget);
@@ -183,10 +181,8 @@ test("normal host selection independently verifies its compiled manifest without
     const currentTarget = opencodeReleaseTarget();
     const installed = await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: path.join(root, "engine"), target: currentTarget });
     const library = path.join(root, "host-release-library");
-    await mkdir(path.join(library, "build"), { recursive: true });
-    for (const name of ["index.mjs", "release.json", "candidate.mjs", "derivative.mjs", "selection.mjs", "build/recipe.json"]) await copyFile(new URL(name, import.meta.url), path.join(library, name));
-    await writeFile(path.join(library, "selection.json"), JSON.stringify({ schemaVersion: 1, kind: "derivative", version: recipe.version, baseVersion: release.version,
-      manifestContent: await readFile(manifestPath, "utf8"), manifestSha256: distribution.manifestSha256 }));
+    await writeFixtureReleaseLibrary(library, { schemaVersion: 1, kind: "derivative", version: recipe.version, baseVersion: release.version,
+      manifestContent: await readFile(manifestPath, "utf8"), manifestSha256: distribution.manifestSha256 });
     await rm(manifestPath);
     const entry = path.join(library, "host.mjs");
     await writeFile(entry, `import{expectedOpencodeVersion,expectedOpencodeServiceFilename}from'./candidate.mjs';const binary=${JSON.stringify(installed.candidateBuild.path)};console.log(JSON.stringify({version:await expectedOpencodeVersion(binary),service:await expectedOpencodeServiceFilename(binary)}));`);
