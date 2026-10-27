@@ -124,6 +124,7 @@ export type AudioRecorderBootstrap = {
 
 export type AudioCloudTranscriptionStatus = {
   summaryModels?: { model: string; name: string; region: string }[];
+  defaultSummaryModels?: Partial<Record<"EU" | "US", string>>;
   models: { model: string; name: string; region: "EU" | "US"; enabled: boolean; available: boolean }[];
   error: string | null;
 };

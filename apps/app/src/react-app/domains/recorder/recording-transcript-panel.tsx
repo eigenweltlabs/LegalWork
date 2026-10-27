@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, FileAudio, FileText, Loader2, X } from "lucide-react";
+import { Check, Copy, FileAudio, FileText, Loader2, Sparkles, X } from "lucide-react";
 import type { AudioRecordingDetail, AudioTranscriptEdit, AudioTranscriptSegment } from "@legalwork/types/audio";
-import { audioRecordingEditTranscript, audioRecordingGet } from "@/app/lib/desktop";
+import { audioRecordingEditTranscript, audioRecordingGet, audioRecordingSummarize } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
@@ -86,6 +86,24 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
     ...Object.keys(meta?.speakerNames ?? {}).map(Number),
   ])].sort((a, b) => a - b).map(id => ({ id, name: meta?.speakerNames?.[id] ?? t("recorder.speaker_label", { n: id + 1 }), segmentCount: segmentCounts.get(id) ?? 0 }));
   const [saving, setSaving] = useState(false);
+  const [startingSummary, setStartingSummary] = useState(false);
+  const summaryStartingRef = useRef(false);
+  const summarize = async () => {
+    if (summaryStartingRef.current || liveRecording || meta?.speakerProcessing || meta?.summaryProcessing) return;
+    summaryStartingRef.current = true;
+    setStartingSummary(true);
+    try {
+      const { model, instructions } = useRecorderStore.getState().meetingNotes;
+      const updated = await audioRecordingSummarize(recordingId, { model, instructions });
+      queryClient.setQueryData(queryKey, updated);
+      await useRecorderStore.getState().refreshRecordings();
+    } catch (error) {
+      toast.error(t("recorder.meeting_notes_start_failed"), { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      summaryStartingRef.current = false;
+      setStartingSummary(false);
+    }
+  };
   const savingRef = useRef(false);
   const edit = async (change: AudioTranscriptEdit) => {
     if (liveRecording || meta?.speakerProcessing || savingRef.current) return false;
@@ -180,6 +198,14 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
           <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />
         </div>
       </header>
+      {!liveRecording && meta?.transcriptionSource === "cloud" && !meta.summary && turns.length > 0 ? <div className="px-6 pb-4">
+        <Button variant="outline" size="sm" onClick={() => void summarize()}
+          disabled={startingSummary || meta.summaryProcessing || meta.speakerProcessing}
+          title={t("recorder.meeting_notes_manual_description")}>
+          {startingSummary || meta.summaryProcessing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+          {t("recorder.meeting_notes_manual")}
+        </Button>
+      </div> : null}
       {meta?.summary ? <section className="mb-6 rounded-xl border border-subtle bg-sunken p-4" aria-label={t("recorder.meeting_summary")}>
         <h2 className="mb-2 text-sm font-medium">{t("recorder.meeting_summary")}</h2>
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{meta.summary}</p>

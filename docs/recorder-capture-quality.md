@@ -232,13 +232,22 @@ offers one **Post-process meeting with LLM** switch for the meeting title,
 summary and automatic speaker names, plus an enabled chat model in the
 transcription region and optional instructions. The switch defaults to on;
 upgrading preserves either previous title/summary opt-out. Disabling it sends no
-notes request. Local recordings and ephemeral dictation never generate cloud notes.
+automatic notes request. Local recordings and ephemeral dictation never generate cloud notes.
+
+Saved cloud transcripts without a summary offer **Smart Meeting Summary**.
+This runs title, summary and speaker naming once using the current notes model
+and instructions, even when automatic post-processing is off. It leaves that
+setting unchanged. The button waits for speaker processing, shows progress,
+allows retry after failure and disappears after success. Concurrent clicks share
+one request; deleting the recording cancels a pending request.
 
 Notes run after speaker processing, through the existing server and paid chat
 endpoint with a fresh organisation opt-in check. They count toward normal model
-usage. Automatic selection prefers an available small non-reasoning model in
-the same region. A selected unavailable model fails without silently switching
-models or regions. Responses must contain complete JSON with the requested
+usage. The default is OpenAI Luna in the same region, including when the catalog
+marks Luna as a reasoning model. Settings displays the resolved model name.
+If Luna is unavailable, the user must enable it or explicitly select another
+model. A selected unavailable model fails without silently switching models or
+regions. Responses must contain complete JSON with the requested
 fields. Failures leave the transcript intact. A manual rename during generation
 is preserved. Speaker names require a known speaker ID and an exact quote from
 that speaker containing the proposed name. The model is instructed to use only

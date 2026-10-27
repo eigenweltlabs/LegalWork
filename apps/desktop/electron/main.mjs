@@ -2510,6 +2510,9 @@ const desktopCommandHandlers = {
   "audioRecordingEditTranscript": async (event, ...args) => {
       return recorderService().editTranscript(String(args[0] ?? ""), args[1]);
   },
+  "audioRecordingSummarize": async (event, ...args) => {
+      return recorderService().summarizeRecording(String(args[0] ?? ""), args[1]);
+  },
   "audioRecordingDelete": async (event, ...args) => {
       return recorderService().deleteRecording(String(args[0] ?? ""));
   },

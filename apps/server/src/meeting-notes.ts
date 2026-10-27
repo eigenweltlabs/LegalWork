@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ApiError } from "./errors.js";
-import { cloudTranscriptionConnection } from "./cloud-transcription.js";
+import { cloudTranscriptionConnection, defaultMeetingNotesModel } from "./cloud-transcription.js";
 import { readCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "./types.js";
 
@@ -24,7 +24,8 @@ export async function generateMeetingNotes(config: ServerConfig, input: z.infer<
   if (!manifest || manifest.apiKey !== connection.apiKey) throw new ApiError(403, "transcription_unavailable", "Sign in to generate meeting notes.");
   const models = manifest.models.filter(model => model.region?.toUpperCase() === connection.region);
   const selected = input.settings.model ? models.find(model => model.id === input.settings.model)
-    : models.find(model => /flash|mini|small/i.test(model.id) && !model.reasoning) ?? models.find(model => !model.reasoning) ?? models[0];
+    : defaultMeetingNotesModel(models, connection.region);
+  if (!selected && !input.settings.model) throw new ApiError(400, "summary_model_unavailable", "Enable OpenAI Luna in your transcription region or choose another meeting notes model.");
   if (!selected) throw new ApiError(400, "summary_model_unavailable", "Choose an enabled meeting notes model in your transcription region.");
   if (selected.contextLength && input.transcript.length + input.settings.instructions.length + 8000 > selected.contextLength) {
     throw new ApiError(400, "summary_too_long", "This meeting is too long for the selected notes model. Choose a model with a larger context.");

@@ -1295,6 +1295,79 @@ test("local recordings, ephemeral dictation and disabled notes never call a clou
   assert.equal(service.summaryJobs.size, 0);
 });
 
+test("Smart Meeting Summary runs once after an automatic opt-out and survives duplicate clicks", async t => {
+  const calls = [];
+  /** @type {(value: { title: string, summary: string, speakerNames: Record<string, string> }) => void} */
+  let release = () => { assert.fail("the summary request must have started"); };
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const { service, record, settings } = await notesFixture(t, (input, signal) => {
+    calls.push(input);
+    return new Promise((resolve, reject) => {
+      release = resolve;
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      entered();
+    });
+  });
+  const disabled = { ...settings, enabled: false };
+  const id = await record({ meetingNotes: disabled });
+  assert.equal(calls.length, 0);
+  await Promise.all([service.summarizeRecording(id, settings), service.summarizeRecording(id, settings)]);
+  await started;
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].settings.enabled, true);
+  assert.equal(disabled.enabled, false);
+  assert.equal((await service.getRecording(id)).meta.summaryProcessing, true);
+  release({ title: "Smart title", summary: "Friday deadline", speakerNames: { 0: "Chris" } });
+  await service.summaryJobs.get(id)?.promise;
+  const detail = await service.getRecording(id);
+  assert.equal(detail.meta.title, "Smart title");
+  assert.equal(detail.meta.summary, "Friday deadline");
+  assert.equal(detail.meta.speakerNames[0], "Chris");
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  assert.equal(calls.length, 1, "an existing summary does not trigger a second paid request");
+});
+
+test("Smart Meeting Summary retries a failed run and rejects local or active recordings", async t => {
+  const { service, record, settings } = await notesFixture(t, async () => { throw new Error("Unavailable"); });
+  const id = await record({ meetingNotes: { ...settings, enabled: false } });
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  assert.ok((await service.getRecording(id)).meta.summaryError);
+  service.generateMeetingNotes = async () => ({ title: "Retried", summary: "Complete" });
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  const completed = await service.getRecording(id);
+  assert.equal(completed.meta.summaryError, undefined);
+  assert.equal(completed.meta.summaryProcessing, false);
+  assert.equal(completed.meta.summary, "Complete");
+  const live = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone"] });
+  await assert.rejects(service.summarizeRecording(live.id, settings), /Finish recording/);
+  await service.stopRecording(live.id);
+  await assert.rejects(service.summarizeRecording(live.id, settings), /no transcript/);
+  service.loadedModel = { modelId: "whisper-tiny", language: "de" };
+  const local = await record({ modelId: "whisper-tiny" });
+  await assert.rejects(service.summarizeRecording(local, settings), /requires a cloud recording/);
+});
+
+test("deleting a recording cancels manually requested Smart Meeting Summary", async t => {
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  let aborted = false;
+  const { service, record, settings } = await notesFixture(t, (_input, signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => { aborted = true; reject(signal.reason); }, { once: true });
+    entered();
+  }));
+  const id = await record({ meetingNotes: { ...settings, enabled: false } });
+  await service.summarizeRecording(id, settings);
+  await started;
+  await service.deleteRecording(id);
+  assert.equal(aborted, true);
+  assert.equal(service.summaryJobs.size, 0);
+  assert.equal(await service.getRecording(id), null);
+});
+
 test("manual title and speaker edits survive a pending notes response", async t => {
   /** @type {(value: { title: string, summary: string, speakerNames: Record<string, string> }) => void} */
   let release = (_value) => { assert.fail("the notes request must be waiting for its response"); };

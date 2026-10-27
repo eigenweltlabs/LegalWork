@@ -1086,6 +1086,35 @@ export class RecorderService {
     return { ...meta };
   }
 
+  /** @param {string} recordingId
+   * @param {Pick<import("@legalwork/types/audio").AudioMeetingNotesSettings, "model" | "instructions">} settings */
+  summarizeRecording(recordingId, settings) {
+    if (this.summaryJobs.has(recordingId)) return this.getRecording(recordingId);
+    const controller = new AbortController();
+    const started = Promise.resolve().then(() => this.updateSavedTranscript(recordingId, saved => {
+      if (controller.signal.aborted) throw new Error("Meeting notes cancelled.");
+      if (saved.meta.transcriptionSource !== "cloud" || !isCloudTranscriptionModel(saved.meta.modelId)) throw new Error("Smart Meeting Summary requires a cloud recording.");
+      if (saved.meta.speakerProcessing) throw new Error("Wait for speaker detection to finish before generating the summary.");
+      if (!saved.segments.some(segment => segment.text.trim())) throw new Error("This recording has no transcript to summarize.");
+      if (saved.meta.summary) return saved;
+      return { ...saved, meta: { ...saved.meta, summaryProcessing: true, summaryError: undefined } };
+    })).then(detail => {
+      this.broadcast({ type: "recording-updated", meta: detail.meta });
+      return detail;
+    });
+    // Reserve the job before the first asynchronous read so clicks in two
+    // transcript tabs cannot start duplicate model requests.
+    const promise = started.then(async detail => {
+      if (controller.signal.aborted || detail.meta.summary) return;
+      await this.finishMeetingNotes(recordingId, { meta: detail.meta, meetingNotes: {
+        enabled: true, model: String(settings?.model ?? "").slice(0, 200),
+        instructions: String(settings?.instructions ?? "").slice(0, 1000),
+      } }, controller.signal);
+    }).catch(() => {}).finally(() => { this.summaryJobs.delete(recordingId); });
+    this.summaryJobs.set(recordingId, { controller, promise });
+    return started;
+  }
+
   async finishMeetingNotes(recordingId, recording, signal) {
     try {
       await this.speakerJobs.get(recordingId);
@@ -1107,7 +1136,7 @@ export class RecorderService {
             && saved.meta.speakerNames?.[id] === before
             && (!before || /^(?:Microphone|System audio|App audio)(?: \d+)?$|^Speaker \d+$/.test(before))) speakerNames[id] = name;
         }
-        return { ...saved, meta: { ...saved.meta, speakerNames, summaryProcessing: false,
+        return { ...saved, meta: { ...saved.meta, speakerNames, summaryProcessing: false, summaryError: undefined,
           // A name edited while this request was pending belongs to the user.
           ...(result.title && saved.meta.title === recording.meta.title ? { title: sanitizeTitle(result.title) } : {}),
           ...(result.summary ? { summary: result.summary } : {}),

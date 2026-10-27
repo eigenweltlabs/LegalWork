@@ -64,6 +64,8 @@ export function RecorderSettingsView(props: {
   const dictation = store.systemDictation;
   const cloudRegion = store.bootstrap?.cloud?.models.find(model => model.model === store.cloudModelId)?.region;
   const notesModels = (store.bootstrap?.cloud?.summaryModels ?? []).filter(model => model.region === cloudRegion);
+  const defaultNotesModel = notesModels.find(model => model.model === (cloudRegion ? store.bootstrap?.cloud?.defaultSummaryModels?.[cloudRegion] : undefined));
+  const defaultNotesLabel = defaultNotesModel ? t("recorder.meeting_notes_model_default_named", { model: defaultNotesModel.name }) : t("recorder.meeting_notes_model_auto");
 
   useEffect(() => {
     void store.init();
@@ -193,15 +195,16 @@ export function RecorderSettingsView(props: {
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm">{t("recorder.meeting_notes_model")}</span>
                 <Select value={store.meetingNotes.model || "auto"}
-                  items={[{ value: "auto", label: t("recorder.meeting_notes_model_auto") }, ...notesModels.map(model => ({ value: model.model, label: model.name }))]}
+                  items={[{ value: "auto", label: defaultNotesLabel }, ...notesModels.map(model => ({ value: model.model, label: model.name }))]}
                   onValueChange={model => { if (model) store.setMeetingNotes({ model: model === "auto" ? "" : model }); }}>
                   <SelectTrigger size="sm" aria-label={t("recorder.meeting_notes_model")}><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="auto">{t("recorder.meeting_notes_model_auto")}</SelectItem>
+                  <SelectContent><SelectItem value="auto">{defaultNotesLabel}</SelectItem>
                     {notesModels.map(model => <SelectItem key={model.model} value={model.model}>{model.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               {notesModels.length === 0 ? <p className="text-xs text-subtext">{t("recorder.meeting_notes_no_model")}</p> : null}
+              {notesModels.length > 0 && !store.meetingNotes.model && !defaultNotesModel ? <p className="text-xs text-subtext">{t("recorder.meeting_notes_default_unavailable")}</p> : null}
               <label className="block space-y-2 text-sm">
                 <span>{t("recorder.meeting_notes_instructions")}</span>
                 <Textarea value={store.meetingNotes.instructions} maxLength={1000} rows={3}

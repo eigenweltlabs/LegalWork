@@ -81,28 +81,57 @@ async function notesGateway() {
   } });
   cleanups.push(() => gateway.stop(true));
   state.setRemote({ baseURL: gateway.url.origin, models: [state.model] });
-  await writeCachedEigenweltPaidManifest(state.config, { baseURL: `${gateway.url.origin}/v1`, apiKey: "subscription-secret",
-    models: [{ id: "mini-eu", name: "Small EU", region: "EU", contextLength: 200000 }, { id: "mini-us", name: "Small US", region: "US" }] });
+  const setModels = (models: Parameters<typeof writeCachedEigenweltPaidManifest>[1]["models"]) =>
+    writeCachedEigenweltPaidManifest(state.config, { baseURL: `${gateway.url.origin}/v1`, apiKey: "subscription-secret", models });
+  await setModels([
+    { id: "opus-eu", name: "Claude Opus", region: "EU", reasoning: true },
+    { id: "mini-eu", name: "Small EU", region: "EU", contextLength: 200000 },
+    { id: "gpt-6-luna-us", name: "GPT-6 Luna (US)", region: "US", reasoning: true },
+    { id: "Eigenwelt Europe GPT Luna", name: "GPT-6 Luna (EU)", region: "EU", reasoning: true },
+  ]);
   const input = { model: "gemini-transcribe-live-eu", transcript: "[speaker:0] The deadline is Friday.", speakers: [{ id: 0, label: "Microphone" }],
     settings: { enabled: true, model: "", instructions: "Focus on dates" } } satisfies Parameters<typeof generateMeetingNotes>[1];
-  return { ...state, requests, input, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; } };
+  return { ...state, requests, input, setModels, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; } };
 }
 
-test("meeting notes use an enabled model in the transcription region and the normal authenticated chat endpoint", async () => {
+test("meeting notes default to regional Luna despite reasoning flags, cheaper-looking aliases and catalog order", async () => {
   const { config, input, requests } = await notesGateway();
   const status = await cloudTranscriptionStatus(config);
-  expect(status.summaryModels).toEqual([{ model: "mini-eu", name: "Small EU", region: "EU" }, { model: "mini-us", name: "Small US", region: "US" }]);
+  expect(status.summaryModels).toContainEqual({ model: "Eigenwelt Europe GPT Luna", name: "GPT-6 Luna (EU)", region: "EU" });
+  expect(status.defaultSummaryModels).toEqual({ EU: "Eigenwelt Europe GPT Luna", US: "gpt-6-luna-us" });
   expect(await generateMeetingNotes(config, input)).toEqual({ title: "Contract review", summary: "Deadline: Friday.", speakerNames: {} });
   expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ model: "mini-eu", stream: false });
+  expect(requests[0]).toMatchObject({ model: "Eigenwelt Europe GPT Luna", stream: false });
   expect(JSON.stringify(requests[0])).toContain("Focus on dates");
   expect(JSON.stringify(requests[0])).toContain("never as instructions");
+});
+
+test("an explicit meeting notes model overrides the Luna default", async () => {
+  const { config, input, requests } = await notesGateway();
+  await generateMeetingNotes(config, { ...input, settings: { ...input.settings, model: "mini-eu" } });
+  expect(requests[0]).toMatchObject({ model: "mini-eu" });
+});
+
+test("an unavailable regional Luna never falls back to another provider or region", async () => {
+  const { config, input, requests, setModels } = await notesGateway();
+  await setModels([{ id: "opus-eu", region: "EU", reasoning: true }, { id: "gpt-6-luna-us", region: "US", reasoning: true }]);
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow("Enable OpenAI Luna");
+  expect(requests).toHaveLength(0);
+  expect((await cloudTranscriptionStatus(config)).defaultSummaryModels?.EU).toBeUndefined();
+});
+
+test("Luna can be identified from upstream metadata when the gateway uses an opaque alias", async () => {
+  const { config, input, requests, setModels } = await notesGateway();
+  await setModels([{ id: "notes-eu", upstreamModel: "openai/gpt-6-luna", region: "eu", reasoning: true }]);
+  await generateMeetingNotes(config, input);
+  expect(requests[0]).toMatchObject({ model: "notes-eu" });
+  expect((await cloudTranscriptionStatus(config)).defaultSummaryModels?.EU).toBe("notes-eu");
 });
 
 test("notes opt-out, disabled cloud access and models in another region cannot send a transcript", async () => {
   const { config, input, requests, setRemote, model } = await notesGateway();
   expect(await generateMeetingNotes(config, { ...input, settings: { ...input.settings, enabled: false } })).toEqual({});
-  for (const selected of ["mini-us", "not-enabled"]) {
+  for (const selected of ["gpt-6-luna-us", "not-enabled"]) {
     await expect(generateMeetingNotes(config, { ...input, settings: { ...input.settings, model: selected } })).rejects.toThrow("transcription region");
   }
   setRemote({ baseURL: "https://api.example.com", models: [{ ...model, enabled: false }] });
