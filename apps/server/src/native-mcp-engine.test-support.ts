@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { OpenCode } from "@opencode/client";
@@ -43,6 +43,23 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
   return { root, directory, other, location: { directory }, client,
     connection: () => ({ url: engine.url, username: engine.username, password: engine.password }),
     restart: async () => { await engine.close(); engine = await createManagedOpencodeServer(options); },
-    close: async () => { await engine.close(); await rm(root, { recursive: true, force: true }); },
+    close: async () => {
+      await engine.close();
+      try { await rm(root, { recursive: true, force: true }); }
+      catch (error) {
+        // Observe the original cleanup failure without retrying or masking it.
+        try {
+          const cwd = relative(root, process.cwd());
+          console.error("Native MCP fixture cleanup failed", JSON.stringify({
+            enginePid: engine.pid, engineRunning: engine.running(),
+            cwdInsideFixture: !isAbsolute(cwd) && cwd !== ".." && !cwd.startsWith(`..${sep}`),
+            remainingPaths: (await readdir(root, { recursive: true })).sort(),
+          }));
+        } catch (diagnosticError) {
+          console.error("Native MCP fixture cleanup diagnostic failed", diagnosticError instanceof Error ? diagnosticError.name : typeof diagnosticError);
+        }
+        throw error;
+      }
+    },
   };
 }
