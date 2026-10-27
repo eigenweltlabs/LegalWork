@@ -1,4 +1,5 @@
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
+import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
 import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
 import { registerToolImageOriginalRoutes } from "./routes/tool-image-originals.js";
@@ -5544,7 +5545,9 @@ async function refreshManagedEngineLocation(config: ServerConfig, workspace: Wor
   };
   try { await refresh(); }
   catch (error) {
-    if (findApiError(error)?.status !== 404) throw error;
+    const api = findApiError(error);
+    const details = api?.details;
+    if (api?.status !== 404 && !(isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) throw error;
     // Fresh locations activate external native registrations when their model
     // catalog is read; public plugin/agent metadata alone does not do that.
     await client.model.list({ location: { directory } });
