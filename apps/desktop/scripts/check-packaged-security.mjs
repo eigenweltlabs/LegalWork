@@ -92,8 +92,11 @@ if (process.platform === "linux") console.log("NOTE: Electron does not enforce A
 // shipped Node on PATH, so a developer's installation cannot hide a missing dependency.
 const temporary = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-tools-"));
 try {
-  const core = extractFile(path.join(resources, "app.asar"), path.join("server", "dist", "core-skills.js"));
-  const { CORE_OPENCODE_FILES } = await import(`data:text/javascript;base64,${core.toString("base64")}`);
+  for (const name of ["core-skills.js", "help-i18n.generated.js"]) {
+    await writeFile(path.join(temporary, name), extractFile(path.join(resources, "app.asar"), path.join("server", "dist", name)));
+  }
+  await writeFile(path.join(temporary, "package.json"), JSON.stringify({ type: "module" }));
+  const { CORE_OPENCODE_FILES } = await import(pathToFileURL(path.join(temporary, "core-skills.js")).href);
   for (const file of CORE_OPENCODE_FILES.filter((entry) => /\/skills\/(docx-edit|pdf-tools)\//.test(entry.path))) {
     const destination = path.join(temporary, file.path);
     await mkdir(path.dirname(destination), { recursive: true });
