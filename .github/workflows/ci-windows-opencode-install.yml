@@ -39,6 +39,7 @@ jobs:
       - uses: ./.github/actions/setup-opencode
         with:
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ inputs.manifest-sha256 }}
       - name: Verify native archive extraction and actual selected engine
         run: |
           node --input-type=module <<'NODE'

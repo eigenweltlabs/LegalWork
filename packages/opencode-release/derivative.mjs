@@ -20,12 +20,22 @@ export async function derivativeFileSha256(filename) {
 }
 
 function validateManifest(value) {
-  if (value.schemaVersion !== 1 || value.kind !== "legalwork-patched-engine-distribution" || value.status !== "local-candidate-not-adopted"
+  if (![1, 2].includes(value.schemaVersion) || value.kind !== "legalwork-patched-engine-distribution" || value.status !== "local-candidate-not-adopted"
     || value.version !== recipe.version || value.baseVersion !== release.version || value.channel !== recipe.channel
     || value.upstream?.commit !== recipe.upstream.commit || value.upstream?.repository !== recipe.upstream.repository
     || value.source?.patchSha256 !== recipe.inputs.patch.sha256 || value.source?.lockfileSha256 !== recipe.inputs.lockfile.sha256
     || value.source?.testReceiptSha256 !== recipe.inputs.testReceipt.sha256) throw new Error("The derivative distribution does not identify the reviewed local source candidate and base ABI.");
-  if (!value.artifacts || JSON.stringify(Object.keys(value.artifacts).sort()) !== JSON.stringify(Object.keys(release.packages).sort())) throw new Error("The derivative distribution must preserve all twelve declared targets.");
+  let targets = Object.keys(release.packages).sort();
+  if (value.schemaVersion === 2) {
+    const declared = value.scope?.targets;
+    if (value.scope?.kind !== "development" || !Array.isArray(declared) || !declared.length
+      || declared.some(target => typeof target !== "string" || !Object.hasOwn(release.packages, target))
+      || new Set(declared).size !== declared.length) throw new Error("A scoped development distribution requires unique reviewed targets.");
+    targets = [...declared].sort();
+  } else if (value.scope !== undefined) throw new Error("A complete distribution cannot declare a development scope.");
+  if (!value.artifacts || JSON.stringify(Object.keys(value.artifacts).sort()) !== JSON.stringify(targets)) throw new Error(value.schemaVersion === 1
+    ? "The derivative distribution must preserve all twelve declared targets."
+    : "The development distribution must contain exactly its declared targets.");
   for (const [target, artifact] of Object.entries(value.artifacts)) {
     if (artifact.archive?.filename !== `opencode-${value.version}-${target}.tar.gz` || !validHash(artifact.archive?.sha256)) throw new Error(`Invalid pinned derivative archive: ${target}`);
     const filenames = [binaryName(target), "LICENSE", "NOTICE", "provenance.json", "SHA256SUMS"];
@@ -35,8 +45,8 @@ function validateManifest(value) {
   }
 }
 
-/** The expected manifest digest is an independently reviewed host input. No
- * current production entrypoint selects this derivative or reads an env bypass. */
+/** The expected digest comes from the reviewed build handoff, never an
+ * adjacent manifest's own checksum or a runtime environment override. */
 export async function verifyDerivativeDistribution({ manifestPath, manifestSha256 }) {
   if (!validHash(manifestSha256)) throw new Error("An independently reviewed derivative manifest SHA256 is required.");
   const canonical = await realpath(manifestPath), bytes = await readFile(canonical);
@@ -54,7 +64,7 @@ export async function verifyDerivativeDistributionContent({ manifestContent, man
 function registerDistribution(value, manifestSha256, manifestPath) {
   validateManifest(value);
   const descriptor = Object.freeze({ ...(manifestPath === undefined ? {} : { manifestPath }), manifestSha256, version: value.version, baseVersion: value.baseVersion,
-    channel: value.channel, targets: Object.freeze(Object.keys(value.artifacts)) });
+    channel: value.channel, scope: value.schemaVersion === 1 ? "complete" : "development", targets: Object.freeze(Object.keys(value.artifacts)) });
   distributions.set(descriptor, { value, manifestPath });
   return descriptor;
 }
@@ -120,8 +130,9 @@ export async function downloadDerivativeArchive({ distribution, cacheDirectory, 
   const value = await selectedManifest(distribution);
   const artifact = value.artifacts[target];
   if (!artifact) throw new Error(`Unsupported derivative target: ${target}`);
-  await mkdir(cacheDirectory, { recursive: true });
-  const cached = path.join(cacheDirectory, artifact.archive.filename);
+  const generationCache = path.join(cacheDirectory, distribution.manifestSha256);
+  await mkdir(generationCache, { recursive: true });
+  const cached = path.join(generationCache, artifact.archive.filename);
   try { await checkArchive(cached, artifact.archive); return cached; }
   catch (error) { if (error.code !== "ENOENT") throw error; }
   const base = new URL(downloadBaseUrl);
@@ -152,8 +163,9 @@ export async function installLocalDerivativeEngine({ distribution, archiveDirect
     if (!(await lstat(destination)).isDirectory()) throw new Error("The derivative destination must be an ordinary directory; redirected paths are not accepted.");
     return { candidateBuild: await validateInstallation(destination, target, artifact, value), target, reused: true };
   } catch (error) { if (error.code !== "ENOENT") throw error; }
-  await mkdir(cacheDirectory, { recursive: true });
-  const cached = path.join(cacheDirectory, artifact.archive.filename);
+  const generationCache = path.join(cacheDirectory, distribution.manifestSha256);
+  await mkdir(generationCache, { recursive: true });
+  const cached = path.join(generationCache, artifact.archive.filename);
   try { await checkArchive(cached, artifact.archive); }
   catch (error) {
     if (error.code !== "ENOENT") throw error;

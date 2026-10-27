@@ -1,7 +1,7 @@
 import type { VerifiedOpencodeCandidate } from "./candidate.mjs";
 declare const verifiedDistribution: unique symbol;
 export type VerifiedDerivativeDistribution = Readonly<{
-  manifestPath?: string; manifestSha256: string; version: string; baseVersion: string; channel: string; targets: readonly string[];
+  manifestPath?: string; manifestSha256: string; version: string; baseVersion: string; channel: string; scope: "complete" | "development"; targets: readonly string[];
   [verifiedDistribution]: true;
 }>;
 export function derivativeFileSha256(filename: string): Promise<string>;

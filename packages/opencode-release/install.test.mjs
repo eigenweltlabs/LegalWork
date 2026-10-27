@@ -24,7 +24,7 @@ test("the CI installer retains all selected files, exports its actual path, and 
     assert.equal(installed.baseVersion, opencodeRelease.version);
     assert.equal(installed.kind, "derivative");
     const filename = target.startsWith("windows-") ? "opencode.exe" : "opencode";
-    assert.equal(installed.path, path.join(root, "installed", installed.version, target, filename));
+    assert.equal(installed.path, path.join(root, "installed", distribution.selection.manifestSha256, target, filename));
     assert.deepEqual((await readdir(path.dirname(installed.path))).sort(), [filename, "LICENSE", "NOTICE", "provenance.json", "SHA256SUMS"].sort());
     assert.equal(await readFile(githubPath, "utf8"), `${path.dirname(installed.path)}\n`);
     assert.equal(await readFile(environment, "utf8"), `LEGALWORK_TEST_OPENCODE_BIN=${installed.path}\nLEGALWORK_TEST_OPENCODE_CACHE=${cache}\n`);
