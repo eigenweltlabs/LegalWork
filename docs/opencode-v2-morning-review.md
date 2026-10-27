@@ -1,20 +1,20 @@
 # Review when you return
 
-The migration is unfinished. Confirmed model charges are **€17.12 across 638 calls**,
+The migration is unfinished. Confirmed model charges are **€17.96 across 678 calls**,
 confirmed again by two read-only gateway balance reads and the complete charge
-list on27October at11:57:54UTC. All 80 newer calls match full
-response IDs. The separate conservative ledger retains settled estimates and two
+list on 27 October after the final task. All 40 final-run calls match complete
+SSE response IDs and persisted charges totalling €0.83. The separate conservative ledger retains settled estimates and two
 uncertain historical holds; its exposure is not the gateway's confirmed charge.
 The existing settlement API cannot replace those settled estimates. Original
 records are preserved, and a fresh per-case budget guard precedes another task.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 27 October, 13:30 UTC
+## Current checkpoint — 27 October, 13:40 UTC
 
 All six native engine configurations and all six protected runtimes pass. Both
 full Linux and Mac unit suites pass. Final-source actual app/package/startup
-passes are closed for Apple Silicon Mac and both Linux architectures. Both
+passes are closed for both Macs and both Linux architectures. Both
 Windows builds pass the preceding checks but fail the original final startup
 gate. The processes remain alive without observable app bootstrap; the cause is
 unproven. The focused [Windows follow-up40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
@@ -22,7 +22,7 @@ adds scoped diagnostic collection and the real engine-to-protected-VM check. No 
 or time limit is relaxed.
 
 Intel Mac's initial final-source attempt failed during dependency downloads.
-An unchanged Intel-only retry is now running and has passed installation. Earlier
+Its unchanged Intel-only retry passed the full app/package/security/native/preview/startup checks at 13:33:59 UTC. Earlier
 production app passes remain retained under their exact source identities.
 
 The latest `dev` help/navigation commit is merged. Final
@@ -30,14 +30,20 @@ The latest `dev` help/navigation commit is merged. Final
 uses exact production-produced engine bytes under development TEST metadata;
 it is not another production producer or an app release.
 
-The final actual-model task is running after root admission. The user-selected isolated Linux VM
+The final actual-model task completed two delegated reviews and both outputs. The user-selected isolated Linux VM
 has passed normal package/security and independent pre-Send catalog, protected
-execution and root-private tracing checks. Its final outcomes and complete traces remain required. The VM has no service account and automatically
-deletes at15:48UTC; complete evidence must be preserved. The earlier Mac skill
+execution and root-private tracing checks. Independent offline replay retains strict 8/9: three citation-capitalization
+mismatches. All 36 tool returns and 40 provider exchanges are complete and
+verified. Unsupported legal/business memo statements remain separate quality
+findings. No outside-folder Ask occurred, so no Deny interaction is claimed.
+Native request roles are not fully attributed; performance comparisons remain
+inconclusive. The task cost €0.83 and was not retried. The VM has no service account and automatically
+deletes at 15:48 UTC. Consistent database backups and full traces are preserved
+locally and in verified private EU cloud storage. The earlier Mac skill
 contamination remains recorded, with no paid task sent there.
 
 The user reports sufficient free disk space. No further cleanup batches are
-planned; only the already running private evidence backup will finish.
+planned. The previously running private evidence backups are complete.
 
 ## Previous checkpoint — 27 October, 11:06 UTC
 

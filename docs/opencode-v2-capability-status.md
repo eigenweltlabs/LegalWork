@@ -1,6 +1,6 @@
 # Engine and capability acceptance status
 
-Checkpoint: 27 October 2026, 13:30 UTC. Migration remains unfinished. The
+Checkpoint: 27 October 2026, 13:40 UTC. Migration remains unfinished. The
 priority is platform execution, migration safety and real agent/tool behavior.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
@@ -46,8 +46,7 @@ assertion or time limit changed. The nested raw test has 112 assertions and the
 outer suite 52, totaling the original 162 plus two parent-exit/removal assertions.
 
 The final-source run has passed all six protected runtimes and both full Linux
-and Mac unit jobs. Actual app/package/startup passes are closed for Apple Silicon
-Mac, Linux x64 and Linux ARM64. Both Windows configurations pass the preceding
+and Mac unit jobs. Actual app/package/startup passes are closed for both Macs and both Linux architectures. Both Windows configurations pass the preceding
 engine, build, package, security, protected-VM, native-module and preview checks,
 but fail the original 90-second startup gate: the process remains alive without
 observable app bootstrap. The cause is unproven. The focused [Windows follow-up40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
@@ -55,8 +54,8 @@ adds scoped diagnostic logs and a real engine-to-protected-VM check; no timeout,
 startup gate is relaxed.
 
 Intel Mac's initial final-source attempt failed while downloading dependencies,
-before building the app. An unchanged, Intel-only retry is now running and has
-passed dependency installation. Earlier actual production app results on the
+before building the app. Its unchanged Intel-only retry passed the full app,
+package, security, native-module, preview and original startup checks at 13:33:59 UTC. Earlier actual production app results on the
 same `7e221edd…` engine remain useful evidence, but do not substitute for this
 final-source run. Migration completion still requires all six app configurations.
 
@@ -71,14 +70,23 @@ but also discovered three personal operating-system skills. No paid task was
 sent with that catalog. The user selected an isolated Linux VM for the final
 unchanged agent task. Its normal built package, exact production engine, 239-tool
 catalog, canonical skills and root-private tracing have passed independent
-pre-Send review. Root admission passed and the single unchanged paid task is running. Delegated
-sessions are observed; its final outcomes, complete traces and provider settings
-still require review. Preflight alone does not prove agent behavior or quality.
+pre-Send review. The final unchanged task completed two genuine delegated reviews and both output
+files. Independent replay retains the strict 8/9: three controlling-citation fields
+use `Section` instead of `section`; the remaining values and both exact quotations
+match. All five inputs remain unchanged. Full 72 observer records/36 tool returns
+and 40 complete provider exchanges are retained and verified. No outside-folder
+Ask occurred, so this run does not prove the scripted Deny interaction. All
+potential main-agent wires match Gemini 3.8 Flash/medium, but native request roles
+remain unattributed; no controlled performance comparison is claimed. The memo
+also contains source-unsupported legal/business statements, tracked under the
+user-approved separate quality work. Strict grading is not changed or labelled 9/9.
 
-A fresh read-only gateway check at11:57:54UTC confirms **€17.12375031 across638
-unique calls**, unchanged across both balance reads. The gateway key remains
-active with€82.87624969 of its existing€100 budget; the authorized€250 session
-ceiling and conservative historical ledger are separate. This balance predates the final paid task now running; it is not the final spend.
+A fresh read-only gateway audit confirms **€17.95788453 across 678 unique calls**.
+All 40 final-run SSE response IDs match persisted charges totalling €0.83413422;
+complete request and response bytes are rehashed. The guard stopped normally
+with no active requests. Conservative ledger exposure remains separate from
+confirmed charges; no historical hold or accounting record was removed. The
+original €100 key budget and authorized €250 session ceiling remain unchanged.
 
 ## Earlier checkpoints
 
