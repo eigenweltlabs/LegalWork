@@ -6,6 +6,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import recipe from "./build/recipe.json" with { type: "json" };
 import { opencodeReleaseTarget } from "./index.mjs";
+import { sourceBuildPolicy } from "./build-policy.mjs";
 import { prepareOpencodeEngine, checkPreparedOpencodeEngine } from "./build/prepare.mjs";
 
 export function engineBuildMode(args, fallback = "development") {
@@ -34,7 +35,10 @@ export function engineTargetsForBuild(targets) {
 
 export async function prepareForBuild({ mode, targets, checkOnly = false, ...options }, implementation = { prepareOpencodeEngine, checkPreparedOpencodeEngine }) {
   if (!["development", "production"].includes(mode)) throw new Error("An explicit engine build mode is required.");
-  const input = { ...options, mode, ...(targets ? { targets } : mode === "production" ? { targets: recipe.targets } : {}) };
+  const input = { ...options, mode,
+    ...(mode === "production" && options.macSigning === undefined ? { macSigning: sourceBuildPolicy.productionMacSigner } : {}),
+    ...(targets ? { targets } : mode === "production" ? { targets: recipe.targets } : {}),
+  };
   try {
     return await implementation[checkOnly ? "checkPreparedOpencodeEngine" : "prepareOpencodeEngine"](input);
   } catch (cause) {

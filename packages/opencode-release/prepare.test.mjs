@@ -7,6 +7,8 @@ import test from "node:test";
 import recipe from "./build/recipe.json" with { type: "json" };
 import { engineBuildMode, engineTargetsForBuild, prepareForBuild } from "./prepare.mjs";
 import { opencodeReleaseTarget } from "./index.mjs";
+import { sourceBuildPolicy } from "./build-policy.mjs";
+import { validateSourceBuildRequest } from "./build/producer.mjs";
 import { writeFixtureDerivativeDistribution, writeFixtureReleaseLibrary } from "./test-fixture.mjs";
 
 async function fixture(run) {
@@ -27,7 +29,7 @@ async function write(root, name, contents) {
 async function cliFixture(root) {
   const directory = path.join(root, "packages/opencode-release");
   await mkdir(path.join(directory, "build"), { recursive: true });
-  for (const name of ["prepare.mjs", "index.mjs", "release.json"]) await copyFile(new URL(name, import.meta.url), path.join(directory, name));
+  for (const name of ["prepare.mjs", "index.mjs", "release.json", "build-policy.mjs", "selection.json"]) await copyFile(new URL(name, import.meta.url), path.join(directory, name));
   await copyFile(new URL("build/recipe.json", import.meta.url), path.join(directory, "build/recipe.json"));
   await write(root, "packages/opencode-release/build/prepare.mjs", `
     export async function prepareOpencodeEngine(input) { console.log(JSON.stringify({operation:"prepare",input})); return input; }
@@ -59,7 +61,27 @@ test("development uses the host default and production requests the complete rev
   const implementation = { prepareOpencodeEngine: async input => calls.push(input) };
   await prepareForBuild({ mode: "development" }, implementation);
   await prepareForBuild({ mode: "production" }, implementation);
-  assert.deepEqual(calls, [{ mode: "development" }, { mode: "production", targets: recipe.targets }]);
+  assert.deepEqual(calls, [{ mode: "development" }, { mode: "production", targets: recipe.targets, macSigning: sourceBuildPolicy.productionMacSigner }]);
+  for (const input of calls) validateSourceBuildRequest(input, "darwin-arm64");
+});
+
+test("an explicit signing configuration is preserved and rejected by the real policy validator when wrong", async () => {
+  const incorrect = { ...sourceBuildPolicy.productionMacSigner, teamId: "WRONGTEAM1" };
+  let observed;
+  await assert.rejects(prepareForBuild({ mode: "production", macSigning: incorrect }, {
+    prepareOpencodeEngine(input) {
+      observed = input.macSigning;
+      return validateSourceBuildRequest(input, "darwin-arm64");
+    },
+  }), /exact committed public certificate policy/);
+  assert.equal(observed, incorrect);
+  const correct = { ...sourceBuildPolicy.productionMacSigner, keychainPath: "/private/reviewed-fixture.keychain-db" };
+  await prepareForBuild({ mode: "production", macSigning: correct }, {
+    prepareOpencodeEngine(input) {
+      assert.equal(input.macSigning, correct);
+      return validateSourceBuildRequest(input, "darwin-arm64");
+    },
+  });
 });
 
 test("read-only starts call only check and preserve missing/stale errors", async () => {
