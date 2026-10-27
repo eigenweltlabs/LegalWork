@@ -16,7 +16,7 @@ Open Settings from the app's settings action or native app menu. The overview li
 | Notifications | Task arrivals, due/overdue reminders, notification scope and system/badge delivery. |
 | Tool Permissions | Which tool actions may proceed automatically or require approval, across workspaces. |
 | Customization | App language, task suggestions and display of reasoning. Appearance, project defaults, branding and new-window choices depend on the build. |
-| Secrets | Environment variables for services and integrations. |
+| Secrets | Browser passwords and environment variables for services and integrations. |
 | Privacy | Usage analytics and online model-catalog updates. |
 | Updates | Version/channel, update checks, download and install/restart controls. |
 | Permissions | Authorized folders and file access for the selected workspace. |
@@ -36,6 +36,18 @@ Authorizing a folder allows the assistant to access that location under its rule
 Enter API keys and passwords in the relevant connection/Secrets form. Local connection credentials belong to this LegalWork installation; team-managed connections have their own access rules. Do not expose secrets in screenshots, chat examples or diagnostic reports. Changing environment/configuration can require an engine reload; wait for active work or use the app's offered controls.
 
 In **Secrets**, add the exact environment-variable name expected by the integration and its value, then save. **Saved, not in use yet** means the running engine still needs the offered apply/reload action. Editing a stored value and applying it are distinct steps. If you use a separately operated LegalWork server, configure its integrations on that server.
+
+### Browser passwords
+
+On the local desktop, open **Settings > Secrets > Browser passwords > Add password**. Enter a **Name**, the **Website** (a complete HTTPS address), an optional **Username**, and the **Password**, then choose **Save**. The website is matched by its exact origin: scheme, hostname and port. Include a separate login subdomain when the login form uses one. Paths are ignored. HTTP is supported only for localhost development pages.
+
+Ask the assistant to open that website and use the saved entry to fill the password field. It can find entries for the current website by name and username, then fill by ID without a password value in its tool arguments or results. The same browser tab remains available for you to inspect, take over and continue using. Filling does not press the sign-in button; complete any MFA or CAPTCHA yourself when needed. No engine restart or **Apply changes** action is needed for browser passwords.
+
+Choose **Edit password** to update an entry. Leave **Password** empty to retain it; enter it again if changing **Website**. The saved value is not revealed by this form. **Delete** removes the saved entry from this device’s encrypted vault; it does not sign you out of an existing website session. Browser passwords are not environment variables. This first version is available only in the local desktop browser, not through a separately connected LegalWork server.
+
+The fill tool avoids putting the password into chat or its response. It does not isolate the agent from the password: unrestricted host commands can still read the vault, and page scripts or browser readback tools can access a filled field. The website receives the password normally. Use this with websites and agents you trust.
+
+If no matching entry appears, check the actual login page address against **Website**, including its subdomain and port. A fill requires a current password-field reference in the same chat’s local browser. After navigation, cancellation or a failed fill, inspect the page before retrying. An unreadable vault error requires restoring access to the existing vault/key; do not delete it to reset a password entry.
 
 In **Tool Permissions**, inspect the displayed rule for the operation before changing it. Allowing a tool to run automatically can affect later chats as well as the current one. In workspace **Permissions**, add/remove the intended folder grant and check the selected workspace. Neither setting replaces provider consent or OS access grants.
 

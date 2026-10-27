@@ -54,6 +54,7 @@ import {
   LayoutStack,
 } from "@/react-app/domains/settings/settings-layout";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { BrowserPasswords } from "./browser-passwords";
 
 type EnvItem = EnvironmentVariableItem;
 type EnvironmentEditorState = EnvironmentEditorDraft | null;
@@ -97,6 +98,7 @@ function EnvironmentViewContent(props: EnvironmentViewProps) {
 
   return (
     <LayoutStack>
+      {client && !isRemoteWorkspace ? <BrowserPasswords key={`${client.baseUrl}:${props.runtimeKey}`} client={client} /> : null}
       <EnvironmentSettingsPanel
         client={client}
         isRemoteWorkspace={isRemoteWorkspace}

@@ -44,7 +44,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Notifications | Which task events produce notifications or badges? | [Tasks](tasks-intake.md) |
 | Tool Permissions | What can the assistant do automatically? | [Settings](settings-privacy.md) |
 | Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
-| Secrets | How do I save credentials and apply pending changes? | [Settings](settings-privacy.md) |
+| Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
 | Updates | Which version/channel is running, and how do I install an update? | [Troubleshooting](troubleshooting.md) |
 | Workspace Permissions | Which folders can this workspace access? | [Settings](settings-privacy.md) |

@@ -999,6 +999,14 @@ export type LegalworkInboxUploadResult = {
   bytes: number;
 };
 
+export type LegalworkBrowserPassword = {
+  id: string;
+  label: string;
+  origin: string;
+  username: string;
+  updatedAt: string;
+};
+
 export type LegalworkUserEnvItem = {
   key: string;
   updatedAt: number;
@@ -3359,6 +3367,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}`,
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
+
+    listBrowserPasswords: () => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, "/browser-passwords", { token, hostToken, timeoutMs: timeouts.config }),
+    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
+    deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 
     // User-level env vars (host-auth only — desktop shell is the sole caller).
     // See apps/server/src/env-file.ts and apps/app/pr/environment-variables.md.

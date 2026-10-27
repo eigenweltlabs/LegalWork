@@ -27,7 +27,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Saved dashboards or reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
-| Account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
+| Browser passwords, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
 | Setup | [getting-started.md](references/getting-started.md) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 

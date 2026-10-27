@@ -13,6 +13,8 @@ let holdCapture = false;
 const broker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const url = new URL(request.url), body: unknown = request.method === "POST" ? await request.json() : undefined;
   calls.push({ route: url.pathname, body, session: request.headers.get("x-legalwork-browser-session") });
+  if (url.pathname.endsWith("/passwords")) return Response.json({ passwords: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", username: "user" }] });
+  if (url.pathname.endsWith("/fill-password")) return Response.json({ filled: true });
   if (url.pathname.endsWith("/upload")) return Response.json({ uploaded: [{ name: "source.bin", bytes: bytes.length }] });
   if (url.pathname.endsWith("/capture")) { if (holdCapture) await Bun.sleep(200); return Response.json({ data: png.toString("base64"), mime: "image/png" }); }
   return Response.json({ downloads: [] });
@@ -30,10 +32,19 @@ const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 process.env.LEGALWORK_SERVER_URL = policy.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
 afterAll(async () => { broker.stop(true); policy.stop(true); await native.close(); await rm(root, { recursive: true, force: true }); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken; });
 const browser_url = `${broker.url.origin}/${token}`;
-function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads") {
+function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password") {
   const definition = legalworkBrowserTools[name];
   return nativeTool(native.ctx, { name, description: definition.description, schema: z.object(definition.args), execute: (input, context) => definition.execute(input, context) });
 }
+test("native password tools send only the ID/ref, preserve calling identity and decline manual-server forwarding", async () => {
+  const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
+  native.permissionHandler(async () => {});
+  expect((await tool("legalwork_browser_passwords").execute({ browser_url }, nativeTestInvocation("ses_upload"))).output).toEqual({ passwords: [{ id: password_id, label: "Portal", username: "user" }] });
+  expect((await tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).output).toEqual({ filled: true });
+  expect(calls.at(-1)).toEqual({ route: `/${token}/fill-password`, body: { password_id, ref: "@e2" }, session: "ses_upload" });
+  const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;
+  await expect(tool("legalwork_browser_fill_password").execute({ browser_url: capability, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("local LegalWork desktop");
+});
 test("manual-server downloads save complete bytes under native edit permission and repeated reads do not duplicate writes", async () => {
   const asks: unknown[] = []; native.permissionHandler(async input => { asks.push(input); });
   const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;

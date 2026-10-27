@@ -30,7 +30,8 @@ const downloadsArgs = z.object({
   wait_ms: z.number().int().min(0).max(10000).optional().describe("Wait up to this many milliseconds for downloads to finish. Default 0."),
 });
 
-function endpoint(capability: string, route: "batch" | "downloads" | "upload" | "capture" | "download") {
+type BrowserRoute = "batch" | "downloads" | "upload" | "capture" | "download" | "passwords" | "fill-password";
+function endpoint(capability: string, route: BrowserRoute) {
   const url = new URL(capability);
   const origin = serverUrl();
   if (origin) {
@@ -48,8 +49,9 @@ function endpoint(capability: string, route: "batch" | "downloads" | "upload" | 
   return { url, remote: false };
 }
 
-async function requestBrowser(capability: string, route: "batch" | "downloads" | "upload" | "capture" | "download", body?: unknown, context?: OpenCodeContext) {
+async function requestBrowser(capability: string, route: BrowserRoute, body?: unknown, context?: OpenCodeContext) {
   const destination = endpoint(capability, route);
+  if (destination.remote && ["passwords", "fill-password"].includes(route)) throw new Error("Saved browser passwords require the local LegalWork desktop browser.");
   const response = await fetch(destination.url, {
     method: body === undefined ? "GET" : "POST", redirect: "error",
     headers: { ...(destination.remote ? { Authorization: `Bearer ${serverToken()}` } : {}), ...(context?.sessionID ? { "x-legalwork-browser-session": context.sessionID } : {}), ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
@@ -111,6 +113,24 @@ async function receiveDownloads(capability: string, files: z.infer<typeof downlo
 }
 
 export const legalworkBrowserTools = {
+  legalwork_browser_passwords: {
+    description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. First get browser_url with legalwork_browser_connect. Never ask the user to paste passwords in chat; they can save them in Settings > Secrets > Browser passwords. No password values are returned.",
+    args: { browser_url: browserUrl },
+    async execute(rawArgs: unknown, context: OpenCodeContext) {
+      const args = z.object({ browser_url: browserUrl }).parse(rawArgs);
+      await requireBrowserNetwork(context);
+      return JSON.stringify(await requestBrowser(args.browser_url, "passwords", undefined, context));
+    },
+  },
+  legalwork_browser_fill_password: {
+    description: "Fill a saved password by ID into a password field in this chat's existing local browser tab. Use a fresh native browser snapshot ref and a password_id from legalwork_browser_passwords. The desktop checks the exact website and frame origin, resolves the vault value locally and returns only confirmation. This does not submit the login. Passwords stay out of this tool's arguments/results; unrestricted host and browser readback tools can still access them.",
+    args: { browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200) },
+    async execute(rawArgs: unknown, context: OpenCodeContext) {
+      const args = z.object({ browser_url: browserUrl, password_id: z.string().uuid(), ref: z.string().min(1).max(200) }).parse(rawArgs);
+      await requireBrowserNetwork(context);
+      return JSON.stringify(await requestBrowser(args.browser_url, "fill-password", { password_id: args.password_id, ref: args.ref }, context));
+    },
+  },
   legalwork_browser_connect: {
     description: "Get LegalWork's additional capabilities for an existing native browser tab owned by this chat. Use the exact tabID from browser.tabs.list/open. Returns a browser_url for paged snapshots, background captures, large file uploads, and completed project download paths. Native browser tools remain preferred for navigation, refs and diagnostics.",
     args: { tab_id: z.string().min(1) },

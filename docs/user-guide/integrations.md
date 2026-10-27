@@ -26,7 +26,7 @@ Connecting a calendar service lets the assistant use that service's available to
 
 ## Browser and Computer Use
 
-The built-in browser opens websites in a browser panel. Ask the assistant to open a URL and inspect the page with the browser tools. Use the returned browser target for subsequent actions. Website sign-ins, downloads and site permissions are separate from LegalWork model-provider sign-in. Inspect the returned file location after downloading.
+The built-in browser opens websites in a browser panel. Ask the assistant to open a URL and inspect the page with the browser tools. Use the returned browser target for subsequent actions. For saved website passwords, use **Settings > Secrets > Browser passwords**; see [browser password setup and limits](settings-privacy.md#browser-passwords). Filling uses the existing tab. Website sign-ins, downloads and site permissions are separate from LegalWork model-provider sign-in. Inspect the returned file location after downloading.
 
 Computer Use controls desktop applications and is configured from its integration card. The built-in desktop integration in this build targets macOS and requires Accessibility and Screen Recording permissions. Use its setup/test controls to confirm readiness. For LegalWork's own navigation, prefer the app's UI action tools so the assistant can open settings or sessions directly. Browser automation is for web content, not an assumption that LegalWork's native controls are a website.
 

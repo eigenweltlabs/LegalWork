@@ -78,3 +78,5 @@ checks or the intended extension contract above.
 Focused service tests additionally cover exact native file permissions, cancellation without post-abort writes, foreign symlink rejection, complete provenance output, undelivered mutation removal and disconnect invalidation. These are engine/transport tests, not evidence of real-model browsing quality. Real websites, authenticated services, live Office behavior, packaged platform matrix and paid-model quality are separate acceptance runs.
 
 Sources: [native browser plugin/RPC](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/plugin-browser), [upstream Electron driver](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/gui-extensions/src/browser).
+
+Saved website passwords use the existing vault and native agent tab through LegalWork's additional tools. See [browser password architecture and its first-version limits](browser-login-architecture.md).

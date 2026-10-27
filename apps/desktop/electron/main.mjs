@@ -724,6 +724,7 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, BaseWindow, WebContentsView, clipboard, session,
+  loadBrowserPasswords: async () => (await runtimeManager.credentialVault()).browserPasswords,
   resolveEngine: () => runtimeManager.engineInfo(),
   resolveLegalworkServer: () => runtimeManager.legalworkServerInfo(),
   authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
