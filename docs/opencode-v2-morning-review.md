@@ -10,29 +10,34 @@ records are preserved, and a fresh per-case budget guard precedes another task.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
 Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
 
-## Current checkpoint — 27 October, 12:05 UTC
+## Current checkpoint — 27 October, 13:30 UTC
 
-Both Windows architectures now pass real engine/tool execution and cleanup, with
-all original checks retained. Both Macs and both Linux configurations pass actual
-production app/package/startup on the final engine distribution. The older Intel
-startup failure did not repeat, and no speculative production fix was applied.
-Windows app startup, the final latest-source six-platform run and full Mac unit
-result are still outstanding. The latest full Linux unit job has passed.
+All six native engine configurations and all six protected runtimes pass. Both
+full Linux and Mac unit suites pass. Final-source actual app/package/startup
+passes are closed for Apple Silicon Mac and both Linux architectures. Both
+Windows builds pass the preceding checks but fail the original final startup
+gate. The processes remain alive without observable app bootstrap; the cause is
+unproven. The focused [Windows follow-up40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
+adds scoped diagnostic collection and the real engine-to-protected-VM check. No startup assertion
+or time limit is relaxed.
 
-The latest `dev` help/navigation commit is merged. The merged app builds normally;
-a checker-only relative-import correction passes against its unchanged packaged
-bytes. Final [run40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
-includes that correction and verifies reused engine archives on Linux, preserving
-all twelve file/archive pins without waiting for a Mac builder. Its development
-TEST metadata and the actual production-produced engine bytes are distinguished.
+Intel Mac's initial final-source attempt failed during dependency downloads.
+An unchanged Intel-only retry is now running and has passed installation. Earlier
+production app passes remain retained under their exact source identities.
 
-The final Mac real-agent attempt has not sent a paid task: its native catalog
-includes three extra personal skills despite a private app profile. This is
-separate from the previously accepted same-user trace ownership. An isolated Linux
-VM is being prepared using the original benchmark and selected skills, without
-changing or limiting production capabilities. The user explicitly selected the
-isolated Linux VM. It has no service account and automatically
-deletes at15:48UTC; full evidence must be preserved before explicit cleanup.
+The latest `dev` help/navigation commit is merged. Final
+[run40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
+uses exact production-produced engine bytes under development TEST metadata;
+it is not another production producer or an app release.
+
+The final actual-model task is running after root admission. The user-selected isolated Linux VM
+has passed normal package/security and independent pre-Send catalog, protected
+execution and root-private tracing checks. Its final outcomes and complete traces remain required. The VM has no service account and automatically
+deletes at15:48UTC; complete evidence must be preserved. The earlier Mac skill
+contamination remains recorded, with no paid task sent there.
+
+The user reports sufficient free disk space. No further cleanup batches are
+planned; only the already running private evidence backup will finish.
 
 ## Previous checkpoint — 27 October, 11:06 UTC
 
