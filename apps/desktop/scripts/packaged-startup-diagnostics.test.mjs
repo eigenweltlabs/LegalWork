@@ -34,10 +34,15 @@ test("failure evidence redacts known and unknown credentials/cookies, retaining 
     "Cookie: session=unknown-cookie-value; other=unknown-second-cookie", "Set-Cookie: sid=unknown-set-cookie; HttpOnly",
     'api_key="unknown-api-key-value"', credentialUrl.href, "Uncaught renderer exception"].join("\n");
   await writeFile(path.join(logs, "main.log"), text);
+  await writeFile(path.join(logs, "chromium-startup.log"), `Chromium startup: ${text}`);
   const result = await collectStartupFailure({ ...base, startedAt, logBaseline, output: text,
+    windowSnapshot: (pid) => {
+      assert.equal(pid, base.child.pid);
+      return [{ pid: process.pid, title: `Main process error ${token}`, controls: [{ name: text, controlType: "ControlType.Text" }] }];
+    },
     milestones: [{ event: "renderer-controls-ready", elapsedMs: 250 }] });
   const files = await readdir(result.directory);
-  assert.deepEqual(files.sort(), ["application-0-main.log", "diagnostics.json", "stdio.log"]);
+  assert.deepEqual(files.sort(), ["application-0-main.log", "application-3-chromium-startup.log", "diagnostics.json", "stdio.log"]);
   const artifacts = (await Promise.all(files.map(name => readFile(path.join(result.directory, name), "utf8")))).join("\n");
   for (const secret of [password, encodeURIComponent(password), token, apiKey, "unknown-cookie-value", "unknown-second-cookie",
     "unknown-set-cookie", "unknown-api-key-value", "unknown-password", "PRIVATE_DATABASE_CONTENT_MUST_NOT_BE_COPIED", "PRIVATE_COOKIE_DATABASE_MUST_NOT_BE_COPIED"])
@@ -48,6 +53,8 @@ test("failure evidence redacts known and unknown credentials/cookies, retaining 
   assert.equal(summary.states.find(item => item.path.endsWith("runtime.db")).size, 43);
   assert.equal(summary.states.find(item => item.path.endsWith("legalwork-server-tokens.json")).regularFile, true);
   assert.equal(summary.milestones[0].elapsedMs, 250); assert.equal(summary.child.exitCode, null);
+  assert.equal(summary.windows[0].title, "Main process error <redacted>");
+  assert.match(summary.windows[0].controls[0].name, /TypeError: synthetic useful failure/);
 }));
 
 test("prelaunch host-log bytes and log symlinks are excluded even after append and rotation", () => fixture(async (base, logs) => {
@@ -61,8 +68,13 @@ test("prelaunch host-log bytes and log symlinks are excluded even after append a
   await symlink(path.join(base.runtime, "server.json"), main, process.platform === "win32" ? "file" : undefined);
   await writeFile(path.join(logs, "runtime-boot-failure.log"), "STALE_LOG_MUST_NOT_BE_COPIED");
   await utimes(path.join(logs, "runtime-boot-failure.log"), new Date(0), new Date(0));
+  await symlink(path.join(base.runtime, "server.json"), path.join(logs, "chromium-startup.log"), process.platform === "win32" ? "file" : undefined);
   const result = await collectStartupFailure({ ...base, startedAt, logBaseline,
-    processSnapshot: () => { throw new Error("synthetic OS process inspection unavailable"); } });
+    processSnapshot: () => { throw new Error("synthetic OS process inspection unavailable"); },
+    windowSnapshot: (pid) => {
+      assert.equal(pid, base.child.pid);
+      throw new Error("synthetic native window inspection unavailable");
+    } });
   const artifacts = (await Promise.all((await readdir(result.directory)).map(name => readFile(path.join(result.directory, name), "utf8")))).join("\n");
   for (const text of ["PRIOR_LAUNCH_PRIVATE_CONTENT", "CONFIG_MUST_NOT_BE_COPIED", "STALE_LOG_MUST_NOT_BE_COPIED"])
     assert.equal(artifacts.includes(text), false);
@@ -71,6 +83,20 @@ test("prelaunch host-log bytes and log symlinks are excluded even after append a
   assert.equal(summary.logs.find(item => item.path === main).retained, false);
   assert.equal(summary.logs.find(item => item.path.endsWith("main.old.log")).offset, Buffer.byteLength("PRIOR_LAUNCH_PRIVATE_CONTENT\n"));
   assert.equal(summary.processes.unavailable, true);
+  assert.equal(summary.windows.unavailable, true);
+}));
+
+test("an exited synthetic app cannot authorize reading reused or registered PIDs' window text", () => fixture(async (base, logs) => {
+  const logBaseline = await snapshotStartupLogs([logs]);
+  let windowReads = 0;
+  const result = await collectStartupFailure({ ...base, startedAt: Date.now(), logBaseline,
+    child: { ...base.child, exitCode: 1 },
+    processSnapshot: () => [{ pid: base.child.pid, parentPid: 0, name: "reused-PID" }],
+    windowSnapshot: () => { windowReads++; throw new Error("Must not inspect a dead app's windows"); },
+  });
+  const summary = JSON.parse(await readFile(path.join(result.directory, "diagnostics.json"), "utf8"));
+  assert.equal(windowReads, 0);
+  assert.deepEqual(summary.windows, { skipped: true, reason: "synthetic-main-process-not-live" });
 }));
 
 test("cookie headers and password assignments are scrubbed independently of known config values", () => {
