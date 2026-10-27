@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import path from "node:path";
 import os from "node:os";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 
 import {
   alignWindowsOpencodeConfigEnv,
@@ -61,6 +62,8 @@ describe("private embedded engine connection", () => {
 });
 
 describe("host-owned image runtime modules", () => {
+  // Windows 8.3 and long user-directory names can identify the same file.
+  const physical = filename => realpathSync.native(filename);
   it("resolves physical packaged modules and rejects missing or escaping dependencies", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "image-runtime-"));
     try {
@@ -73,9 +76,10 @@ describe("host-owned image runtime modules", () => {
         await writeFile(path.join(directory, "index.cjs"), "");
       }
       const options = { isPackaged: true, resourcesPath, serverEntry: path.join(root, "unrelated", "embedded.js") };
-      assert.deepEqual(toolImageRasterModules(options), {
-        canvas: await realpath(path.join(modules, "@napi-rs/canvas/index.cjs")),
-        imageSize: await realpath(path.join(modules, "image-size/index.cjs")),
+      const result = toolImageRasterModules(options);
+      assert.deepEqual({ canvas: physical(result.canvas), imageSize: physical(result.imageSize) }, {
+        canvas: physical(path.join(modules, "@napi-rs/canvas/index.cjs")),
+        imageSize: physical(path.join(modules, "image-size/index.cjs")),
       });
       await rm(path.join(modules, "image-size"), { recursive: true });
       assert.throws(() => toolImageRasterModules(options), /Cannot find module|ENOENT/);
@@ -98,8 +102,8 @@ describe("host-owned image runtime modules", () => {
         await writeFile(path.join(directory, "index.cjs"), "");
       }
       const result = toolImageRasterModules({ isPackaged: false, resourcesPath: "/unrelated/Electron", serverEntry: path.join(root, "server/dist/embedded.js") });
-      assert.equal(result.canvas, await realpath(path.join(root, "server/node_modules/@napi-rs/canvas/index.cjs")));
-      assert.equal(result.imageSize, await realpath(path.join(root, "server/node_modules/image-size/index.cjs")));
+      assert.equal(physical(result.canvas), physical(path.join(root, "server/node_modules/@napi-rs/canvas/index.cjs")));
+      assert.equal(physical(result.imageSize), physical(path.join(root, "server/node_modules/image-size/index.cjs")));
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
