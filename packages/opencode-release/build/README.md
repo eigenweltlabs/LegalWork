@@ -1,47 +1,59 @@
-# Temporary source-build candidate
+# Reviewed OpenCode source preparation
 
-The current source recipe is **`2.1.4-legalwork.http-policy.3`**. It combines
-our existing MCP readiness correction with the user-approved Code Mode HTTP
-permission boundary and preserves Bun's lazily inferred form headers. The [combined source receipt](../../../docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json)
-pins all nine changed files, the original frozen dependency graph, compiler,
-commands and results: 6,766 Core passes, 43 inherited skips and seven failures
-reproduced against original source; 1,416 Code Mode library passes; 90 randomized
-HTTP executions. Parent review independently verified 53 input/evidence hashes
-and the byte-identical earlier MCP subset. All twelve target artifacts and
-deterministic private archives are built and independently checked. Offline
-installation passes for Mac ARM64, Linux baseline and Windows baseline. Mac
-actual production HTTP acceptance passes 112 assertions, with native/MCP/prefix
-checks also green. Actual Linux x64 and Windows x64 engine/Electron execution now pass, including
-normal packaged startup, native plugin/tool calls and retained history. The
-latest common final7 normal build/package/security passes on all three tested
-platforms. Its Windows unsigned installer and actual installed upgrade/history
-checks also pass. Remaining real-agent regression acceptance is still running;
-see [current capability status](../../../docs/opencode-v2-capability-status.md).
+The migration target is frozen at **OpenCode 2.1.4**, with LegalWork derivative
+**`2.1.4-legalwork.http-policy.3`**. The recipe pins the upstream commit, original
+frozen Bun dependency graph, official Bun 1.4.4 compiler per host and reviewed
+MCP-readiness/Code Mode HTTP patches. The SDK/client/plugin ABI stays at 2.1.4.
+OpenCode 2.2.0 is deferred by the user's decision. See the [current acceptance
+status](../../../docs/opencode-v2-capability-status.md) for actual platform gates.
 
-`selection.json` still selects official **2.1.4**. Normal desktop/server/CLI
-code can consume a build-owned derivative selection containing an independent
-manifest pin; each process reconstructs trust and verifies actual installed
-files before startup. The SDK/client/plugin ABI stays at base 2.1.4. This wiring
-has unit, compiled-selection fixture and TypeScript checks; actual native/runtime checks have now executed on Mac ARM64, Linux x64 and
-Windows x64. Functional regression completion and distribution adoption are
-still separate gates. Test-only preloads
-are not part of production selection.
+## Normal development and app builds
 
-Archive retrieval supports verified local files, an offline cache, and streamed
-HTTPS retrieval when a reviewed build supplies an actual published download
-base. No download base is currently selected or fabricated. Invalid downloads
-and corrupt existing caches fail without publishing or replacing executables.
-The complete private twelve-target distribution is prepared; public availability
-and final release metadata remain separate release gates.
+Normal development and desktop/server/CLI build entry points call the shared
+preparer before importing the fixed generated engine selection. Developers can
+also run `pnpm engine:prepare`. Preparation builds the requested host target,
+then verifies/reuses matching cached outputs on subsequent runs. A cold build
+needs the pinned upstream source and dependency/compiler downloads; offline reuse
+needs the complete verified cache. End-user startup does not compile source.
+LegalWork uses pnpm; the user-approved isolated upstream build uses its original
+frozen Bun installation without converting the upstream lockfile.
 
-Final Mac engine signing must happen **before** binary/provenance/archive pins
-and the host build. The app signer preserves the pinned engine bytes and
-rejects an ad-hoc engine under a production signing identity. Windows installer
-signing remains subject to the existing policy: bundled engine bytes are not
-silently re-signed. No artifacts have been published and no release is authorized
-by this preparation.
+Committed `../selection.json` is the **source-build policy**. It does not select
+the official binary or a public download URL. The ignored
+`../generated/selection.json` and independent receipt are build-owned outputs,
+validated against the source policy and recipe. Installed engines and archive
+caches use the full manifest digest, keeping different same-version builds
+separate. Every process reconstructs trust and verifies the actual five installed
+files; environment/PATH overrides do not replace the compiled selection.
 
-## Opt-in production Mac engine signing
+Production preparation (`pnpm engine:prepare:production`) requires the complete
+twelve-target matrix and exact approved public Mac signer policy. Existing CI
+imports the identity in an owned temporary keychain, signs Mac outputs **before**
+provenance/checksums/archive pins, then removes that keychain. Production consumers
+require the complete same-run distribution and its independent manifest digest.
+Missing signing material never changes a production build into a development
+build. The app signer preserves the pinned engine bytes. Development builds use
+the explicit ad-hoc path and require no production identity.
+
+The desktop and complete NPM platform bundles carry their verified engine files.
+Node development remains supported. Bare standalone executable downloads,
+GitHub/mirror fallback URLs and the separate raw-sidecar release route are
+retired. The local sidecar manifest is retained for complete NPM bundle checks;
+it does not authorize remote downloads. This preparation neither publishes an
+engine release nor changes application auto-update delivery.
+
+The source-build and actual app acceptance are separate gates. No complete
+six-platform verdict is implied by cross-compilation, cache validation or these
+documentation changes. The [combined patch receipt](../../../docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json)
+and the historical investigation below preserve earlier exact evidence.
+
+## Historical signing and candidate investigation
+
+The following sections record preparation before the normal source-build route
+was adopted. Their candidate-only selectors, proposed public download locations
+and unadopted handoff proposals are historical; the current contract is above.
+
+### Original explicit production Mac engine signing
 
 `buildCandidate({macSigning})` and the candidate CLI's
 `--mac-signing-config /path/to/public-certificate-policy.json` now provide a
@@ -105,7 +117,7 @@ The original ad-hoc `f754…` producer, all prior candidate archives and selecti
 remain immutable. Production signing creates a new distribution identity/hash;
 it must never re-sign files after their manifest has been approved.
 
-### Candidate versus adoption metadata proposal (not implemented)
+### Historical candidate versus adoption metadata proposal
 
 Keep artifact facts separate from host adoption. A distribution manifest should
 describe a `reviewed-build` and its source, signing evidence and immutable bytes;
@@ -311,7 +323,7 @@ offline additionally requires the complete pinned source, dependency and
 cross-compiler caches. Pinned-input replay is recorded; byte-for-byte rebuild
 identity is not claimed without a separate comparison.
 
-## Proposed production handoff (not adopted)
+## Historical production handoff proposal (superseded)
 
 1. Execute the supported target artifacts. The official twelve-target matrix is
    built and stays intact. Only macOS ARM64 has executed in this work lane.
@@ -322,7 +334,7 @@ identity is not claimed without a separate comparison.
    version, base client/plugin version, channel, source/patch/test receipt and
    per-target archive, binary and provenance hashes. Keep its origin explicit.
    Preparing those manifests locally does not authorize publishing artifacts.
-3. Have desktop sidecar preparation and standalone managed-engine download use
+3. Have desktop sidecar preparation and the then-proposed standalone download use
    that selected manifest with verified cache/offline behavior. Replace the
    official default only after parent adoption. The production host should pin
    the selected identity directly, rather than depend on a validation preload.
