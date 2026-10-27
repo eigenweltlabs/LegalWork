@@ -163,6 +163,7 @@ import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
+import { ProjectSetupGate } from "@/react-app/domains/onboarding/project-setup-gate";
 import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
@@ -2528,12 +2529,17 @@ export function SessionRoute() {
     />}
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
+      <ProjectSetupGate
+        client={selectedWorkspaceEndpoint?.client ?? null}
+        workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+        onApproved={() => void refreshRouteState()}
+      >
       <AiPlansOverlay
         totalSteps={isDesktopRuntime() ? 6 : 3}
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
-        serverReady={Boolean(selectedWorkspaceEndpoint)}
+        serverReady={Boolean(selectedWorkspaceEndpoint && opencodeClient)}
         initialSeats={eigenweltView?.entitlements?.seats}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
@@ -2557,6 +2563,7 @@ export function SessionRoute() {
         }
         onOpenUpdates={isDesktopRuntime() ? openPlansUpdates : undefined}
       />
+      </ProjectSetupGate>
     ) : null}
     <Dialog open={plansUpdatesOpen} onOpenChange={setPlansUpdatesOpen}>
       <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl">
