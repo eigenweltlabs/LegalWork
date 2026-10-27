@@ -5,6 +5,8 @@ import { existsSync } from "node:fs"
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { opencodeReleaseTarget } from "@legalwork/opencode-release"
+import { opencodeEngineSelection, stageSelectedOpencodeEngine } from "@legalwork/opencode-release/selection"
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)))
 
@@ -80,6 +82,12 @@ for (const target of targets) {
   if (!target.id.startsWith("windows")) {
     chmodSync(dest, 0o755)
   }
+
+  const engineTarget = opencodeReleaseTarget(target.os, target.cpu)
+  await stageSelectedOpencodeEngine({
+    binary: join(root, "dist", "bin", "opencode-engine", opencodeEngineSelection.artifactId, engineTarget, `opencode${ext}`),
+    directory: join(bindir, "opencode-engine", opencodeEngineSelection.artifactId, engineTarget), target: engineTarget,
+  })
 
   writeJson(join(dir, "package.json"), {
     name,

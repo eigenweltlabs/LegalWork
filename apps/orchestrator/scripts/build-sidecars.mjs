@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -90,6 +91,11 @@ for (const target of targets) {
     size: statSync(serverDest).size,
   };
 }
+
+// The server executable resolves its own content-addressed engine bundle.
+const { opencodeEngineSelection } = await import("@legalwork/opencode-release/selection");
+cpSync(join(serverDir, "opencode-engine", opencodeEngineSelection.artifactId),
+  join(outdir, "opencode-engine", opencodeEngineSelection.artifactId), { recursive: true });
 
 const manifest = {
   version: orchestratorVersion,

@@ -4,7 +4,7 @@ import { access, mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { prepareForBuild } from "../packages/opencode-release/prepare.mjs";
+import { developmentEngineEnvironment } from "../packages/opencode-release/prepare.mjs";
 
 const cwd = process.cwd();
 const tmpDir = path.join(cwd, "tmp");
@@ -133,7 +133,7 @@ const legalworkServerBin = path.join(
 );
 
 const ensureLegalworkServer = async () => {
-  await prepareForBuild({ mode: "development", checkOnly: !autoBuildEnabled });
+  const engineEnvironment = await developmentEngineEnvironment({ checkOnly: !autoBuildEnabled, includeBinary: true });
   try {
     await access(legalworkServerBin);
   } catch {
@@ -169,6 +169,7 @@ const ensureLegalworkServer = async () => {
       process.exit(1);
     }
   }
+  return engineEnvironment;
 };
 
 const legalworkUrl = `http://${clientHost}:${legalworkPort}`;
@@ -195,7 +196,7 @@ const headlessEnv = {
 
 };
 
-await ensureLegalworkServer();
+Object.assign(headlessEnv, await ensureLegalworkServer());
 
 logLine("[dev:headless-web] Starting services");
 logLine(`[dev:headless-web] Workspace: ${workspace}`);
