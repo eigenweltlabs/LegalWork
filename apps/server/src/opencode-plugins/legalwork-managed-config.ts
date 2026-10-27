@@ -4,6 +4,7 @@ import { registerPrimaryContext } from "./native-review-worker.js";
 import { managedConfigurationDiff } from "../managed-config-sources.js";
 import { managedAgents, managedModelDifferences, managedProviderAllowed, managedProviderDifferences } from "./managed-config-transforms.js";
 import type { NativeConfig } from "../native-opencode-config.js";
+import { registerManagedFolderPermissions } from "./managed-folder-permissions.js";
 
 /** Shared native definitions plus saved app-owned per-location controls.
  * Arbitrary folder configuration is never a managed capability source. */
@@ -32,6 +33,7 @@ export const LegalWorkManagedConfig = Plugin.define({
     };
     const registrations: Array<{ dispose(): Promise<void> }> = [];
     if (managed) {
+      registrations.push(await registerManagedFolderPermissions(ctx, read));
       registrations.push(await ctx.integration.transform(editor => {
         for (const [id, provider] of Object.entries(settings?.configuration.providers ?? {})) {
           if (!editor.get(id)) editor.method.update({ integrationID: id, method: { type: "key", label: "Manually enter API Key" } });

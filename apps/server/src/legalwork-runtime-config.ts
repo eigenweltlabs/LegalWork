@@ -275,9 +275,19 @@ export async function buildLegalworkRuntimeSettings(
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
   // The firm's tool permissions apply over the member's own.
-  const { permission } = config
+  const { permission: configuredPermission } = config
     ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
     : { permission: { ...runtimeConfig.permission } };
+  // V1 asked before native file tools crossed the project's folder boundary.
+  // V2 defaults to allowing it. Restore the app's default without reordering
+  // explicit user/firm rules or dropping the fallback behind specific grants.
+  const permission: Record<string, unknown> = Object.hasOwn(configuredPermission, "external_directory")
+    ? { ...configuredPermission }
+    : { external_directory: { "*": "ask" }, ...configuredPermission };
+  const folders = permission.external_directory;
+  if (folders && typeof folders === "object" && !Array.isArray(folders)) {
+    permission.external_directory = { ...(Object.hasOwn(folders, "*") ? {} : { "*": "ask" }), ...Object.fromEntries(Object.entries(folders)) };
+  }
   const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
   // Append the specific rule after wildcard rules; approvals cannot be saved
   // for this tool, so every proposed instructions change is reviewed.
