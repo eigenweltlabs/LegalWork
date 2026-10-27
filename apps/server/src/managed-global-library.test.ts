@@ -40,7 +40,7 @@ test("shared packages keep original native files and never discover project or a
   expect(await readFile(join(destination, "commands", "package", "review.md"), "utf8")).toBe(command);
   expect(result.plugins).toEqual([]);
   expect((await lstat(join(destination, "agents"))).isSymbolicLink()).toBe(true);
-  expect(await readdir(source)).toEqual(["agents", "commands"]);
+  expect((await readdir(source)).sort()).toEqual(["agents", "commands"]);
   expect(await prepareManagedGlobalLibrary(config)).toEqual(result);
   expect(await readFile(join(source, "agents", "package", "reviewer.md"), "utf8")).toBe(agent);
 }));
