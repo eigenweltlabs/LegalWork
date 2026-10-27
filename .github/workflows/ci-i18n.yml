@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - codex/projects-akte-workspace
+      - codex/opencode-v2-migration
   push:
     branches:
       - dev
