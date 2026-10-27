@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, FileAudio, FileText, Loader2, Sparkles, X } from "lucide-react";
+import { Check, Copy, FileAudio, FileText, Loader2, X } from "lucide-react";
 import type { AudioRecordingDetail, AudioTranscriptEdit, AudioTranscriptSegment } from "@legalwork/types/audio";
 import { audioRecordingEditTranscript, audioRecordingGet, audioRecordingSummarize } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
@@ -174,8 +174,9 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
         followRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
       }}
     >
+      <div className="lw-recording-transcript-content">
       <header className="lw-recording-transcript-header">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-[1_1_240px]">
           <h1>{meta?.title ?? title}</h1>
           <div className="lw-recording-transcript-details">
             {meta ? <span>{new Date(meta.createdAt).toLocaleDateString(currentLocale(), { dateStyle: "medium" })} · {new Date(meta.createdAt).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" })}</span> : null}
@@ -194,21 +195,20 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
           {meta?.summaryError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.summaryError}</p> : null}
         </div>
         <div className="lw-recording-transcript-actions">
+          {!liveRecording && meta?.transcriptionSource === "cloud" && !meta.summary && turns.length > 0 ?
+            <Button variant="ghost" size="sm" className="px-2 text-xs" onClick={() => void summarize()}
+              disabled={startingSummary || meta.summaryProcessing || meta.speakerProcessing}
+              aria-label={t("recorder.meeting_notes_manual")}
+              title={`${t("recorder.meeting_notes_manual")}: ${t("recorder.meeting_notes_manual_description")}`}>
+              {t(startingSummary || meta.summaryProcessing ? "recorder.meeting_notes_manual_running" : "recorder.meeting_notes_manual")}
+            </Button> : null}
           <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
           <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />
         </div>
       </header>
-      {!liveRecording && meta?.transcriptionSource === "cloud" && !meta.summary && turns.length > 0 ? <div className="px-6 pb-4">
-        <Button variant="outline" size="sm" onClick={() => void summarize()}
-          disabled={startingSummary || meta.summaryProcessing || meta.speakerProcessing}
-          title={t("recorder.meeting_notes_manual_description")}>
-          {startingSummary || meta.summaryProcessing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          {t("recorder.meeting_notes_manual")}
-        </Button>
-      </div> : null}
-      {meta?.summary ? <section className="mb-6 rounded-xl border border-subtle bg-sunken p-4" aria-label={t("recorder.meeting_summary")}>
-        <h2 className="mb-2 text-sm font-medium">{t("recorder.meeting_summary")}</h2>
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{meta.summary}</p>
+      {meta?.summary ? <section className="lw-recording-transcript-summary" aria-label={t("recorder.meeting_summary")}>
+        <h2>{t("recorder.meeting_summary")}</h2>
+        <p>{meta.summary}</p>
       </section> : null}
       <div className="lw-recording-transcript-body">
         {turns.length === 0 ? <div className="lw-recording-transcript-empty"><FileText className="size-6" /><p>{t(liveRecording ? "recorder.waiting_for_speech" : "recorder.transcript_empty")}</p></div> : turns.map(turn => (
@@ -224,6 +224,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
             </div>)}</div>
           </section>
         ))}
+      </div>
       </div>
     </div>
   );

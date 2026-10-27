@@ -234,7 +234,8 @@ transcription region and optional instructions. The switch defaults to on;
 upgrading preserves either previous title/summary opt-out. Disabling it sends no
 automatic notes request. Local recordings and ephemeral dictation never generate cloud notes.
 
-Saved cloud transcripts without a summary offer **Smart Meeting Summary**.
+Saved cloud transcripts without a summary offer **Summarize** in the
+header toolbar. The title, summary and transcript share one bounded reading column.
 This runs title, summary and speaker naming once using the current notes model
 and instructions, even when automatic post-processing is off. It leaves that
 setting unchanged. The button waits for speaker processing, shows progress,
@@ -252,7 +253,11 @@ fields. Failures leave the transcript intact. A manual rename during generation
 is preserved. Speaker names require a known speaker ID and an exact quote from
 that speaker containing the proposed name. The model is instructed to use only
 explicit self-identification; uncertain identities retain their existing labels.
-Manual speaker names are preserved. Summary text appears above the transcript and is included in JSON,
+Manual speaker names are preserved. Summary prose uses known personal names,
+not internal speaker IDs. Unknown references trigger at most one corrective
+request for neutral wording; a second invalid response is not saved. Existing
+summary IDs resolve to stored personal names on reopen and in subsequent edits
+and workspace exports. Summary text appears above the transcript and is included in JSON,
 Markdown and managed workspace copies; TXT and SRT remain verbatim.
 
 OpenWhispr's [capture timeline](https://github.com/OpenWhispr/openwhispr/blob/f2a269646075ab4a82b86f08802aeaf315191520/src/helpers/meetingAudioTimeline.js),

@@ -1295,6 +1295,23 @@ test("local recordings, ephemeral dictation and disabled notes never call a clou
   assert.equal(service.summaryJobs.size, 0);
 });
 
+test("existing summaries resolve known speaker IDs on reopen and in regenerated exports", async t => {
+  const { service, record } = await notesFixture(t, async () => ({ title: "Review", summary: "Agreed.", speakerNames: { 0: "Chris" } }));
+  const id = await record();
+  await service.summaryJobs.get(id)?.promise;
+  const detail = await service.getRecording(id);
+  const metadata = path.join(detail.meta.folderPath, "meta.json");
+  await fsp.writeFile(metadata, JSON.stringify({ ...detail.meta, summary: "Speaker 0 stimmt zu. Speaker 1 antwortet." }));
+  assert.equal((await service.getRecording(id)).meta.summary, "Chris stimmt zu. Speaker 1 antwortet.");
+  await service.editTranscript(id, { type: "rename-speaker", speaker: 1, name: "Johann" });
+  assert.equal((await service.getRecording(id)).meta.summary, "Chris stimmt zu. Johann antwortet.");
+  for (const name of ["meta.json", "transcript.json", "transcript.md"]) {
+    const exported = await fsp.readFile(path.join(detail.meta.folderPath, name), "utf8");
+    assert.ok(exported.includes("Chris stimmt zu. Johann antwortet."));
+    assert.ok(!exported.includes("Speaker 0"));
+  }
+});
+
 test("Smart Meeting Summary runs once after an automatic opt-out and survives duplicate clicks", async t => {
   const calls = [];
   /** @type {(value: { title: string, summary: string, speakerNames: Record<string, string> }) => void} */

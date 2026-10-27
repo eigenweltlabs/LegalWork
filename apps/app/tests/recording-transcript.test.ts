@@ -64,25 +64,26 @@ const render = (detail?: AudioRecordingDetail, surface: "panel" | "inline" | "pa
   } finally { client.clear(); }
 };
 
-test("saved cloud transcripts offer Smart Meeting Summary even when automatic processing is disabled", () => {
+test("saved cloud transcripts offer Summarize even when automatic processing is disabled", () => {
   setRenderState({ meetingNotes: { enabled: false, model: "", instructions: "" } });
   const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", modelId: "gemini-transcribe-live-eu" },
     segments: [segment("saved", "Review the contract.", 0)] } satisfies AudioRecordingDetail;
   for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
     const html = render(detail, surface);
-    const button = html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Smart Meeting Summary<\/button>/)?.[0];
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
     expect(button).toBeDefined();
     expect(button).not.toContain('disabled=""');
   }
-  expect(render({ ...detail, meta: { ...detail.meta, summary: "Existing summary" } })).not.toContain("Smart Meeting Summary");
-  expect(render({ ...detail, meta: { ...detail.meta, transcriptionSource: "local" } })).not.toContain("Smart Meeting Summary");
-  expect(render({ ...detail, segments: [] })).not.toContain("Smart Meeting Summary");
+  expect(render({ ...detail, meta: { ...detail.meta, summary: "Existing summary" } })).not.toContain("Summarize");
+  expect(render({ ...detail, meta: { ...detail.meta, transcriptionSource: "local" } })).not.toContain("Summarize");
+  expect(render({ ...detail, segments: [] })).not.toContain("Summarize");
 });
 
-test("Smart Meeting Summary is disabled while processing is in progress", () => {
+test("Summarize is disabled while processing is in progress", () => {
   for (const processing of [{ summaryProcessing: true }, { speakerProcessing: true }]) {
     const html = render({ meta: { ...recording, status: "complete", transcriptionSource: "cloud", ...processing }, segments: [segment("saved", "Words", 0)] });
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Smart Meeting Summary<\/button>/);
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
+    expect(button).toContain('disabled=""');
   }
 });
 

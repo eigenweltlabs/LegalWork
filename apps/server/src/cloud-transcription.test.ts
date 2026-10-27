@@ -72,12 +72,15 @@ async function notesGateway() {
   const state = await fixture();
   const requests: unknown[] = [];
   let output = '{"title":"Contract review","summary":"Deadline: Friday."}';
+  let followingOutput: string | undefined;
   let finishReason = "stop";
   const gateway = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     expect(new URL(request.url).pathname).toBe("/v1/chat/completions");
     expect(request.headers.get("authorization")).toBe("Bearer subscription-secret");
     requests.push(await request.json());
-    return Response.json({ choices: [{ message: { content: output }, finish_reason: finishReason }] });
+    const content = output;
+    if (followingOutput) { output = followingOutput; followingOutput = undefined; }
+    return Response.json({ choices: [{ message: { content }, finish_reason: finishReason }] });
   } });
   cleanups.push(() => gateway.stop(true));
   state.setRemote({ baseURL: gateway.url.origin, models: [state.model] });
@@ -91,7 +94,8 @@ async function notesGateway() {
   ]);
   const input = { model: "gemini-transcribe-live-eu", transcript: "[speaker:0] The deadline is Friday.", speakers: [{ id: 0, label: "Microphone" }],
     settings: { enabled: true, model: "", instructions: "Focus on dates" } } satisfies Parameters<typeof generateMeetingNotes>[1];
-  return { ...state, requests, input, setModels, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; } };
+  return { ...state, requests, input, setModels, setOutput: (text: string, reason = "stop") => { output = text; finishReason = reason; },
+    thenOutput: (text: string) => { followingOutput = text; } };
 }
 
 test("meeting notes default to regional Luna despite reasoning flags, cheaper-looking aliases and catalog order", async () => {
@@ -164,4 +168,28 @@ test("automatic names require a known speaker and evidence from that speaker con
     speakers: [{ id: 0, label: "Microphone" }, { id: 1, label: "System audio" }, { id: 2, label: "Speaker 3" }],
   });
   expect(result.speakerNames).toEqual({ 0: "Anna" });
+});
+
+test("summary references resolve to supplied and evidence-backed names without another request", async () => {
+  const { config, input, setOutput, requests } = await notesGateway();
+  setOutput(JSON.stringify({ title: "Speaker 0 and Speaker 1", summary: "Speaker 0 agrees. [speaker:1] replies. Sprecher 10 leaves.",
+    speakers: [{ id: 1, name: "Johann", evidence: "I am Johann." }] }));
+  const result = await generateMeetingNotes(config, { ...input,
+    transcript: "[speaker:0] Yes.\n[speaker:1] I am Johann.\n[speaker:10] Goodbye.",
+    speakers: [{ id: 0, label: "Chris" }, { id: 1, label: "System audio" }, { id: 10, label: "Alex" }] });
+  expect(result.title).toBe("Chris and Johann");
+  expect(result.summary).toBe("Chris agrees. Johann replies. Alex leaves.");
+  expect(requests).toHaveLength(1);
+});
+
+test("unidentified summary speakers get one neutral rewrite instead of publishing internal IDs", async () => {
+  const { config, input, setOutput, thenOutput, requests } = await notesGateway();
+  setOutput(JSON.stringify({ title: "Frist", summary: "Speaker 0 nennt Freitag." }));
+  thenOutput(JSON.stringify({ title: "Frist", summary: "Die Frist endet am Freitag." }));
+  expect((await generateMeetingNotes(config, input)).summary).toBe("Die Frist endet am Freitag.");
+  expect(requests).toHaveLength(2);
+  expect(JSON.stringify(requests[1])).toContain("without naming or numbering the person");
+  setOutput(JSON.stringify({ title: "Frist", summary: "Speaker 0 nennt Freitag." }));
+  await expect(generateMeetingNotes(config, input)).rejects.toThrow("speaker references");
+  expect(requests).toHaveLength(4);
 });

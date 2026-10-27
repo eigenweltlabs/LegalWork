@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { AudioModelManager } from "./model-manager.mjs";
 import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
-import { editTranscriptSpeakers } from "./transcript-edit.mjs";
+import { editTranscriptSpeakers, resolveSummarySpeakerNames } from "./transcript-edit.mjs";
 import { CloudTranscriber, isCloudTranscriptionModel } from "./cloud-transcriber.mjs";
 import { mergeSpeakerTurns } from "./cloud-speakers.mjs";
 import { mergeSpeakerWords, splitCloudTranscript } from "./cloud-transcript.mjs";
@@ -1093,7 +1093,7 @@ export class RecorderService {
     const controller = new AbortController();
     const started = Promise.resolve().then(() => this.updateSavedTranscript(recordingId, saved => {
       if (controller.signal.aborted) throw new Error("Meeting notes cancelled.");
-      if (saved.meta.transcriptionSource !== "cloud" || !isCloudTranscriptionModel(saved.meta.modelId)) throw new Error("Smart Meeting Summary requires a cloud recording.");
+      if (saved.meta.transcriptionSource !== "cloud" || !isCloudTranscriptionModel(saved.meta.modelId)) throw new Error("Summarizing requires a cloud recording.");
       if (saved.meta.speakerProcessing) throw new Error("Wait for speaker detection to finish before generating the summary.");
       if (!saved.segments.some(segment => segment.text.trim())) throw new Error("This recording has no transcript to summarize.");
       if (saved.meta.summary) return saved;
@@ -1414,6 +1414,7 @@ export class RecorderService {
       await writeTranscriptFiles(meta, segments);
       await writeMeta(folderPath, meta);
     }
+    meta.summary = resolveSummarySpeakerNames(meta.summary, meta.speakerNames);
     return { meta, segments };
   }
 
@@ -1428,6 +1429,7 @@ export class RecorderService {
       if (!detail || detail.meta.ephemeral) throw new Error("Recording not found.");
       if (this.activeRecordings.has(recordingId) || detail.meta.status === "recording") throw new Error("Finish recording before editing speakers.");
       const updated = update(detail);
+      updated.meta.summary = resolveSummarySpeakerNames(updated.meta.summary, updated.meta.speakerNames);
       // Always resolve the destination ourselves, never trust a path in metadata.
       updated.meta.folderPath = path.join(this.recordingsDir, recordingId);
       await fsp.appendFile(path.join(updated.meta.folderPath, "transcript.jsonl"), `${JSON.stringify({
