@@ -25,21 +25,16 @@ legalwork serve --workspace /path/to/workspace
 
 `legalwork` ships as a compiled binary, so Bun is not required at runtime.
 
-If npm skips the optional platform package, `postinstall` falls back to downloading the matching
-binary from the `legalwork-orchestrator-v<version>` GitHub release. Override the download host with
-`LEGALWORK_ORCHESTRATOR_DOWNLOAD_BASE_URL` when you need to use a mirror.
+The npm platform package includes its local server and the engine's complete verified
+artifact. GitHub raw-binary downloads and mirror overrides are retired. If npm skips
+optional platform packages, enable optional dependencies and reinstall; no postinstall
+network fallback fetches a standalone executable.
 
-`legalwork` downloads and caches the `legalwork-server` and `opencode` sidecars on
-first run using a SHA-256 manifest. Use `--sidecar-dir` or `LEGALWORK_SIDECAR_DIR` to control the
-cache location, and `--sidecar-base-url` / `--sidecar-manifest` to point at a custom host.
-
-Use `--sidecar-source` to control where `legalwork-server` is resolved
-(`auto` | `bundled` | `downloaded` | `external`), and `--opencode-source` to control
-`opencode` resolution. Set `LEGALWORK_SIDECAR_SOURCE` / `LEGALWORK_OPENCODE_SOURCE` to
-apply the same policies via env vars.
-
-By default the manifest is fetched from
-`https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v<version>/legalwork-orchestrator-sidecars.json`.
+`--sidecar-source` and `--opencode-source` accept `auto`, `bundled` or `external`.
+`auto` uses a local bundle or, for the engine, the exact prepared local archives/cache.
+`--sidecar-dir` / `LEGALWORK_SIDECAR_DIR` control that local cache. The former
+`downloaded`, `--sidecar-base-url`, `--sidecar-manifest` and download-mirror environment
+variables fail with a retirement message before starting runtime work.
 
 For development overrides only, set `LEGALWORK_ALLOW_EXTERNAL=1` or pass `--allow-external` to use
 locally installed `legalwork-server` binaries.
@@ -99,9 +94,9 @@ Notes:
 - `--sandbox auto` prefers Apple `container` on supported Macs (arm64), otherwise Docker.
 - Docker backend requires `docker` on your PATH.
 - Apple container backend requires the `container` CLI (https://github.com/apple/container).
-- In sandbox mode, sidecars are resolved for a Linux target (and `--sidecar-source` / `--opencode-source`
-  are effectively `downloaded`).
-- Custom `--*-bin` overrides are not supported in sandbox mode yet.
+- Sandbox mode requires Linux artifacts from local builds/prepared archives. It does not download standalone sidecars.
+- On a non-Linux host, supply the locally built Linux server with `--legalwork-server-bin` and `--allow-external`.
+  An explicit `--opencode-bin` must match the engine's compiled target and artifact pins.
 - Use `--sandbox-image` to pick an image with the toolchain you want available to OpenCode.
 - Use `--sandbox-persist-dir` to control the host directory mounted at `/persist` inside the container.
 

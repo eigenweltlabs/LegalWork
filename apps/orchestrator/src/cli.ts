@@ -5,6 +5,7 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
+import { assertNoRetiredBinaryDownloads } from "./retired-binary-downloads.js";
 import { retireMessagingTools } from "./retired-messaging-tools.js";
 import {
   chmod,
@@ -14,7 +15,6 @@ import {
   mkdtemp,
   readFile,
   readdir,
-  rename,
   rm,
   stat,
   writeFile,
@@ -41,7 +41,7 @@ import { createRequire } from "node:module";
 import { once } from "node:events";
 
 import { OpenCode, type OpenCodeClient } from "@opencode/client";
-import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "@legalwork/opencode-release";
+import { opencodeReleaseTarget } from "@legalwork/opencode-release";
 import { installSelectedOpencodeEngine, opencodeEngineSelection, stageSelectedOpencodeEngine, verifySelectedOpencodeEngine } from "@legalwork/opencode-release/selection";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import type { TuiHandle } from "./tui/app.js";
@@ -169,34 +169,14 @@ type VersionManifest = {
   entries: Record<string, VersionInfo>;
 };
 
-type RemoteSidecarAsset = {
-  asset?: string;
-  url?: string;
-  sha256?: string;
-  size?: number;
-};
-
-type RemoteSidecarEntry = {
-  version: string;
-  targets: Record<string, RemoteSidecarAsset>;
-};
-
-type RemoteSidecarManifest = {
-  version: string;
-  generatedAt?: string;
-  entries: Record<string, RemoteSidecarEntry>;
-};
-
 type SidecarConfig = {
   dir: string;
-  baseUrl: string;
-  manifestUrl: string;
   target: SidecarTarget | null;
 };
 
-type BinarySource = "bundled" | "external" | "downloaded";
+type BinarySource = "bundled" | "external" | "prepared";
 
-type BinarySourcePreference = "auto" | "bundled" | "downloaded" | "external";
+type BinarySourcePreference = "auto" | "bundled" | "external";
 
 type ResolvedBinary = {
   bin: string;
@@ -235,8 +215,6 @@ type RuntimeUpgradeState = {
 
 type SidecarDiagnostics = {
   dir: string;
-  baseUrl: string;
-  manifestUrl: string;
   target: SidecarTarget | null;
   source: BinarySourcePreference;
   opencodeSource: BinarySourcePreference;
@@ -456,13 +434,12 @@ function readBinarySource(
   if (
     normalized === "auto" ||
     normalized === "bundled" ||
-    normalized === "downloaded" ||
     normalized === "external"
   ) {
     return normalized as BinarySourcePreference;
   }
   throw new Error(
-    `Invalid ${key} value: ${raw}. Use auto|bundled|downloaded|external.`,
+    `Invalid ${key} value: ${raw}. Use auto|bundled|external.`,
   );
 }
 
@@ -1467,11 +1444,6 @@ async function readVersionManifest(): Promise<VersionManifest | null> {
   return null;
 }
 
-const remoteManifestCache = new Map<
-  string,
-  Promise<RemoteSidecarManifest | null>
->();
-
 let cachedExtraPathEntries: string[] | null = null;
 
 function isDirectory(path: string): boolean {
@@ -1674,14 +1646,10 @@ function resolveSandboxSidecarTarget(
 
 function resolveSidecarConfigForTarget(
   flags: Map<string, string | boolean>,
-  cliVersion: string,
   targetOverride: SidecarTarget | null,
 ): SidecarConfig {
-  const baseUrl = resolveSidecarBaseUrl(flags, cliVersion);
   return {
     dir: resolveSidecarDir(flags),
-    baseUrl,
-    manifestUrl: resolveSidecarManifestUrl(flags, baseUrl),
     target: targetOverride,
   };
 }
@@ -1782,82 +1750,6 @@ function resolveSidecarDir(flags: Map<string, string | boolean>): string {
   return join(resolveRouterDataDir(flags), "sidecars");
 }
 
-function resolveSidecarBaseUrl(
-  flags: Map<string, string | boolean>,
-  cliVersion: string,
-): string {
-  const override =
-    readFlag(flags, "sidecar-base-url") ??
-    process.env.LEGALWORK_SIDECAR_BASE_URL;
-  if (override && override.trim()) return override.trim();
-  return `https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v${cliVersion}`;
-}
-
-function resolveSidecarManifestUrl(
-  flags: Map<string, string | boolean>,
-  baseUrl: string,
-): string {
-  const override =
-    readFlag(flags, "sidecar-manifest") ??
-    process.env.LEGALWORK_SIDECAR_MANIFEST_URL;
-  if (override && override.trim()) return override.trim();
-  return `${baseUrl.replace(/\/$/, "")}/legalwork-orchestrator-sidecars.json`;
-}
-
-async function fetchRemoteManifest(
-  url: string,
-): Promise<RemoteSidecarManifest | null> {
-  const cached = remoteManifestCache.get(url);
-  if (cached) return cached;
-  const task = (async () => {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      return (await response.json()) as RemoteSidecarManifest;
-    } catch {
-      return null;
-    }
-  })();
-  remoteManifestCache.set(url, task);
-  return task;
-}
-
-function resolveAssetUrl(
-  baseUrl: string,
-  asset?: string,
-  url?: string,
-): string | null {
-  if (url && url.trim()) return url.trim();
-  if (asset && asset.trim())
-    return `${baseUrl.replace(/\/$/, "")}/${asset.trim()}`;
-  return null;
-}
-
-function resolveAssetName(asset?: string, url?: string): string | null {
-  if (asset && asset.trim()) return asset.trim();
-  if (url && url.trim()) {
-    try {
-      return basename(new URL(url).pathname);
-    } catch {
-      const parts = url.split("/").filter(Boolean);
-      return parts.length ? parts[parts.length - 1] : null;
-    }
-  }
-  return null;
-}
-
-async function downloadToPath(url: string, dest: string): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download ${url} (HTTP ${response.status})`);
-  }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await mkdir(dirname(dest), { recursive: true });
-  const tmpPath = `${dest}.tmp-${randomUUID()}`;
-  await writeFile(tmpPath, buffer);
-  await rename(tmpPath, dest);
-}
-
 async function ensureExecutable(path: string): Promise<void> {
   if (process.platform === "win32") return;
   try {
@@ -1866,78 +1758,6 @@ async function ensureExecutable(path: string): Promise<void> {
     // ignore
   }
 }
-
-async function downloadSidecarBinary(options: {
-  name: SidecarName;
-  sidecar: SidecarConfig;
-  expectedVersion?: string;
-}): Promise<ResolvedBinary | null> {
-  if (!options.sidecar.target) return null;
-  const manifest = await fetchRemoteManifest(options.sidecar.manifestUrl);
-  if (!manifest) return null;
-  const entry = manifest.entries[options.name];
-  if (!entry) return null;
-  if (options.expectedVersion && entry.version !== options.expectedVersion) {
-    return null;
-  }
-  const targetInfo = entry.targets[options.sidecar.target];
-  if (!targetInfo) return null;
-
-  const assetName = resolveAssetName(targetInfo.asset, targetInfo.url);
-  const assetUrl = resolveAssetUrl(
-    options.sidecar.baseUrl,
-    targetInfo.asset,
-    targetInfo.url,
-  );
-  if (!assetName || !assetUrl) return null;
-
-  const targetDir = join(
-    options.sidecar.dir,
-    entry.version,
-    options.sidecar.target,
-  );
-  const targetPath = join(targetDir, assetName);
-  if (await fileExists(targetPath)) {
-    if (targetInfo.sha256) {
-      try {
-        await verifyBinary(targetPath, {
-          version: entry.version,
-          sha256: targetInfo.sha256,
-        });
-        await ensureExecutable(targetPath);
-        return {
-          bin: targetPath,
-          source: "downloaded",
-          expectedVersion: entry.version,
-        };
-      } catch {
-        await rm(targetPath, { force: true });
-      }
-    } else {
-      await ensureExecutable(targetPath);
-      return {
-        bin: targetPath,
-        source: "downloaded",
-        expectedVersion: entry.version,
-      };
-    }
-  }
-
-  await downloadToPath(assetUrl, targetPath);
-  if (targetInfo.sha256) {
-    await verifyBinary(targetPath, {
-      version: entry.version,
-      sha256: targetInfo.sha256,
-    });
-  }
-  await ensureExecutable(targetPath);
-  return {
-    bin: targetPath,
-    source: "downloaded",
-    expectedVersion: entry.version,
-  };
-}
-
 
 async function runCommand(
   command: string,
@@ -1957,21 +1777,6 @@ async function runCommand(
   if (result.code !== 0) {
     throw new Error(`Command failed: ${command} ${args.join(" ")}`);
   }
-}
-
-async function resolveOpencodeDownload(
-  sidecar: SidecarConfig,
-  expectedVersion?: string,
-): Promise<string | null> {
-  if (!expectedVersion) return null;
-  if (!sidecar.target) return null;
-
-  const version=expectedVersion.replace(/^v/,"");
-  if (version !== opencodeRelease.version) throw new Error(`OpenCode ${version} has no reviewed release digests; expected ${opencodeRelease.version}`);
-  const parts=sidecar.target.replace(/^bun-/,"").split("-");
-  const target=opencodeReleaseTarget(parts[0] === "windows" ? "win32" : parts[0],parts[1],parts.includes("musl")?"musl":"glibc");
-  const targetPath=join(sidecar.dir,"opencode",version,sidecar.target,target.startsWith("windows-")?"opencode.exe":"opencode");
-  return (await downloadOpencodeBinary({destination:targetPath,cacheDirectory:join(sidecar.dir,"opencode-archives"),target,version})).destination;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -2211,12 +2016,12 @@ async function assertSandboxBinaryFile(
   const lower = bin.toLowerCase();
   if (lower.endsWith(".js") || lower.endsWith(".ts")) {
     throw new Error(
-      `Sandbox mode requires ${name} to be a native binary (got ${bin}). Use downloaded sidecars or pass a Linux binary path.`,
+      `Sandbox mode requires ${name} to be a native binary (got ${bin}). Build local Linux sidecars or pass a Linux binary path.`,
     );
   }
   if (!isPathLikeBinary(bin)) {
     throw new Error(
-      `Sandbox mode requires ${name} to be a file path (got ${bin}). Use downloaded sidecars or pass --${name}-bin with a Linux binary path.`,
+      `Sandbox mode requires ${name} to be a file path (got ${bin}). Build local Linux sidecars or pass --${name}-bin with a Linux binary path.`,
     );
   }
   const resolved = resolve(process.cwd(), bin);
@@ -2298,19 +2103,6 @@ async function resolveLegalworkServerBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (options.source === "downloaded") {
-    const downloaded = await downloadSidecarBinary({
-      name: "legalwork-server",
-      sidecar: options.sidecar,
-    });
-    if (!downloaded) {
-      throw new Error(
-        "legalwork-server download failed. Check sidecar manifest or base URL.",
-      );
-    }
-    return downloaded;
-  }
-
   if (options.source === "external") {
     return resolveExternal();
   }
@@ -2327,15 +2119,9 @@ async function resolveLegalworkServerBin(options: {
     return resolveExternal();
   }
 
-  const downloaded = await downloadSidecarBinary({
-    name: "legalwork-server",
-    sidecar: options.sidecar,
-  });
-  if (downloaded) return downloaded;
-
   if (!options.allowExternal) {
     throw new Error(
-      "Bundled legalwork-server binary missing and download failed. Use --allow-external or --sidecar-source external.",
+      "Bundled legalwork-server is missing. Build the local bundle or use --allow-external with a local server; standalone binary downloads are retired.",
     );
   }
 
@@ -2381,22 +2167,20 @@ async function resolveOpencodeBin(options: {
       ...(options.manifest ? [join(options.manifest.dir, "..", "opencode-engine", opencodeEngineSelection.artifactId, target), join(options.manifest.dir, "opencode-engine", opencodeEngineSelection.artifactId, target)] : []),
       join(dirname(process.execPath), "opencode-engine", opencodeEngineSelection.artifactId, target),
     ];
-    if (options.source !== "downloaded") {
-      for (const directory of bundledDirectories) {
-        const bin = join(directory, binaryName);
-        if (!(await fileExists(bin))) continue;
-        await verifySelectedOpencodeEngine(bin, { target });
-        return { bin, source: "bundled", expectedVersion };
-      }
-      if (options.source === "bundled") throw new Error("The selected OpenCode distribution is missing from this bundle; rebuild the sidecars for this target.");
+    for (const directory of bundledDirectories) {
+      const bin = join(directory, binaryName);
+      if (!(await fileExists(bin))) continue;
+      await verifySelectedOpencodeEngine(bin, { target });
+      return { bin, source: "bundled", expectedVersion };
     }
+    if (options.source === "bundled") throw new Error("The selected OpenCode distribution is missing from this bundle; rebuild the sidecars for this target.");
     const installed = await installSelectedOpencodeEngine({
       directory: join(options.sidecar.dir, "opencode", opencodeEngineSelection.artifactId, target),
       cacheDirectory: join(options.sidecar.dir, "opencode-archives"),
       archiveDirectory: process.env.LEGALWORK_OPENCODE_ARCHIVES,
       target,
     });
-    return { bin: installed.path, source: "downloaded", expectedVersion: installed.version };
+    return { bin: installed.path, source: "prepared", expectedVersion: installed.version };
   }
   const resolveExternal = async (): Promise<ResolvedBinary> => {
     if (!options.allowExternal) {
@@ -2425,25 +2209,6 @@ async function resolveOpencodeBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (options.source === "downloaded") {
-    const downloaded = await downloadSidecarBinary({
-      name: "opencode",
-      sidecar: options.sidecar,
-      expectedVersion,
-    });
-    if (downloaded) return downloaded;
-    const opencodeDownloaded = await resolveOpencodeDownload(
-      options.sidecar,
-      expectedVersion,
-    );
-    if (opencodeDownloaded) {
-      return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
-    }
-    throw new Error(
-      "opencode download failed. Check sidecar manifest/network access, or update constants.json.",
-    );
-  }
-
   if (options.source === "external") {
     return resolveExternal();
   }
@@ -2457,24 +2222,9 @@ async function resolveOpencodeBin(options: {
     return resolveExternal();
   }
 
-  const downloaded = await downloadSidecarBinary({
-    name: "opencode",
-    sidecar: options.sidecar,
-    expectedVersion,
-  });
-  if (downloaded) return downloaded;
-
-  const opencodeDownloaded = await resolveOpencodeDownload(
-    options.sidecar,
-    expectedVersion,
-  );
-  if (opencodeDownloaded) {
-    return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
-  }
-
   if (!options.allowExternal) {
     throw new Error(
-      "Bundled opencode binary missing and download failed. Use --allow-external or --opencode-source external.",
+      "Bundled OpenCode is missing. Use the normal prepared development entrypoint or an explicit verified local engine; standalone binary downloads are retired.",
     );
   }
 
@@ -2781,11 +2531,9 @@ function printHelp(): void {
     "  --legalwork-server-bin <p> Path to legalwork-server binary (requires --allow-external)",
 
     "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
-    "  --sidecar-dir <path>      Cache directory for downloaded sidecars",
-    "  --sidecar-base-url <url>  Base URL for sidecar downloads",
-    "  --sidecar-manifest <url>  Override sidecar manifest URL",
-    "  --sidecar-source <mode>   auto | bundled | downloaded | external",
-    "  --opencode-source <mode>  auto | bundled | downloaded | external",
+    "  --sidecar-dir <path>      Cache directory for locally prepared sidecars",
+    "  --sidecar-source <mode>   auto | bundled | external",
+    "  --opencode-source <mode>  auto | bundled | external",
     "  --check                   Run health checks then exit",
     "  --check-events            Verify SSE events during check",
     "  --tui                     Force interactive dashboard (TTY only)",
@@ -4928,7 +4676,6 @@ async function runStart(args: ParsedArgs) {
   const sidecarTarget = resolveSandboxSidecarTarget(sandboxMode);
   const sidecar = resolveSidecarConfigForTarget(
     args.flags,
-    cliVersion,
     sidecarTarget,
   );
 
@@ -4947,10 +4694,10 @@ async function runStart(args: ParsedArgs) {
     // custom *-bin paths are provided, treat the source as external so we don't
     // accidentally pick host (darwin) bundled binaries.
     if (sidecarSourceInput === "auto") {
-      sidecarSource = explicitLegalworkServerBin ? "external" : "downloaded";
+      sidecarSource = explicitLegalworkServerBin ? "external" : "auto";
     }
     if (opencodeSourceInput === "auto") {
-      opencodeSource = explicitOpencodeBin ? "external" : "downloaded";
+      opencodeSource = explicitOpencodeBin ? "external" : "auto";
     }
   }
   const dockerCommand =
@@ -4969,8 +4716,6 @@ async function runStart(args: ParsedArgs) {
   }
   logVerbose(`sidecar target: ${sidecar.target ?? "unknown"}`);
   logVerbose(`sidecar dir: ${sidecar.dir}`);
-  logVerbose(`sidecar base URL: ${sidecar.baseUrl}`);
-  logVerbose(`sidecar manifest: ${sidecar.manifestUrl}`);
   logVerbose(`sidecar source: ${sidecarSource}`);
   logVerbose(`opencode source: ${opencodeSource}`);
   logVerbose(
@@ -5010,9 +4755,12 @@ async function runStart(args: ParsedArgs) {
     }
   }
 
+  if (sandboxMode !== "none" && sidecarTarget !== resolveSidecarTarget() && !explicitLegalworkServerBin) {
+    throw new Error("Sandbox mode requires a locally built Linux server via --legalwork-server-bin and --allow-external; automatic standalone downloads are retired.");
+  }
   let legalworkServerBinary = await resolveLegalworkServerBin({
     explicit: explicitLegalworkServerBin,
-    manifest,
+    manifest: sandboxMode !== "none" && sidecarTarget !== resolveSidecarTarget() ? null : manifest,
     allowExternal,
     sidecar,
     source: sidecarSource,
@@ -5834,8 +5582,6 @@ async function runStart(args: ParsedArgs) {
         cliVersion,
         sidecar: {
           dir: sidecar.dir,
-          baseUrl: sidecar.baseUrl,
-          manifestUrl: sidecar.manifestUrl,
           target: sidecar.target,
           source: sidecarSource,
           opencodeSource,
@@ -5961,6 +5707,7 @@ async function runStart(args: ParsedArgs) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  assertNoRetiredBinaryDownloads(args.flags);
   if (readBool(args.flags, "help", false) || args.flags.get("help") === true) {
     printHelp();
     return;
