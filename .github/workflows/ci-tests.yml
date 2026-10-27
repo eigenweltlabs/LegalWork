@@ -280,6 +280,9 @@ jobs:
       - name: Verify engine source policy, preparation and immutable artifacts
         run: node --test packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs
 
+      - name: Verify retired downloads and complete local CLI bundles
+        run: bun test apps/orchestrator/src/retired-binary-downloads.test.mjs
+
       - name: Verify recorder capture and dictation
         run: |
           pnpm --filter @legalwork/app test:recorder-capture
