@@ -262,9 +262,12 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       tab.taskActive = true; tab.dismissed = false; sendBrowserState();
     }, () => prepareBrowserCapture(tab), passwordActions(tab));
     const browser_url = tab.nativePage ? await nativeHost.extensionConnection(window(), tab.nativeContext, tab.tabId, tab.connection.browser_url) : tab.connection.browser_url;
+    const snapshot = tab.nativePage
+      ? (await tab.nativePage.execute({ action: { type: "snapshot", tabID: tab.tabId }, files: [] }, new AbortController().signal)).value
+      : await automationBroker.snapshot(tab.view.webContents);
     return { provider: "builtin", ...tab.connection, browser_url, tab_id: tab.tabId, url: tab.view.webContents.getURL(),
       download_directory: tab.nativeContext?.remote ? null : tab.downloadDirectory ? path.join(tab.downloadDirectory, "Downloads") : null,
-      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot: await automationBroker.snapshot(tab.view.webContents) };
+      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot };
   }
 
   function adoptNativePage(page, context, downloadDirectory) {

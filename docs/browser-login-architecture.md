@@ -29,7 +29,7 @@ sequenceDiagram
     participant Tab as Existing native tab
     Agent->>Tools: connect(tab_id)
     Tools->>Desktop: existing project/chat attachment
-    Desktop-->>Agent: tab capability URL
+    Desktop-->>Agent: tab capability URL and native observation with usable refs
     Agent->>Desktop: passwords(capability, calling chat)
     Desktop->>Vault: list metadata for current origin
     Desktop-->>Agent: IDs, labels, usernames
@@ -50,7 +50,11 @@ These checks prevent accidental filling into an unrelated site, frame or stale t
 
 Store/route tests cover encryption, metadata-only results, concurrent edits, coexistence with other vault consumers, exact origins, replacement/deletion, host-token route declarations and write gates. Broker/tool tests cover exact chat identity, local-only admission and ID/ref-only requests. Desktop tests cover origin/frame/type rejection, cancellation and error sanitization.
 
-`pnpm --filter @legalwork/desktop test:browser-passwords` uses synthetic credentials and an isolated vault/profile in a hidden Electron window. It exercises the real native controller and capability broker, checks the actual field value, confirms normal snapshots do not echo it, verifies explicit browser readback remains available, and rejects a stale ref after navigation. It makes no model calls and proves the insertion path, not real-model login quality. Compile the server first with `pnpm docs:generate` and `pnpm --filter legalwork-server exec tsc -p tsconfig.json`.
+`pnpm --filter @legalwork/desktop test:browser-passwords` uses synthetic credentials and an isolated vault/profile in a hidden Electron window. It exercises the real native controller and capability broker, checks the actual field value, confirms normal snapshots do not echo it, verifies explicit browser readback remains available, and rejects a stale ref after navigation. It makes no model calls and proves the insertion path, not real-model login quality. Build the server first with `pnpm --filter legalwork-server build`; standalone TypeScript emission does not produce all required runtime bundles.
+
+`LEGALWORK_TEST_OPENCODE_BIN=/absolute/path/to/opencode pnpm --filter @legalwork/desktop test:browser-opening` starts a separate released v2 engine and actual panel IPC in hidden Electron. It proves opening refs work directly through native tools, reconnecting refreshes refs, another chat cannot connect, and username/vault-password/submission compose without an intermediate snapshot. This fixture uses native evaluation on the observed submit button because fully hidden macOS mouse capture requires a compositor surface. It uses synthetic credentials and zero inference calls.
+
+The [native workflow acceptance record](pr-evidence/browser-passwords/native-workflow-verification.json) contains three actual agent runs through the development app, normal dispatch, saved test credentials and local synthetic websites: a single-page login, a two-step login and a company search. All produced the server-verified result with no argument-schema errors. The single-page password fill completed in three tool rounds and 13.9 seconds, using opening refs without another snapshot. Complete login still required 15 rounds and 132–133 seconds because background native click errors and keyboard replacement during recovery caused additional work; the search took six rounds and 26 seconds. This is not a matched before/after DeepL benchmark or proof of a three/four-round complete login. The record includes native input/output/cache/reasoning token counts. Actual gateway billing was unavailable; zero engine-reported cost is not treated as free inference. The temporary saved entry was deleted, real credentials were not used, and the controller did not switch the foreground chat or desktop focus.
 
 ## Reproducing the redirect regression
 

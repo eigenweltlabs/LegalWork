@@ -20,7 +20,9 @@ LegalWork's additional operations use a small authenticated reverse channel betw
 
 ## Capability-preserving extensions
 
-Native operations are preferred. `legalwork_browser_connect` adds the existing paged snapshot/batch tools to an already-owned native tab. `legalwork_browser_open_url` remains available and also creates a native tab. Extension snapshots retain continuation offsets instead of discarding their remaining content.
+Native operations are preferred. `legalwork_browser_open_url` creates a native tab; `legalwork_browser_connect` connects an already-owned native tab. Both return the native observation as `snapshot: { tab, content, truncated }`, including immediately usable refs and generation, plus the existing extension capability. They take one native snapshot rather than also producing a legacy observation. Reconnecting refreshes refs just as `browser.snapshot` does. Native snapshot scope/depth and upstream truncation reporting are preserved. The optional CSS batch tool still returns its legacy paged snapshot with continuation offsets; its `node_id` and CSS selectors are not native refs.
+
+Fixed browser instructions teach focused Code Mode discovery with complete signatures, reuse of retrieved definitions, and sequential awaited native operations in one execute for already-observed, authorized steps. A normal sign-in can open/list metadata together, then fill username/password and submit together, followed by a condition wait and verification. Navigation, new fields, MFA/CAPTCHA and partial failure require observation before further mutations. This uses the released Code Mode and browser tools; it adds no execution limits or detached agent and changes no permission decisions.
 
 `legalwork_browser_upload` copies complete file bytes under normal native read permission for each exact server/project path. Desktop receives bytes and filenames, not arbitrary server paths it is expected to open. Private temporary upload files are removed when their tab capability closes.
 
