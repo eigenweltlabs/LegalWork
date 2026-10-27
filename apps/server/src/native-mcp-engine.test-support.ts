@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { OpenCode } from "@opencode/client";
@@ -26,13 +26,14 @@ export async function nativeOAuthProvider(environment: Record<string, string> = 
   } catch (error) { await close(); throw error; }
 }
 
-export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>)) {
+export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>), parentOwnedRoot?: string) {
   if (!nativeMcpBinary) throw new Error("Released OpenCode binary is required");
-  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
+  const root = await realpath(parentOwnedRoot ?? await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
   for (const name of ["home", "config", "data", "cache", "state", "project", "other"]) await mkdir(join(root, name));
   const directory = join(root, "project"), other = join(root, "other");
   const prepared = typeof configuration === "function" ? await configuration(root) : configuration;
-  const options = { bin: nativeMcpBinary, cwd: directory, timeoutMs: 30_000, env: {
+  // Match embedded/CLI stdin-lease shutdown before removing the private fixture.
+  const options = { bin: nativeMcpBinary, cwd: directory, timeoutMs: 30_000, parentLease: true, env: {
     HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false, ...prepared }),
@@ -42,6 +43,25 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
   return { root, directory, other, location: { directory }, client,
     connection: () => ({ url: engine.url, username: engine.username, password: engine.password }),
     restart: async () => { await engine.close(); engine = await createManagedOpencodeServer(options); },
-    close: async () => { await engine.close(); await rm(root, { recursive: true, force: true }); },
+    close: async () => {
+      await engine.close();
+      // An external fixture owner removes its root after this process exits.
+      if (parentOwnedRoot !== undefined) return;
+      try { await rm(root, { recursive: true, force: true }); }
+      catch (error) {
+        // Observe the original cleanup failure without retrying or masking it.
+        try {
+          const cwd = relative(root, process.cwd());
+          console.error("Native MCP fixture cleanup failed", JSON.stringify({
+            enginePid: engine.pid, engineRunning: engine.running(),
+            cwdInsideFixture: !isAbsolute(cwd) && cwd !== ".." && !cwd.startsWith(`..${sep}`),
+            remainingPaths: (await readdir(root, { recursive: true })).sort(),
+          }));
+        } catch (diagnosticError) {
+          console.error("Native MCP fixture cleanup diagnostic failed", diagnosticError instanceof Error ? diagnosticError.name : typeof diagnosticError);
+        }
+        throw error;
+      }
+    },
   };
 }

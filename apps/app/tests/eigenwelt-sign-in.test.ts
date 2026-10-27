@@ -13,7 +13,7 @@ afterEach(() => {
   setLocale("en");
 });
 
-function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response) {
+function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response, engineConnected = true) {
   const requests: string[] = [];
   let scheduledReloads = 0;
   const server = Bun.serve({
@@ -49,7 +49,7 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
   const client = OpenCode.make({ baseUrl: server.url.href });
   const legalworkClient = createLegalworkServerClient({ baseUrl: server.url.href });
   const store = createProviderAuthStore({
-    client: () => client,
+    client: () => engineConnected ? client : null,
     baseUrl: () => server.url.href,
     providers: () => [],
     providerDefaults: () => ({}),
@@ -81,6 +81,27 @@ test("a failed account save fails sign-in before attempting any engine reload", 
     "PUT /workspace/ws/eigenwelt/connection",
   ]);
   expect(fixture.scheduledReloads()).toBe(0);
+});
+
+test("account sign-in saves before the project's agent is connected or approved", async () => {
+  const fixture = signInFixture(200, 200, 0, undefined, false);
+  await expect(fixture.store.completeEigenweltSignIn("test-session")).resolves.toMatchObject({ connected: true });
+  expect(fixture.requests).toEqual([
+    "GET /api/eigenwelt/oauth/wait/test-session",
+    "PUT /workspace/ws/eigenwelt/connection",
+  ]);
+  expect(fixture.store.getSnapshot().providerAuthError).toBeNull();
+  expect(fixture.scheduledReloads()).toBe(0);
+});
+
+test("account save errors still surface when the project's agent is disconnected", async () => {
+  const fixture = signInFixture(404, 200, 0, undefined, false);
+  await expect(fixture.store.completeEigenweltSignIn("test-session")).rejects.toThrow("Workspace not found");
+  expect(fixture.requests).toEqual([
+    "GET /api/eigenwelt/oauth/wait/test-session",
+    "PUT /workspace/ws/eigenwelt/connection",
+  ]);
+  expect(fixture.store.getSnapshot().providerAuthError).toContain("Workspace not found");
 });
 
 test("checkout can continue past ten minutes and still connect", async () => {

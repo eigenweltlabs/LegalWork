@@ -1,9 +1,53 @@
 # Engine and capability acceptance status
 
-Checkpoint: 27 October 2026, 09:55 UTC. Migration remains unfinished. The
-priority is platform execution, migration safety and real agent/tool behavior.
+Direct debugging follow-up, 27 October: the user approved one shared managed
+configuration with automatic project/ancestor discovery disabled. This replaces
+the folder-approval flow in the candidate below without changing the pinned
+engine. Local released-engine checks pass: two-project isolation, shared native
+skills/agents/commands/plugins, custom provider variants and enablement, inactive
+project/ancestor executables, registered-root admission, command delegation,
+permission refusal, cancellation and lossless retirement of owned generated files
+(initial focused run: 36 tests, 391 assertions). This follow-up still needs fresh cross-platform CI;
+the six-platform results below describe the previously accepted source snapshot.
+
+The bundled core now has one private central home. Its six skills, three helper
+agents and five document commands are present in both the released-engine fixture
+and the restarted real dev app. Managed projects no longer receive new core
+copies; existing project and personal files remain untouched. Full helper assets
+and generation settings are retained.
+
+Managed MCP definitions have one location-scoped owner. Recovery reads that same
+managed selection; unchanged status refreshes do not wait for a new connection.
+The five real-engine recovery tests pass for disable/remove/disconnect barriers
+and OAuth polling from either project. Startup/admission tests also pass. Their
+cloud fixture now denies access to the actual case folder, rather than only an
+unused per-project core stamp; its original 503 and retry requirements remain.
+The final local server suite passes: 2,814 tests, 27,078 assertions, zero failures
+and 45 environment-dependent skips across 397 files. The server build/type check,
+bundled-help verification and actual Mac dev app capability inventory pass. Fresh
+cross-platform CI remains pending for this follow-up; the matrix below is baseline
+evidence rather than a result for this new configuration change.
+
+Baseline final acceptance: 27 October 2026. The engineering migration was complete on
+`codex/opencode-v2-migration` for the user-frozen OpenCode 2.1.4/dev snapshot.
+No app/engine release, tag or release assets have been published. Existing CI
+test artifacts were retained under the user's branch/CI authorization.
 The user explicitly separated inherited browser bugs from completion; no
 regression from v1 remains required. See [the separate browser issues](opencode-v2-browser-known-issues.md).
+
+| Configuration | Native source build and integration | Actual app, security, preview and startup |
+|---|---|---|
+| macOS Apple Silicon | PASS | PASS |
+| macOS Intel | PASS | PASS; unchanged retry after dependency download failure |
+| Linux x64 | PASS | PASS |
+| Linux ARM64 | PASS | PASS |
+| Windows x64 | PASS | PASS; unsigned installer and actual engine-to-VM tools also pass |
+| Windows ARM64 | PASS | PASS; unsigned installer and actual engine-to-VM tools also pass |
+
+All six protected-runtime suites and both full Linux/Mac unit jobs also pass.
+The final Windows [run40517342408](https://github.com/eigenweltlabs/legalwork/actions/runs/40517342408)
+is wholly successful; its last app job completed at 14:50:17 UTC. Original failed
+runs remain preserved. This closes migration acceptance, not public release checks.
 
 ## Final target and normal-build acceptance
 
@@ -21,14 +65,160 @@ selection is checked against the committed source policy and recipe. Cache and
 installed-runtime directories use full manifest identities, preserving older
 same-version outputs. Runtime startup never compiles source.
 
-The fresh [source production run40482058927](https://github.com/eigenweltlabs/legalwork/actions/runs/40482058927)
-at09bea36f has four passing cold native-source hosts: both Macs and both Linux
-architectures, each including seven real engine integrations/162 assertions and
-byte-stable warm reuse. Windows x64/ARM64 both stop at the pinned patch check after
-Git converts LF to CRLF. The successor correction72c76604/f713de2e preserves
-reviewed bytes through the LegalWork checkout and upstream clones; no content
-hash or compiler pin is weakened. Actual Windows re-execution is still required.
-All six final app/package/startup checks remain a distinct completion gate.
+Latest source includes `dev` commit `14b76cc99189a5525dd291f09d52b6d47768d7ee`
+(the new bundled help and app navigation), merged at `ee67b1f7`. The imported help
+uses the native v2 plugin test API, and its guidance reflects the approved removal
+of remote agent workspaces. Existing manual LegalWork-server connections and
+external connectors remain supported. Build and source tests generate the full
+translation reference without committing duplicate payloads.
+
+The user explicitly chose to finish this already-tested dev snapshot after three
+newer commits landed, ending at `7d4f2bcc`: meeting/audio fixes, dashboard-file
+integration and detailed support exports. They are not included. The uncommitted
+merge preview was cancelled and the original clean checkout restored. Future
+integration must adapt the new support exporter from v1 database tables to native
+v2 tables; a mechanical merge would miss new chats. This is a deferred dev
+integration, not an unresolved capability in the frozen candidate.
+
+The latest [integrated acceptance40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
+at `5016c34d` reuses all twelve exact production-produced engine archives. Its
+independent verifier runs on Linux, avoiding a Mac builder for a portable hash
+check. Full archive/source/pin checks remain required. This run uses development
+TEST preparation metadata, not another production producer. Since `ee67b1f7`, only
+the packaged checker and CI verifier routing changed; actual app inputs are identical.
+
+All six OS/CPU hosts now pass actual cold source compilation, seven native
+integration tests and warm reuse on final source `5016c34d`. Each retains164
+assertions and no failures. The Windows correction was first verified on
+`ee67b1f7`. The corrected raw-HTTP fixture runs
+its entire original body in a child process, then removes the profile only after
+that process exits. Actual server stores retain process-lifetime SQLite handles;
+a local open-file probe confirms that ownership. No production store APIs, retry,
+assertion or time limit changed. The nested raw test has 112 assertions and the
+outer suite 52, totaling the original 162 plus two parent-exit/removal assertions.
+
+The final-source run passes all six protected runtimes and both full Linux/Mac
+unit jobs. Actual app/package/startup passes are closed for both Macs and both
+Linux architectures. The focused Windows successor closes both Windows app,
+engine, package, security, protected-VM, native-module, preview and unsigned
+installer checks against unchanged product inputs.
+
+The focused [Windows diagnostic run40512370683](https://github.com/eigenweltlabs/legalwork/actions/runs/40512370683)
+recovered the actual main-process error: Electron cannot resolve the Documents
+known folder when `createRuntimeManager` starts, before engine boot. The synthetic
+Windows profile did not create that standard directory. A two-line fixture
+correction creates its own `home/Documents`; verification40517342408 passes the
+original startup gate on both architectures. All 16 assertions, the 90-second
+deadline and cleanup checks remain unchanged. No production code, registry or
+profile-isolation boundary changes. Both Windows successors also pass actual
+engine-to-protected-VM integration: each has 1 test, 33 assertions, zero skips
+and full synthetic exchanges retained. ARM64's original native-window diagnostic
+timed out; that limitation remains in the failed-run evidence.
+
+A final source audit corrected comments that still described the old v1 output
+ceiling as current. The compiled model-limit module is byte-identical before and
+after. Production v2 callers preserve reported model limits; the final primary
+requests retain the gateway's 65,536-token setting. The existing unknown-model
+fallback remains 32,000, matching native 2.1.4; no lower v2 cap was introduced.
+
+Intel Mac's initial final-source attempt failed while downloading dependencies,
+before building the app. Its unchanged Intel-only retry passed the full app,
+package, security, native-module, preview and original startup checks at 13:33:59 UTC. Earlier actual production app results on the
+same `7e221edd…` engine remain useful evidence, but do not substitute for this
+final-source run. All six required app configurations are now closed.
+
+The merged app initially exposed a package-checker fixture issue: a data-URL import
+could not resolve the new help module's relative import. Both exact modules are
+present in the shipped ASAR. The checker now extracts both shipped modules into its
+owned temporary directory and imports their file URL. The same unchanged merged
+Mac app passes the original document, security and engine checks after that fix.
+
+The Mac functional preflight exercised the actual app/engine and protected VM,
+but also discovered three personal operating-system skills. No paid task was
+sent with that catalog. The user selected an isolated Linux VM for the final
+unchanged agent task. Its normal built package, exact production engine, 239-tool
+catalog, canonical skills and root-private tracing have passed independent
+pre-Send review. The final unchanged task completed two genuine delegated reviews and both output
+files. Independent replay retains the strict 8/9: three controlling-citation fields
+use `Section` instead of `section`; the remaining values and both exact quotations
+match. All five inputs remain unchanged. Full 72 observer records/36 tool returns
+and 40 complete provider exchanges are retained and verified. No outside-folder
+Ask occurred, so this run does not prove the scripted Deny interaction. All
+potential main-agent wires match Gemini 3.8 Flash/medium, but native request roles
+remain unattributed; no controlled performance comparison is claimed. The memo
+also contains source-unsupported legal/business statements, tracked under the
+user-approved separate quality work. Strict grading is not changed or labelled 9/9.
+
+A fresh read-only gateway audit confirms **€17.95788453 across 678 unique calls**.
+All 40 final-run SSE response IDs match persisted charges totalling €0.83413422;
+complete request and response bytes are rehashed. The guard stopped normally
+with no active requests. Conservative ledger exposure remains separate from
+confirmed charges; no historical hold or accounting record was removed. The
+original €100 key budget and authorized €250 session ceiling remain unchanged.
+
+The existing native response defaults, connector-import compatibility rules,
+explicit read-only Office boundary and tracing qualifications remain documented;
+no new agent/tool-output cap was added to pass acceptance. The final legal task
+retains its strict 8/9 and unsupported memo claims; no perfect legal-quality parity
+or controlled performance improvement is claimed. The user accepted treating
+broader quality findings separately.
+
+Public Windows release acceptance still needs updater delivery and the agreed
+physical Windows 11 check. Windows signing is not currently available; the
+installer tests are unsigned. Earlier actual installer upgrade/history retention
+and licensed Word add-in checks retain their stated scope. The user deferred
+inherited browser bugs, chose this tested dev snapshot over three newer commits,
+and prohibited release publication. None is silently counted as completed work.
+
+The private final acceptance receipt is
+`closed-final-six-platform-migration-acceptance.receipt.json`, SHA256
+`a8d93da5aa5c304b5f81d43d4c5836f75da2377a88f414ac2d81fcd9b3fa42dc`.
+It verifies 32 evidence references, all six actual app jobs, all six native source
+hosts, all six protected runtimes, both full unit jobs and exact engine identity.
+An additive qualification links the independent final agent review, literal strict
+result, billing reconciliation and complete private cloud trace backups.
+
+## Earlier checkpoints
+
+The paragraphs below retain prior checkpoints and their exact scopes. Their
+pending items and dated balances do not override the current checkpoint above.
+
+The final [production source run40486260728](https://github.com/eigenweltlabs/legalwork/actions/runs/40486260728)
+has built all twelve engine targets, including the three production-signed Mac
+variants, and passed all six protected runtime configurations. Its independently
+verified distribution manifest is
+`7e221edd90abed59a0659393a5eaa9a960000263240e6094cbb7a6f07825e558`.
+The six actual app/package/startup jobs have started; their results remain required.
+
+Both Windows native integration fixtures execute all 162 semantic assertions but
+fail while removing their temporary directory after shutdown. Matching the
+production parent-process lifetime alone did not resolve it. The diagnostic
+[follow-up40492613469](https://github.com/eigenweltlabs/legalwork/actions/runs/40492613469)
+retains process state and remaining path names after the original removal failure;
+no cleanup retry, test waiver or timing increase is introduced. Other four native
+source hosts have passed actual compilation, integration and warm reuse.
+
+The Windows x64 app build also found that Git's automatic CRLF conversion makes
+the browser generator's exact-byte check reject its tracked output before app
+build. A real Git checkout reproduces the failure. Scoped LF attributes retain
+all 31 reviewed browser files byte-for-byte and preserve rejection of genuinely
+stale output. Actual Windows package re-execution is still required.
+
+The corrected full Linux/Mac unit [follow-up40492117543](https://github.com/eigenweltlabs/legalwork/actions/runs/40492117543)
+uses the exact production-produced engine bytes, under development test
+preparation metadata. This is a unit acceptance run, not another production
+producer or six-platform app result. The changes correct two test expectations
+and use an ordinary newly compiled Mac signing fixture, without changing product
+signing behavior. Engine build inputs remain unchanged from the final producer.
+
+The user accepted tracking broader legal-quality findings separately while
+requiring final migration checks. Existing NDA and delegation grades remain exact;
+this does not establish universal quality parity. A final actual-model Electron
+check will use the same final engine distribution on Mac. The user accepted that
+its full traces belong to the Mac user, protected by normal app permissions and a
+process-bound recorder, rather than the Linux benchmark's root-owned filesystem
+boundary. The original Linux benchmark remains unchanged. An actual outside-folder
+permission refusal and independent recorder/transport review precede inference.
 
 The older candidate40475853243 passes full Linux x64/ARM64 and Mac ARM64 app
 acceptance plus both full unit jobs. Both Windows app jobs stop at two fixture
@@ -39,8 +229,8 @@ The original assertion remains required; failure diagnostics are being added to
 preserve the cause from the ephemeral runner. Historical results remain under
 their original identities, rather than counted as final adopted-build evidence.
 
-The user approved retiring bare standalone downloads. Remove automatic URL/mirror
-fallbacks and raw-sidecar release assets; preserve desktop, Node development,
+The user approved retiring bare standalone downloads. Automatic URL/mirror
+fallbacks and raw-sidecar release assets are removed; preserved routes are desktop, Node development,
 manual URL/token connections and complete NPM platform bundles. Desktop's embedded
 server and packaged sandbox do not depend on this downloader. No new standalone
 archive delivery format or runtime dependency is introduced.
@@ -48,7 +238,7 @@ archive delivery format or runtime dependency is introduced.
 The following platform notes retain earlier functional evidence and its scope;
 they do not supersede the final normal-build acceptance above.
 
-## Platforms
+## Historical functional platform scenarios
 
 | Configuration tested | Verified | Still running or remaining |
 |---|---|---|
@@ -234,9 +424,9 @@ Private audit: `~/.codex/benchmarks/legalwork-capability-source-parity-20261026/
 `c4937e781a2d6766a72e8a5e7df8ed121ad6ed45bac920c6bc4da2cec6c713cb`.
 The full mapping retains exact source files/lines and observed native IDs.
 
-## Remaining acceptance
+## Historical acceptance checklist — 27 October, 08:46 UTC
 
-Current-source candidate run [40475853243](https://github.com/eigenweltlabs/legalwork/actions/runs/40475853243) started27October08:46UTC atf10979482b1aeb719288c84247fb2d325c3799ef. It uses the existing six-runtime/six-package matrix and independently pinned producer40359354246/f754. It is candidate execution, not normal-build/default adoption or final signed-distribution consumption.
+At this earlier checkpoint, candidate run [40475853243](https://github.com/eigenweltlabs/legalwork/actions/runs/40475853243) started27October08:46UTC atf10979482b1aeb719288c84247fb2d325c3799ef. It used the existing six-runtime/six-package matrix and independently pinned producer40359354246/f754. These historical pending items do not override the completed final acceptance above.
 
 1. Complete actual current-source app/package/startup checks on Intel Mac and
    Windows ARM64, and recheck Windows x64 after its extraction fix. All six sandbox

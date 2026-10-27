@@ -37,7 +37,9 @@
     "test:drafts:build": "node --test scripts/test-draft-build.mjs",
     "engine:prepare": "node packages/opencode-release/prepare.mjs --mode development",
     "engine:prepare:production": "node packages/opencode-release/prepare.mjs --mode production",
-    "engine:check": "node packages/opencode-release/prepare.mjs --mode development --check"
+    "engine:check": "node packages/opencode-release/prepare.mjs --mode development --check",
+    "docs:generate": "node scripts/gen-core-skills.mjs",
+    "docs:check": "node scripts/gen-core-skills.mjs --check"
   },
   "packageManager": "pnpm@11.4.0"
 }

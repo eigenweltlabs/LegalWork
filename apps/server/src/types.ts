@@ -148,6 +148,8 @@ export interface ServerConfig {
   agentSandboxEnabled?: boolean;
   /** Host-owned admission boundary for native project automation discovery. */
   engineProjectTrustRequired?: boolean;
+  /** Host-owned source policy. Managed engines ignore project/ancestor native discovery. */
+  engineConfigurationMode?: "managed" | "native-project";
   managedEngineStorageDirectory?: string;
   /** Host-owned history identity and current owned connection; never client configuration. */
   managedImageAffinity?: (workspace: WorkspaceInfo) => import("./managed-image-affinity.js").ManagedImageAffinity | undefined;

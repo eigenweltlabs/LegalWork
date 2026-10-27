@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AiPlansOverlay } from "../src/react-app/domains/onboarding/ai-plans-overlay";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
 import { createLegalworkServerClient, LegalworkServerError } from "../src/app/lib/legalwork-server";
 import { currentLocale, setLocale } from "../src/i18n";
@@ -16,6 +17,27 @@ const reviewed: EngineProjectStatus = {
     { target: "new-plugin", sources: ["/fixture/matter/.opencode/plugin.ts"], approved: false },
   ], projection: {},
 };
+
+test("AI setup keeps the project's approval review inside its covering dialog", () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://fixture.invalid" });
+  const cache = new QueryClient();
+  cache.setQueryData(engineProjectStatusQueryKey(client, "matter"), reviewed);
+  try {
+    const html = renderToStaticMarkup(<QueryClientProvider client={cache}><AiPlansOverlay
+      mode="onboarding" variant="new" account={null} serverReady
+      projectApproval={<EngineProjectApproval client={client} workspaceId="matter" />}
+      onStartSignIn={async () => ({ authorizeUrl: "", sessionId: "" })}
+      onWaitSignIn={async () => ({ connected: false })}
+      onSignedIn={() => {}} onBringOwnModel={() => {}} onOpenBilling={() => {}}
+      onCheckModels={async () => false}
+    /></QueryClientProvider>);
+    expect(html).toContain('data-testid="ai-plans-overlay"');
+    expect(html).toContain('aria-label="Allow automation from this project?"');
+    expect(html).toContain("/fixture/opencode.json");
+    expect(html).toContain("/fixture/matter/.opencode/plugin.ts");
+    expect(html).toContain("Allow project automation");
+  } finally { cache.clear(); }
+});
 
 test("approval review exposes inherited execution scope, future edits and pending plugin origins", () => {
   const html = renderToStaticMarkup(<EngineProjectApprovalNotice status={reviewed} onApprove={() => {}} onRefresh={() => {}} />);

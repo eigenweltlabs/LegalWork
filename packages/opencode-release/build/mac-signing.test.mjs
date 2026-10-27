@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -102,7 +102,16 @@ test("existing real Mac ad-hoc path uses no production identity and remains exec
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-real-adhoc-"));
   try {
     const binary = path.join(root, "opencode"), evidenceDirectory = path.join(root, "evidence");
-    await mkdir(evidenceDirectory); await copyFile("/usr/bin/true", binary);
+    await mkdir(evidenceDirectory);
+    // Sign a new build-owned native executable, as the helper requires. Apple
+    // platform utilities can include arm64e/platform signing semantics that
+    // are unrelated to ordinary Bun/OpenCode build outputs.
+    const source = path.join(root, "main.c");
+    await writeFile(source, "int main(void) { return 0; }\n");
+    // Fail clearly when the existing developer toolchain is unavailable;
+    // never install it or skip the native signing/execution assertions.
+    await promisify(execFile)("/usr/bin/xcode-select", ["-p"]);
+    await promisify(execFile)("/usr/bin/xcrun", ["clang", source, "-o", binary]);
     const result = await signMacEngine({ binary, evidenceDirectory });
     assert.match(result.signing, /ad-hoc/); assert.equal(result.afterSha256, hash(await readFile(binary)));
     await promisify(execFile)(binary, []);

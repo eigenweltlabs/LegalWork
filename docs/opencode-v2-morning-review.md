@@ -1,14 +1,101 @@
 # Review when you return
 
-The migration is unfinished. Confirmed model charges are **€17.12 across 638 calls**,
-checked twice on 26 October at 19:44–19:47 UTC. All 80 newer calls match full
-response IDs. The conservative ledger still holds €57.76 because its existing
-settlement API cannot update those already settled estimates; originals and two
-uncertain historical holds are preserved. This is distinct from actual charges.
+The engineering migration is complete on `codex/opencode-v2-migration` for the
+user-frozen OpenCode 2.1.4/dev snapshot. No release is published.
+Confirmed model charges are **€17.96 across 678 calls**,
+confirmed again by two read-only gateway balance reads and the complete charge
+list on 27 October after the final task. All 40 final-run calls match complete
+SSE response IDs and persisted charges totalling €0.83. The separate conservative ledger retains settled estimates and two
+uncertain historical holds; its exposure is not the gateway's confirmed charge.
+The existing settlement API cannot replace those settled estimates. Original
+records are preserved, and a fresh per-case budget guard precedes another task.
 The €250 ceiling is reserved for justified fixes and retests; VM costs are separate.
-Migration source pushes and CI remain authorized. No app/engine release, tag or public binary assets have been published.
+Migration source pushes and existing CI test artifacts remain authorized.
+No app/engine release, tag or release assets have been published.
 
-## Current checkpoint — 27 October, 09:55 UTC
+## Final acceptance — 27 October, 14:50 UTC
+
+All six native engine configurations and all six protected runtimes pass. Both
+full Linux and Mac unit suites pass. Final-source actual app/package/startup
+passes are closed for both Macs, both Linux architectures and both Windows
+architectures. Both Windows unsigned installers and actual engine-to-VM tool
+integrations pass. The final [Windows run40517342408](https://github.com/eigenweltlabs/legalwork/actions/runs/40517342408)
+is wholly successful, with its last app job completed at 14:50:17 UTC.
+
+Windows startup diagnostics now identify a native Documents-folder lookup error
+in the synthetic test profile, before engine boot. The fixture now creates that
+owned directory; verification40517342408 passes startup on both architectures.
+The original 90-second deadline and
+all 16 startup assertions remain. Both Windows architectures separately pass the
+actual engine-to-protected-VM tool check, each with all 33 assertions and no skips.
+ARM64's native-window diagnostic timed out; the exact Documents error was
+recovered on x64. The failed runs and their diagnostic qualifications remain
+preserved; no product or registry change was needed.
+
+Intel Mac's initial final-source attempt failed during dependency downloads.
+Its unchanged Intel-only retry passed the full app/package/security/native/preview/startup checks at 13:33:59 UTC. Earlier
+production app passes remain retained under their exact source identities.
+
+The adopted `dev` help/navigation snapshot is merged. Final
+[run40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
+uses exact production-produced engine bytes under development TEST metadata;
+it is not another production producer or an app release.
+
+The user subsequently chose to finish this tested dev snapshot. Three newer dev
+commits (meeting/audio fixes, dashboard files and detailed support exports,
+ending at `7d4f2bcc`) stay outside this candidate. Their uncommitted merge was
+cancelled. A future integration needs to adapt the new support exporter's v1
+database queries for v2; no new support-export feature is claimed here.
+
+The final actual-model task completed two delegated reviews and both outputs. The user-selected isolated Linux VM
+has passed normal package/security and independent pre-Send catalog, protected
+execution and root-private tracing checks. Independent offline replay retains strict 8/9: three citation-capitalization
+mismatches. All 36 tool returns and 40 provider exchanges are complete and
+verified. Unsupported legal/business memo statements remain separate quality
+findings. No outside-folder Ask occurred, so no Deny interaction is claimed.
+Native request roles are not fully attributed; performance comparisons remain
+inconclusive. The task cost €0.83 and was not retried. The VM has no service account and automatically
+deletes at 15:48 UTC. Consistent database backups and full traces are preserved
+locally and in verified private EU cloud storage. The earlier Mac skill
+contamination remains recorded, with no paid task sent there.
+
+The user reports sufficient free disk space. No further cleanup batches are
+planned. The previously running private evidence backups are complete.
+
+The agreed separate work remains: inherited browser capture bugs, broader legal
+quality findings, Windows updater delivery and the physical Windows 11 check
+before public release. Windows signing is unavailable; tested installers are
+unsigned. The native internal tool-search timing gap and final benchmark's
+incomplete request-role attribution remain explicit; no performance superiority
+or perfect legal-quality parity is claimed. The final acceptance matrix and
+evidence identities are in [capability status](opencode-v2-capability-status.md).
+
+## Previous checkpoint — 27 October, 11:06 UTC
+
+All twelve final engine targets are built; all six protected runtimes pass. The
+actual six-platform app jobs have started in
+[40486260728](https://github.com/eigenweltlabs/legalwork/actions/runs/40486260728).
+Final completion still needs those package/startup results, the corrected full
+Linux/Mac unit run, and one actual-model check using the final compiled engine.
+
+Two Windows follow-ups remain. A native engine test completes all 162 semantic
+assertions, then cannot remove its temporary directory; the production lifetime
+alignment alone did not fix that cleanup. The next run retains the exact remaining
+paths and process state to identify the open resource. Separately, Windows app
+build rejects generated browser output after Git changes its line endings. A
+scoped checkout rule passes the real Git reproduction while still rejecting stale
+output; actual Windows app acceptance must consume the correction.
+
+The user accepted keeping broader legal-quality findings separate, retaining the
+exact NDA55/56 versus53/56 and delegation8/9 versus9/9 findings and their caveats.
+Any established new migration regression still needs correction. The final Mac
+functional check is authorized with full traces and ordinary outside-folder
+permission denial; the user explicitly accepted that its trace files are owned by
+the Mac user rather than Linux root. This is not equivalent OS-level isolation.
+Original Linux evidence is retained. No new content limit or production behavior
+change is introduced by these test and checkout corrections.
+
+## Previous checkpoint — 27 October, 09:55 UTC
 
 The user chose to finish and freeze OpenCode 2.1.4. Stable 2.2.0 appeared today;
 its source audit is retained for a later upgrade. It needs a real patch/build

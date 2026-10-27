@@ -133,7 +133,7 @@ export async function registerLocalProject(
   const workspacePath = resolve(input.folderPath);
   await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
-  await ensureWorkspaceFiles(workspacePath, input.preset);
+  await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
   if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
 
   const workspace: WorkspaceInfo = {

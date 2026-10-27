@@ -7,8 +7,8 @@ import { embeddedNativePluginBundle } from "./native-plugin-assets.js";
 import { resolveCapabilityLibrary } from "./capability-library.js";
 import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-engine-settings.js";
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
-import { nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
-import { approvedNativePluginIdentities, approveNativePluginTargets, managedNativePluginTargets } from "./native-project-plugins.js";
+import { archiveNativeProjectProjection, nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
+import { approvedNativePluginIdentities, approveNativePluginTargets, managedNativePluginTargets, nativePluginIdentity } from "./native-project-plugins.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -27,7 +27,10 @@ import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { writeGeneratedConfigFile } from "./generated-config-file.js";
 import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { listSkills } from "./skills.js";
+import { listGlobalSkills, listSkills } from "./skills.js";
+import { commonManagedConfiguration } from "./managed-config-sources.js";
+import { prepareManagedGlobalLibrary } from "./managed-global-library.js";
+import { managedCoreLibraryRoot, managedCoreConfiguration, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
@@ -294,7 +297,7 @@ export async function buildLegalworkRuntimeSettings(
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    skills: { paths: workspace ? (await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
+    skills: { paths: workspace ? (config?.engineConfigurationMode === "managed" ? await listGlobalSkills() : await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
     provider: providerMap,
     default_agent: runtimeConfig.default_agent,
     agent: {
@@ -348,7 +351,10 @@ export async function buildLegalworkRuntimeSettings(
       ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
       : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
-  const { config: configuration, ...native } = nativeOpencodeConfig(result);
+  const { config: normalized, ...native } = nativeOpencodeConfig(result);
+  const core = config?.engineConfigurationMode === "managed" ? managedCoreConfiguration() : undefined;
+  const configuration = core ? { ...normalized, agents: { ...core.config.agents, ...normalized.agents }, commands: { ...core.config.commands, ...normalized.commands } } : normalized;
+  native.agentRequests = { ...core?.agentRequests, ...native.agentRequests };
   const firmFilters = config ? nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...runtimeConfig.permission } })).modelFilters : {};
   // A member selection may narrow the firm's catalog, never expand it. These
   // legacy filters also guard explicit requests, not only catalog display.
@@ -360,7 +366,7 @@ export async function buildLegalworkRuntimeSettings(
       deny: [...new Set([...firm.deny ?? [], ...member?.deny ?? []])],
     };
   }
-  const library = workspace ? await resolveCapabilityLibrary(workspace.path) : { nativeSkills: [] };
+  const library = workspace ? await resolveCapabilityLibrary(workspace.path, config?.engineConfigurationMode === "managed", config?.engineConfigurationMode === "managed" ? managedCoreLibraryRoot(config) : undefined) : { nativeSkills: [] };
   const providerActivation = { ...runtimeConfig.providerActivation };
   // The firm's own providers remain enabled, as before the migration.
   for (const id of firmProviderIds) delete providerActivation[id];
@@ -399,11 +405,11 @@ export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspa
   // approvals and deactivate mandatory integrations on the next config load.
   const [common, mandatory, approved] = await Promise.all([
     targets(legalworkRuntimeConfigFilePath(config)), targets(mandatoryRuntimeConfigFilePath(config)),
-    (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : approvedNativePluginIdentities(config),
+    config.engineConfigurationMode === "managed" || (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : approvedNativePluginIdentities(config),
   ]);
   return { ...layer, policies: [
     { action: "integration.use", resource: "plugin:*", effect: "deny" },
-    ...[...new Set([...common, ...mandatory, ...approved])].map(target => ({ action: "integration.use", resource: `plugin:${target}`, effect: "allow" })),
+    ...[...new Set([...common, ...mandatory, ...approved].map(nativePluginIdentity))].map(target => ({ action: "integration.use", resource: `plugin:${target}`, effect: "allow" })),
     ...(config.agentSandboxEnabled ? nativeHostExecutionActions.map(action => ({ action: "tool.use", resource: `${action}:*`, effect: "deny" })) : []),
     ...layer.policies ?? [],
   ] };
@@ -462,6 +468,10 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     await mkdir(engineStorageDir(config), { recursive: true });
     const workspaces: ManagedSettingsFile["workspaces"] = {};
     const commonPlugins = new Set<string>();
+    const managed = config.engineConfigurationMode === "managed";
+    if (managed) await prepareManagedCoreLibrary(config);
+    const library = managed ? await prepareManagedGlobalLibrary(config) : { plugins: [] };
+    const sharedPlugins = (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : library.plugins ?? [];
     for (const directory of config.managedEnginePluginDirectories ?? []) {
       commonPlugins.add(await bundledPluginSpec(join(directory, "index.js"), config));
     }
@@ -475,7 +485,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       }
     }
     const settingsPath = managedEngineSettingsFilePath(config);
-    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 1, workspaces }));
+    const configurations = Object.values(workspaces).map(entry => nativeOpencodeConfig(entry.configuration && typeof entry.configuration === "object" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config);
+    const sharedConfiguration = managed ? commonManagedConfiguration(configurations) : {};
+    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 1, workspaces, sharedConfiguration }));
     const mandatoryPlugins = [
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
       await bundledPluginSpec(legalworkPluginPath("legalwork-product-scope"), config),
@@ -483,7 +495,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-history-image-tools"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
-      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath, managedConfiguration: managed } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       ...(config.agentSandboxEnabled ? [await bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
@@ -495,8 +507,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // discovered project executables still require the separate review action.
     const selected = Object.values(workspaces).flatMap(entry => entry.configuration && typeof entry.configuration === "object" && "plugins" in entry.configuration && Array.isArray(entry.configuration.plugins)
       ? entry.configuration.plugins.flatMap(plugin => typeof plugin === "string" && !commonPlugins.has(plugin) ? [plugin] : []) : []);
-    await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
-    for (const workspace of config.workspaces) {
+    if (!managed) await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
+    if (managed) for (const workspace of config.workspaces) await archiveNativeProjectProjection(config, workspace);
+    for (const workspace of managed ? [] : config.workspaces) {
       const settings = workspaces[workspace.id];
       if (!settings) continue;
       const configuration = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === "object" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;
@@ -509,7 +522,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       }
     }
     await writeNativeEngineProjectRegistry(config);
-    const content = JSON.stringify({ $schema: "https://opencode.ai/config.json", update: "disable", default_agent: "legalwork", experimental: { todo: true }, plugins: [...commonPlugins] });
+    const content = JSON.stringify({ ...sharedConfiguration, $schema: "https://opencode.ai/config.json", update: "disable",
+      ...(!managed || configurations.every(configuration => configuration.default_agent === undefined) ? { default_agent: "legalwork" } : {}),
+      experimental: { ...sharedConfiguration.experimental, todo: true }, plugins: [...sharedPlugins, ...commonPlugins] });
     await writeGeneratedConfigFile(path, content);
     // The final process-owned directives restore mandatory guards even when a
     // trusted authored document removes plugins. Only the unsafe native command
