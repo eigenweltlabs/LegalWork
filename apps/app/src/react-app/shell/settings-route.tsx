@@ -2259,6 +2259,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             pluginImports={extensionsStore}
             pluginCreation={extensionsStore}
+            onAuthorizeConnector={name => {
+              const entry = connectionsStore.mcpServers.find(server => server.name === name);
+              if (entry) void connectionsStore.authorizeMcp(entry);
+            }}
             skillImports={extensionsStore}
             skillTools={extensionsStore}
             libraryConnection={selectedWorkspaceEndpoint?.client ?? legalworkClient}
