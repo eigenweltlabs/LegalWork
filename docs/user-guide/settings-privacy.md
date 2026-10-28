@@ -31,7 +31,11 @@ Firm policies can supply models, connectors or settings and can lock individual 
 
 ## Access and secrets
 
-Authorizing a folder allows the assistant to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Firm roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.
+Authorizing a folder allows the worker to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Remote worker roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.
+
+File access outside the project and its added folders requires approval before the agent can list, read or change those files. This also applies to helper agents. Choose **Allow once** for the current request, **Add folder to project** to remember access for this project, or **Deny** to refuse it. Remembered folders appear in **Settings > Permissions** for the selected project; remove a folder there to revoke access. Other projects do not inherit that grant, and stricter tool, agent and firm restrictions still apply.
+
+Unprotected shell commands require a separate **Computer access for commands** approval. With sandboxing off, a command can read and change files anywhere your computer account can access. **Allow once** approves the current command; **Allow for session** remembers the broader access for that chat. Turn on **Sandboxing** in **Settings > Permissions** or for the current chat to confine commands to shared folders. macOS or Windows can still deny access independently of LegalWork's approval.
 
 Enter API keys and passwords in the relevant connection/Secrets form. Local connection credentials belong to this LegalWork installation; team-managed connections have their own access rules. Do not expose secrets in screenshots, chat examples or diagnostic reports. Changing environment/configuration can require an engine reload; wait for active work or use the app's offered controls.
 
@@ -53,6 +57,12 @@ If no matching entry appears, check the website reported by the password tool ag
 
 In **Tool Permissions**, inspect the displayed rule for the operation before changing it. Allowing a tool to run automatically can affect later chats as well as the current one. In workspace **Permissions**, add/remove the intended folder grant and check the selected workspace. Neither setting replaces provider consent or OS access grants.
 
+## Sandboxing
+
+During onboarding, the **Sandboxing** switch appears below the tool approval switches and is off by default. Turn it on to run commands inside a protected environment. **Sandbox network traffic** appears only while sandboxing is on; use it to control internet access for commands, page reads and web searches. Model connections, connected apps and browser tools keep their own permissions. You can change these defaults in **Settings > Tool Permissions**, and chats can override them unless firm policy locks them.
+
+If the app reports that sandboxing is unavailable, commands remain blocked while sandboxing is on. This indicates a runtime problem, not a missing network permission.
+
 ## Personalisation and memory
 
 Use **Personalisation > System prompt additions** to enter persistent writing instructions, then **Save**. These apply to chats on the current host. Choose a personality such as Default, Pragmatic or Professional if useful; individual models can follow tone differently. Project-specific instructions belong in the project's personalisation controls when available.
@@ -67,7 +77,7 @@ Change the display language in **Customization**. Use the appearance selector to
 
 ## Privacy and data flow
 
-Workspace files and local processing remain on the computer running LegalWork, but provider requests and connector actions can transmit task data to the chosen service. Local transcription runs on-device; cloud transcription and Voice Mode transmit audio to their selected services. Shared projects, wiki sharing and published calendar feeds also copy the chosen data to the firm's service. Ordinary connected storage is not automatically ingested into a knowledge index.
+Workspace files and local processing remain on the selected worker, but provider requests and connector actions can transmit task data to the chosen service. Local transcription runs on-device; cloud transcription and Voice Mode transmit audio to their selected services. Shared projects, wiki sharing and published calendar feeds also copy the chosen data to the firm's service. Ordinary connected storage is not automatically ingested into a knowledge index.
 
 Official builds can send content-free usage telemetry when enabled. **Settings > Privacy** controls the analytics preference; development builds do not send it. Where offered, online model-catalog updates control refreshing provider/model metadata, not downloading a local transcription model. These settings are separate from network access needed for a provider or connector. App-hiding controls live under Recorder > Meetings. They affect visibility, not provider data handling.
 

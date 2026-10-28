@@ -26,6 +26,8 @@ await mkdir(runtime);
 const workspace = path.join(root, "workspace");
 await mkdir(workspace);
 for (const name of ["home", "config", "data", "state", "cache", "appdata", "localappdata"]) await mkdir(path.join(root, name));
+// Windows verifies that the isolated profile's Documents known folder exists.
+if (process.platform === "win32") await mkdir(path.join(root, "home", "Documents"));
 const workspaceStore = createWorkspaceStore({ app: { getPath: () => userData } });
 await workspaceStore.writeWorkspaceState({ selectedId: "package-test", activeId: "package-test", watchedId: "package-test",
   workspaces: [{ id: "package-test", path: workspace, name: "Package test", workspaceType: "local", preset: "starter" }] });
@@ -37,11 +39,14 @@ let launchError;
 let passed = false;
 const logDirectories = [path.join(userData, "logs"),
   path.join(root, "home", "Library", "Logs", "LegalWork Package Test"),
-  path.join(homedir(), "Library", "Logs", "LegalWork Package Test")];
+  path.join(homedir(), "Library", "Logs", "LegalWork Package Test"),
+  ...(process.platform === "win32" ? [root] : [])];
 const logBaseline = await snapshotStartupLogs(logDirectories);
 const startedAt = Date.now();
 const milestones = [{ event: "launch-requested", elapsedMs: 0 }];
-const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [], {
+const args = process.platform === "win32" ? ["--enable-logging=file", `--log-file=${path.join(root, "chromium-startup.log")}`]
+  : process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
+const child = spawn(path.resolve(target), args, {
   env: {
     ...process.env,
     NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "",

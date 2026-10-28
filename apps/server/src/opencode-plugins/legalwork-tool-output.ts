@@ -102,7 +102,8 @@ await ctx.tool.transform(editor=>{editor.add(nativeTool(ctx,{name:"legalwork_too
         await authorize(context, request.outputPath);
         if (!context.ask) throw new Error("Saved output read permissions cannot be verified.");
         for (const permission of ["legalwork_tool_output_read", "read"]) {
-          await context.ask({ permission, patterns: [request.outputPath], always: [request.outputPath], metadata: {} });
+          await context.ask({ permission, patterns: [request.outputPath], always: [request.outputPath],
+            metadata: permission === "read" ? { legalworkVerifiedToolOutput: true } : {} });
         }
         context.abort?.throwIfAborted();
         const { file, size } = await openOutput(request.outputPath);

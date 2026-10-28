@@ -8,8 +8,8 @@ Start with the exact error, current workspace, platform and action that failed. 
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
 | Model request fails | Read the provider's authentication, quota, rate-limit or context-size error. Check the selected model/account and retry when appropriate; reconnecting storage will not fix a provider quota. |
-| File cannot be found or accessed | Confirm the project and path. Check folder Permissions, firm role and source/provider permissions. An attachment in another workspace may not be present here. |
-| Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials in the LegalWork installation running it. |
+| File cannot be found or accessed | Confirm the workspace/worker and path. Check Permissions, remote-worker role, and source/provider permissions. An attachment in another workspace may not be present here. |
+| Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials on the worker that runs it. |
 | Gmail or Outlook cannot connect or is unavailable in chat | Check [Email setup](email.md) for build availability, local-project access, browser sign-in, administrator consent and draft/send permissions. A Drive connection does not grant mailbox access. |
 | Newly saved skill is not offered | Check Integrations > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
 | Connected file edited but source unchanged | Local saves affect the working copy. Use Save to the named connection and inspect any permission or conflict error. Preserve the local draft. |
@@ -18,7 +18,7 @@ Start with the exact error, current workspace, platform and action that failed. 
 | Recording cannot start | Install/select a transcription model, choose an available audio source and check OS microphone/capture permissions. |
 | Dictation does not insert | Check the target cursor, shortcut readiness and Accessibility/Input Monitoring on macOS. Recover failed dictations from Recorder history. |
 | Office sidebar cannot connect | Keep LegalWork running, verify add-in/certificate/listener status in Office Add-ins, and fully restart Office after installation. |
-| A separately operated LegalWork server cannot connect | Check its URL, access token and availability. A browser client cannot start a stopped server. |
+| Remote worker cannot connect | Check the returned URL and credential, reachability, host availability and role. The browser client cannot repair a stopped remote machine by itself. |
 | Button names differ | Confirm the display language in Customization and look up the exact key/label in the bundled i18n reference. |
 | Calendar or another documented screen is missing | Check this build's [screen inventory](screens.json) and [screen map](screens.md). Newer-screen instructions are conditional; account access and platform can further restrict them. |
 | Dated task missing from Calendar | Confirm the task has a date, the chosen project, active filters, task-sharing scope and current sync status. A task and a deadline are separate records. |
@@ -30,7 +30,7 @@ Start with the exact error, current workspace, platform and action that failed. 
 
 ## Reload and restart
 
-Configuration changes can require an engine reload. Use the reload prompt when offered and account for active tasks. Restarting the LegalWork server is different from switching chats or reloading the browser. A full application restart may be required after OS permission changes or an installed update. Avoid resetting configuration as the first response to an ordinary provider error.
+Configuration changes can require an engine reload. Use the reload prompt when offered and account for active tasks. Restarting a worker is different from switching chats or reloading the browser. A full application restart may be required after OS permission changes or an installed update. Avoid resetting configuration as the first response to an ordinary provider error.
 
 ## Updates
 
@@ -38,8 +38,14 @@ Open **Settings > Updates** to see the current version, release channel and last
 
 ## Diagnostics and recovery
 
+In the desktop app, open **Settings > Updates** for two separate support exports. **Collect support logs** saves the existing `.txt` report with runtime details and log excerpts. Logs can contain filenames or content from an error; review that report before sharing it.
+
+For a detailed report with chat message text removed, find **Detailed support export** and set **Days** (default **7**, from **1** to **365**). This selects chats active during that period. Click **Export diagnostic traces**, choose where to save `legalwork-diagnostics-….json`, then review it before attaching it to your support request. This second export includes application logs, runtime status, execution events, tool names, arguments, results, complete errors, model details, token usage and timestamps. Original identifiers connect chats, child agents, messages and tool calls. Message records contain technical metadata; user and assistant message bodies, reasoning text, chat titles, summaries and attachment bytes are omitted. Credentials and exact copies of retained message bodies are redacted from traces where detected.
+
+This report still contains file paths, commands and potentially document excerpts or paraphrases inside tool results and logs. It is not an anonymous or content-free report. Review before sharing; secret redaction is best effort. It covers up to 100 chats active during the chosen period, their recent message and tool metadata, and dated execution events within that period. Each engine section includes up to 20,000 records. Application logs include tails of up to ten log files: dated entries are filtered to the selected period, and stack traces stay with their preceding entry. Undated log files use their last modification date. Current runtime snapshots, session metadata and events without timestamps can include context outside the selected period. Individual strings and total trace text are capped, and the report marks truncation. An export does not upload anything or change your chats. The local service must be running. Missing sources are recorded in the file. Events that were never recorded cannot be reconstructed; reproduce the problem and export again if support needs a newer trace.
+
 Advanced/Debug surfaces provide runtime health and diagnostics when exposed. Recovery can offer configuration reset, cache repair or leftover-container cleanup, but it is not a normal navigation item in this build. These actions have different effects; use the actual diagnostic surface and read its explanation before applying one. Preserve user files and configuration needed for recovery.
 
-When reporting a problem, include the app version, operating system, selected project and connection type, steps, exact error and whether it reproduces. Exclude credentials and unrelated matter content. This manual is not a record of your current runtime status.
+When reporting a problem, include the app version, operating system, selected local/remote workspace type, steps, exact error and whether it reproduces. Exclude credentials and unrelated matter content. This manual is not a record of your current runtime status.
 
 Related: [Settings](settings-privacy.md), [Feature availability](feature-availability.md), [Localization](localization.md).

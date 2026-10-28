@@ -2208,7 +2208,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={false}
             mcpServers={connectionsSnapshot.mcpServers}
-            mcpStatus={connectionsSnapshot.mcpStatus}
+            mcpStatus={extensionController.connectionError ?? connectionsSnapshot.mcpStatus}
             mcpStatuses={connectionsSnapshot.mcpStatuses}
             mcpConnectingName={connectionsSnapshot.mcpConnectingName}
             selectedMcp={connectionsSnapshot.selectedMcp}
@@ -2274,6 +2274,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             onRefresh={() => {
               window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
+              void extensionController.refreshConnections();
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshSkills({ force: true });

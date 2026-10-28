@@ -8,7 +8,7 @@ import { assertManagedCommandIntegration, interruptEngineSession } from "../nati
 
 const catalogRpc = { id: "legalwork.sandbox-test", methods: { catalog: { input: { type: "object" }, output: { type: "array", items: { type: "string" } } } }, events: {} };
 
-test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released host sandbox removes unsafe tools and blocks direct shell and command interpolation before process creation", async () => {
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN).each(["build", "legalwork"])("released host sandbox preserves command delegation to %s and blocks unsafe host execution", async delegatedAgent => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-sandbox-")));
   const workspace = join(root, "workspace");
   await Promise.all(["workspace", "home", "config", "data", "state", "cache", "sandbox", "commands", "product", "probe"].map(name => mkdir(join(root, name), { recursive: true })));
@@ -31,7 +31,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released host sandbox rem
       escape: { template: "Show: !`touch command-escape.txt`" },
       complete: { template: "Show: !`allowed`", model: "fixture/fixture" },
       cancellable: { template: "Show: !`waiting`", model: "fixture/fixture" },
-      delegated: { template: "Read the supplied attachment and reply Done.", subagent: true, agent: "build", model: "fixture/fixture" },
+      delegated: { template: "Read the supplied attachment and reply Done.", subagent: true, agent: delegatedAgent, model: "fixture/fixture" },
     } });
     if (path.endsWith("/sandbox/command")) {
       const body: unknown = await request.json();
@@ -66,6 +66,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released host sandbox rem
       OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
       LEGALWORK_SERVER_URL: relay.url.origin, LEGALWORK_SERVER_TOKEN: "command-fixture",
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false, plugins: [join(root, "sandbox"), join(root, "commands"), join(root, "product"), join(root, "probe"), "-opencode.config.command"],
+        agents: { legalwork: { mode: "primary" } },
         commands: { escape: { template: "Show: !`touch command-escape.txt`" } },
         policies: [{ action: "provider.use", resource: "*", effect: "deny" }, { action: "provider.use", resource: "fixture", effect: "allow" }],
         providers: { fixture: { package: "@opencode/ai/providers/openai", settings: { baseURL: relay.url.origin + "/v1", apiKey: "command-fixture" }, models: { fixture: { capabilities: { tools: true } } } } } }),
@@ -98,7 +99,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released host sandbox rem
     const child = (await client.session.list({ parentID: delegated.id })).data[0];
     if (!child) throw new Error("Native command did not create a child session.");
     expect(child.location.directory).toBe(workspace);
-    expect(child.agent).toBe("build");
+    expect(child.agent).toBe(delegatedAgent);
     expect((await client.agent.list({ location })).data.some(agent => agent.id.startsWith("legalwork-command-"))).toBe(false);
     await client.session.wait({ sessionID: child.id }, { signal: AbortSignal.timeout(10_000) });
     const history = (await client.message.list({ sessionID: child.id })).data;
@@ -107,16 +108,16 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released host sandbox rem
     const restricted = await client.session.create({ location, model: { providerID: "fixture", id: "fixture" }, permissions: [{ action: "subagent", resource: "*", effect: "deny" }] });
     await expect(client.session.command({ sessionID: restricted.id, name: "delegated", text: "" })).rejects.toThrow();
     expect((await client.session.list({ parentID: restricted.id })).data).toHaveLength(0);
-    const exactDeny = await client.session.create({ location, model: { providerID: "fixture", id: "fixture" }, permissions: [{ action: "subagent", resource: "build", effect: "deny" }] });
+    const exactDeny = await client.session.create({ location, model: { providerID: "fixture", id: "fixture" }, permissions: [{ action: "subagent", resource: delegatedAgent, effect: "deny" }] });
     await expect(client.session.command({ sessionID: exactDeny.id, name: "delegated", text: "" })).rejects.toThrow();
     expect((await client.session.list({ parentID: exactDeny.id })).data).toHaveLength(0);
-    const exactAsk = await client.session.create({ location, model: { providerID: "fixture", id: "fixture" }, permissions: [{ action: "subagent", resource: "build", effect: "ask" }] });
+    const exactAsk = await client.session.create({ location, model: { providerID: "fixture", id: "fixture" }, permissions: [{ action: "subagent", resource: delegatedAgent, effect: "ask" }] });
     const asking = client.session.command({ sessionID: exactAsk.id, name: "delegated", text: "" });
     void asking.catch(() => {});
     let permission = (await client.permission.list({ sessionID: exactAsk.id }))[0];
     while (!permission) { await Bun.sleep(5); permission = (await client.permission.list({ sessionID: exactAsk.id }))[0]; }
     expect(permission.action).toBe("subagent");
-    expect(permission.resources).toEqual(["build"]);
+    expect(permission.resources).toEqual([delegatedAgent]);
     await client.permission.reply({ sessionID: exactAsk.id, requestID: permission.id, decision: "reject" });
     await expect(asking).rejects.toThrow();
     expect((await client.session.list({ parentID: exactAsk.id })).data).toHaveLength(0);

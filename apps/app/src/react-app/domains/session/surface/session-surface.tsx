@@ -169,6 +169,7 @@ export type SessionSurfaceProps = {
   sessionId: string;
   opencodeBaseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   developerMode: boolean;
   modelLabel: string;
   onModelClick: () => void;
@@ -674,8 +675,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [props.sessionId, setFusionModels]);
   const fusionConfigured = (fusionModels?.length ?? 0) > 0;
   const opencodeClient = useMemo(
-    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, mode: "legalwork" }),
-    [props.opencodeBaseUrl, props.legalworkToken],
+    () => createClient(props.opencodeBaseUrl, undefined, { token: props.legalworkToken, hostToken: props.legalworkHostToken, mode: "legalwork" }),
+    [props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken],
   );
 
   // Live-transcript sharing. `recording` is a stable object for the whole
@@ -829,6 +830,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queryFn: async () => {
       const startedAt = Date.now();
       const statuses = unwrap(await readSessionStatuses(opencodeClient,{ directory: props.workspaceRoot.trim() || undefined }));
+      queryClient.setQueryData(["subagent-run-status", props.client.baseUrl, props.workspaceId], { started: startedAt, statuses });
       const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
       // A prompt submitted while this request was in flight supersedes its idle result.
       if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };

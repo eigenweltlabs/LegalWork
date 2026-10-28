@@ -46,6 +46,7 @@ const config = await resolveServerConfig(args);
 const managedEngine = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
 config.agentSandboxEnabled = managedEngine && process.env.LEGALWORK_MANAGED_OPENCODE_SANDBOX !== "0";
 config.engineProjectTrustRequired = managedEngine;
+config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
@@ -55,7 +56,7 @@ if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
@@ -116,7 +117,7 @@ const server = await startServer(config, { onListening: async (port) => {
           LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
           LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_CONFIG_PROJECT_DISABLE: "",
+          OPENCODE_CONFIG_PROJECT_DISABLE: "1",
           OPENCODE_TEST_HOME: engineHome,
           XDG_CONFIG_HOME: join(engineHome, "config"),
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),

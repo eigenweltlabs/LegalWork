@@ -1,5 +1,16 @@
 # Native client connection metadata
 
+Managed LegalWork engines use shared application-generated configuration and
+disable automatic native project/ancestor discovery. A registered project does
+not need a folder-trust approval. Settings views include saved app-owned values;
+public native catalogs remain the authority for effective providers, models,
+agents and connectors after location-specific transforms. App-owned providers
+retain editing without a project configuration document. Dormant authored files
+are preserved and diagnostics mark those sources `not_loaded`, without expanding
+private references. The authored-document provenance and approval behavior below
+applies to the separate explicit native-project mode, not normal managed desktop
+configuration.
+
 LegalWork's public engine proxy exposes safe connection and model metadata to
 viewer and collaborator clients. Native config reads and provider/model/agent
 catalogs omit resolved API keys, endpoint URLs, authentication headers, OAuth

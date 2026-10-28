@@ -14,7 +14,9 @@ Choose **Record**, speak briefly and check that the expected audio appears in th
 
 Use **Import file** or the supported drop area to transcribe an existing audio/video recording. Import requires a ready local transcription model; switch to local transcription if a cloud source is selected. **Save to workspace** or the project-linking action makes the recording/transcript available in the selected project. Check the destination rather than assuming every global recording belongs to the current matter. Rename recordings to make them findable. Deleting a recording is distinct from deleting a downloaded model.
 
-In the transcript panel, select a transcript segment to inspect it alongside playback and use **Copy transcript** when needed. Local speaker labels can be provisional. After recording, use **Speaker settings** to rename people or assign segments correctly; reassigning all of a speaker's segments affects every segment with that label. A detected speaker number is not proof of a person's identity.
+In the transcript panel, select a transcript segment to inspect it alongside playback and use **Copy transcript** when needed. Speaker detection runs automatically; speaker labels can be provisional until processing finishes. After recording, use **Speaker settings** to rename people or assign segments correctly; reassigning all of a speaker's segments affects every segment with that label. A detected speaker number is not proof of a person's identity.
+
+For saved cloud transcripts, select **Summarize** to generate a meeting title, summary and speaker names supported by the transcript. This remains available when automatic **Meeting Summarisation** is off. Speaker processing finishes before summary generation. Review the result and correct names in **Speaker settings** when needed.
 
 ## Dictate anywhere
 

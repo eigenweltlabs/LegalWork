@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
 import type { ServerConfig } from "../types.js";
 import { connectorStatus, createConnectorFlows, connectorAccessToken, disconnectConnector, setConnectorActivation } from "./broker.js";
-import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess } from "./local-oauth.js";
+import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
 import { connectorOAuthProvider } from "./oauth-providers.js";
 import { connectorSettings, connectorSettingsPath, saveConnectorWriteSetting } from "./settings.js";
 import { callConnectorExtensionAction, CONNECTOR_EXTENSION_ACTIONS } from "./index.js";
@@ -173,6 +173,40 @@ test("every Google and Microsoft connector offers a fixed provider and matching 
   expect(connectorOAuthClientInputSchema.safeParse({ clientId: "id", tenantId: "../attacker.test" }).success).toBe(false);
   await expect(saveLocalOAuthClient(config, "outlook", { clientId: "id", clientSecret: secret })).rejects.toMatchObject({ code: "connector_oauth_public_client" });
   expect(requests).toHaveLength(0);
+});
+
+test("one mail write switch requests all mail capabilities without granting calendar writes", async () => {
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  expect((await localOAuthClient(config, "gmail")).scopes).toEqual(["https://www.googleapis.com/auth/gmail.modify"]);
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  const scopes = (await localOAuthClient(config, "outlook-calendar")).scopes;
+  expect(scopes).toContain("https://graph.microsoft.com/Mail.ReadWrite");
+  expect(scopes).toContain("https://graph.microsoft.com/MailboxSettings.ReadWrite");
+  expect(scopes).toContain("https://graph.microsoft.com/Calendars.Read");
+  expect(scopes).toContain("https://graph.microsoft.com/Mail.Send");
+  expect(scopes).not.toContain("https://graph.microsoft.com/Calendars.ReadWrite");
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: false });
+  const readScopes = (await localOAuthClient(config, "outlook")).scopes;
+  expect(readScopes).toContain("https://graph.microsoft.com/MailboxSettings.Read");
+  expect(readScopes).not.toContain("https://graph.microsoft.com/MailboxSettings.ReadWrite");
+});
+
+test("older own-app mail grants require renewed organization consent without losing reads", async () => {
+  await saveLocalOAuthClient(config, "gmail", { clientId: "client" });
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  const original = await connected();
+  const oldState = await privateState("gmail");
+  await new OAuthVault(oauthVaultPath(config)).setEntry(privateStateKey("gmail"), z.unknown(), { ...oldState, connections: oldState.connections.map((item) => ({ ...item, source: "custom" })) });
+  await expect(requireLocalOAuthOrganizeAccess(config, "gmail", original.connection.id)).rejects.toMatchObject({ code: "connector_write_reconnect_required" });
+  const request = await createConnectorRequest(config, "gmail");
+  await request("/gmail/v1/users/me/profile");
+  await expect(request("/gmail/v1/users/me/labels", { method: "POST", organize: true, body: { name: "Matter" } })).rejects.toMatchObject({ code: "connector_write_reconnect_required" });
+  const reconnect = await start("gmail", original.connection.id);
+  expect(reconnect.authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.modify");
+  expect((await callback(reconnect.authorization)).status).toBe(200);
+  expect((await reconnect.flows.status(reconnect.flow.flowId)).status).toBe("connected");
+  await requireLocalOAuthOrganizeAccess(config, "gmail", original.connection.id);
+  await requireLocalOAuthSendAccess(config, "gmail", original.connection.id);
 });
 
 test("an existing direct grant still permits reads after the server becomes read-only", async () => {
@@ -430,7 +464,7 @@ test("enabling one Outlook connector requests the union of independently selecte
   for (const id of ["gmail", "google-calendar", "google-drive", "onedrive", "onedrive-personal", "sharepoint-files"]) {
     await saveConnectorWriteSetting(config, id, { writeAccess: true });
     const permissions = (await localOAuthClient(config, id)).scopes;
-    expect(permissions.some((scope) => scope.endsWith("gmail.compose") || scope.endsWith("calendar.events") || scope.endsWith("/drive") || scope.endsWith("Files.ReadWrite.All"))).toBe(true);
+    expect(permissions.some((scope) => scope.endsWith("gmail.modify") || scope.endsWith("calendar.events") || scope.endsWith("/drive") || scope.endsWith("Files.ReadWrite.All"))).toBe(true);
   }
   config.readOnly = true;
   expect((await localOAuthClient(config, "outlook")).scopes).not.toContain("https://graph.microsoft.com/Calendars.ReadWrite");

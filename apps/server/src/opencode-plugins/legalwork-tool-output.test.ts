@@ -70,7 +70,10 @@ async function read(input: Record<string, unknown> = {}, deny?: string) {
   const tools = (await plugin()).tool;
   return JSON.parse(await tools.legalwork_tool_output_read.execute({ outputPath, ...input }, {
     directory, sessionID: current,
-    ask: async ({ permission }) => { approvals.push(permission); if (permission === deny) throw new Error("Permission denied"); },
+    ask: async ({ permission, metadata }) => {
+      if (permission === "read") expect(metadata.legalworkVerifiedToolOutput).toBe(true);
+      approvals.push(permission); if (permission === deny) throw new Error("Permission denied");
+    },
   }));
 }
 

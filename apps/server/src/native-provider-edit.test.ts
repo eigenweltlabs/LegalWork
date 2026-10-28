@@ -24,7 +24,7 @@ test("specific provider edits preserve omitted transport values while explicit r
   expect(saved.fixture.models.keep.limit).toEqual({ context: 32000 });
 });
 
-test("offline settings expose only app-owned redacted saved values without claiming native edit provenance", async () => {
+test.each([false, true])("offline settings retain private values and distinguish managed ownership from native provenance (managed=%s)", async managed => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-private-provider-offline-")));
   const directory = join(root, "project"); await mkdir(directory);
   const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -35,7 +35,8 @@ test("offline settings expose only app-owned redacted saved values without claim
   const endpoint = "https://synthetic-private-endpoint.invalid/v1";
   const config: ServerConfig = { configPath: join(root, "server.json"), host: "127.0.0.1", port: 0, token: "synthetic-client", hostToken: "synthetic-host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "matter", name: "Matter", path: directory, workspaceType: "local", preset: "starter" }],
-    authorizedRoots: [directory], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+    authorizedRoots: [directory], ...(managed ? { engineConfigurationMode: "managed" } : {}),
+    readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const source = join(directory, "opencode.json");
   await writeFile(source, JSON.stringify({ providers: { authored: { settings: { apiKey: authored } } } }));
   await writeRuntimeOpencodeConfig(config, "matter", () => ({ providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", name: "Fixture",
@@ -46,12 +47,31 @@ test("offline settings expose only app-owned redacted saved values without claim
     const response = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/config`, { headers: { Authorization: `Bearer ${config.token}` } });
     expect(response.status).toBe(200);
     const view = await response.json();
-    expect(view.authoredConfig).toEqual({ status: "unavailable", paths: [source] });
+    expect(view.authoredConfig).toEqual({ status: "unavailable", paths: managed ? [] : [source] });
     expect(view.opencode.$legalworkReadOnlyProjection).toBe(true);
-    expect(view.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: false });
+    expect(view.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: managed });
     expect(view.providerDisplay).not.toHaveProperty("authored");
     expect(view.opencode.providers).not.toHaveProperty("authored");
     for (const value of [marker, header, authored, endpoint]) expect(JSON.stringify(view)).not.toContain(value);
+    if (managed) {
+      const diagnostics = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/runtime-config`, { headers: { Authorization: `Bearer ${config.token}` } });
+      expect(diagnostics.status).toBe(200);
+      expect(await diagnostics.json()).toMatchObject({ sources: { projectOpencode: { status: "not_loaded" } } });
+      const native = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/api/config"
+        ? Response.json([{ type: "document", info: { providers: { shared: { name: "Shared provider", settings: { apiKey: marker } } } } }])
+        : new Response("Unexpected native route", { status: 500 }) });
+      try {
+        config.opencodeBaseUrl = native.url.origin;
+        const connected = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/config`, { headers: { Authorization: `Bearer ${config.token}` } });
+        expect(connected.status).toBe(200);
+        const current = await connected.json();
+        expect(current.authoredConfig).toEqual({ status: "resolved", paths: [] });
+        expect(current.opencode.providers).toMatchObject({ shared: { name: "Shared provider" }, fixture: { name: "Fixture" } });
+        expect(current.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: true });
+        expect(current.providerDisplay.shared.editable).toBe(false);
+        for (const value of [marker, header, authored, endpoint]) expect(JSON.stringify(current)).not.toContain(value);
+      } finally { native.stop(true); }
+    }
   } finally {
     await server.stop(); await rm(root, { recursive: true, force: true });
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
