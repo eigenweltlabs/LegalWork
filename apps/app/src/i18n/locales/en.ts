@@ -3220,8 +3220,6 @@ export default {
   "session.allow_for_session": "Allow for this chat",
   "session.allow_once": "Allow once",
   "session.permission_folder_decision_hint": "Allow this request once, or remember access to this folder for this chat only. Other chats do not receive access.",
-  "session.permission_title_host_access": "Computer access for commands",
-  "session.permission_message_host_access": "Sandboxing is off. These commands can read and change files anywhere your computer account can access, including outside added folders. Turn on Sandboxing to enforce folder boundaries.",
   "session.cmd_agent_active": "Active",
   "session.cmd_agent_default_detail": "Use the engine's default agent",
   "session.cmd_agents_detail": "Choose which agent runs your prompts",
