@@ -8,7 +8,7 @@ import { ScheduledTaskSchema } from "./scheduled-tasks.js";
 import { projectContentsSchema } from "./workspace.js";
 import { WikiSuggestionSchema } from "./wiki-suggestions.js";
 import { ViewPreviewSchema, ViewRecordSchema } from "./views.js";
-import { AssistantDelegationResultSchema, AssistantNameResultSchema, AssistantSharedFileResultSchema } from "./main-assistant.js";
+import { AssistantDelegationResultSchema, AssistantNameResultSchema, AssistantReactionResultSchema, AssistantSharedFileResultSchema } from "./main-assistant.js";
 
 const callSchema = z.object({ tool: z.string(), status: z.enum(["running", "completed", "error"]), input: z.unknown().optional() });
 const email = z.object({ draft: EmailDraftSchema.extend({ subject: EmailDraftSchema.shape.subject.unwrap() }) });
@@ -39,6 +39,19 @@ function schemaFor(tool: string, input: unknown) {
   if (["google-calendar", "outlook-calendar"].includes(action.data.extensionId) && ["create_event", "update_event"].includes(action.data.action)) return calendar;
 }
 
+/** Validate actual native tool output before preserving it as a UI result. */
+export function chatToolResult(tool: string, input: unknown, output: unknown): unknown {
+  let payload = output;
+  if (payload && typeof payload === "object" && "referenceData" in payload) payload = payload.referenceData;
+  if (payload && typeof payload === "object" && "result" in payload) payload = payload.result;
+  const failed = Boolean(output && typeof output === "object" && "ok" in output && output.ok === false)
+    || Boolean(payload && typeof payload === "object" && "ok" in payload && payload.ok === false);
+  if (failed && tool !== "legalwork_assistant_delegate") return;
+  const schema = tool === "legalwork_assistant_react" ? AssistantReactionResultSchema : schemaFor(tool, input);
+  const parsed = schema?.safeParse(payload);
+  return parsed?.success ? parsed.data : undefined;
+}
+
 export type CodeModeWidgetResult = { callId: string; tool: string; input: unknown; output: unknown };
 
 /** Hide only metadata-attested model reminders, preserving native content. */
@@ -58,24 +71,35 @@ export function codeModeWidgetResults(callId: string, metadata: Record<string, u
     const call = callSchema.safeParse(value);
     return call.success ? [call.data] : [];
   });
-  let parsed: unknown = output;
-  if (typeof parsed === "string") {
-    try { parsed = JSON.parse(parsed); } catch { return []; }
-  }
   const result: CodeModeWidgetResult[] = [];
-  for (const value of Array.isArray(parsed) ? parsed : [parsed]) {
-    if (!value || typeof value !== "object") continue;
-    let payload = "referenceData" in value ? value.referenceData : value;
-    if (payload && typeof payload === "object" && "result" in payload) payload = payload.result;
-    const failed = "ok" in value && value.ok === false || Boolean(payload && typeof payload === "object" && "ok" in payload && payload.ok === false);
-    // An unconfirmed delegation has a real created chat and a warning card.
-    // Other failed results must never become successful-looking widgets.
-    const index = calls.findIndex(call => call.status === "completed"
-      && (!failed || call.tool === "legalwork_assistant_delegate" && payload && typeof payload === "object" && "ok" in payload && payload.ok === false)
-      && schemaFor(call.tool, call.input)?.safeParse(payload).success);
-    if (index < 0) continue;
-    const [call] = calls.splice(index, 1);
-    result.push({ callId, tool: call.tool, input: call.input, output: payload });
+  const recorded = z.array(z.object({ tool: z.string(), input: z.unknown().optional(), output: z.unknown() })).safeParse(metadata.legalworkToolResults);
+  if (recorded.success) for (const item of recorded.data) {
+    const payload = chatToolResult(item.tool, item.input, item.output);
+    const index = calls.findIndex(call => call.tool === item.tool && call.status === "completed");
+    if (payload === undefined || index < 0) continue;
+    calls.splice(index, 1);
+    result.push({ callId, ...item, input: item.input, output: payload });
+  }
+  // Older messages lack the verified result record. Preserve their existing cards.
+  if (!Object.hasOwn(metadata, "legalworkToolResults")) {
+    let parsed: unknown = output;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+    }
+    for (const value of Array.isArray(parsed) ? parsed : [parsed]) {
+      if (!value || typeof value !== "object") continue;
+      let payload = "referenceData" in value ? value.referenceData : value;
+      if (payload && typeof payload === "object" && "result" in payload) payload = payload.result;
+      const failed = "ok" in value && value.ok === false || Boolean(payload && typeof payload === "object" && "ok" in payload && payload.ok === false);
+      // An unconfirmed delegation has a real created chat and a warning card.
+      // Other failed results must never become successful-looking widgets.
+      const index = calls.findIndex(call => call.status === "completed"
+        && (!failed || call.tool === "legalwork_assistant_delegate" && payload && typeof payload === "object" && "ok" in payload && payload.ok === false)
+        && schemaFor(call.tool, call.input)?.safeParse(payload).success);
+      if (index < 0) continue;
+      const [call] = calls.splice(index, 1);
+      result.push({ callId, tool: call.tool, input: call.input, output: payload });
+    }
   }
   // Keep the outer activity row when other calls have no card. Otherwise the
   // first card replaces its live placeholder, preserving existing save sources.

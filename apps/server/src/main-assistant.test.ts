@@ -143,6 +143,13 @@ test("users can choose the flower as their completed appearance", async () => {
   expect((await f.factory()).profile()).toEqual({ name: "My assistant", icon: "flower" });
 });
 
+test("renaming an existing profile without an onboarding row returns its actual saved name and icon", async () => {
+  const f = await fixture();
+  await f.assistant.updateProfile({ name: "Maya", icon: "bird" });
+  expect(await f.assistant.setName("Momo")).toMatchObject({ needed: false, step: "complete", name: "Momo", icon: "bird" });
+  expect(await (await f.factory()).onboarding()).toMatchObject({ name: "Momo", icon: "bird" });
+});
+
 test("legacy dot profiles remain valid without changing custom names or restarting onboarding", async () => {
   const f = await fixture();
   await f.assistant.answerOnboarding({ name: "Johannes" });

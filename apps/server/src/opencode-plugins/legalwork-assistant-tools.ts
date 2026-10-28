@@ -1,5 +1,6 @@
 import { AssistantSaveReportSchema } from "../views/schema.js";
 import { Plugin } from "@opencode/plugin";
+import { registerChatToolResults } from "./native-chat-tool-results.js";
 import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
@@ -13,17 +14,10 @@ import { appStateReminders, type SavedConversations } from "./app-state-reminder
 import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ASSISTANT_DELIVERABLE_INSTRUCTIONS, ASSISTANT_FOLLOW_UP_INSTRUCTIONS, ASSISTANT_MESSAGE_POLICY, ASSISTANT_PROACTIVITY_INSTRUCTIONS, ConversationLanguageSchema } from "../assistant-handoff.js";
 import { AssistantAttentionRefSchema, AssistantAttentionPresentSchema, AssistantReactionEmojiSchema, AssistantShareFileSchema } from "../assistant-schema.js";
 
-// These calls are user-facing interactions. Their individual results must reach
-// the UI even when a Code Mode script would summarize or discard its return value.
-const directInteractionTools = new Set([
-  "legalwork_assistant_react", "legalwork_assistant_share_file", "legalwork_assistant_delegate",
-  "legalwork_assistant_set_name", "legalwork_assistant_attention_present", "legalwork_assistant_attention_answer",
-]);
-
 const COORDINATOR_ROLE = "Your role here is the user's quick, concise coordinator across projects. Route substantive legal work to project chats instead of performing it in this Assistant. Briefly inspect incoming files and search for a matching matter. If none fits, create the project and save known client and matter metadata before handing off. Pass the source files and scoped task to that project, then finish the dispatch turn. Bring the result and deliverable back here, and route corrections to the same project chat without asking the user to switch sessions. Keep ordinary replies brief, while including the situation, completed result and any remaining user action. Answer general questions about your abilities directly from this role and your available tools, without UI actions or capability lookups. You retain all capabilities for coordination and explicit requests to work here.";
 export const ASSISTANT_REACTION_POLICY = `Bubble reactions are a requested part of this Assistant chat. Prefer legalwork_assistant_react over a separate text acknowledgement for clear requests, confirmations, short answers to your questions and retries. Examples: after asking how many people, react 👍 to "2" and do the booking work; react 👍 to "yes" or 👀 to "try again", then work silently until the result or a necessary question. Use 😊 for greetings or thanks and 🎉 for good news when appropriate. Choose the emoji from the meaning; do not add one mechanically to every exchange or when an immediate substantive answer suffices. Skip automated turns, complaints, bad news and sensitive decisions. This is receipt, never approval or completion.
 
-Before any prose or work tools, make that reaction decision. When reacting, call the directly available legalwork_assistant_react alone as your FIRST action. Do not search for it, call it through execute, batch it with work, or wait until after an acknowledgement. Older failed calls through code mode do not mean this direct tool is unavailable. The reaction replaces the receipt text, also for delegated, browser and asynchronous work. Continue with the work in the same turn without an additional ownership or follow-up message. If you already spoke or used a work tool, skip the reaction and continue without a late acknowledgement.`;
+Before any prose or work tools, make that reaction decision. When reacting, use execute with return await tools.legalwork_assistant_react({emoji:"👍"}) as your FIRST action, choosing the appropriate emoji. Its full signature is already in the Code Mode catalog; no search is needed. Do not batch it with work or wait until after an acknowledgement. A request to heart or react to this message means the current chat bubble, never an email, document or external message. The reaction replaces the receipt text, also for delegated, browser and asynchronous work. Continue with the work in the same turn without an additional ownership or follow-up message. If you already spoke or used a work tool, skip the reaction and continue without a late acknowledgement.`;
 
 export const ASSISTANT_USER_DETAILS_INSTRUCTIONS = `Keep a concise persistent user-details scratchpad at .legalwork/user-details.md in this Assistant project's folder. Use normal file read/edit/write tools in the background; create the file when first needed. This file is yours to maintain directly, not a task to delegate or a document to open in the UI. It persists across daily chats and app restarts. It is separate from the event-condition scratchpad.
 
@@ -196,7 +190,7 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
         const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
         return request("/assistant/share-file", { ...AssistantShareFileSchema.parse(raw), workspaceId, sessionId: context.sessionID });
       }) },
-    legalwork_assistant_react: { description: "Put a quick acknowledgement on the user's latest bubble. Use for greetings/thanks (😊), clear requests/confirmations (👍), good news (🎉), or a request to look into something (👀). Prefer this instead of a text acknowledgement, especially for short answers like '2', 'yes' or 'try again'. Call this directly, alone as the FIRST action before any text acknowledgement or work tool. Then do the work silently and return the result or a necessary question. This replaces receipt text even for delegated, browser and asynchronous work; do not add an ownership or follow-up message. Do not react every turn or mechanically repeat reactions. Skip automated tasks, inappropriate levity, implied approval/completion and late reactions.", args: { emoji: AssistantReactionEmojiSchema },
+    legalwork_assistant_react: { description: "Put a quick acknowledgement on the user's latest bubble. Use for greetings/thanks (😊), clear requests/confirmations (👍), good news (🎉), or a request to look into something (👀). Prefer this instead of a text acknowledgement, especially for short answers like '2', 'yes' or 'try again'. Call through execute as the FIRST action before any text acknowledgement or work tool. A heart request targets this chat bubble, never an email or external message. Then do the work silently and return the result or a necessary question. This replaces receipt text even for delegated, browser and asynchronous work; do not add an ownership or follow-up message. Do not react every turn or mechanically repeat reactions. Skip automated tasks, inappropriate levity, implied approval/completion and late reactions.", args: { emoji: AssistantReactionEmojiSchema },
       execute: (raw: unknown, context: OpenCodeContext) => result(async () => {
         const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
         return request("/assistant/react", { ...z.object({ emoji: AssistantReactionEmojiSchema }).parse(raw), workspaceId, sessionId: context.sessionID, assistantMessageId: context.messageID });
@@ -287,6 +281,7 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
 
 export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
   const definitions = await LegalWorkAssistantTools();
+  const stopResults = await registerChatToolResults(ctx);
   // These internal identity/policy reads use the same app credential as the
   // v1 hooks. The session-scoped credential is only for delegation endpoints;
   // attaching it here makes the server reject every ordinary user prompt.
@@ -323,10 +318,10 @@ export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
       const tool = nativeTool(ctx, {
         name, description: definition.description, schema: z.object(definition.args), execute: definition.execute,
       });
-      editor.add(directInteractionTools.has(name)
-        ? { ...tool, options: { ...tool.options, codemode: false, pinned: undefined } }
-        : tool);
+      editor.add({ ...tool, options: { ...tool.options, codemode: true,
+        ...(["legalwork_assistant_react", "legalwork_assistant_set_name"].includes(name) ? { pinned: true } : {}),
+      } });
     }
   });
-  return stopIdentity;
+  return () => { stopResults(); stopIdentity(); };
 } });
