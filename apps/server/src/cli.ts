@@ -31,6 +31,7 @@ import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
+import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 
 const args = parseCliArgs(process.argv.slice(2));
 
@@ -107,7 +108,7 @@ const server = await startServer(config, { onListening: async (port) => {
       const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
       const dependencies = await prepareManagedOpencodeDependencies(config);
       if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, create: async (mode, beforeSpawn) => {
+      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
         const engine = await createConfiguredManagedEngine(config, {
         bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),

@@ -209,6 +209,19 @@ export async function openNativeConfigState(databasePath: string, importLegacy?:
         return previous ?? "new";
       });
     };
+    // A previous migration build may have held a format it could not yet
+    // import. Retry only those immutable private originals at explicit startup;
+    // never replay a completed row or consult the retired mutable table.
+    if (importLegacy) transaction(db, () => {
+      assertCurrent();
+      for (const row of db.all(`SELECT s.workspace_id AS workspaceId,b.config_json AS configJson FROM ${NATIVE_CONFIG_SCOPE_TABLE} s JOIN ${backupTable} b ON b.workspace_id=s.workspace_id AND b.source_hash=s.source_hash WHERE s.status='blocked'`)) {
+        if (typeof row.workspaceId !== "string" || typeof row.configJson !== "string") throw nativeConfigStateError("native_configuration_backup_missing");
+        let imported;
+        try { imported = importLegacy(row.workspaceId, row.configJson); } catch { continue; }
+        db.run(`UPDATE ${backupTable} SET source_version=?,notices_json=? WHERE workspace_id=? AND source_hash=?`, [imported.sourceVersion, imported.noticesJson, row.workspaceId, hash(row.configJson)]);
+        save(db, row.workspaceId, imported.configJson, Date.now());
+      }
+    });
     return {
       close: () => db.close(),
       beginComponent: (id: string) => component(id, false),

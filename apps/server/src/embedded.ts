@@ -36,6 +36,7 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
+import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
@@ -189,7 +190,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, create: async (mode, beforeSpawn) => {
+        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
           const engine = await createConfiguredManagedEngine(config, {
           bin: executablePath,
           candidateBuild: options.opencodeCandidateBuild,

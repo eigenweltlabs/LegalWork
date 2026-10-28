@@ -55,7 +55,7 @@ import { canonicalFilePath } from "./file-write-lock.js";
 import { scopedNativeEvents } from "./native-proxy-events.js";
 import { nativeProxyPath, assertNativeProxyRoute, nativeProxySessionID, assertNativeProxyDirectory, nativeProxyFilePath, pathWithin } from "./native-proxy-policy.js";
 import { publicNativeConfigSnapshot } from "./native-client-projection.js";
-import { mergePrivateProviderEdits, mergeNativeFields } from "./native-provider-edit.js";
+import { mergePrivateProviderEdits, mergeNativeFields, mergeProviderModelSelection } from "./native-provider-edit.js";
 import { mergeNativeToolPermissionRules, nativeToolPermissionUpdatesSchema, type NativePermissionRule } from "./native-permission-edit.js";
 import { permissionPatternMatches } from "./agent-sandbox/permissions.js";
 import { projectPermissionEffect, rememberedProjectFolderRules } from "./project-permission-approvals.js";
@@ -531,6 +531,7 @@ function mergeImportedRuntimeConfig(current: RuntimeOpencodeConfig, imported: Ru
     permissions: permissions.filter((item, index) => !permissions.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
     policies: policies.filter((item, index) => !policies.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
     mcp: { ...imported.mcp, ...current.mcp, servers: { ...imported.mcp?.servers, ...current.mcp?.servers } },
+    providerModelSelection: { ...Object.fromEntries(Object.entries(imported.providerModelSelection ?? {}).filter(([id]) => !Object.hasOwn(current.providers ?? {}, id))), ...current.providerModelSelection },
     providers: { ...imported.providers, ...current.providers }, agents: { ...imported.agents, ...current.agents },
   };
 }
@@ -2054,8 +2055,11 @@ function createRoutes(
   registerMcpOAuthRoutes({ routes, config, resolveWorkspace, requireClientScope, jsonResponse, recovery: mcpRecovery(config) });
   registerEngineCredentialRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable, resolveWorkspace });
   registerNativeCommandDefinitionRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
-  registerEngineProjectRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable, resolveWorkspace,
-    onApproved: async workspace => { if (config.engineProjectTrustRequired) await writeLegalworkRuntimeConfigFile(config, workspace.id); } });
+  // Recovery must stay reachable when project files cannot be bootstrapped.
+  // Metadata resolution still checks registration and the authorized root.
+  registerEngineProjectRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable,
+    resolveWorkspace: async (config, id) => resolveWorkspaceMetadata(config, id),
+    onRetry: async workspace => { if (config.engineProjectTrustRequired) await writeLegalworkRuntimeConfigFile(config, workspace.id); } });
 
   registerBenchmarkRoutes({
     routes,
@@ -4310,7 +4314,8 @@ function createRoutes(
       // Native opencode.permissions belongs wholly to this project. The global
       // Tool Permissions UI uses the separate typed command below.
       await writeRuntimeOpencodeConfig(config, workspace.id, current => ({ ...current, ...nativeUpdates,
-        ...(Object.keys(providerUpdate).length ? { providers: validate({ providers: mergePrivateProviderEdits(current.providers, providerUpdate) }).providers } : {}),
+        ...(Object.keys(providerUpdate).length ? { providers: validate({ providers: mergePrivateProviderEdits(current.providers, providerUpdate) }).providers,
+          providerModelSelection: mergeProviderModelSelection(current.providerModelSelection, providerUpdate) } : {}),
         ...(Object.keys(agentUpdate).length ? { agents: validate({ agents: mergeNativeFields(current.agents, agentUpdate) }).agents } : {}),
       }));
     }

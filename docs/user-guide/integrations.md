@@ -20,6 +20,8 @@ A disconnected connector's historical output, old chats or runtime caches are no
 
 ## Google Workspace and other services
 
+Upgrading the engine carries over completed MCP connector sign-ins, including those used by LegalMemory browsing and downloads. A newer sign-in already saved in the app takes precedence, and disconnecting afterward stays disconnected. A sign-in that was never completed, or that the service has expired or revoked, may still require signing in again through the connector's card.
+
 For Gmail and Outlook setup, connection methods, write permissions and troubleshooting, read [Email setup](email.md). The native catalog also includes Google Calendar, Outlook Calendar, Google Drive, OneDrive and SharePoint. Each connector has its own supported operations and write-access setting. Outlook Email and Calendar share an account but activate separately.
 
 Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.

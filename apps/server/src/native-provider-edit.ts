@@ -2,6 +2,17 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
 }
 
+/** Editing a provider's explicit inventory replaces its saved selection too. */
+export function mergeProviderModelSelection(previous: Record<string, string[]> | undefined, updates: Record<string, unknown>) {
+  const result = { ...previous };
+  for (const [id, value] of Object.entries(updates)) {
+    const patch = record(value);
+    if (value === null || patch.models === null) delete result[id];
+    else if (Object.hasOwn(patch, "models")) result[id] = Object.entries(record(patch.models)).filter(([, model]) => model !== null).map(([id]) => id);
+  }
+  return result;
+}
+
 /** An omitted private field means keep it. JSON null explicitly removes it. */
 export function mergeNativeFields(previous: unknown, patch: unknown): Record<string, unknown> {
   const result = record(previous);

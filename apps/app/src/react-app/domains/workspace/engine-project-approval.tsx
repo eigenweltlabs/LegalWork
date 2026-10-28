@@ -18,6 +18,11 @@ export function EngineProjectRecoveryNotice(props: {
   error?: string;
   onRetry: () => void;
 }) {
+  if (props.status.projection.diagnostic) return <section role="alert" className="shrink-0 border-b border-border px-5 py-3 text-sm">
+    <p>{props.status.projection.diagnostic}</p>
+    {props.error ? <p className="mt-2 text-destructive">{props.error}</p> : null}
+    <Button className="mt-2" size="sm" variant="outline" disabled={props.pending} onClick={props.onRetry}>{t(props.pending ? "engine_project.recovery_retrying" : "common.refresh")}</Button>
+  </section>;
   const recovery = props.status.recovery;
   if (!recovery || recovery.mode === "service") return null;
   const promoting = recovery.mode === "promoting";

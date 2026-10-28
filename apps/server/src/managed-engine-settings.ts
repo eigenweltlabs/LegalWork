@@ -6,6 +6,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 const entry = z.object({ directory: z.string(), configuration: z.unknown(),
   providerActivation: z.record(z.string(), z.enum(["allow", "deny"])),
+  providerModelSelection: z.record(z.string(), z.array(z.string())).optional(),
   projectPermissionApprovals: z.array(z.object({ id: z.string(), action: z.string(), resources: z.array(z.string()), createdAt: z.number(), updatedAt: z.number().optional() }).strict()),
 });
 export const managedSettingsFileSchema = z.object({ version: z.literal(2), workspaces: z.record(z.string(), entry), sharedConfiguration: z.unknown() });

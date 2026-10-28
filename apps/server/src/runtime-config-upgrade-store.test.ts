@@ -7,6 +7,7 @@ import { applyGlobalToolPermissions, closeRuntimeOpencodeConfig, GLOBAL_TOOL_PER
   readRuntimeConfigUpgradeBackups, readRuntimeOpencodeConfig, runtimeConfigUpgradeNotices, runtimeEngineConfiguration, writeRuntimeOpencodeConfig, onRuntimeOpencodeConfigWrite, writeSandboxRuntimeConfig, bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { SANDBOX_DEFAULT_ID, sandboxSessionId, writeSandboxDefault, writeSessionSandbox } from "./agent-sandbox/settings.js";
+import { openNativeConfigState } from "./native-config-state.js";
 
 async function fixture(run: (config: ServerConfig, path: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-native-config-upgrade-"));
@@ -30,6 +31,25 @@ function row(path: string, id: string, retired = false) {
   try { return db.query<{ json: string; updatedAt: number }, [string]>(`SELECT config_json AS json, updated_at AS updatedAt FROM ${retired ? "runtime_opencode_configs" : "native_runtime_configs"} WHERE workspace_id = ?`).get(id); }
   finally { db.close(); }
 }
+
+test.each([false, true])("v1 UI custom providers import with their exact selected models (previously blocked=%s)", async blocked => fixture(async (config, path) => {
+  const original = JSON.stringify({ provider: { openai: { npm: "@ai-sdk/openai-compatible", name: "Custom endpoint", options: { baseURL: "https://example.invalid/v1" }, whitelist: ["selected"], models: { selected: { name: "Selected" }, excluded: { name: "Old definition" } } } } });
+  seed(path, "project", original);
+  if (blocked) {
+    const previousBuild = await openNativeConfigState(path, () => { throw new Error("Unsupported model allowlist"); });
+    expect(() => previousBuild.get("project")).toThrow();
+    previousBuild.close();
+  }
+  await bootstrapRuntimeOpencodeConfig(config);
+  const migrated = await readRuntimeOpencodeConfig(config, "project");
+  expect(migrated.providerModelSelection).toEqual({ openai: ["selected"] });
+  expect(Object.keys(migrated.providers?.openai.models ?? {})).toEqual(["selected"]);
+  expect((await readRuntimeConfigUpgradeBackups(config, "project"))[0]?.configJson).toBe(original);
+  await writeRuntimeOpencodeConfig(config, "project", current => ({ ...current, providerModelSelection: { openai: [] } }));
+  await closeRuntimeOpencodeConfig(config);
+  await bootstrapRuntimeOpencodeConfig(config);
+  expect((await readRuntimeOpencodeConfig(config, "project")).providerModelSelection).toEqual({ openai: [] });
+}));
 
 test.each(["normal", "sandbox-repair"])("%s writes notify every revocation listener before surfacing the first failure", async kind => fixture(async (config, path) => {
   const id = kind === "normal" ? "project" : SANDBOX_DEFAULT_ID;

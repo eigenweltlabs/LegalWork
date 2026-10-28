@@ -366,7 +366,7 @@ export async function buildLegalworkRuntimeSettings(
   const configuration = Schema.decodeUnknownSync(Config.Info)({ ...result,
     policies: [...result.policies, ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))],
   }, { onExcessProperty: "error" });
-  return { configuration, providerActivation, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
+  return { configuration, providerActivation, providerModelSelection: runtimeConfig.providerModelSelection ?? {}, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
 }
 
 export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, workspaceId?: string): Promise<Record<string, unknown>> {

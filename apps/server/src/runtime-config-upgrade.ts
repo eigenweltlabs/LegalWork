@@ -19,7 +19,7 @@ export type RuntimeConfigUpgradeResult = {
   migrated: boolean;
 };
 
-const applicationKeys = new Set(["sandbox", "sandboxEdit", "sandboxSync", "sandboxNetworkMode", "personalization", "providerActivation", "projectPermissionApprovals", "nativeSavedApprovalImportIDs"]);
+const applicationKeys = new Set(["sandbox", "sandboxEdit", "sandboxSync", "sandboxNetworkMode", "personalization", "providerActivation", "providerModelSelection", "projectPermissionApprovals", "nativeSavedApprovalImportIDs"]);
 const legacyKeys = new Set(["permission", "provider", "agent", "plugin", "disabled_providers", "enabled_providers", "tools", "subagent_depth"]);
 function record(value: unknown): RecordValue {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Saved configuration must be an object.");
@@ -108,11 +108,9 @@ function legacyModel(value: unknown, providerPackage: unknown) {
 }
 function legacyProvider(value: unknown) {
   const item = record(value), options = providerOptions(item.options);
-  // The pinned native engine has no provider whitelist field. Refuse this
-  // upgrade until its model restriction can be preserved, never open access.
-  if (item.whitelist !== undefined) throw new Error("A saved provider model allowlist requires a native restriction before upgrade.");
-  const models = Object.fromEntries(Object.entries(optionalRecord(item.models)).map(([id, model]) => [id, legacyModel(model, item.npm)]));
-  for (const id of strings(item.blacklist) ?? []) models[id] = { ...models[id], disabled: true };
+  const allow = strings(item.whitelist); // Also preserved as the app's project-scoped selection below.
+  const models = Object.fromEntries(Object.entries(optionalRecord(item.models)).filter(([id]) => allow === undefined || allow.includes(id)).map(([id, model]) => [id, legacyModel(model, item.npm)]));
+  for (const id of strings(item.blacklist) ?? []) if (allow === undefined || allow.includes(id)) models[id] = { ...models[id], disabled: true };
   return defined({ name: item.name, env: item.env, package: packageName(item.npm), ...options,
     settings: { ...optionalRecord(options.settings), ...(item.api ? { baseURL: item.api } : {}) },
     models: Object.keys(models).length ? models : undefined });
@@ -176,6 +174,12 @@ export function upgradeRuntimeConfigRecord(value: unknown, options: { scope?: "c
   if (native.policies !== undefined && !Array.isArray(native.policies)) throw new Error("Saved native policies must be an ordered list.");
   if (native.plugins !== undefined && !Array.isArray(native.plugins)) throw new Error("Saved native plugins must be a list.");
   const notices: RuntimeConfigUpgradeNotice[] = [];
+  const modelSelection = { ...optionalRecord(application.providerModelSelection) };
+  for (const [id, value] of Object.entries(optionalRecord(provider))) {
+    const allow = strings(record(value).whitelist);
+    if (allow !== undefined && !Object.hasOwn(optionalRecord(native.providers), id)) modelSelection[id] = allow;
+  }
+  if (Object.keys(modelSelection).length) application.providerModelSelection = modelSelection;
   const providers = { ...Object.fromEntries(Object.entries(optionalRecord(provider)).map(([id, item]) => [id, legacyProvider(item)])), ...optionalRecord(native.providers) };
   const agents = { ...Object.fromEntries(Object.entries(optionalRecord(agent)).map(([id, item]) => [id, legacyAgent(item, id, notices)])), ...optionalRecord(native.agents) };
   let rules = legacyPermissionRules(permission, tools);
