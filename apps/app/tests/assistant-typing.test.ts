@@ -17,7 +17,7 @@ test("native text events preserve complete-bubble delivery through reasoning and
   const transcript = () => query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId)) ?? [];
   const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { id: "event", created: 1, type, durable: { aggregateID: sessionId, seq: "1", version: 1 }, data: { sessionID: sessionId, assistantMessageID: messageId, ...data } });
   try {
-    event("session.step.started", {});
+    event("session.step.started", { model: { providerID: "fixture", modelID: "typing-model" } });
     expect(assistantIsWriting(transcript(), null, true)).toBe(false);
     event("session.reasoning.started", { ordinal: 0 });
     expect(assistantIsWriting(transcript(), null, true)).toBe(false);

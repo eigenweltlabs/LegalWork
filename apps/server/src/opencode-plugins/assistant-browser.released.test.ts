@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { nativeChatResponse, nativeDomainEngine } from "./native-domain-engine.test-support.js";
 import { ASSISTANT_BROWSER_AGENT, ASSISTANT_BROWSER_WORKER_INSTRUCTIONS } from "../assistant-browser.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { parseEigenweltEntitlements } from "../eigenwelt-auth.js";
 
 // The controlled model deliberately requests the cheap model and foreground
 // browsing. Exercise native subagent execution and nested Code Mode tool hooks.
@@ -44,7 +46,10 @@ await ctx.rpc.register({id:"browser-fixture",methods:{opened:{input:{type:"objec
         } } },
         policies: [{ action: "provider.use", resource: "*", effect: "deny" }, ...["fixture", browser.providerID].map(resource => ({ action: "provider.use", resource, effect: "allow" }))],
       },
-      setup: async config => { config.workspaces[0].preset = "main-assistant"; },
+      setup: async config => {
+        config.workspaces[0].preset = "main-assistant";
+        await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
+      },
     });
     const parent = await host.appClient.session.create({ location: host.location, agent: "legalwork", model: { providerID: "fixture", id: "fixture" } });
     await host.appClient.session.prompt({ sessionID: parent.id, text: "Read this website." });

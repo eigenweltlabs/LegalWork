@@ -4,6 +4,8 @@ import { z } from "zod";
 import { nativeChatResponse, nativeDomainEngine } from "./native-domain-engine.test-support.js";
 import { ASSISTANT_REACTION_POLICY } from "./legalwork-assistant-tools.js";
 import { assistantEngineClient } from "../assistant-engine.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { parseEigenweltEntitlements } from "../eigenwelt-auth.js";
 
 test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("a first-action reaction is directly available and succeeds in the released engine", async () => {
   const requests: string[][] = [];
@@ -20,7 +22,10 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("a first-action reaction i
     host = await nativeDomainEngine({ binary: process.env.LEGALWORK_TEST_OPENCODE_BIN!, modelURL: model.url.origin + "/v1", directTools: false,
       plugins: [resolve(import.meta.dir, "legalwork-assistant-tools.ts")],
       configuration: { agents: { legalwork: { mode: "primary" } }, permissions: [{ action: "*", resource: "*", effect: "allow" }] },
-      setup: async config => { config.workspaces[0].preset = "main-assistant"; },
+      setup: async config => {
+        config.workspaces[0].preset = "main-assistant";
+        await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
+      },
     });
     const session = await host.appClient.session.create({ location: host.location, agent: "legalwork", model: { providerID: "fixture", id: "fixture" } });
     const admission = await host.appClient.session.prompt({ sessionID: session.id, text: "Hi, good morning!" });
