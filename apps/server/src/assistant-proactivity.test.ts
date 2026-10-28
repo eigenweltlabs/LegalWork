@@ -150,7 +150,7 @@ test("missing, unknown or invalid scores never become a partial Assistant update
   } finally { await f.close(); }
 });
 
-test("only probabilities of at least 80 percent reach the Assistant", async () => {
+test("probabilities of at least 65 percent reach the Assistant, including previously borderline matches", async () => {
   const f = await fixture();
   try {
     f.store.updateScratchpad({ text: "Alex's signature", revision: 0 });
@@ -158,10 +158,10 @@ test("only probabilities of at least 80 percent reach the Assistant", async () =
     f.store.ingest("gmail", "200", [boundary, above]);
     let deliveries = 0;
     await processAssistantEvents(f.store, {
-      allowed: async () => true, classify: async () => ({ [f.event.id]: 0.79, [boundary.id]: 0.8, [above.id]: 0.81 }),
+      allowed: async () => true, classify: async () => ({ [f.event.id]: 0.6499, [boundary.id]: 0.65, [above.id]: 0.7841677612678075 }),
       deliver: async events => {
         deliveries++;
-        expect(events).toEqual([boundary, above].map((event, index) => ({ ...event, relevanceProbability: index === 0 ? 0.8 : 0.81 })));
+        expect(events).toEqual([boundary, above].map((event, index) => ({ ...event, relevanceProbability: index === 0 ? 0.65 : 0.7841677612678075 })));
         return true;
       },
     });
@@ -169,9 +169,9 @@ test("only probabilities of at least 80 percent reach the Assistant", async () =
     expect(f.store.pending()).toEqual([]);
     const reopened = await AssistantProactivityStore.open(f.path);
     try {
-      expect(reopened.assessment(f.event.id)).toEqual({ revision: 1, probability: 0.79, reason: "below_threshold" });
-      expect(reopened.assessment(boundary.id)).toEqual({ revision: 1, probability: 0.8, reason: "matched" });
-      expect(reopened.assessment(above.id)).toEqual({ revision: 1, probability: 0.81, reason: "matched" });
+      expect(reopened.assessment(f.event.id)).toEqual({ revision: 1, probability: 0.6499, reason: "below_threshold" });
+      expect(reopened.assessment(boundary.id)).toEqual({ revision: 1, probability: 0.65, reason: "matched" });
+      expect(reopened.assessment(above.id)).toEqual({ revision: 1, probability: 0.7841677612678075, reason: "matched" });
       reopened.prune(Date.now() + 31 * 86400_000);
       expect(reopened.assessment(f.event.id)).toBeNull();
     } finally { reopened.close(); }

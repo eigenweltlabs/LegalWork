@@ -68,8 +68,8 @@ export async function processAssistantEvents(store: AssistantProactivityStore, o
     if (!await unchanged(events)) return false;
     const relevant = events.flatMap(event => {
       const relevanceProbability = probabilities.get(event.id);
-      // Only strong matches reach the Assistant for its response decision.
-      return relevanceProbability !== undefined && relevanceProbability >= 0.8 ? [{ ...event, relevanceProbability }] : [];
+      // Pass likely matches to the Assistant for its response decision.
+      return relevanceProbability !== undefined && relevanceProbability >= 0.65 ? [{ ...event, relevanceProbability }] : [];
     });
     const matchedIds = new Set(relevant.map(event => event.id));
     for (const event of events) {
