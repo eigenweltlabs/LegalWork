@@ -10,6 +10,7 @@ import { currentLocale, t } from "@/i18n";
 import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { type RecordingPanelTab, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { ArtifactFrame } from "../session/artifacts/artifact-frame";
+import { MarkdownBlock } from "../session/surface/markdown";
 import { useRecorderStore } from "./recorder-store";
 import { recordingTime, transcriptTurns } from "./recording-transcript";
 import { RecordingSpeakers, SpeakerAssignment, SPEAKER_COLORS } from "./recording-speakers";
@@ -212,7 +213,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
       </header>
       {meta?.summary ? <section className="lw-recording-transcript-summary" aria-label={t("recorder.meeting_summary")}>
         <h2>{t("recorder.meeting_summary")}</h2>
-        <p>{meta.summary}</p>
+        <MarkdownBlock text={meta.summary} />
       </section> : null}
       <div className="lw-recording-transcript-body">
         {turns.length === 0 ? <div className="lw-recording-transcript-empty"><FileText className="size-6" /><p>{t(liveRecording ? "recorder.waiting_for_speech" : "recorder.transcript_empty")}</p></div> : turns.map(turn => (
