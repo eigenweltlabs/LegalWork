@@ -91,6 +91,7 @@ jobs:
           apps/server/src/native-workspace-config.released.test.ts
           apps/server/src/native-config-state.test.ts
           apps/server/src/connectors/storage-transition.test.ts
+          apps/server/src/agent-sandbox/project-approvals.test.ts
           apps/server/src/native-saved-approval-migration.test.ts
           apps/server/src/native-saved-approval-migration.released.test.ts
           apps/server/src/mcp-native-complete.released.test.ts
