@@ -53,6 +53,7 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
   const partials = useRecorderStore(state => liveRecording ? state.partials : EMPTY_SEGMENTS);
   const startedAt = useRecorderStore(state => liveRecording ? state.recordingStartedAt : null);
   const finalizing = useRecorderStore(state => Boolean(liveRecording && state.finalizing));
+  const reconnecting = useRecorderStore(state => Boolean(liveRecording && !state.finalizing && state.transcriptionReconnecting));
   const savedRecording = useRecorderStore(state => state.recordings.find(item => item.id === recordingId));
   const queryKey = useMemo(() => ["recorder", "transcript", recordingId], [recordingId]);
   const detail = useQuery({
@@ -190,6 +191,8 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
               <Loader2 className="size-3.5 animate-spin" />{t("recorder.diarize_identifying")}
             </span> : null}
           </div>
+          {reconnecting ? <p className="mt-2 text-sm text-warning" role="status">{t("recorder.transcription_reconnecting")}</p> : null}
+          {!liveRecording && meta?.error ? <p className="mt-2 text-sm text-warning" role="status">{meta.error}</p> : null}
           {meta?.speakerError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.speakerError}</p> : null}
           {meta?.summaryProcessing && !meta.speakerProcessing ? <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-3.5 animate-spin" />{t("recorder.meeting_notes_processing")}</p> : null}
           {meta?.summaryError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.summaryError}</p> : null}

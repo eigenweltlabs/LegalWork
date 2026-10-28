@@ -217,7 +217,7 @@ async function installFakeModel(service, modelId) {
   await fsp.writeFile(service.modelManager.vadModelPath(), "x");
 }
 
-test("cloud readiness opens no connection, cannot capture a local choice, and preserves connection errors", async t => {
+test("cloud readiness opens no connection, cannot capture a local choice, and keeps a failed connection recording until Stop", async t => {
   const userDataDir = await tempDir("lw-cloud-recorder-");
   let connections = 0;
   const service = new RecorderService({ userDataDir, resolveCloudConnection: async () => {
@@ -233,11 +233,12 @@ test("cloud readiness opens no connection, cannot capture a local choice, and pr
   assert.equal(connections, 0);
   const recording = await service.startRecording({ modelId, language: "de" });
   await new Promise(resolve => setImmediate(resolve));
+  assert.equal(service.activeRecordings.get(recording.id).meta.status, "recording");
   const saved = await service.stopRecording(recording.id);
   assert.equal(connections, 1);
   assert.equal(saved.transcriptionSource, "cloud");
   assert.equal(saved.status, "error");
-  assert.equal(saved.error, "Cloud unavailable");
+  assert.match(saved.error, /Live transcription was interrupted/);
   assert.equal(fs.existsSync(saved.audioPath), true);
 });
 
@@ -1091,7 +1092,34 @@ for (const modelId of ["whisper-tiny", "gemini-transcribe-live-eu"]) {
   });
 }
 
-test("a split input error drops both cloud sessions and retains both audio files", async t => {
+test("split input reconnection keeps capture active until both caption connections recover", async t => {
+  const userDataDir = await tempDir("lw-split-reconnect-");
+  const worker = new FakeWorker();
+  const service = new RecorderService({ userDataDir });
+  const events = [];
+  service.worker = worker;
+  worker.on("message", message => service.handleWorkerMessage(message));
+  service.workerReady = true;
+  service.loadedModel = { modelId: "gemini-transcribe-live-eu", language: "de" };
+  service.broadcast = event => events.push(event);
+  t.after(async () => { service.stopWorker(); await fsp.rm(userDataDir, { recursive: true, force: true }); });
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", sources: ["microphone", "system"], separateSources: true });
+  const microphone = `${meta.id}:microphone`;
+  const system = `${meta.id}:system`;
+  service.handleWorkerMessage({ type: "stream-reconnecting", streamId: microphone, error: "Network offline" });
+  service.handleWorkerMessage({ type: "stream-reconnecting", streamId: system, error: "Network offline" });
+  service.handleWorkerMessage({ type: "stream-reconnected", streamId: microphone });
+  assert.equal(events.at(-1).reconnecting, true, "the other input is still offline");
+  service.handleWorkerMessage({ type: "stream-reconnected", streamId: system });
+  assert.deepEqual(events.at(-1), { type: "recording-transcription-status", recordingId: meta.id, reconnecting: false });
+  assert.equal(service.activeRecordings.get(meta.id).meta.status, "recording");
+  assert.equal(worker.messages.some(message => message.type === "drop" || message.type === "finalize"), false);
+  const saved = await service.stopRecording(meta.id);
+  assert.equal(saved.status, "complete");
+  assert.match(saved.error, /Some speech may be missing/);
+});
+
+test("a split input terminal error drops both cloud sessions and retains both audio files", async t => {
   const userDataDir = await tempDir("lw-split-error-");
   const worker = new FakeWorker();
   worker.postMessage = message => { worker.messages.push(message); };

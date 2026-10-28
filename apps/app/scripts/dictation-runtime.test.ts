@@ -224,6 +224,30 @@ test("healthy cloud settings and captions do not hide capture or speaker failure
   }
 });
 
+test("meeting caption recovery never stops or reopens capture and clears only its own notice", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
+  await store.getState().startRecording("Call", { sources: ["microphone", "system"] });
+  const recording = store.getState().recording;
+  store.setState({ error: "An unrelated error" });
+  handleEvent({ type: "recording-transcription-status", recordingId: meta.id, reconnecting: true });
+  await delay(10);
+  expect(store.getState().transcriptionReconnecting).toBe(true);
+  expect(store.getState().recording).toBe(recording);
+  expect(store.getState().finalizing).toBe(false);
+  expect(captureStops).toBe(0);
+  expect(captureStarts).toBe(1);
+  handleEvent({ type: "recording-transcription-status", recordingId: "older-recording", reconnecting: false });
+  expect(store.getState().transcriptionReconnecting).toBe(true);
+  handleEvent({ type: "recording-transcription-status", recordingId: meta.id, reconnecting: false });
+  expect(store.getState().transcriptionReconnecting).toBe(false);
+  expect(store.getState().error).toBe("An unrelated error");
+  expect(captureStops).toBe(0);
+  expect(captureStarts).toBe(1);
+  stopResult = Promise.resolve({ ...meta, ephemeral: false, status: "complete" });
+  await store.getState().stopRecording();
+  expect(captureStops).toBe(1);
+});
+
 test("a settings refresh cannot clear an error while cloud capture is starting or stopping", async () => {
   const warning = "Cloud transcription is unavailable.";
   store.setState({ transcriptionSource: "cloud", error: warning, starting: true });
