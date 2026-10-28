@@ -5,6 +5,7 @@ import { ApiError } from "./errors.js";
 import { openSqlite, runtimeDbPath, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ProactiveEventSchema, ScratchpadWriteSchema, type ProactiveEvent } from "./assistant-proactivity-schema.js";
+import { ASSISTANT_PROACTIVITY_INSTRUCTIONS } from "./assistant-handoff.js";
 
 const ScratchpadSchema = z.object({ text: z.string(), revision: z.number(), updatedAt: z.number() });
 const OfferSchema = z.object({ state: z.enum(["unoffered", "offered", "declined"]), at: z.number() });
@@ -106,7 +107,7 @@ export class AssistantProactivityStore {
   }
   context() {
     const failures = Number(this.db.get("SELECT count(*) AS count FROM assistant_proactivity_events WHERE status = 'failed'")?.count ?? 0);
-    return `Assistant-managed scratchpad (revision ${this.scratchpad().revision}; empty means no event alerts):\n${JSON.stringify(this.scratchpad().text)}\nMorning briefing suggestion state: ${this.briefingOffer().state}.${failures ? ` ${failures} proactive update deliveries were rejected by the engine. Do not claim those updates were delivered.` : ""}`;
+    return `${ASSISTANT_PROACTIVITY_INSTRUCTIONS}\n\nInternal follow-up notes (revision ${this.scratchpad().revision}; empty means nothing is being checked):\n${JSON.stringify(this.scratchpad().text)}\nMorning briefing suggestion state: ${this.briefingOffer().state}.${failures ? ` ${failures} proactive update deliveries were rejected by the engine. Do not claim those updates were delivered.` : ""}`;
   }
   private transaction<T>(run: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
