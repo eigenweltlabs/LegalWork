@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { z } from "zod";
 import { nativeChatResponse, nativeDomainEngine } from "./opencode-plugins/native-domain-engine.test-support.js";
 import { projectMessage } from "@legalwork/types/opencode-view";
+import { assistantProactivityStore } from "./assistant-proactivity-store.js";
+import { processAssistantEvents } from "./assistant-proactivity.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one briefing, and privately decides before one visible update", async () => {
@@ -80,6 +82,38 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
     const synthetic = after.find(message => message.id === input.id);
     if (!synthetic) throw new Error("Missing delivery");
     expect(projectMessage(session.id, synthetic)).toEqual([]);
+
+    const store = await assistantProactivityStore(config);
+    const events = Array.from({ length: 45 }, (_, index) => ({ id: `arrival-${index}`, source: "gmail", projectId: null, at: index, text: `Signature page ${index} arrived.` }));
+    store.ingest("gmail", "45", events);
+    const scored: string[] = [];
+    let decisions = 0, deliveries = 0;
+    await processAssistantEvents(store, {
+      allowed: async () => true,
+      classify: async (_, batch) => {
+        scored.push(...batch.map(event => event.id));
+        return Object.fromEntries(batch.map(event => [event.id, 0.9]));
+      },
+      decide: async (_, combined) => {
+        decisions++;
+        expect(scored).toEqual(events.map(event => event.id));
+        expect(combined).toEqual(events.map(event => ({ ...event, relevanceProbability: 0.9 })));
+        const result = await client.session.generate({ sessionID: session.id, prompt: `Privately decide on these combined events after all scoring has finished: ${JSON.stringify(combined)}` });
+        return z.object({ notify: z.boolean(), message: z.string() }).parse(JSON.parse(result.text));
+      },
+      deliver: async (combined, message, revision) => {
+        deliveries++;
+        const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", session.id, message, revision);
+        await client.session.synthetic({ sessionID: receipt.sessionId, id: receipt.id, text: message, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
+        return true;
+      },
+    });
+    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
+    expect([decisions, deliveries]).toEqual([1, 1]);
+    expect(store.pending()).toEqual([]);
+    const combinedHistory = await client.session.context({ sessionID: session.id });
+    expect(combinedHistory.filter(message => message.id === "msg_combined_fixture")).toHaveLength(1);
+    expect(combinedHistory.filter(message => message.type === "assistant")).toHaveLength(after.filter(message => message.type === "assistant").length + 1);
   } finally {
     await engine?.close(); model.stop(true);
     if (previousDB === undefined) delete process.env.OPENCODE_DB; else process.env.OPENCODE_DB = previousDB;

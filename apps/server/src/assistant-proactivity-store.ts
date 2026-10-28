@@ -8,6 +8,7 @@ import { ProactiveEventSchema, ScratchpadWriteSchema, type ProactiveEvent } from
 
 const ScratchpadSchema = z.object({ text: z.string(), revision: z.number(), updatedAt: z.number() });
 const OfferSchema = z.object({ state: z.enum(["unoffered", "offered", "declined"]), at: z.number() });
+const DeliveryContentSchema = z.object({ message: z.string(), revision: z.number() });
 
 /** Application-owned checkpoints; only an Assistant tool can write the scratchpad. */
 export class AssistantProactivityStore {
@@ -53,8 +54,8 @@ export class AssistantProactivityStore {
       this.write(`cursor:${source}`, cursor);
     });
   }
-  pending(limit = 20) {
-    return this.db.all("SELECT data FROM assistant_proactivity_events WHERE status = 'pending' ORDER BY rowid LIMIT ?", [limit])
+  pending() {
+    return this.db.all("SELECT data FROM assistant_proactivity_events WHERE status = 'pending' ORDER BY rowid")
       .map(row => ProactiveEventSchema.parse(JSON.parse(String(row.data))));
   }
   settle(id: string, status: "ignored" | "sent" | "failed", revision: number, now = Date.now()) {
@@ -64,9 +65,25 @@ export class AssistantProactivityStore {
     const row = this.db.get("SELECT delivery_id, session_id FROM assistant_proactivity_events WHERE id = ?", [id]);
     return row?.delivery_id && row.session_id ? { id: String(row.delivery_id), sessionId: String(row.session_id) } : null;
   }
-  prepareDelivery(id: string, deliveryId: string, sessionId: string) {
-    this.db.run("UPDATE assistant_proactivity_events SET delivery_id = ?, session_id = ? WHERE id = ? AND delivery_id IS NULL", [deliveryId, sessionId, id]);
-    return this.delivery(id);
+  deliveryContent(id: string) { return DeliveryContentSchema.optional().parse(this.read(`delivery:${id}`)); }
+  prepareDelivery(ids: string[], deliveryId: string, sessionId: string, message: string, revision: number) {
+    return this.transaction(() => {
+      if (!ids.length) throw new Error("A proactive delivery must contain events.");
+      const receipts = ids.map(id => this.delivery(id)), existing = receipts.find(receipt => receipt !== null);
+      if (existing) {
+        if (receipts.some(receipt => receipt?.id !== existing.id || receipt.sessionId !== existing.sessionId)) throw new Error("Cannot combine an existing delivery with new events.");
+        return existing;
+      }
+      for (const id of ids) this.db.run("UPDATE assistant_proactivity_events SET delivery_id = ?, session_id = ? WHERE id = ?", [deliveryId, sessionId, id]);
+      this.write(`delivery:${deliveryId}`, { message, revision });
+      return { id: deliveryId, sessionId };
+    });
+  }
+  settleDelivery(id: string, status: "ignored" | "sent" | "failed", revision: number) {
+    this.transaction(() => {
+      this.db.run("UPDATE assistant_proactivity_events SET status = ?, revision = ?, decided_at = ? WHERE delivery_id = ? AND status = 'pending'", [status, revision, Date.now(), id]);
+      this.db.run("DELETE FROM assistant_proactivity_state WHERE key = ?", [`delivery:${id}`]);
+    });
   }
   recent() {
     return this.db.all("SELECT data FROM assistant_proactivity_events WHERE status = 'sent' ORDER BY decided_at DESC LIMIT 10")
