@@ -167,6 +167,7 @@ import { EngineProjectApproval } from "@/react-app/domains/workspace/engine-proj
 import { SyncProviderSetup } from "@/react-app/domains/connections/provider-auth/sync-provider-setup";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
+import { ResearchDatabasesStep } from "@/react-app/domains/onboarding/research-databases";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
 import {
   ensureTemplateWorkflowWatcher,
@@ -933,13 +934,13 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> done. Signing in first
+  // Order: office -> audio (meetings) -> dictation -> ai -> permissions -> research -> done. Signing in first
   // lets us apply firm policies before offering permission choices.
   // Office, meetings and dictation are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
-    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "done") => {
+    (stage: "ai" | "office" | "audio" | "dictation" | "permissions" | "research" | "done") => {
       local.setPrefs((previous) => ({
         ...previous,
         onboardingStage: stage,
@@ -1217,11 +1218,11 @@ export function SessionRoute() {
       if (onboardingStage === "ai") captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
       if (enforced) {
         captureAnalyticsEvent("onboarding_permissions_skipped", { reason: "enforced" });
-        finishOnboarding(onboardingAiMethod.current);
+        setOnboardingStage("research");
       } else if (onboardingStage === "ai") setOnboardingStage("permissions");
     })();
     return () => { cancelled = true; };
-  }, [aiAccess, client, finishOnboarding, onboardingStage, selectedWorkspaceEndpoint?.client, setOnboardingStage]);
+  }, [aiAccess, client, onboardingStage, selectedWorkspaceEndpoint?.client, setOnboardingStage]);
   // "Check for updates" on the plan screen: the Updates settings in a dialog
   // above it, so an app that cannot get past the screen can still update. It
   // starts a check the way the app menu's "Check for Updates…" does.
@@ -2492,10 +2493,18 @@ export function SessionRoute() {
         }}
       />
     ) : null}
+    {onboardingStage === "research" ? <ResearchDatabasesStep
+      client={selectedWorkspaceEndpoint?.client ?? client}
+      workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+      totalSteps={isDesktopRuntime() ? 7 : 4}
+      initialCountry={local.prefs.researchCountry}
+      onCountryChange={researchCountry => local.setPrefs(previous => ({ ...previous, researchCountry }))}
+      onDone={() => finishOnboarding(onboardingAiMethod.current)}
+    /> : null}
     {onboardingStage === "permissions" ? (
       // The Settings -> Tool Permissions panel, with Continue as the action.
       <PermissionsStep
-        totalSteps={isDesktopRuntime() ? 6 : 3}
+        totalSteps={isDesktopRuntime() ? 7 : 4}
         legalworkClient={selectedWorkspaceEndpoint?.client ?? client}
         runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
         onConfigUpdated={() => {
@@ -2516,7 +2525,7 @@ export function SessionRoute() {
         }
         onDone={() => {
           captureAnalyticsEvent("onboarding_permissions_done");
-          finishOnboarding(onboardingAiMethod.current);
+          setOnboardingStage("research");
         }}
       />
     ) : null}
@@ -2531,7 +2540,7 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
-        totalSteps={isDesktopRuntime() ? 6 : 3}
+        totalSteps={isDesktopRuntime() ? 7 : 4}
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}

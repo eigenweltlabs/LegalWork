@@ -1,8 +1,9 @@
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
+import { ResearchDatabasesSetup, type ResearchDatabasesProps } from "../../onboarding/research-databases";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, FolderOpen, HardDrive, Loader2, Package } from "lucide-react";
+import { Blocks, BookOpen, Download, FolderOpen, HardDrive, Loader2, Package } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ export type ExtensionsViewProps = {
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
   pluginCreation?: PluginCreateStore;
+  researchSetup?: Omit<ResearchDatabasesProps, "onDone">;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   skillDetails?: SkillDetailsStore & { skills: () => SkillCard[]; readPackageComponent: PluginDetailsAccess["readComponent"] };
@@ -105,6 +107,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         : "plugins";
   const [importOpen, setImportOpen] = useState(false);
   const [createPluginOpen, setCreatePluginOpen] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [researchActive, setResearchActive] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const [skillImportOpen, setSkillImportOpen] = useState(false);
   const [skillImportSource, setSkillImportSource] = useState<SkillImportSource>("files");
@@ -187,6 +191,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             {props.pluginImports ? <Button ref={importButton} variant="outline" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <IntegrationAddMenu size="default" triggerRef={addButton} disabled={props.busy} actions={[
               { label: t("extensions.filter_plugins"), icon: Package, onClick: () => setDirectoryRequest(value => value + 1) },
+              { label: t("research.menu"), icon: BookOpen, disabled: !props.researchSetup || !canImportPlugins || pluginsForbidden || skillsForbidden, onClick: () => setResearchOpen(true) },
               { label: t("skills.title"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
             ]} />
@@ -201,6 +206,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </IntegrationMoreMenu>
           </div>
         </div>
+        {researchOpen && props.researchSetup ? <Dialog open onOpenChange={open => { if (!open && !researchActive) setResearchOpen(false); }}>
+          <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-lg">
+            <DialogHeader className="sr-only"><DialogTitle>{t("research.menu")}</DialogTitle><DialogDescription>{t("research.description")}</DialogDescription></DialogHeader>
+            <ResearchDatabasesSetup key={packageTarget} {...props.researchSetup} onActiveChange={setResearchActive} onInstalled={importedPackage} onDone={() => setResearchOpen(false)} />
+          </DialogContent>
+        </Dialog> : null}
         {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={plugin => {
           if (currentPackageTarget.current !== packageTarget) return;
           setPackageLibrary(current => ({ target: packageTarget, items: [...(current?.target === packageTarget ? current.items : []).filter(item => item.pluginId !== plugin.pluginId), plugin] }));

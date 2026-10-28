@@ -7,6 +7,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Screen | What it is for | Guide |
 | --- | --- | --- |
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
+| Your legal research | Choose your country and set up database accounts in the existing secure login card | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
@@ -39,6 +40,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: Connectors | How do I connect an external service? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Add > Research databases | Add or reconfigure legal database accounts after onboarding | [Research databases](integrations.md#research-databases) |
 | Integrations: File storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Integrations: Skills / Plugins | How do I install, inspect or share reusable agent capabilities? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

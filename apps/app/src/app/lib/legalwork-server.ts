@@ -4,6 +4,7 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
+import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
@@ -3410,6 +3411,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
 
+    configureResearchDatabase: (workspaceId: string, payload: ResearchDatabaseSetup) =>
+      requestJson<{ item: ImportedPlugin }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/research-databases`, { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config }),
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
     saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),

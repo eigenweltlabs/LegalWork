@@ -1,0 +1,38 @@
+import { expect, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
+import { ResearchDatabasesStep } from "../src/react-app/domains/onboarding/research-databases";
+
+test("onboarding suggests databases by country and offers custom and deferred setup", () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://fixture.invalid", token: "fixture", hostToken: "fixture-host" });
+  const cache = new QueryClient();
+  cache.setQueryData(["research-databases", client.baseUrl, "project"], { marketplaces: {}, plugins: {} });
+  const render = (initialCountry: string, totalSteps = 7) => renderToStaticMarkup(<QueryClientProvider client={cache}>
+    <ResearchDatabasesStep client={client} workspaceId="project" initialCountry={initialCountry} totalSteps={totalSteps} onCountryChange={() => {}} onDone={() => {}} />
+  </QueryClientProvider>);
+  try {
+    const german = render("DE");
+    expect(german).toContain("beck-online"); expect(german).toContain("juris"); expect(german).not.toContain("Bloomberg Law");
+    expect(german).toContain("Add another database"); expect(german).toContain("Set up later");
+    expect(german).toContain('aria-valuenow="7"'); expect(german).toContain('aria-valuemax="7"');
+    const american = render("US", 4);
+    expect(american).toContain("CourtListener"); expect(american).toContain("Free account"); expect(american).toContain("Westlaw");
+    expect(american).not.toContain("beck-online"); expect(american).toContain('aria-valuenow="4"');
+    expect(render("")).not.toContain('role="checkbox"');
+  } finally { cache.clear(); }
+});
+
+test("research setup sends only the saved vault reference and provider selection over the host API", async () => {
+  const payload = { providerId: "courtlistener", country: "US", passwordId: "218d2173-2e4b-4ef2-98e6-52e0367d1d7b" };
+  const calls: Array<{ path: string; body: unknown; host: string | null }> = [];
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    calls.push({ path: new URL(request.url).pathname, body: await request.json(), host: request.headers.get("x-legalwork-host-token") });
+    return Response.json({ item: { pluginId: "local:legal-research-courtlistener:global" } });
+  } });
+  try {
+    const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "fixture-host" });
+    await client.configureResearchDatabase("project", payload);
+    expect(calls).toEqual([{ path: "/workspace/project/research-databases", body: payload, host: "fixture-host" }]);
+  } finally { server.stop(true); }
+});
