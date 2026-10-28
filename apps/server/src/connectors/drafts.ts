@@ -26,6 +26,15 @@ export const connectorCalendarDraftInput = calendarCreateInput.safeExtend({ time
 export const connectorGoogleCalendarDraftInput = connectorCalendarDraftInput.safeExtend({ googleMeet: z.boolean().default(false) });
 export const connectorSendDraftInput = z.object({ draftId: z.uuid(), revision: z.uuid() }).strict();
 
+function parseDraftInput<T>(schema: z.ZodType<T>, args: unknown): T {
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map(issue => `args${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
+    throw new ApiError(400, "invalid_payload", `Invalid draft arguments. ${fields.join("; ")}. Correct args using the action's inputSchema and retry.`);
+  }
+  return parsed.data;
+}
+
 async function connectedAccount(config: ServerConfig, id: string, requested?: string) {
   await ensureConnectorWritesAllowed(config, id);
   const connections = await savedConnectorConnections(config, id);
@@ -55,7 +64,7 @@ export async function connectorDraftWorkspace(config: ServerConfig, context: Rec
 
 export async function prepareConnectorEmailDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "gmail" && id !== "outlook") throw new ApiError(400, "connector_draft_provider", "Choose an email connector.");
-  const input = connectorEmailDraftInput.parse(args);
+  const input = parseDraftInput(connectorEmailDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorDraftWorkspace(config, context);
   const draft = await saveEmailDraft(workspace.path, workspace.id, EmailDraftInputSchema.parse({ ...input, to: input.to.join(", "), cc: input.cc.join(", "), bcc: input.bcc.join(", ") }), undefined, { connectorId: id, connectionId });
@@ -64,7 +73,7 @@ export async function prepareConnectorEmailDraft(config: ServerConfig, id: strin
 
 export async function prepareConnectorCalendarDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "google-calendar" && id !== "outlook-calendar") throw new ApiError(400, "connector_draft_provider", "Choose a calendar connector.");
-  const input = (id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput).parse(args);
+  const input = parseDraftInput(id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorDraftWorkspace(config, context);
   const event = CalendarEventDraftInputSchema.parse(input);
@@ -78,7 +87,7 @@ export async function prepareConnectorCalendarDraft(config: ServerConfig, id: st
 }
 
 export async function prepareConnectorCalendarUpdate(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>) {
-  const input = googleCalendarUpdateInput.parse(args);
+  const input = parseDraftInput(googleCalendarUpdateInput, args);
   const connectionId = await connectedAccount(config, "google-calendar", input.connectionId);
   const workspace = await connectorDraftWorkspace(config, context);
   const request = await createConnectorRequest(config, "google-calendar", connectionId);

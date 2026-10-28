@@ -40,8 +40,8 @@ const listActionsArgsSchema = z.object({
 const callArgsSchema = z.object({
   extensionId: z.string().describe("Extension id, such as google-workspace."),
   action: z.string().describe("Action id from legalwork_extension_list_actions."),
-  args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the action."),
-});
+  args: z.record(z.string(), z.unknown()).describe("Required action parameters, matching its inputSchema. Use args, not input; pass {} for actions without parameters."),
+}).strict();
 
 const uiExecuteArgsSchema = z.object({
   actionId: z.string().describe("The action id from legalwork_ui_list_actions, e.g. 'settings.panel.open' or 'composer.set_text'."),
@@ -116,7 +116,7 @@ const inAppDocxReviewArgsSchema = z.object({
 });
 
 const LEGALWORK_EXTENSION_DISCOVERY_INSTRUCTION =
-  "If the user asks for something you cannot do with obvious built-in tools, check LegalWork extensions before saying the capability is unavailable. Use legalwork_extension_list_actions to inspect available extension actions, then call the matching action with legalwork_extension_call.";
+  'If the user asks for something you cannot do with obvious built-in tools, check LegalWork extensions before saying the capability is unavailable. Use legalwork_extension_list_actions to inspect available extension actions, then call the matching action with legalwork_extension_call. Each action\'s inputSchema describes the fields inside args. Always supply args, using {} when no fields are needed. Example: legalwork_extension_call({extensionId:"outlook", action:"create_draft", args:{to:["recipient@example.com"], subject:"Review", body:"Please review."}}). Do not put these fields under input or at the top level.';
 
 const APP_STATE_INSTRUCTION = `## Live app state
 What is open in LegalWork right now (files in the sidebar, Microsoft Office panes, project details and writing preferences, connected sources) is reported in <system-reminder topic="..."> blocks inside user messages and tool results. LegalWork adds them; they are not written by the user and not part of the tool's output. The most recent reminder on a topic is current and replaces all earlier ones on the same topic. Without a reminder on a topic, assume nothing is open or connected there. Several can be open at once, for example a Word document and an Excel workbook: choose tools by which document a request is about; reading from one and editing another in the same task is expected.`;
@@ -621,12 +621,13 @@ export function extensionToolDefinitions() {
     legalwork_extension_call: {
       description: `Call a LegalWork extension action. Use legalwork_extension_list_actions first to inspect available actions and schemas. ${LEGALWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
       args: callArgsSchema.shape,
+      inputSchema: callArgsSchema,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = callArgsSchema.parse(rawArgs);
         const payload = await postJson("/experimental/extensions/call", {
           extensionId: args.extensionId,
           action: args.action,
-          args: args.args ?? {},
+          args: args.args,
           context: contextPayload(context),
         });
         return JSON.stringify(payload, null, 2);
