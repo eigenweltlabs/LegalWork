@@ -23,6 +23,53 @@ async function fixture() {
   return { root, project, config };
 }
 
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s research starter creates a named research wiki through the normal creation API", async language => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  const server = await startServer(config);
+  const url = `http://127.0.0.1:${server.port}`;
+  const headers = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
+  const create = (body: unknown) => fetch(`${url}/wikis`, { method: "POST", headers, body: JSON.stringify(body) });
+  try {
+    const original = await store.ensureLegalResearch(language, "US");
+    const originalHome = await store.read(original.wiki!.id, "Wiki.md");
+    expect((await create({ name: "Research", template: "legal-research", language: "fr" })).status).toBe(400);
+    expect((await create({ name: "Research", template: "legal-research", country: "ZZ" })).status).toBe(400);
+    const response = await create({ name: "Our research", template: "legal-research", language, country: "DE" });
+    expect(response.status).toBe(201);
+    const { wiki } = await response.json();
+    expect(wiki).toMatchObject({ name: "Our research", purpose: "legal-research", sync: null, writable: true });
+    expect(wiki.id).not.toBe(original.wiki!.id);
+    const snapshot = await store.snapshot(wiki.id);
+    expect(snapshot.pages.map(page => page.path).sort()).toEqual(Object.keys(legalResearchWikiFiles(language, "DE").files).sort());
+    expect(snapshot.pages.filter(page => page.type === "legal-research")).toHaveLength(0);
+    expect((await store.read(wiki.id, "Wiki.md")).content).toContain("# Our research");
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("LEGAL KNOWLEDGE ONLY");
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("Only the user publishes");
+    const jurisdiction = language === "de" ? "Rechtsordnungen/Deutschland" : "Jurisdictions/Germany";
+    const staged = await fetch(`${url}/workspace/project/wiki-suggestions`, { method: "POST", headers, body: JSON.stringify({ title: "Synthetic finding", content: "---\ntype: legal-research\n---\n# Synthetic finding", destination: { wikiId: wiki.id, path: `${jurisdiction}/Contracts/Finding.md`, baseRevision: null, createFolders: true } }) });
+    expect(staged.status).toBe(201);
+    expect((await store.snapshot(wiki.id)).folders).not.toContain(`${jurisdiction}/Contracts`);
+    expect((await store.ensureLegalResearch(language, "DE")).wiki?.id).toBe(original.wiki!.id);
+    expect((await store.read(original.wiki!.id, "Wiki.md")).revision).toBe(originalHome.revision);
+  } finally { await store.close(); await server.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("manual research starters preserve their locale and country when adopted and do not replace the personal default with a shared wiki", async () => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  try {
+    const shared = await store.create({ name: "Team research", template: "legal-research", language: "en", country: "US", sync: { kind: "team", wikiId: "7a389f79-b2ce-41a8-9829-f8904a8ac844", orgId: "firm" } });
+    const personal = await store.create({ name: "My research", template: "legal-research", language: "de", country: "DE" });
+    const before = await store.snapshot(personal.id);
+    const result = await store.ensureLegalResearch("en", "US");
+    expect(result).toMatchObject({ created: false, wiki: { id: personal.id } });
+    expect(result.wiki?.id).not.toBe(shared.id);
+    expect((await store.snapshot(personal.id)).pages).toEqual(before.pages);
+    const attached = await store.create({ name: "Existing folder", template: "legal-research", attach: true });
+    expect(attached.purpose).toBeUndefined();
+    expect((await store.snapshot(attached.id)).pages).toEqual([]);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test.each(["en", "de"] satisfies Array<"en" | "de">)("%s default research wiki is personal, idempotent and preserves edits, renames and removal", async language => {
   const { root, config } = await fixture();
   let store = new WikiStore(config);

@@ -199,8 +199,8 @@ export class WikiStore {
       }
       // Recover a completed registration if a process stopped before recording
       // the marker. Never adopt an unrelated wiki merely because its title matches.
-      const existing = items.find(wiki => wiki.purpose === "legal-research");
-      const removed = deleted.find(item => item.wiki.purpose === "legal-research");
+      const existing = items.find(wiki => wiki.purpose === "legal-research" && !wiki.sync);
+      const removed = deleted.find(item => item.wiki.purpose === "legal-research" && !item.wiki.sync);
       const initialized = existing ?? removed?.wiki;
       if (initialized) {
         db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [initialized.id]);
@@ -272,13 +272,17 @@ export class WikiStore {
       const knownFolder = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_folders WHERE root=?", [canonicalRoot])[0]);
       const id = knownFolder?.id ?? newId;
       db.run("INSERT OR REPLACE INTO wiki_folders(root,id) VALUES(?,?)", [canonicalRoot, id]);
-      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null, ...(seed ? { purpose: seed.purpose } : {}) };
-      for (const [path, content] of Object.entries(seed ? seed.files : input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name))) {
+      const purpose = seed?.purpose ?? (!input.attach && input.template === "legal-research" ? "legal-research" : undefined);
+      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null, ...(purpose ? { purpose } : {}) };
+      for (const [path, content] of Object.entries(seed ? seed.files : input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name, input))) {
         const target = await this.safePath(wiki, path, true);
         try { await writeFile(target, path === "Wiki.md" ? markdownWithData(content, { name }) : content, { flag: "wx" }); }
         catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
       }
       await this.saveRegistrations([...items, wiki]);
+      if (!seed && purpose === "legal-research") {
+        db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,2,?,?)", [wiki.id, input.language ?? "en", input.country && input.country !== "OTHER" ? input.country : null]);
+      }
       this.registerWorkspace(wiki);
       return wiki;
     });

@@ -22,7 +22,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
 | Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
 | Wiki | Maintain reusable firm knowledge with pages, links, properties and a graph | [Wiki](wiki.md) |
-| Wiki: Legal Research / Rechtliche Recherche, area and jurisdiction indexes | Personal legal knowledge base created on startup; review research drafts before saving | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
+| Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; review research drafts before saving | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 
