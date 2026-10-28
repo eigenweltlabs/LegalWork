@@ -66,6 +66,29 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+test("removing a plugin refreshes its connectors and skills after the server confirms deletion", async () => {
+  imported = true;
+  const store = makeStore();
+  await store.refreshSkills({ force: true });
+  const order: string[] = [];
+  finishConnectors = () => { order.push("refresh connectors"); };
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method === "DELETE" && new URL(request.url).pathname.endsWith("/cloud-plugins/test")) {
+      order.push("delete"); imported = false;
+      return Response.json({ item: {} });
+    }
+    return fixtureFetch(input, init);
+  };
+  try {
+    await store.removeImportedPackage("test");
+    expect(order).toEqual(["delete", "refresh connectors"]);
+    expect(connectorNames).toEqual([]);
+    expect(store.skills()).toEqual([]);
+  } finally { store.dispose(); }
+});
+
 test("finishing an import waits for connector publication and a fresh read after a pre-import skills scan", async () => {
   let releaseSkills = () => {};
   skillReadWait = new Promise<void>(resolve => { releaseSkills = resolve; });

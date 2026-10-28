@@ -12,6 +12,8 @@ An MCP server publishes tools with its own access requirements. Local-command in
 
 Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. The connector may still require sign-in before its tools are available.
 
+Removing a shared plugin removes its bundled connectors and skills across projects. The library updates after removal without a manual refresh, and removal does not wait for unopened projects to connect.
+
 Plugins add OpenCode tools or hooks. Use the Plugins tab's supported installation/import flow, including the Claude-plugin bundle preview when offered. Previewing a package does not establish that every third-party component works in this runtime. Follow any reported compatibility errors. Most repeatable drafting procedures need a skill or workflow rather than a custom plugin.
 
 ## LegalMemory and firm knowledge

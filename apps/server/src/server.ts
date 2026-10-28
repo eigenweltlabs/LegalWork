@@ -2529,13 +2529,13 @@ function createRoutes(
       paths: globalRemoval ? [globalOpencodeConfigDir(), globalSkillsDir()] : [legalworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
     });
 
-    const removed = await withPluginImportLock(() => removeCloudPlugin({
+    const removed = await withPluginImportLock(() => publishRuntimeConfigChanges(config, workspace.id, () => removeCloudPlugin({
       serverConfig: config,
       workspaceId: workspace.id,
       workspaceRoot: workspace.path,
       pluginId,
       scope: globalRemoval ? "global" : "workspace",
-    }));
+    })));
 
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -2555,9 +2555,11 @@ function createRoutes(
       });
     }
 
+    // Publish the complete removal once, just like creation. Native watchers
+    // remove the definitions in loaded projects; closed projects need no warmup.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, true).catch(() => undefined);
     for (const target of globalRemoval ? config.workspaces : [workspace]) {
       for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item: removed });
   });

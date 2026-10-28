@@ -10,6 +10,8 @@ import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { createdPluginId, parsePluginCreateRequest, planPluginCreation } from "./plugin-create.js";
+import { installPluginImport } from "./plugin-import-install.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, onRuntimeOpencodeConfigWrite, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
@@ -77,8 +79,53 @@ test("creating a custom plugin publishes once for 11 projects without waiting on
   }
 }), 30_000);
 
+test("removing a shared plugin publishes once and does not wait on unrelated engines", async () => fixture(async config => {
+  const origin = config.workspaces[0]!;
+  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { retained: { type: "remote", url: "https://example.invalid/retained", disabled: true } } } }));
+  const input = parsePluginCreateRequest({ name: "Remove fixture", skills: [], connectors: [], newConnector: { type: "remote", url: "https://example.invalid/removed", oauth: false } });
+  await installPluginImport(config, origin.id, origin.path, await planPluginCreation(config, origin.path, input), true);
+  const refreshed: string[] = [];
+  let releaseOther = () => {}, notifyOther = () => {};
+  const otherBlocked = new Promise<void>(resolve => { releaseOther = resolve; });
+  const otherRequested = new Promise<void>(resolve => { notifyOther = resolve; });
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+      const directory = url.searchParams.get("location[directory]") ?? "";
+      refreshed.push(directory);
+      if (directory !== origin.path) { notifyOther(); await otherBlocked; }
+      return Response.json({ refreshed: true });
+    }
+    return Response.json({ code: "not_found" }, { status: 404 });
+  } });
+  for (const workspace of config.workspaces) workspace.baseUrl = engine.url.href;
+  const server = await startServer(config);
+  const stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
+  const publish = spyOn(globalLibrary, "prepareManagedGlobalLibrary");
+  let request: Promise<Response> | undefined;
+  try {
+    const base = `http://127.0.0.1:${server.port}/workspace/${origin.id}/cloud-plugins`;
+    const headers = { authorization: "Bearer test", "x-legalwork-host-token": "host" };
+    request = fetch(`${base}/${encodeURIComponent(createdPluginId(input.name))}`, { method: "DELETE", headers, signal: AbortSignal.timeout(15_000) });
+    const first = await Promise.race([request.then(response => ({ response })), otherRequested.then(() => ({ response: null }))]);
+    expect(first.response, "Removal must finish without contacting an unrelated project").not.toBeNull();
+    expect(first.response?.status).toBe(200);
+    expect(refreshed).toEqual([origin.path]);
+    await stopWatching();
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(await (await fetch(base, { headers })).json()).toMatchObject({ plugins: {} });
+    for (const workspace of config.workspaces) {
+      const settings = await readManagedEngineSettings(managedEngineSettingsFilePath(config), workspace.path);
+      expect(Object.keys(settings.configuration.mcp?.servers ?? {})).toEqual(["retained"]);
+    }
+  } finally {
+    releaseOther(); await request?.catch(() => undefined);
+    await stopWatching(); publish.mockRestore(); await server.stop(); engine.stop(true);
+  }
+}), 30_000);
+
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("created connectors reach loaded and unopened native projects without per-project refresh", async () => fixture(async config => {
+test.skipIf(!binary)("created and removed connectors reach loaded and unopened native projects without per-project refresh", async () => fixture(async config => {
   if (!binary) throw new Error("Released engine binary is required");
   const origin = config.workspaces[0]!, loaded = config.workspaces[1]!, unopened = config.workspaces[2]!;
   const root = dirname(origin.path);
@@ -122,6 +169,16 @@ test.skipIf(!binary)("created connectors reach loaded and unopened native projec
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
         entries => entries.length === 1 && entries[0]?.status.status === "connected", `connected plugin in ${workspace.id}`);
       expect(connectors).toHaveLength(1);
+    }
+    const removed = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/cloud-plugins/${encodeURIComponent(createdPluginId("Native custom connector"))}`, {
+      method: "DELETE", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host" }, signal: AbortSignal.timeout(15_000),
+    });
+    expect(removed.status, await removed.text()).toBe(200);
+    for (const workspace of [origin, loaded, unopened, config.workspaces[3]!]) {
+      if (workspace === config.workspaces[3]) await client.model.list({ location: { directory: workspace.path } });
+      const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
+        entries => entries.length === 0, `removed plugin in ${workspace.id}`);
+      expect(connectors).toEqual([]);
     }
   } finally { await stopWatching?.(); await engine?.close(); await server?.stop(); mcp.stop(true); }
 }), 60_000);
