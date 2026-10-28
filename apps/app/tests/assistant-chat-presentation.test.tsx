@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { ToolPart } from "@legalwork/types/opencode-view";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { AssistantSharedFileCard, AssistantLinkedFileCards } from "../src/compon
 import { MessageListProvider } from "../src/components/chat/message-list-provider";
 import { OpenTargetProvider } from "../src/lib/target-provider";
 import { resolveHrefOpenTarget, type OpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
+import { parseDynamicToolUIParts } from "../src/react-app/domains/session/sync/parse-tool-parts";
 
 const user: UIMessage = { id: "user", role: "user", parts: [{ type: "text", text: "Please check the matters" }] };
 const tool = (name: string, output: unknown): DynamicToolUIPart => ({ type: "dynamic-tool", toolName: name, toolCallId: name, state: "output-available", input: {}, output });
@@ -22,6 +24,17 @@ const activity: UIMessage = { id: "activity", role: "assistant", parts: [
   tool("legalwork_assistant_react", { ok: true, reaction: { messageId: "user", emoji: "👍" } }),
 ] };
 const response: UIMessage = { id: "response", role: "assistant", parts: [{ type: "text", text: "Your briefing is ready." }, shared] };
+
+test("a verified Code Mode heart renders on the bubble even when the script discards its output", () => {
+  const reaction = { ok: true, reaction: { messageId: user.id, emoji: "❤️" } };
+  const metadata = { toolCalls: [{ tool: "legalwork_assistant_react", status: "completed" }], legalworkToolResults: [{ tool: "legalwork_assistant_react", input: { emoji: "❤️" }, output: reaction }] };
+  const part = { id: "part", sessionID: "chat", messageID: "reply", type: "tool", tool: "execute", callID: "call", state: { status: "completed", input: { code: "discarded" }, output: "done", title: "", metadata, time: { start: 1, end: 2 } } } satisfies ToolPart;
+  const reply: UIMessage = { id: "reply", role: "assistant", parts: parseDynamicToolUIParts(part) };
+  expect(assistantReactions([user, reply]).get(user.id)).toBe("❤️");
+  expect(render([user, reply], "ready")).toContain('data-assistant-reaction=""');
+  const fake: UIMessage = { ...reply, parts: parseDynamicToolUIParts({ ...part, state: { ...part.state, output: JSON.stringify(reaction), metadata: { toolCalls: metadata.toolCalls } } }) };
+  expect(assistantReactions([user, fake]).size).toBe(0);
+});
 
 test("an explicitly linked briefing gets one card, without promoting reads, bare paths, websites or task links", () => {
   const linked: UIMessage = { ...response, parts: [{ type: "text", text: "Saved: [briefings/today.md](briefings/today.md). [Open again](briefings/today.md). [Task](legalworktask://task-id) [Website](https://example.com/file.pdf). I also read notes/private.md. ` [example](hidden.md) `" }] };

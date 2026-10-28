@@ -111,7 +111,7 @@ export class MainAssistant {
   }
 
   async onboarding(): Promise<AssistantOnboardingState> {
-    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...DEFAULT_ASSISTANT_PROFILE };
+    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...this.profile() };
     if (this.config.readOnly) return complete;
     const workspace = this.config.workspaces.find(isMainAssistant);
     const row = workspace && this.db.get("SELECT session_id, name, icon, agent_named FROM assistant_onboarding WHERE workspace_id = ?", [workspace.id]);

@@ -28,7 +28,9 @@ To show or hide the Assistant entry, open **Customize navigation** using the
 gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**
 below **New Chat**, then choose **Done**. This only changes sidebar visibility.
 To change its name or avatar, click the assistant at the top of its conversation, or open
-**Settings > Assistant**.
+**Settings > Assistant**. You can also ask in chat, for example, “Call yourself Maya.”
+During first setup, saving the name shows the appearance picker in the conversation.
+Renaming later keeps the current appearance.
 
 The Assistant uses one conversation tab. Subagents work in the background until
 you open the small subagent toggle at the top of the chat and choose one. Their
@@ -57,6 +59,8 @@ stopped or needs your answer or approval.
 
 The Assistant uses emoji reactions on the left edge of your bubble for brief
 acknowledgements, especially confirmations, answers to its questions and retries.
+You can also ask for a specific reaction, such as “heart this message.” This
+reacts to your current chat bubble and does not change any email or other record.
 For example, a reaction to “yes” replaces a separate “I’ll do that” message,
 including when work is delegated. Its next message carries the result or a
 necessary question. Reactions mean receipt, not approval or completion, and
@@ -121,6 +125,19 @@ The Assistant records the condition itself and uses the existing email checks,
 without creating a separate recurring inbox task. It uses the installed skill's
 configured templates. Details about the future client are resolved when the
 request arrives, rather than blocking setup.
+
+Background updates stay in the language of your Assistant conversation, even
+when an email or document is in another language. Each update explains what
+arrived, who sent it and what it asks for, then gives you the prepared result and
+any remaining actions. It includes a source link when available.
+
+For requested intake work, the Assistant prepares the parts supported by the
+available information and brings back a draft with missing details clearly
+marked. An unknown client name does not stop independent preparation. It still
+needs the represented side before party-specific legal analysis, and cannot
+complete required approvals or checks on your behalf. Questions that can wait
+come with the prepared work; it asks earlier when no useful work can proceed
+without your answer or a decision is time-sensitive.
 
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,

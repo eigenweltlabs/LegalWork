@@ -54,6 +54,15 @@ test.each(cases)("native Code Mode restores $kind cards in live projection and s
   expect(source).toEqual(original);
 });
 
+test.each(cases)("verified Code Mode $kind cards survive a discarded script result in live and saved chat", ({ tool, kind, output }) => {
+  const source = native(tool, "done");
+  if (source.state.status !== "completed") throw new Error("Expected completed fixture");
+  source.state.metadata = { ...source.state.metadata, legalworkToolResults: [{ tool, input: {}, output }] };
+  for (const parts of [parseDynamicToolUIParts(projectTool(session.id, "assistant", source)), history(source)]) {
+    expect(getAssistantRenderGroups(parts, false).map(group => group.kind)).toEqual([kind]);
+  }
+});
+
 test("connector drafts retain their attested action input", () => {
   const source = native("legalwork_extension_call", { ok: true, referenceData: { result: cases[3].output } }, { extensionId: "gmail", action: "create_draft" });
   const parts = parseDynamicToolUIParts(projectTool(session.id, "assistant", source));

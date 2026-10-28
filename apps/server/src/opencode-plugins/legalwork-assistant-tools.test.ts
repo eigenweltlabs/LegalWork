@@ -38,10 +38,12 @@ test("native prompt and policy hooks use app credentials while delegation retain
   process.env.LEGALWORK_WIKI_AGENT_TOKEN = "scoped-fixture";
   try {
     await runtime.start(AssistantPlugin);
-    for (const name of ["legalwork_assistant_react", "legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name", "legalwork_assistant_attention_present", "legalwork_assistant_attention_answer"]) {
-      expect(runtime.tools.get(name)?.options).toMatchObject({ codemode: false, permission: name });
+    expect(runtime.tools.get("legalwork_assistant_react")?.options).toMatchObject({ codemode: true, pinned: true, permission: "legalwork_assistant_react" });
+    for (const name of ["legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name", "legalwork_assistant_attention_present", "legalwork_assistant_attention_answer"]) {
+      expect(runtime.tools.get(name)?.options).toMatchObject({ codemode: true, permission: name });
     }
-    expect(runtime.tools.get("legalwork_assistant_projects")?.options?.codemode).not.toBe(false);
+    for (const [name, tool] of runtime.tools) expect(tool.options).toMatchObject({ codemode: true, permission: name });
+    expect(runtime.tools.get("legalwork_assistant_set_name")?.options?.pinned).toBe(true);
     runtime.move(join(directory, "Matter"));
     const project = { sessionID: "ses_project", prompt: { text: "Hello world" } };
     await runtime.hook("session", "prompt", project);
