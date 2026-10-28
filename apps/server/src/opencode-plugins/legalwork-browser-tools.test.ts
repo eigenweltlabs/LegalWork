@@ -10,6 +10,7 @@ import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
 const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-browser-tools-")));
 const native = nativePluginTestRuntime(root), calls: Array<{ route: string; body: unknown; session: string | null }> = [];
 const token = "b".repeat(64), bytes = Buffer.alloc(6 * 1024 * 1024, 97), png = Buffer.from("complete-image-bytes");
+let blockNetwork = false;
 let holdCapture = false;
 let rejectPasswordFill = false;
 let passwordWebsite: string | null = "https://example.com";
@@ -32,7 +33,11 @@ let transferReads = 0;
 const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
   if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: root }] });
-  if (path.endsWith("/sandbox/session/ses_upload")) return Response.json({ enabled: true, networkMode: "allow" });
+  if (path.endsWith("/sandbox/session/ses_upload")) return Response.json({ enabled: true, networkMode: blockNetwork ? "block" : "allow" });
+  if (path.endsWith("/browser-connections")) {
+    expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    return Response.json({ items: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", origin: "https://auth.example.com", websites: [{ name: "Portal", url: "https://example.com/research" }], password: "must-not-leak", username: "must-not-leak" }] });
+  }
   if (path === "/execute") { bridgeCalls.push(await request.json()); return Response.json(bridgeResult); }
   if (path.endsWith(`/extensions/${token}/execute/downloads`)) return Response.json({ downloads: [{ id: "file_remote", name: "large-record.bin", state: "completed", path: null, relativePath: null, receivedBytes: bytes.length, totalBytes: bytes.length, error: null, transferRequired: true }] });
   if (path.endsWith(`/extensions/${token}/execute/download`)) { expect(request.headers.get("authorization")).toBe("Bearer fixture"); expect(await request.json()).toEqual({ id: "file_remote" }); transferReads++; return Response.json({ id: "file_remote", name: "large-record.bin", data: bytes.toString("base64") }); }
@@ -78,7 +83,7 @@ test("registered browser tools expose typed direct results and compose with nati
     await expect(open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).rejects.toThrow();
   } finally { await runtime.close(); }
 });
-function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password") {
+function tool(name: "legalwork_browser_connections" | "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password") {
   const definition = legalworkBrowserTools[name];
   return nativeTool(native.ctx, { name, description: definition.description, schema: z.object(definition.args), execute: (input, context) => definition.execute(input, context) });
 }
@@ -132,4 +137,14 @@ test("a cancelled capture cannot write or replay the image after a delayed deskt
   setTimeout(() => controller.abort(new Error("User stopped capture")), 30);
   await expect(pending).rejects.toThrow(); await Bun.sleep(220);
   expect(await readFile(join(root, "cancelled.png")).catch(() => null)).toBeNull(); holdCapture = false;
+});
+
+test("website discovery is typed, metadata-only and respects the calling chat's network policy", async () => {
+  native.permissionHandler(async () => {});
+  const result = await tool("legalwork_browser_connections").execute({}, nativeTestInvocation("ses_upload"));
+  expect(result.output).toEqual({ items: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", origin: "https://auth.example.com", websites: [{ name: "Portal", url: "https://example.com/research" }] }] });
+  expect(JSON.stringify(result.output)).not.toContain("must-not-leak");
+  blockNetwork = true;
+  try { await expect(tool("legalwork_browser_connections").execute({}, nativeTestInvocation("ses_upload"))).rejects.toThrow("network access is Approve or Off"); }
+  finally { blockNetwork = false; }
 });

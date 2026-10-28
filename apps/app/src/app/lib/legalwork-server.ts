@@ -4,6 +4,7 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
+import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
@@ -37,7 +38,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { ConnectorStatus, ConnectorConnect, ConnectorFlow, ConnectorOAuthClient, ConnectorOAuthClientInput } from "@legalwork/types/connectors";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
-import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
@@ -1002,6 +1003,7 @@ export type LegalworkInboxUploadResult = {
 };
 
 export type LegalworkBrowserPassword = {
+  websites: import("@legalwork/types/browser-password-request").ConnectedWebsite[];
   id: string;
   label: string;
   origin: string;
@@ -1728,6 +1730,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     requestWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "POST", body: {}, timeoutMs: 900_000 }),
     revokeWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "DELETE" }),
     listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
+    ensureLegalResearchWiki: (language: "en" | "de", country?: string) => requestJson<{ wiki: WikiRegistration | null; created: boolean; updated?: boolean }>(baseUrl, "/wikis/legal-research/ensure", { token, hostToken, method: "POST", body: { language, ...(country ? { country } : {}) } }),
     wikiTeam: () => requestJson<WikiTeamOverview>(baseUrl, "/wikis/team", { token, hostToken, timeoutMs: 30_000 }),
     joinWiki: (input: { wikiId: string; root?: string }) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis/join", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     shareWiki: (id: string, input: WikiSharingInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
@@ -3421,8 +3424,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
 
+    configureResearchDatabase: (workspaceId: string, payload: ResearchDatabaseSetup) =>
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/research-databases`, { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config }),
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
-    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
+    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string; websiteUrl?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 

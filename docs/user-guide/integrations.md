@@ -12,6 +12,26 @@ An MCP server publishes tools with its own access requirements. Local-command in
 
 Plugins add OpenCode tools or hooks. Use the Plugins tab's supported installation/import flow, including the Claude-plugin bundle preview when offered. Previewing a package does not establish that every third-party component works in this runtime. Follow any reported compatibility errors. Most repeatable drafting procedures need a skill or workflow rather than a custom plugin.
 
+## Research databases
+
+The **Your legal research** welcome screen helps you connect accounts you already use, including beck-online, juris, Lexis and Westlaw. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
+
+1. During onboarding, choose the country you work in. Later, open **Settings > Integrations > Add > Research databases** to use the same setup.
+2. Select one or more suggested databases. Search by name, such as “Beck”, to search all countries. Choose **Add another database** for an unlisted service, enter its name and **Research website**, and provide its **Sign-in website (if different)** when the provider uses a separate login website.
+3. Choose **Set up selected databases** or **Set up integration**. Each selected service gets its own **Sign-in details needed** card. The website is already filled in for verified login addresses. If a provider’s current login address could not be confirmed, enter the address of its password page first. Enter your username and password, then choose **Save and continue**. If a matching login is already saved, choose **Continue with saved login** instead.
+4. Continue after the integrations have been added. Use **Set up later** to skip optional setup. Find the result under **Integrations > Website logins**; it is available in all your projects on this LegalWork installation.
+5. Ask, for example, “Research this question in beck-online and cite the relevant judgments.” The assistant opens the provider in **Browser Automation**, signs in with the saved login and checks access. Complete any MFA, CAPTCHA or institutional sign-in in the visible browser when requested.
+
+Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. **Integrations > Website logins** opens that same list for adding, editing and deleting logins. Each entry has its sign-in website and can link several destinations, for example two services using the same sign-in account. Destination URLs do not expand where a password can be filled.
+
+Saving a login does not install a plugin or create a site-specific skill. The built-in **legal-research** skill is available in every project. For legal research, the assistant discovers saved websites, selects suitable research sources, and uses a site-specific skill if one is installed. Otherwise it uses the observed website controls. The country list only helps fill in provider URLs. A normal website and a research database use exactly the same login mechanism.
+
+The general research skill keeps persistent operational notes for each connected website: observed problems, attempted steps and verified recoveries. These notes help later chats, but must be checked against the current website. They contain no account details, credentials, raw page text or legal findings. Ask the assistant to show or forget a site's notes. Existing optional site skills can also keep their own experience log. Notes do not change login permissions. Organization restrictions on custom skills can prevent saving new notes; the assistant reports that limitation.
+
+Research findings belong in **Legal Research** or **Rechtliche Recherche**, which LegalWork prepares automatically. The assistant first asks whether you want the identified legal findings prepared for your knowledge base. After your consent it stages legal knowledge only, with citations and classification by jurisdiction, area of law and issue. Review the proposed contribution and choose **Save to wiki** to publish. Website mechanics, workflows and login fixes stay outside this wiki. See [the wiki guide](wiki.md).
+
+If sign-in redirects between subdomains of the same main domain, your login remains available. If the provider uses a separate main domain, save the login for the actual password page. Setup does not prove the login works: the assistant checks access in the browser during research. Complete MFA, CAPTCHA or institutional sign-in there when needed. For a free account test, choose **United States > CourtListener**; its sign-in supports a free username/password account. Some separate document services may charge for retrieval, so a free account does not imply every linked source is free.
+
 ## LegalMemory and firm knowledge
 
 LegalMemory is a separate Eigenwelt knowledge index. Connect the firm's instance using its connector when available. Search its live records for matters, documents and other firm knowledge; inspect the returned source evidence. Connecting ordinary file storage does not automatically create a LegalMemory index.
