@@ -54,6 +54,7 @@ test("explicit startup imports exact legacy credentials, retires the table and c
   const state = await readFile(connectorStorageStatePath(config), "utf8");
   for (const secret of [old.id, account.nangoConnectionId, "owner"]) expect(state).not.toContain(secret);
   expect((await readFile(oauthVaultPath(config))).includes(Buffer.from(account.nangoConnectionId))).toBe(false);
+  await closeRuntimeOpencodeConfig(config);
   await rename(join(root, "runtime.sqlite"), join(root, "retired-source.sqlite"));
   config.decryptLegacyConnectorSecrets = () => { throw new Error("Legacy loader must never run again"); };
   expect(await readConnectorConnections(config, "owner", "outlook")).toEqual([account]);
