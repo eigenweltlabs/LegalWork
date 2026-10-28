@@ -130,6 +130,17 @@ test("direct URL setup rejects insecure addresses and embedded credentials befor
   } finally { await f.close(); }
 });
 
+test("Libra aliases open the vault card for its verified auth domain and preserve the app destination", async () => {
+  const f = await fixture("https://auth.libratech.ai");
+  try {
+    const pending = f.tool.execute({ provider: "libratech.ai" }, nativeTestInvocation("chat")); await f.ready();
+    expect(f.form?.metadata).toEqual({ legalworkBrowserPassword: { website: "https://auth.libratech.ai", label: "Libra (Wolters Kluwer)", username: "", startUrl: "https://app.libratech.ai/" } });
+    f.connections([{ id: saved.id, label: "Libra", origin: "https://auth.libratech.ai", websites: [{ name: "Libra", url: "https://app.libratech.ai/" }] }]);
+    await f.answer({ password_id: saved.id });
+    expect((await pending).output).toMatchObject({ status: "saved", start_url: "https://app.libratech.ai/", login_url: "https://auth.libratech.ai/" });
+  } finally { await f.close(); }
+});
+
 test("unknown, ambiguous and unverified providers do not guess a password origin", async () => {
   const f = await fixture();
   try {
