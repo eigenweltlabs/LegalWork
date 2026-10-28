@@ -1,7 +1,7 @@
 import { withViewSaveSources, type SavedSessionView } from "./save-source.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { codeModeWidgetResults, toolDisplayText } from "@legalwork/types/chat-tool-results";
+import { codeModeWidgetResults, toolDisplayText } from "../native-shared-values.js";
 import type { ViewPreview, ViewRecord, SessionViewPreview, SessionViewReview } from "@legalwork/types/views";
 import { ViewPreviewSchema } from "./schema.js";
 import type { ServerConfig } from "../types.js";

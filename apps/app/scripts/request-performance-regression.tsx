@@ -1,6 +1,7 @@
 import React from "react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
+import { useCalendarRefresh } from "../src/react-app/domains/calendar/calendar-queries";
 import { useSavedViews } from "../src/react-app/domains/views/view-list";
 import { createRoot } from "react-dom/client";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -27,6 +28,8 @@ const reload = async (items: RouteWorkspace[]) => {
 };
 function Harness() {
   useSyncEvents(client);
+  useCalendarRefresh();
+  useQuery({ queryKey: ["calendar", client.baseUrl, "fixture"], queryFn: async () => (await fetch(`${apiUrl}/test/calendar`)).json(), staleTime: Infinity });
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   useSessionInbox(client, workspaces, listed, reload);
   const groups = useSessionManagementStore(state => state.groupsByWorkspace);
@@ -42,6 +45,6 @@ function Harness() {
 const root = createRoot(document.getElementById("root")!);
 root.render(<React.StrictMode><QueryClientProvider client={getReactQueryClient()}><Harness /></QueryClientProvider></React.StrictMode>);
 Object.assign(window, { requestPerformance: {
-  snapshot: () => ({ groups: useSessionManagementStore.getState().groupsByWorkspace, sync: useSyncEventsLive.getState(), view: getReactQueryClient().getQueryData(["ui-views", client.baseUrl, "workspace", "ws_0"]) }),
+  snapshot: () => ({ calendarStatus: getReactQueryClient().getQueryState(["calendar", client.baseUrl, "fixture"])?.fetchStatus, groups: useSessionManagementStore.getState().groupsByWorkspace, sync: useSyncEventsLive.getState(), view: getReactQueryClient().getQueryData(["ui-views", client.baseUrl, "workspace", "ws_0"]) }),
   unmount: () => root.unmount(),
 } });

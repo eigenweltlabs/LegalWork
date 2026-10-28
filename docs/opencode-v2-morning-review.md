@@ -1,3 +1,7 @@
+> Update, 28 October: the user subsequently requested the current-dev rebase
+> and PR #329 integration. That work supersedes the historical snapshot decision
+> below; see [current capability status](opencode-v2-capability-status.md).
+
 # Review when you return
 
 The engineering migration is complete on `codex/opencode-v2-migration` for the

@@ -17,7 +17,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const output = process.env.LEGALWORK_REQUEST_EVIDENCE || join(root, "artifacts/request-performance");
 const listeners = new Map(); const states = new Map(); const metrics = new Map();
 let delay = 0; let session = true; let viewTitle = "Initial report";
-function metric(mode) { if (!metrics.has(mode)) metrics.set(mode, { batch: 0, individualEvents: 0, individualState: 0, migrations: 0, active: 0, peak: 0, reloads: [] }); return metrics.get(mode); }
+function metric(mode) { if (!metrics.has(mode)) metrics.set(mode, { batch: 0, individualEvents: 0, individualState: 0, migrations: 0, calendar: 0, active: 0, peak: 0, reloads: [] }); return metrics.get(mode); }
 function state(id) { if (!states.has(id)) states.set(id, { cursor: 0, state: { groups: [], assignments: {} } }); return states.get(id); }
 function announce(mode, poke) { for (const response of listeners.get(mode) ?? []) response.write(`data: ${JSON.stringify(poke)}\n\n`); }
 const fixture = createServer(async (request, response) => {
@@ -57,6 +57,7 @@ const fixture = createServer(async (request, response) => {
     else { stats.individualState++; json({ state: item.state }); } return;
   }
   if (path === "/workspace/ws_0/ui-views") { json({ items: [{ id: "view", title: viewTitle, mode: "report" }], issues: [] }); return; }
+  if (path === "/test/calendar") { stats.calendar++; json({ reads: stats.calendar }); return; }
   if (path === "/session-inbox") { json({ sessions: session ? [{ workspaceId: "ws_0", sessionId: "chat", updatedAt: 100, assistantAt: 100 }] : [] }); return; }
   if (path === "/test/reloads") { let body = ""; for await (const chunk of request) body += chunk; stats.reloads.push(JSON.parse(body)); json({}); return; }
   json({ code: "not_found" }, 404);
@@ -94,9 +95,19 @@ try {
       for (const response of listeners.get(mode) ?? []) response.end();
       viewTitle = "Recovered after reconnect";
       await check('window.requestPerformance.snapshot().view?.items[0]?.title === "Recovered after reconnect"', "Reconnect failed to reconcile missed changes");
+      await check('window.requestPerformance.snapshot().calendarStatus === "idle"', "Calendar reconciliation did not settle");
+      const calendarBefore = metric(mode).calendar;
       delay = 250; metric(mode).peak = 0;
       for (let i = 0; i < 100; i++) announce(mode, { groups: true });
       await wait(700); delay = 0; assert.equal(metric(mode).peak, 1, "Event bursts overlapped requests");
+      assert.equal(metric(mode).calendar, calendarBefore, "Group events must not refetch calendars");
+      for (let i = 0; i < 100; i++) announce(mode, { queues: true, reviews: true, suggestions: true, sandbox: true, views: true });
+      await wait(300);
+      assert.equal(metric(mode).calendar, calendarBefore, "Unrelated metadata events must not refetch connected calendars");
+      announce(mode, { projects: true });
+      const calendarStart = Date.now();
+      while (metric(mode).calendar === calendarBefore && Date.now() - calendarStart < 5000) await wait(20);
+      assert.equal(metric(mode).calendar, calendarBefore + 1, "A project/calendar change must still refresh calendars");
       metric(mode).reloads = []; session = false; announce(mode, { sessions: true });
       const start = Date.now(); while (!metric(mode).reloads.some(ids => ids.includes("ws_0")) && Date.now() - start < 5000) await wait(20);
       assert.ok(metric(mode).reloads.some(ids => ids.includes("ws_0")), "Archived/deleted chat did not refresh the sidebar");
