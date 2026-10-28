@@ -527,11 +527,32 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
   return path;
 }
 
-/**
- * Keep the runtime config file in sync with the runtime DB so every engine
- * instance rebuild reads fresh state instead of a spawn-time snapshot.
- * Returns an unsubscribe function.
- */
+const deferredRuntimePublications = new Map<string, number>();
+
+/** Install a complete library change before publishing it. Individual connector
+ * writes must not each rebuild every project's settings or expose half-written
+ * plugin resources to native file watching. Other write/revocation listeners
+ * still run normally; only this process's automatic file refresh is deferred. */
+export async function publishRuntimeConfigChanges<T>(config: ServerConfig, workspaceId: string, update: () => Promise<T>): Promise<T> {
+  const path = legalworkRuntimeConfigFilePath(config);
+  deferredRuntimePublications.set(path, (deferredRuntimePublications.get(path) ?? 0) + 1);
+  try {
+    await fileWriteQueue.get(path)?.catch(() => undefined);
+    return await update();
+  }
+  finally {
+    const remaining = deferredRuntimePublications.get(path)! - 1;
+    if (remaining) deferredRuntimePublications.set(path, remaining);
+    else {
+      deferredRuntimePublications.delete(path);
+      // Also publish a rollback after a failed install.
+      await writeLegalworkRuntimeConfigFile(config, workspaceId);
+    }
+  }
+}
+
+/** Keep derived files fresh on runtime DB writes. Returns an unsubscribe that
+ * also waits for the last queued publication. */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => Promise<void> {
   const database = runtimeDbPath(config);
   let pending = Promise.resolve();
@@ -541,6 +562,7 @@ export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, worksp
     // every workspace's derived config.
     if (!config.workspaces.some(workspace => workspace.id === writtenWorkspaceId)
       && ![GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_PERSONALIZATION_ID, GLOBAL_MCP_ID].includes(writtenWorkspaceId)) return;
+    if (deferredRuntimePublications.has(legalworkRuntimeConfigFilePath(config))) return;
     // Each engine owns its generated files and process policy even when two
     // LegalWork instances observe the same shared settings database.
     pending = writeLegalworkRuntimeConfigFile(config, workspaceId).then(() => undefined, () => undefined);
