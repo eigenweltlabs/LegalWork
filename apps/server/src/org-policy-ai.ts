@@ -48,10 +48,14 @@ export async function orgChatProviderBlocks(config: ServerConfig): Promise<Recor
     const key = await firmKey(config, provider.key);
     const { source } = provider;
     if (source.type === "catalog") {
+      if (provider.models !== "all") throw new Error("The firm's model allowlist requires native model-policy support. Its restrictions have been retained; the provider cannot be broadened.");
+      // A catalog OAuth provider already has a native integration. Even a
+      // name-only config block force-enables it before the member signs in.
+      // Keep the firm's allowance in policy; native connections own readiness.
+      if (provider.key.by === "oauth") continue;
       // A member's own key or sign-in stays with the engine; firm-owned values
       // use native provider settings.
       const settings = { ...(source.resourceName ? { resourceName: source.resourceName } : {}), ...(key ? { apiKey: key } : {}) };
-      if (provider.models !== "all") throw new Error("The firm's model allowlist requires native model-policy support. Its restrictions have been retained; the provider cannot be broadened.");
       blocks[source.provider] = nativeProviderDefinition({
         name: provider.name,
         ...(Object.keys(settings).length > 0 ? { settings } : {}),

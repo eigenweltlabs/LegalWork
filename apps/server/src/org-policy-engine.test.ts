@@ -23,6 +23,7 @@ import { requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-
 import { ReviewDefaults } from "./reviews/storage.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { ApprovalService } from "./approvals.js";
+import { nativeMcpBinary, nativeMcpEngine } from "./native-mcp-engine.test-support.js";
 
 const realFetch = globalThis.fetch;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -357,6 +358,32 @@ describe("the firm's own providers", () => {
     expect(JSON.stringify((await appliedOrgPolicy(config, "ai.chat.providers"))?.value)).toBe(JSON.stringify(restricted["ai.chat.providers"].value));
   });
 
+  test.skipIf(!nativeMcpBinary)("released engine keeps firm-allowed OpenAI disconnected until a native credential exists", async () => {
+    const { config } = await setup({
+      "ai.chat.allowCustom": { mode: "enforced", value: false },
+      "ai.chat.providers": { mode: "enforced", value: [entries["ai.chat.providers"].value[1]] },
+    });
+    const layer = await buildOrgPolicyEngineLayerFor(config, "ws_1");
+    globalThis.fetch = realFetch;
+    const engine = await nativeMcpEngine(layer);
+    try {
+      const client = engine.client(), location = engine.location;
+      await client.model.list({ location });
+      expect((await client.integration.get({ integrationID: "openai", location })).data.methods.some(method => method.type === "oauth")).toBe(true);
+      expect((await client.provider.list({ location })).data.some(provider => provider.id === "openai")).toBe(false);
+      expect((await client.model.list({ location })).data.some(model => model.providerID === "openai")).toBe(false);
+      // A synthetic key exercises native connection invalidation without any
+      // provider request, browser sign-in, personal credential or model spend.
+      const credential = await client.credential.create({ integrationID: "openai", value: { type: "key", key: "synthetic-native-connection-fixture" }, activate: true });
+      expect((await client.provider.list({ location })).data.some(provider => provider.id === "openai")).toBe(true);
+      expect((await client.model.list({ location })).data.some(model => model.providerID === "openai")).toBe(true);
+      await client.credential.remove({ credentialID: credential.id });
+      expect((await client.provider.list({ location })).data.some(provider => provider.id === "openai")).toBe(false);
+      await engine.restart();
+      expect((await engine.client().provider.list({ location })).data.some(provider => provider.id === "openai")).toBe(false);
+    } finally { await engine.close(); }
+  }, 45_000);
+
   test("whole-provider access reaches the engine with a key: the firm's while signed in, or the member's own", async () => {
     const { config, root } = await setup(entries, { "chat:org-anthropic-1": "sk-firm" });
     // The member added their own key for the firm's Azure endpoint; OpenAI waits for their ChatGPT sign-in.
@@ -369,6 +396,7 @@ describe("the firm's own providers", () => {
       { action: "provider.use", resource: "groq", effect: "deny" }, { action: "provider.use", resource: "opencode", effect: "deny" },
     ]);
     const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
+    expect(layer.providers?.openai).toBeUndefined();
     expect(layer.policies?.filter(rule => rule.action === "provider.use")).toEqual([
       { action: "provider.use", resource: "*", effect: "deny" }, ...["eigenwelt", "anthropic", "openai", "org-azure-1"].map((resource): { action: "provider.use"; resource: string; effect: "allow" } => ({ action: "provider.use", resource, effect: "allow" })),
     ]);
