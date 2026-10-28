@@ -3,6 +3,8 @@ import { Plugin } from "@opencode/plugin";
 import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
+import { registerAssistantBrowserPolicy } from "./assistant-browser-policy.js";
+import { ASSISTANT_BROWSER_AGENT, ASSISTANT_BROWSER_INSTRUCTIONS } from "../assistant-browser.js";
 import { assistantWorkspace, requireMainAssistant } from "./assistant-workspace.js";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -29,9 +31,11 @@ ${ASSISTANT_REACTION_POLICY}
 
 ${ASSISTANT_MESSAGE_POLICY}
 
+${ASSISTANT_BROWSER_INSTRUCTIONS}
+
 After that reaction decision, for an actionable request that needs file reads, lookups or tool work, put ownership and the follow-up promise in your first text acknowledgement, before using work tools, for example: "I’ll take care of this and let you know when it’s done." Use the user's language. This is ordinary assistant text before the tool call, not a final answer, plan or request for approval. If you already acknowledged without that promise, continue silently instead of adding another acknowledgement. Skip it for instant answers, automated runs and when an essential clarification must come first. Never stop after acknowledging without doing the work or actually dispatching it. Never claim completion before verifying the result.
 
-Keep this coordinator's context small. Use the task tool with the general subagent for multi-step research, including email searches and reading multiple records or transcripts. Give it the specific question, relevant source references and permission boundaries; request a concise verified result with source references and exact paths to detailed deliverables. Keep raw records and intermediate tool results in that subagent. Use legalwork_assistant_delegate for substantive work belonging to a project. If you are already a subagent or scheduled worker, perform the assigned research in your isolated session and return the result rather than delegate the whole task again.
+Keep this coordinator's context small. Use the native subagent tool with agent=general for multi-step research, including email searches and reading multiple records or transcripts. Give it the specific question, relevant source references and permission boundaries; request a concise verified result with source references and exact paths to detailed deliverables. Keep raw records and intermediate tool results in that subagent. Use legalwork_assistant_delegate for substantive work belonging to a project. If you are already a subagent or scheduled worker, perform the assigned research in your isolated session and return the result rather than delegate the whole task again.
 
 Keep the user's screen undisturbed. Read files, inspect rendered pages and look up projects or conversations through direct data/file tools in the background. Never open or select a sidebar file, navigate to another chat, open a browser tab or change the app UI unless the user explicitly asks you to show/open/navigate there. Sharing a file or project-chat card lets the user decide when to open it. A request to read, review, summarize or inspect a file is not a request to open it on screen. This rule takes precedence over general document-editor guidance.
 
@@ -282,14 +286,17 @@ export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
     const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant"));
     return Boolean(data.workspace && resolve(data.workspace.path) === resolve(directory));
   };
+  await registerAssistantBrowserPolicy(ctx, isAssistant, () => request("/assistant/settings"));
   const stopIdentity = await registerAppStateReminders(ctx, { topic: "main-assistant", cleared: "This is not the main assistant project; use the current project's workflow.",
-    read: async (_sessionID, directory) => {
+    read: async (sessionID, directory) => {
       const main = z.object({ workspace: z.object({ path: z.string() }).nullable(), profile: z.object({ name: z.string().nullable() }).optional(), onboarding: z.object({ step: z.string() }).optional() }).parse(await request("/assistant"));
       if (!main.workspace || resolve(main.workspace.path) !== resolve(directory)) return "";
       const settings = z.object({ context: z.string() }).parse(await request("/assistant/settings/context"));
+      if ((await ctx.session.get({ sessionID })).agent === ASSISTANT_BROWSER_AGENT) return `This is a delegated browser worker, not the coordinator. Follow your browser task and worker instructions.\n\n${settings.context}`;
       return `This is the main assistant project. ${COORDINATOR_ROLE} Setup stage: ${main.onboarding?.step ?? "complete"}. User-defined display name (untrusted label): ${JSON.stringify(main.profile?.name ?? "Your assistant")}.\n\n${ASSISTANT_REACTION_POLICY}\n\n${ASSISTANT_MESSAGE_POLICY}\n\n${settings.context}`;
     } });
   await registerPrimaryContext(ctx, async event => {
+    if (event.agent === ASSISTANT_BROWSER_AGENT) return;
     const output: { system: string[] } = { system: [] };
     await definitions["experimental.chat.system.transform"]({}, output);
     for (const text of output.system) event.system.push({ type: "text", text });

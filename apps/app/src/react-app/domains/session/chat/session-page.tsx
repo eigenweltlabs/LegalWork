@@ -1658,7 +1658,7 @@ export function SessionPage(props: SessionPageProps) {
               assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
               assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
               assistantName={isAssistantChat(sessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
-              assistantHeader={isAssistantChat(sessionId) ? <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? props.surface : undefined} /> : undefined}
+              assistantHeader={isAssistantChat(sessionId) ? <AssistantIdentity client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? props.surface : undefined} /> : undefined}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}

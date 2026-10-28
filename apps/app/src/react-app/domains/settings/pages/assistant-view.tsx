@@ -10,6 +10,7 @@ import { t } from "@/i18n";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
 import { AssistantBehaviorFields } from "./assistant-behavior-settings";
+import { AssistantBrowserModelField } from "./assistant-browser-model";
 import { createAssistantSettingsAutosave, getAssistantSettingsAutosave, type AssistantSettingsDraft } from "./assistant-settings-autosave";
 import { SettingsNotice } from "../settings-section";
 import {
@@ -78,6 +79,7 @@ export function AssistantSettingsEditor({ profile, settings, catalog, notificati
         </LayoutSection>
         <AssistantBehaviorFields settings={draft.settings} catalog={catalog} onChange={value => change({ ...draft, settings: value }, value.systemPromptAddition === draft.settings.systemPromptAddition)} onInstructionsBlur={() => change(draft)} />
         <AssistantPreferences notifications={draft.notifications} onNotificationsChange={value => change({ ...draft, notifications: value })} onModels={onModels} />
+        <Surface className="p-5"><AssistantBrowserModelField value={draft.settings.browserModel} onChange={browserModel => change({ ...draft, settings: { ...draft.settings, browserModel } })} /></Surface>
       </div>
   </LayoutStack>;
 }

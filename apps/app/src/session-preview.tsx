@@ -11,7 +11,7 @@ import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
 import type { Part, ToolPart } from "@/app/lib/opencode-view";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
-import { DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS, DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
@@ -164,11 +164,12 @@ async function previewCopyDelay() {
   if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
 }
 
-if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
+if (modelSettingsPreview || assistantPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
   connected: [model.providerID],
   all: [{ id: model.providerID, name: "Preview provider", models: {
-    [model.modelID]: { name: model.modelID },
-    "Another preview model": { name: "Another preview model" },
+    [model.modelID]: { name: model.modelID, variants: [] },
+    "Another preview model": { name: "Another preview model", variants: [] },
+    "gpt-6.1-terra": { name: "GPT-6.1 Terra", variants: [] },
   } }],
 });
 
@@ -542,8 +543,11 @@ function previewFile(path: string): { content: string; updatedAt: number } {
   const saved = localStorage.getItem(`legalwork:synthetic-file:${path}`);
   return saved ? JSON.parse(saved) : { content: `# Review notes\n\n${reply}`, updatedAt: now };
 }
+let previewAssistantSettings = { ...DEFAULT_ASSISTANT_SETTINGS };
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  assistantSettings: async () => ({ settings: previewAssistantSettings }),
+  updateAssistantSettings: async settings => ({ settings: previewAssistantSettings = AssistantSettingsSchema.parse(settings) }),
   ...(dashboardExplorer ? {
     listWorkspaces: async () => ({ items: fixtureWorkspaces }),
     listWikis: async () => ({ items: [fixtureWiki] }),

@@ -2120,7 +2120,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
           />
         )}
-        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} />
+        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} client={opencodeClient} assistantChat={Boolean(props.assistantDate)} />
       </div>
 
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",

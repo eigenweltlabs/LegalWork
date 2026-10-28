@@ -1,0 +1,37 @@
+import { expect, test } from "bun:test";
+import type { BrowserPanelTab } from "../src/app/lib/desktop-types";
+import { visibleTaskBrowserTabs } from "../src/react-app/domains/session/background/task-browser-tabs";
+import { openBackgroundTab } from "../src/react-app/domains/session/background/open-background-tab";
+import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
+
+const browser = (taskSessionId: string): BrowserPanelTab => ({ id: `tab:${taskSessionId}`, type: "browser", taskSessionId, workspaceId: "assistant", background: true, label: "Website", url: "https://example.org", favicon: null, status: "ready", canGoBack: false, canGoForward: false });
+const sessions = { parent: { id: "parent", title: "Assistant" }, worker: { id: "worker", parentID: "parent", title: "Browser" }, grandchild: { id: "grandchild", parentID: "worker", title: "Child" }, unrelated: { id: "unrelated", title: "Other chat" } };
+
+test("Assistant browser tiles include known descendants without including unrelated chats", () => {
+  const tabs = [browser("parent"), browser("worker"), browser("grandchild"), browser("unrelated"), browser("unknown")];
+  expect(visibleTaskBrowserTabs(tabs, "parent", true, sessions).map(tab => tab.taskSessionId)).toEqual(["parent", "worker", "grandchild"]);
+  expect(visibleTaskBrowserTabs(tabs, "parent", false, sessions).map(tab => tab.taskSessionId)).toEqual(["parent"]);
+  expect(visibleTaskBrowserTabs([{ ...browser("worker"), workspaceId: "native-workspace-alias" }], "parent", true, sessions)).toHaveLength(1);
+  expect(visibleTaskBrowserTabs([{ ...browser("worker"), dismissed: true }, { ...browser("worker"), background: false }], "parent", true, sessions)).toEqual([]);
+});
+
+test("opening a child browser tile keeps its actual browser and worker ownership beside the parent", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const opened: string[] = [];
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { __LEGALWORK_ELECTRON__: { browser: { selectTab: async (id: string) => { opened.push(id); } } } } });
+  const scope = "workspace:assistant-browser-test";
+  usePanelTabStore.getState().adoptChat(scope, "parent", "Assistant");
+  try {
+    const tab = { ...browser("worker"), background: false };
+    openBackgroundTab(scope, "parent", tab);
+    const panel = usePanelTabStore.getState().sessions[scope];
+    expect(panel.tabs.find(item => item.id === tab.id)).toMatchObject({ id: "tab:worker", taskSessionId: "worker", background: false });
+    expect(panel.panes).toHaveLength(2);
+    expect(panel.tabs.filter(item => item.type === "chat").map(item => item.id)).toEqual(["chat:parent"]);
+    expect(opened).toEqual(["tab:worker"]);
+  } finally {
+    const { [scope]: removed, ...rest } = usePanelTabStore.getState().sessions;
+    usePanelTabStore.setState({ sessions: rest });
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow); else Reflect.deleteProperty(globalThis, "window");
+  }
+});

@@ -14,6 +14,7 @@ export const AssistantSettingsSchema = z.object({
   systemPromptAddition: z.string(),
   resourceIds: z.array(z.string().min(1)),
   projectAccess: AssistantProjectAccessSchema,
+  browserModel: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).nullable().optional(),
 }).strict();
 export type AssistantSettings = z.infer<typeof AssistantSettingsSchema>;
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
