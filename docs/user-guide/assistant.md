@@ -30,9 +30,10 @@ it. Account-wide mail and calendar checks require **Settings > Assistant >
 Project access > All projects**. Project checks follow the Assistant's project
 access settings.
 
-EU Jev first checks changes against the Assistant's scratchpad. Without an
-explicit match, the Assistant is not interrupted. For a match, the Assistant
-decides whether a short message would help or whether to stay quiet. Active
+EU Jev scores every change collected in each interval for relevance to the
+Assistant's scratchpad. Once the whole interval has been checked, the Assistant receives
+the matching results together and decides whether one short message would help
+or whether to stay quiet. Without an explicit match, it is not interrupted. Active
 conversations and outstanding questions or approvals take priority. These
 updates do not authorize sending mail, starting work or changing your records.
 The existing desktop notification preference applies to new Assistant messages.
