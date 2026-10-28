@@ -178,6 +178,7 @@ export class RecorderService {
      *   speakerPasses?: import("./deferred-cloud-speakers.mjs").DeferredCloudSpeakerPass[],
      *   cloudSegments?: Map<string, { streamId: string, original: import("@legalwork/types/audio").AudioTranscriptSegment, parts: import("@legalwork/types/audio").AudioTranscriptSegment[] }>,
      *   cloudPartials?: Map<string, import("@legalwork/types/audio").AudioTranscriptSegment>,
+     *   reconnectingInputs?: Set<string>,
      *   speakerTurns?: { startMs: number, endMs: number, speaker: number }[] | null,
      * }>}
      */
