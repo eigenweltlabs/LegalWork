@@ -115,7 +115,7 @@ access settings.
 
 EU Jev scores every change collected in each interval for relevance to the
 Assistant's scratchpad. Once the whole interval has been checked, the Assistant receives
-results scoring at least 80% together and decides whether one short message would help
+results scoring at least 65% together and decides whether one short message would help
 or whether to stay quiet. Without an explicit match, it is not interrupted. Active
 conversations and outstanding questions or approvals take priority. These
 updates do not authorize additional work by themselves. If you explicitly asked
