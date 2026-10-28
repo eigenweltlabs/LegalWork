@@ -10,6 +10,7 @@ import type { ScheduledTaskStore } from "../scheduled-tasks/store.js";
 import { ApiError } from "../errors.js";
 import { addRoute } from "./registry.js";
 import type { registerMainAssistantRoutes } from "./main-assistant.js";
+import { assistantRequestAuthority } from "../assistant-session-access.js";
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -25,6 +26,7 @@ export function registerAssistantProactivityRoutes(options: Parameters<typeof re
   for (const kind of ["scratchpad", "briefing"]) addRoute(routes, "POST", `/assistant/${kind}`, "client", async ctx => {
     options.ensureWritable(config);
     options.requireClientScope(ctx, "collaborator");
+    const authorityRequest = ctx.request.clone();
     const body = await options.readJsonBodyLimited(ctx.request, 20000);
     const input = parse(source, body);
     const workspace = await options.resolveWorkspace(config, input.workspaceId);
@@ -34,7 +36,12 @@ export function registerAssistantProactivityRoutes(options: Parameters<typeof re
     if (kind === "scratchpad") {
       if (body.text === undefined) return jsonResponse({ ok: true, scratchpad: store.scratchpad() });
       if (session.parentID) throw new ApiError(403, "assistant_only", "Only the main Assistant conversation maintains its scratchpad.");
-      return jsonResponse({ ok: true, scratchpad: store.updateScratchpad(parse(ScratchpadWriteSchema, body)) });
+      const write = parse(ScratchpadWriteSchema, body);
+      const authority = await options.sessionAccess.captureSource(session.id, session.location.directory,
+        await assistantRequestAuthority(config, authorityRequest, ctx.actor));
+      return jsonResponse({ ok: true, scratchpad: store.updateScratchpad(write, Date.now(), {
+        sessionId: session.id, directory: session.location.directory, authority,
+      }) });
     }
     if (session.parentID) throw new ApiError(403, "assistant_only", "Briefing setup belongs in the main Assistant conversation.");
     const action = parse(BriefingActionSchema, body);

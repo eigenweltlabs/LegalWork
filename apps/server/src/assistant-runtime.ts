@@ -126,7 +126,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const stopMain = config.readOnly ? () => {} : mainAssistant.start();
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
   const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
-  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace);
+  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
   return {
     register,
     scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => isMainAssistant(workspace)

@@ -132,7 +132,11 @@ The existing desktop notification preference applies to new Assistant messages.
 Checks require a connected source and an available EU decision model. If a
 source or model is unavailable, the check waits and retries. An empty scratchpad
 means there are no follow-ups being checked. Closing LegalWork stops the local
-checks until it runs again. Timed checks, such as revisiting a website in five
+checks until it runs again. Saved follow-ups resume after restarting, including
+in the next day's Assistant chat, with the access available when you requested
+them. Later access restrictions still apply. Follow-ups saved by older versions
+without that access record need you to confirm the request once in the Assistant;
+the app keeps undelivered events queued until then. Timed checks, such as revisiting a website in five
 hours, still use normal
 [scheduled tasks](scheduled-tasks.md).
 
