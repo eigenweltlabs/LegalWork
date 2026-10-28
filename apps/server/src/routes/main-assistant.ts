@@ -28,7 +28,7 @@ import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority, type AssistantSessionAccess } from "../assistant-session-access.js";
 import { withSessionExecution } from "../session-execution-gate.js";
 import { nativeDeliveryRejection } from "../native-delivery.js";
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -289,7 +289,8 @@ export function registerMainAssistantRoutes(options: {
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
     await options.sessionAccess.authorize(session.id, session.directory, authority);
-    const initialMessageId = `msg_${randomUUID().replaceAll("-", "")}`;
+    const messageTime = BigInt.asUintN(48, BigInt(Date.now()) * 4096n).toString(16).padStart(12, "0");
+    const initialMessageId = `msg_${messageTime}${randomBytes(7).toString("hex")}`;
     options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority, initialMessageId });
     try {
       const sent = await withSessionExecution(config, session.id, async () => {

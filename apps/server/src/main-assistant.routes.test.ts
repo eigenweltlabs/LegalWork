@@ -312,7 +312,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const rejectionResponse = await call("/assistant/delegate", "POST", input);
       assert.equal(rejectionResponse.status, 409);
       const rejection = await rejectionResponse.json();
-      assert.equal(rejection.delegation.status, "rejected"); assert.equal(rejection.error, "Register this project first"); assert.ok(rejection.delegation.messageId);
+      assert.equal(rejection.delegation.status, "rejected"); assert.equal(rejection.error, "Register this project first"); assert.match(rejection.delegation.messageId, /^msg_[a-f0-9]{26}$/);
       rejectSend = false;
       failSend = true;
       const unconfirmed = await (await call("/assistant/delegate", "POST", input)).json();
