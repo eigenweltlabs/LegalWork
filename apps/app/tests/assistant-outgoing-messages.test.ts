@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import type { SessionQueue } from "@legalwork/types/session-queue";
 import type { UIMessage } from "ai";
 import type { ComposerDraft } from "../src/app/types";
 import { assistantBubbleMessages } from "../src/react-app/domains/session/surface/assistant-bubbles";
 import {
-  addAssistantOutgoingMessage, assistantOutgoingScope, isLocalOutgoingMessage,
+  canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, isLocalOutgoingMessage,
   mergeAssistantOutgoingMessages, moveAssistantOutgoingMessage, outgoingMessageId,
   removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
 } from "../src/react-app/domains/session/surface/assistant-outgoing-messages";
@@ -67,4 +68,35 @@ test("attachments display without reading their bytes or leaking model instructi
   expect(JSON.stringify(entries()[0].message)).not.toContain("Private instructions");
   removeAssistantOutgoingMessage("file");
   expect(fetch(part.url)).rejects.toThrow();
+});
+
+const emptyQueue: SessionQueue = { workspaceId: "assistant", sessionId: "today", revision: 1, paused: false, completedIds: [], entries: [] };
+
+test("only immediate sends appear as bubbles, not queued messages, edits or paused work", () => {
+  expect(canPreviewAssistantSend(emptyQueue, false, false, false)).toBe(true);
+  expect(canPreviewAssistantSend(undefined, false, false, false)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, true, false, false)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, true, false)).toBe(false);
+  expect(canPreviewAssistantSend(emptyQueue, false, false, true)).toBe(false);
+  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false)).toBe(false);
+});
+
+test("a server-side queue decision removes an optimistic bubble, including edits and delivery failures", () => {
+  addAssistantOutgoingMessage(scope, "pending", draft);
+  const entry: SessionQueue["entries"][number] = {
+    id: "pending", status: "queued",
+    draft: { ...draft, attachments: [], editor: { mentions: {}, pasteParts: [] } },
+    execution: { kind: "prompt", text: "Hello" },
+  };
+  for (const status of ["queued", "failed", "uncertain"] satisfies SessionQueue["entries"][number]["status"][]) {
+    const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
+    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(assistantOutgoingIsQueued("pending", queue)).toBe(true);
+    expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toEqual([]);
+  }
+  for (const status of ["sending", "accepted"] satisfies SessionQueue["entries"][number]["status"][]) {
+    const queue = { ...emptyQueue, entries: [{ ...entry, status }] };
+    expect(canPreviewAssistantSend(queue, false, false, false)).toBe(false);
+    expect(mergeAssistantOutgoingMessages([], entries(), scope, queue)).toHaveLength(1);
+  }
 });

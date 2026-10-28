@@ -1,3 +1,4 @@
+import type { SessionQueue } from "@legalwork/types/session-queue";
 import type { UIMessage } from "ai";
 import { create } from "zustand";
 import type { ComposerDraft } from "@/app/types";
@@ -43,12 +44,22 @@ export function moveAssistantOutgoingMessage(queueId: string, scope: string) {
   useAssistantOutgoingMessages.setState(state => ({ entries: state.entries.map(entry => entry.queueId === queueId ? { ...entry, scope } : entry) }));
 }
 
-export function mergeAssistantOutgoingMessages(messages: UIMessage[], entries: OutgoingMessage[], scope: string) {
+export function mergeAssistantOutgoingMessages(messages: UIMessage[], entries: OutgoingMessage[], scope: string, queue?: SessionQueue) {
   const ids = new Set(messages.map(message => message.id));
-  const pending = entries.filter(entry => entry.scope === scope && !ids.has(entry.message.id));
+  const pending = entries.filter(entry => entry.scope === scope && !ids.has(entry.message.id) && !assistantOutgoingIsQueued(entry.queueId, queue));
   return pending.length ? [...messages, ...pending.map(entry => entry.message)] : messages;
 }
 
 export function isLocalOutgoingMessage(message: UIMessage) {
   return Boolean(message.metadata && typeof message.metadata === "object" && "localOutgoing" in message.metadata && message.metadata.localOutgoing === true);
+}
+
+/** Only an idle chat with an empty, running queue can preview an immediate send. */
+export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean) {
+  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing);
+}
+
+/** The server can discover work that the submitting window has not seen yet. */
+export function assistantOutgoingIsQueued(queueId: string, queue?: SessionQueue) {
+  return Boolean(queue?.entries.some(entry => entry.id === queueId && entry.status !== "sending" && entry.status !== "accepted"));
 }

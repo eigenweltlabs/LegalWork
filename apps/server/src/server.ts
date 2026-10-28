@@ -1,3 +1,4 @@
+import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { browserPasswords } from "./browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
@@ -1177,6 +1178,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         const metadataOnly = url.pathname === "/session-inbox" || url.pathname === "/session-groups/events" || /^\/workspace\/[^/]+\/(?:events|session-groups(?:\/.*)?)$/.test(url.pathname);
         if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method, metadataOnly, readWikis);
         await guardWikiDirectory(actor, request, url, readWikis);
+        if (assistantRouteRequiresSubscription(request.method, url.pathname)) await requireAssistantSubscription(config);
         let response = await route.handler({
           request,
           url,
@@ -1414,6 +1416,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     sessionDirectory = session.location.directory;
     if (method === "PATCH" && /^\/session\/[^/]+$/.test(path)) await restoreLegacySessionPermissions(input.config, workspace, client, session);
     if (method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path)) {
+      await requireAssistantWorkspaceSubscription(input.config, workspace.id);
       await assertSessionHistoryReady(input.config, workspace, client, sessionID);
     }
     if (method === "POST" && path.endsWith("/interrupt")) {

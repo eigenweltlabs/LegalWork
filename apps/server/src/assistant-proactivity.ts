@@ -1,3 +1,4 @@
+import { assistantSubscriptionAvailable } from "./assistant-subscription.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { systemOne, readSystemOneSettings } from "./systemone.js";
@@ -162,6 +163,7 @@ export async function startAssistantProactivity(config: ServerConfig, assistant:
     const renewal = setInterval(() => store.lease(owner), 60_000);
     renewal.unref();
     try {
+      if (!await assistantSubscriptionAvailable(config)) return;
       if (store.scratchpad().text) await sources.collect(Date.now(), controller.signal);
       if (controller.signal.aborted) return;
       await processAssistantEvents(store, {
@@ -176,6 +178,7 @@ export async function startAssistantProactivity(config: ServerConfig, assistant:
           if (!target) return false;
           if (receipt && await confirmed(target.client, receipt)) return true;
           return withSessionDispatch(config, target.sessionId, async () => {
+            if (!await assistantSubscriptionAvailable(config)) return false;
             const latest = await current(target.sessionId);
             const allowed = await Promise.all(events.map(event => sources.allowed(event)));
             if (latest?.sessionId !== target.sessionId || allowed.includes(false) || store.scratchpad().revision !== revision || controller.signal.aborted) return false;

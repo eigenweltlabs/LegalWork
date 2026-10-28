@@ -66,7 +66,22 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     };
     const server = await startServer(config), base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="fixture") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const entitlement = { plan: "plus", subscriptionStatus: "active", trialEndsAt: null, features: [], seats: 1,
+      usage: { window: "month", allowanceCents: 1000, remainingCents: 1000, usedPercent: 0, resetsAt: null,
+        dailyAllowanceCents: 1000, dailyRemainingCents: 1000, dailyUsedPercent: 0, extraUsageEnabled: false, prepaidBalanceCents: 0 } };
+    const subscribe = (plan = "plus", subscriptionStatus = "active") => writeEigenweltConnection(config, {
+      platformToken: "fixture-subscription", platformTokenExpiresAt: Date.now() + 3600000,
+      entitlements: { ...entitlement, plan, subscriptionStatus },
+    });
     try {
+      const unpaid = await call("/assistant/current", "POST", {});
+      assert.equal(unpaid.status, 403); assert.equal((await unpaid.json()).code, "assistant_subscription_required");
+      assert.equal(sessions.size, 0, "Unpaid visits must not create an Assistant chat");
+      await subscribe("sync");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      await subscribe("plus", "canceled");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      await subscribe();
       assert.equal((await call("/assistant/current", "POST", {}, "wrong")).status, 401);
       for (const path of ["/assistant/cloud", "/assistant/channel-history", "/assistant/channel-days", "/assistant/channel-context"])
         assert.equal((await call(path)).status, 404, "Cloud-only routes must not ship in the local assistant");
@@ -78,6 +93,13 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(assistant.workspace.preset, "main-assistant");
       assert.equal(assistant.workspace.path, join(root, "projects", "Assistant"));
       assert.equal(sessions.size, 1);
+      await subscribe("sync");
+      assert.equal((await call("/workspace/" + assistant.workspace.id + "/opencode/session/" + assistant.day.sessionId + "/prompt", "POST", { text: "Must not run" })).status, 403);
+      assert.equal((await call("/assistant/delegate", "POST", {})).status, 403);
+      assert.equal((await call("/workspace/" + assistant.workspace.id + "/sessions/" + assistant.day.sessionId + "/dispatch", "POST", { kind: "synthetic", text: "Must not run" })).status, 403);
+      assert.equal((await call("/assistant/history")).status, 200);
+      await subscribe("pro", "trialing");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 200, "Pro trials include the Assistant without a feature flag");
       assert.deepEqual(assistant.profile, { name: null, icon: "flower" });
       assert.equal((await (await call("/assistant/onboarding")).json()).needed, true);
       assert.equal((await (await call("/assistant/onboarding")).json()).greetingUnread, true);
@@ -237,10 +259,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(result.ok, true); assert.equal(result.delegation.workspaceId, project.project.id);
       assert.equal(result.delegation.scope, input.scope); assert.equal(result.delegation.status, "started");
       assert.equal(result.resultDelivery, "automatic");
-      assert.ok(result.nextAction.includes("Finish this turn without another message"));
-      assert.ok(result.nextAction.includes("any text acknowledgement, even if it did not promise follow-up"), "An earlier 'I will check the records' acknowledgement must not trigger a second acknowledgement after dispatch");
-      assert.ok(result.nextAction.includes("Only if you have sent no text acknowledgement"));
-      assert.ok(result.nextAction.includes("promising to bring the result back"));
+      assert.ok(result.nextAction.includes("finish this turn silently"));
+      assert.ok(result.nextAction.includes("do not fill the gap with a late acknowledgement"), "Dispatch must not trigger a second acknowledgement");
+      assert.ok(result.nextAction.includes("A first-action bubble reaction is a complete acknowledgement"));
+      assert.ok(result.nextAction.includes("Only a real question, approval or actionable blocker warrants an earlier message"));
       assert.equal(deliveries.length, 1); assert.equal(deliveries[0].directory, project.project.path);
       assert.equal(deliveries[0].agent, "legalwork"); assert.deepEqual(deliveries[0].model, { providerID: "fixture-provider", modelID: "chosen-model" });
       assert.equal(deliveries[0].parts[0].text, input.title + "\\n\\n" + input.scope);
@@ -389,7 +411,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(context.includes(custom.systemPromptAddition)); assert.ok(context.includes("selected-resource"));
       assert.ok(context.includes("Search the evidence with care.")); assert.ok(!context.includes("PRIVATE_FULL_SKILL_BODY"));
       assert.ok(!context.includes("workflow-example"));
-      assert.ok(context.includes('"signedIn":false'));
+      assert.ok(context.includes('"signedIn":true'));
       const account = { userId: "account-a", userName: "Ada Lovelace", userEmail: "ada@example.test", orgId: "firm-a", orgName: "Analytical LLP" };
       await writeEigenweltConnection(config, { account, platformToken: "identity-private-access-token", refreshToken: "identity-private-refresh-token", platformTokenExpiresAt: Date.now() + 3600000 });
       const signedInContext = (await (await call("/assistant/settings/context")).json()).context;
@@ -402,6 +424,9 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       await writeEigenweltConnection(config, { account: null, platformToken: null, refreshToken: null, entitlements: null });
       const signedOutContext = (await (await call("/assistant/settings/context")).json()).context;
       assert.ok(signedOutContext.includes('"signedIn":false')); assert.ok(!signedOutContext.includes("Grace Hopper"));
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      assert.equal((await call("/assistant/history")).status, 200);
+      await subscribe();
       assert.equal(sessions.size, sessionCount, "Saving preferences must keep chat history intact");
       assert.equal((await call("/assistant/projects/matter/details")).status, 200);
       assert.equal((await call("/assistant/projects/matter/contents?kind=files")).status, 200);

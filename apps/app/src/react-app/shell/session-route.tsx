@@ -19,6 +19,8 @@ import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
+import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
+import { AssistantUpgradeModal } from "./assistant-upgrade";
 import { resolveAssistantChat } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
@@ -571,8 +573,15 @@ export function SessionRoute() {
     if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
   }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
+  const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
+  const assistantIncluded = hasAssistantSubscription(eigenweltEntitlementsQuery.data);
+  const [assistantUpgrade, setAssistantUpgrade] = useState<"closed" | "intro" | "plans">("closed");
+  const pendingAssistantOpen = useRef(false);
+  useEffect(() => {
+    if (eigenweltEntitlementsQuery.data && !assistantIncluded && selectedWorkspace?.preset === "main-assistant") setAssistantUpgrade("intro");
+  }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
   const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
+    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
     queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
@@ -606,7 +615,7 @@ export function SessionRoute() {
   }, [client, assistant.data, location.pathname]);
   const assistantOnboarding = useQuery({
     queryKey: ["assistant-onboarding", client?.baseUrl],
-    enabled: Boolean(client) && Boolean(assistant.data) && !isOfficeAddinRuntime(),
+    enabled: Boolean(client) && assistantIncluded && Boolean(assistant.data) && !isOfficeAddinRuntime(),
     queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantOnboarding(); },
     refetchOnWindowFocus: "always",
   });
@@ -629,6 +638,7 @@ export function SessionRoute() {
   }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
   const openAssistant = useCallback(async () => {
     if (!client) return;
+    if (!assistantIncluded) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
       const current = await resolveAssistantChat(client, getReactQueryClient());
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
@@ -638,7 +648,12 @@ export function SessionRoute() {
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
       navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
-  }, [client, navigate, setWorkspaces]);
+  }, [client, assistantIncluded, navigate, setWorkspaces]);
+  useEffect(() => {
+    if (!assistantIncluded || assistantUpgrade === "closed") return;
+    setAssistantUpgrade("closed");
+    if (pendingAssistantOpen.current) { pendingAssistantOpen.current = false; void openAssistant(); }
+  }, [assistantIncluded, assistantUpgrade, openAssistant]);
   const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     await client.updateAssistantProfile(profile);
@@ -1163,7 +1178,6 @@ export function SessionRoute() {
   // retried on the next poll instead of never, which used to leave "Model no
   // longer available" up until the window was reloaded. Skipped while a task
   // runs (a dispose would interrupt it); the next poll retries.
-  const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
   const servedModelIds = eigenweltEntitlementsQuery.data?.servedModelIds;
   const servedModelIdsPolledAt = eigenweltEntitlementsQuery.dataUpdatedAt;
   const eigenweltModelsIncluded = hasEigenweltFeature(
@@ -1236,7 +1250,8 @@ export function SessionRoute() {
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
     location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
-  const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
+  const assistantPlansOpen = assistantUpgrade === "plans" && !assistantIncluded;
+  const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible || assistantPlansOpen;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
   const announcementsReady = !effectiveLoading && aiAccess !== "unknown" && !aiPlansScreenVisible;
@@ -1603,6 +1618,10 @@ export function SessionRoute() {
         else handleOpenSettings(path);
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => {
+        if (selectedWorkspace?.preset === "main-assistant" && !assistantIncluded) {
+          setAssistantUpgrade("intro");
+          throw new Error(t("assistant.upgrade_included"));
+        }
         const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         let targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1816,7 +1835,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantActive, assistant.data?.day.date, assistant.data?.day.sessionId, assistantOnboarding.data, answerAssistantOnboarding,
+    assistantIncluded, assistantActive, assistant.data?.day.date, assistant.data?.day.sessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2445,6 +2464,10 @@ export function SessionRoute() {
 
   const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
+    if ((!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant") && !assistantIncluded) {
+      setAssistantUpgrade("intro");
+      throw new Error(t("assistant.upgrade_included"));
+    }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
     const model = local.prefs.defaultModel;
     if (!model) throw new Error(t("session_route.no_model"));
@@ -2650,9 +2673,10 @@ export function SessionRoute() {
     {aiPlansScreenVisible ? (
       // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
+        assistantUpgrade={assistantPlansOpen}
         totalSteps={isDesktopRuntime() ? 7 : 4}
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
-        variant={aiPlansVariant ?? "new"}
+        variant={assistantPlansOpen && eigenweltView?.connected ? "no-models" : aiPlansVariant ?? "new"}
         account={aiPlansAccount}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
         projectApproval={selectedWorkspaceEndpoint ? <EngineProjectRecovery client={selectedWorkspaceEndpoint.client} workspaceId={selectedWorkspaceEndpoint.workspaceId} onApproved={() => void refreshRouteState()} /> : null}
@@ -2667,10 +2691,10 @@ export function SessionRoute() {
         }}
         onBringOwnModel={openProvidersFromPlans}
         onOpenBilling={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltView?.platformURL))}
-        onCheckModels={checkEigenweltPlanModels}
+        onCheckModels={assistantPlansOpen ? async () => hasAssistantSubscription((await eigenweltEntitlementsQuery.refetch()).data) : checkEigenweltPlanModels}
         onUseOtherAccount={switchEigenweltAccount}
         onBack={
-          onboardingStage === "ai" && isDesktopRuntime()
+          assistantPlansOpen ? () => setAssistantUpgrade("intro") : onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
                 setOnboardingStage("dictation");
@@ -2934,7 +2958,7 @@ export function SessionRoute() {
         assistantWorkspaceId: assistant.data?.workspace.id,
         assistantDay: assistant.data?.day,
         onSaveAssistantProfile: saveAssistantProfile,
-        assistantDisabled: !client || assistant.isPending,
+        assistantDisabled: !client || (eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
         onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),
@@ -3137,6 +3161,7 @@ export function SessionRoute() {
       project={searchProject}
       onOpenResult={openSearchResult}
     />
+    <AssistantUpgradeModal open={assistantUpgrade === "intro" && !assistantIncluded} onDismiss={() => { pendingAssistantOpen.current = false; setAssistantUpgrade("closed"); }} onUpgrade={() => setAssistantUpgrade("plans")} />
     <AssistantIntroDialog ready={announcementsReady && Boolean(assistant.data)} onOpenAssistant={() => void openAssistant()} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost

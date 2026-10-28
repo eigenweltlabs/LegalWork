@@ -18,6 +18,7 @@ import { AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS, DEFAULT_ASSISTANT_
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter, MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { AssistantUpgradeModal } from "@/react-app/shell/assistant-upgrade";
 import { AssistantIntroModal } from "@/react-app/shell/assistant-intro";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
@@ -460,6 +461,7 @@ function PlansPreview() {
   return (
     <>
       <AiPlansOverlay
+        assistantUpgrade={previewParams.has("assistant-plans")}
         mode={plans.onboarding ? "onboarding" : "gate"}
         variant={plans.variant}
         account={plans.variant === "new" ? null : previewAccount}
@@ -480,7 +482,7 @@ function PlansPreview() {
           return true;
         }}
         onUseOtherAccount={async () => setPlans({ ...plans, variant: "new" })}
-        onBack={plans.onboarding ? previewNotice : undefined}
+        onBack={plans.onboarding || previewParams.has("assistant-plans") ? previewNotice : undefined}
         onOpenUpdates={previewNotice}
       />
       {providersOpen ? (
@@ -780,7 +782,7 @@ function SessionPreview() {
     useSessionInboxStore.getState().receive([{ workspaceId: workspace.id, sessionId: welcomeId, updatedAt: Date.now(), assistantAt: 0,
       automation: { runId: "briefing-preview", at: Date.now(), pinRunId: null } }]);
   }, []);
-  const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement"));
+  const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement") || previewParams.has("assistant-upgrade"));
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(model);
   const [modelVariant, setModelVariant] = useState<string | null>("balanced");
@@ -879,7 +881,8 @@ function SessionPreview() {
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
-      <AssistantIntroModal open={announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
+      <AssistantUpgradeModal open={previewParams.has("assistant-upgrade") && announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onUpgrade={() => { window.location.href = "session-preview.html?assistant&messenger&assistant-plans&plans=new&lang=" + (previewParams.get("lang") ?? "en"); }} />
+      <AssistantIntroModal open={!previewParams.has("assistant-upgrade") && announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
       {platform === "windows" && <>
         {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
         <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>

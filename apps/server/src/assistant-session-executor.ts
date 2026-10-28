@@ -1,3 +1,4 @@
+import { assistantSubscriptionAvailable } from "./assistant-subscription.js";
 import { isMessageNotFoundError } from "@opencode/client";
 import { resolve } from "node:path";
 import type { AssistantEngineClient } from "./assistant-engine.js";
@@ -38,6 +39,7 @@ export async function createAssistantSessionQueue(path: string, options: {
   };
   return AssistantSessionQueue.open(path, {
     inspect: async target => {
+      if (!await assistantSubscriptionAvailable(options.config)) return { busy: true, pending: false, interrupted: false };
       const { workspace, client, session } = await read(target);
       const { data: statuses } = await client.session.status({}, requestOptions());
       if (!statuses) throw new Error("Chat status is unavailable.");

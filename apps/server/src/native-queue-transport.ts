@@ -1,3 +1,4 @@
+import { assistantSubscriptionAvailable, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import type { OpenCodeClient } from "@opencode/client";
 import type { QueueEntry } from "./session-queue-schema.js";
 import type { QueueTransport } from "./session-message-queue.js";
@@ -28,6 +29,7 @@ export function nativeQueueTransport(config: ServerConfig, input: {
         // Admission reconciliation is idempotent. Wake work accepted before a
         // server crash without re-running prompt hooks or creating a new turn.
         if (!(await client.session.active())[sessionID]) {
+          await requireAssistantWorkspaceSubscription(config, workspaceId);
           if (compaction) {
             const admitted = await client.session.compact({ sessionID, id, delivery: "queue" });
             if (admitted.id !== id) throw new Error("The engine did not confirm the queued compaction identity.");
@@ -42,6 +44,7 @@ export function nativeQueueTransport(config: ServerConfig, input: {
     },
     async idle(workspaceId, sessionID) {
       if (config.readOnly) return false;
+      if (config.workspaces.some(item => item.id === workspaceId && item.preset === "main-assistant") && !await assistantSubscriptionAvailable(config)) return false;
       const client = await input.client(workspaceId, sessionID);
       const [active, pending] = await Promise.all([client.session.active(), client.session.inbox.list({ sessionID })]);
       return !active[sessionID] && pending.length === 0;
@@ -55,6 +58,7 @@ export function nativeQueueTransport(config: ServerConfig, input: {
     send: (workspaceId, sessionID, entry) => withSessionDispatch(config, sessionID, async () => {
       let client: OpenCodeClient;
       try {
+        await requireAssistantWorkspaceSubscription(config, workspaceId);
         client = await input.client(workspaceId, sessionID);
         await input.prepare(workspaceId, sessionID, client, entry);
         const execution = entry.execution;

@@ -113,3 +113,13 @@ Before creating anything, search existing tasks across all projects and earlier 
 Read view_catalog and use templates.morningBriefing as the starting layout. Gather high-priority actionable emails through authorized connected email tools with exact source links, sender, why each matters and the next action. Do not infer urgency from unread state. Do not send messages or change mailbox state. If email is unavailable, omit its metric rather than inventing a zero. Use a short snapshot overview with verified counts and a chart of actions by matter when the data supports it. Use legalwork_assistant_save_report with queries: {}, named datasets and a stable key morning-briefing-YYYY-MM-DD. For an existing key, read view_list/view_read and supply the current baseRevision. Embed the exact returned legalwork-view fence in the Markdown briefing, followed by priority email links and editable task checkboxes. The view is a dated snapshot, not a live email feed. If the chart cannot be saved, still deliver the useful Markdown briefing without a broken embed. Do not open tabs or change the user's screen.
 
 Save a Markdown file in this Assistant project's briefings folder named YYYY-MM-DD.md using the actual local date. Include a dated heading, a concise summary, and a Markdown checkbox todo list grouped by matter, with priority group, recorded owner/due date and source/task links on each item. Reconcile today's file on retries instead of duplicating items, preserve user-added notes and checked items, and keep previous dates' files. Do not include a coverage or limitations section, a list of checked or unchecked records, or an audit of tool usage. If missing information affects a specific action, mention it briefly on that item. Do not claim verification for information you could not read. Verify the saved file and the task creation responses, then call legalwork_assistant_share_file with the saved path and a clear title to show its file card. Reply here briefly with the important actions. If no verified todos remain, save and report that explicitly. If the briefing cannot be prepared or saved, say so briefly.`;
+
+/** Assistant is included with an entitled AI plan, independently of BYOK models. */
+export function hasAssistantSubscription(view: {
+  connected: boolean;
+  entitlements?: { plan: string | null; subscriptionStatus: string | null } | null;
+} | null | undefined): boolean {
+  const plan = view?.entitlements;
+  return Boolean(view?.connected && plan && (plan.plan === "plus" || plan.plan === "pro")
+    && ["active", "trialing", "past_due"].includes(plan.subscriptionStatus ?? ""));
+}
