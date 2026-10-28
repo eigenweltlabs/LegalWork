@@ -125,6 +125,27 @@ test("connector create actions return the shared editable cards and make no prov
   expect(requests).toHaveLength(0);
 });
 
+test("extension draft errors explain arguments and corrected requests create Outlook previews", async () => {
+  const server = await startServer(config); stops.push(() => server.stop());
+  const call = (body: unknown) => nativeFetch(`http://127.0.0.1:${server.port}/experimental/extensions/call`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-LegalWork-Host-Token": "host" }, body: JSON.stringify(body),
+  });
+  const envelope = { extensionId: "outlook", action: "create_draft", context: { directory: root } };
+  const misplaced = await call({ ...envelope, input: email });
+  expect(misplaced.status).toBe(400);
+  expect(await misplaced.json()).toMatchObject({ code: "invalid_payload", message: expect.stringContaining("args") });
+  const missing = await call({ ...envelope, args: {} });
+  expect(missing.status).toBe(400);
+  expect(await missing.json()).toMatchObject({ code: "invalid_payload", message: expect.stringContaining("args.subject") });
+  const corrected = await call({ ...envelope, args: email });
+  expect(corrected.status).toBe(200);
+  expect(await corrected.json()).toMatchObject({ ok: true, result: { draft: {
+    subject: email.subject, body: email.body, to: email.to.join(", "),
+    connectorTarget: { connectorId: "outlook", connectionId: "outlook-account" },
+  } } });
+  expect(requests.filter(request => request.url.hostname === "graph.microsoft.com")).toHaveLength(0);
+});
+
 test("saving and sending reuse the rendered MIME including HTML, Cc, Bcc and attachments, and never send twice", async () => {
   for (const id of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
     const { draft } = await prepareMail(id);

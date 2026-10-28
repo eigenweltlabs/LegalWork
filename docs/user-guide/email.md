@@ -43,6 +43,7 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Browser sign-in expired or was cancelled | Cancel the pending attempt, reconnect and keep the LegalWork panel open until completion. |
 | Outlook account exists but mail is unavailable | Activate **Outlook Email** separately from **Outlook Calendar**, then test the connection. |
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
+| Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. A generic local draft is not automatically linked to Outlook or Gmail; request a draft using the named connection. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
 | Attachment cannot be downloaded | Check the returned error. The mail connector's attachment-download limit is 5 MB; Outlook non-file attachment types are not supported by that download action. |
