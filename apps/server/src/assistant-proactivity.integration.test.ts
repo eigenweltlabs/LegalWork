@@ -7,7 +7,7 @@ import { assistantProactivityStore } from "./assistant-proactivity-store.js";
 import { processAssistantEvents } from "./assistant-proactivity.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one briefing, and privately decides before one visible update", async () => {
+test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one briefing, and handles combined events with its normal tools", async () => {
   if (!binary) throw new Error("A released engine is required");
   const previousDB = process.env.OPENCODE_DB;
   let sequence = 0, toolStep = 0;
@@ -21,16 +21,6 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
   ];
   const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = z.object({ stream: z.boolean().optional(), tools: z.array(z.unknown()).optional(), messages: z.array(z.unknown()) }).parse(await request.json());
-    if (JSON.stringify(body.messages).includes("Privately decide")) {
-      const reply = '{"notify":true,"message":"Alex sent the signature page."}';
-      if (body.stream) {
-        const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "decision", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
-        return new Response(chunk({ role: "assistant", content: reply }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
-      }
-      return Response.json({ id: "private-decision", object: "chat.completion", created: 1, model: "fixture",
-      choices: [{ index: 0, message: { role: "assistant", content: '{"notify":true,"message":"Alex sent the signature page."}' }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
-    }
     return nativeChatResponse(body.tools?.length ? calls[toolStep++] : undefined, sequence++);
   } });
   let engine: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
@@ -68,52 +58,52 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
     const child = await client.session.create({ location, parentID: session.id, agent: "build" });
     expect((await call("/assistant/scratchpad", { workspaceId: "matter", sessionId: child.id, sourceSessionId: child.id, text: "worker overwrite", revision: 1 })).status).toBe(403);
     const before = await client.session.context({ sessionID: session.id });
-    const decision = await client.session.generate({ sessionID: session.id, prompt: "Privately decide if the signature arrival deserves an update. Return JSON." });
-    expect(JSON.parse(decision.text).notify).toBe(true);
-    expect(await client.session.context({ sessionID: session.id })).toEqual(before);
-    const input = { sessionID: session.id, id: "msg_proactivity_fixture", text: "Deliver the update you chose: Alex sent the signature page.", description: "Assistant update", metadata: { legalworkSystemReminder: true } };
-    await client.session.synthetic(input);
-    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
-    await client.session.synthetic(input);
-    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
-    const after = await client.session.context({ sessionID: session.id });
-    expect(after.filter(message => message.id === input.id)).toHaveLength(1);
-    expect(after.filter(message => message.type === "assistant")).toHaveLength(before.filter(message => message.type === "assistant").length + 1);
-    const synthetic = after.find(message => message.id === input.id);
-    if (!synthetic) throw new Error("Missing delivery");
-    expect(projectMessage(session.id, synthetic)).toEqual([]);
-
+    // The event turn must retain native tool access, including finishing its own
+    // one-time condition. The source text itself never writes the scratchpad.
+    calls.splice(0, calls.length,
+      { name: "legalwork_assistant_scratchpad", input: {} },
+      { name: "legalwork_assistant_scratchpad", input: { text: "", revision: 1 } },
+    );
+    toolStep = 0;
     const store = await assistantProactivityStore(config);
     const events = Array.from({ length: 45 }, (_, index) => ({ id: `arrival-${index}`, source: "gmail", projectId: null, at: index, text: `Signature page ${index} arrived.` }));
     store.ingest("gmail", "45", events);
     const scored: string[] = [];
-    let decisions = 0, deliveries = 0;
+    let deliveries = 0;
+    let deliveredText = "";
     await processAssistantEvents(store, {
       allowed: async () => true,
       classify: async (_, batch) => {
         scored.push(...batch.map(event => event.id));
         return Object.fromEntries(batch.map(event => [event.id, 0.9]));
       },
-      decide: async (_, combined) => {
-        decisions++;
-        expect(scored).toEqual(events.map(event => event.id));
-        expect(combined).toEqual(events.map(event => ({ ...event, relevanceProbability: 0.9 })));
-        const result = await client.session.generate({ sessionID: session.id, prompt: `Privately decide on these combined events after all scoring has finished: ${JSON.stringify(combined)}` });
-        return z.object({ notify: z.boolean(), message: z.string() }).parse(JSON.parse(result.text));
-      },
       deliver: async (combined, message, revision) => {
         deliveries++;
+        deliveredText = message;
+        expect(scored).toEqual(events.map(event => event.id));
+        expect(combined).toEqual(events.map(event => ({ ...event, relevanceProbability: 0.9 })));
+        expect(message).toContain("use your normal tools");
         const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", session.id, message, revision);
         await client.session.synthetic({ sessionID: receipt.sessionId, id: receipt.id, text: message, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
         return true;
       },
     });
     await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
-    expect([decisions, deliveries]).toEqual([1, 1]);
+    expect(deliveries).toBe(1);
     expect(store.pending()).toEqual([]);
     const combinedHistory = await client.session.context({ sessionID: session.id });
     expect(combinedHistory.filter(message => message.id === "msg_combined_fixture")).toHaveLength(1);
-    expect(combinedHistory.filter(message => message.type === "assistant")).toHaveLength(after.filter(message => message.type === "assistant").length + 1);
+    const eventTools = combinedHistory.slice(before.length).flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool") : []);
+    expect(eventTools.map(tool => tool.state.status), JSON.stringify(combinedHistory)).toEqual(["completed", "completed"]);
+    expect(store.scratchpad().text).toBe("");
+    const synthetic = combinedHistory.find(message => message.id === "msg_combined_fixture");
+    if (!synthetic) throw new Error("Missing event turn");
+    expect(projectMessage(session.id, synthetic)).toEqual([]);
+    await client.session.synthetic({ sessionID: session.id, id: "msg_combined_fixture", text: deliveredText, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
+    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
+    const replayed = await client.session.context({ sessionID: session.id });
+    expect(replayed.filter(message => message.type !== "idle")).toEqual(combinedHistory.filter(message => message.type !== "idle"));
+    expect(store.scratchpad().revision).toBe(2);
   } finally {
     await engine?.close(); model.stop(true);
     if (previousDB === undefined) delete process.env.OPENCODE_DB; else process.env.OPENCODE_DB = previousDB;
