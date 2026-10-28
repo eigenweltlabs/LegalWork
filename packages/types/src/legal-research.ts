@@ -53,6 +53,17 @@ export const legalResearchProviders: readonly ResearchProvider[] = [
     sources: ["https://www.juris.de/jportal/nav/services/faqs/index.jsp"],
   },
   {
+    id: "libra",
+    name: "Libra (Wolters Kluwer)",
+    countries: ["BE", "CZ", "DE", "HU", "IT", "NL", "PL", "RO", "SK"],
+    aliases: ["libra", "libratech", "libratech.ai", "libra by wolters kluwer", "wolters kluwer libra", "wolters kluwer online", "wolters kluwer"],
+    researchUrl: "https://app.libratech.ai/",
+    // Observed redirect from the app. Auth0 paths carry temporary state;
+    // keep only the vault origin and start sign-in from researchUrl.
+    loginUrl: "https://auth.libratech.ai/",
+    sources: ["https://libratech.ai/", "https://app.libratech.ai/", "https://libratech.ai/product/legal-content", "https://www.wolterskluwer.com/en/news/wolters-kluwer-completes-acquisition-of-libra-technology-gmbh"],
+  },
+  {
     id: "rdb",
     name: "RDB (MANZ)",
     countries: ["AT"],

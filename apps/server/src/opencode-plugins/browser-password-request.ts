@@ -21,7 +21,7 @@ function stableUrl(value: string) {
 export function browserPasswordRequestTool(ctx: Plugin.Context) {
   return nativeTool(ctx, {
     name: "legalwork_browser_request_password",
-    description: "Show the existing secure login card immediately for any website. For setup, pass website_url supplied by the user, or provider for a catalogue preset such as CourtListener. If neither URL nor preset is known, ask for the sign-in website first. No help/research skill, web search or browser tab is needed before the card. The card displays the website and offers matching saved logins. During browsing, use the current tab's browser_url instead. Waits for save or cancel, returns metadata only. Passwords go directly to the existing vault, never chat. After saving, open login_url and list matching passwords before filling fresh observed fields to verify access. Saving alone does not verify access. On cancel, stop. Local desktop only.",
+    description: "Show the existing secure login card immediately for any website. For setup, pass website_url supplied by the user, or provider for a catalogue preset such as CourtListener. If neither URL nor preset is known, ask for the sign-in website first. No help/research skill, web search or browser tab is needed before the card. The card displays the website and offers matching saved logins. During browsing, use the current tab's browser_url instead. Waits for save or cancel, returns metadata only. Passwords go directly to the existing vault, never chat. After saving, open start_url to establish fresh sign-in state and list matching passwords before filling fresh observed fields to verify access. Saving alone does not verify access. On cancel, stop. Local desktop only.",
     schema: z.union([
       z.object({ provider: z.string().trim().min(1).max(200).describe("Known provider name, ID or alias, such as CourtListener, beck-online or juris. Uses the built-in catalogue; no URL lookup needed.") }).strict(),
       loginDetails.extend({ website_url: websiteConnectionUrl.describe("Sign-in website supplied by the user. Its origin is shown in the card for confirmation. Do not guess an authentication domain. No open browser tab required.") }).strict(),
@@ -87,7 +87,7 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
               const connection = websiteConnections.parse(await response.json()).items.find(item => item.id === id);
               if (!connection || !connection.websites.some(site => site.url === request.startUrl)) throw new Error("The saved login or website destination changed. Check the saved entry before continuing.");
               return JSON.stringify({ status: "saved", website: request.website, password_id: id, login_url: direct?.loginUrl, start_url: request.startUrl,
-                message: "The login is saved in Secrets. Access is not yet verified. Open login_url, list matching passwords for the current page and inspect fresh field refs before filling. Do not ask for the password again." });
+                message: "The login is saved in Secrets. Access is not yet verified. Open start_url so the provider establishes fresh sign-in state, then list matching passwords for the actual sign-in page and inspect fresh field refs before filling. Do not ask for the password again." });
             }
             await requireBrowserNetwork(context);
             let latest: z.infer<typeof listing>;

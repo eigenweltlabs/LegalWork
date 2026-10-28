@@ -13,6 +13,8 @@ Establish the legal question, jurisdiction and relevant date. Call legalwork_bro
 
 Use legalwork_skill_list to find a relevant site-specific skill and load it with legalwork_skill_load if one exists. Site skills are optional. A saved login does not require a plugin or a new skill. Continue with the observed website controls when no site skill exists. Do not create skills simply because a login was saved.
 
+For a saved Libra destination at app.libratech.ai, load the bundled libra-research skill directly. It delegates the question to Libra's agent chat, waits with a bounded timeout and checks the returned sources.
+
 ## Browse and research
 
 Open the selected website URL in this chat's Browser Automation tab. Start at the research destination so the provider creates fresh sign-in state. Inspect the current page and follow its sign-in control. Do not reuse session-bearing URLs or construct authentication redirects.

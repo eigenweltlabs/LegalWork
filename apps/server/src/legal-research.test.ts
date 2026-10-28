@@ -61,9 +61,10 @@ test("all login entry points share discovery; research setup installs no skill a
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
   const core = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")!;
-  for (const workspace of config.workspaces) {
-    const file = join(workspace.path, core.path);
-    await mkdir(dirname(file), { recursive: true }); await writeFile(file, core.content);
+  const libra = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/libra-research/SKILL.md")!;
+  for (const workspace of config.workspaces) for (const skill of [core, libra]) {
+    const file = join(workspace.path, skill.path);
+    await mkdir(dirname(file), { recursive: true }); await writeFile(file, skill.content);
   }
   const server = await startServer(config);
   let plugin: Awaited<ReturnType<typeof nativePluginTools>> | undefined;
@@ -120,6 +121,9 @@ test("all login entry points share discovery; research setup installs no skill a
     await expect(plugin.tool.legalwork_research_experience.execute(input, context)).rejects.toThrow("Load this research skill");
     const loaded = JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: "legal-research" }, context));
     expect(loaded.ok).toBe(true);
+    const siteSkill = JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: "libra-research" }, context));
+    expect(siteSkill.ok).toBe(true);
+    expect(siteSkill.payload.chain.map((entry: { name: string }) => entry.name)).toEqual(["libra-research"]);
     await expect(plugin.tool.legalwork_research_experience.execute(input, { ...context, ask: async () => { throw new Error("Skill permission denied"); } })).rejects.toThrow("Skill permission denied");
     expect(JSON.parse(await plugin.tool.legalwork_research_experience.execute(input, context)).payload.entries[0]).toMatchObject({ ...note, revision: 1 });
     expect((await experience({ action: "read" }, root)).status).toBe(409);
