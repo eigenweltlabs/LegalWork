@@ -2536,7 +2536,7 @@ export function SessionRoute() {
         variant={aiPlansVariant ?? "new"}
         account={aiPlansAccount}
         serverReady={Boolean(selectedWorkspaceEndpoint)}
-        projectApproval={selectedWorkspaceEndpoint ? <EngineProjectRecovery client={selectedWorkspaceEndpoint.client} workspaceId={selectedWorkspaceEndpoint.workspaceId} onApproved={() => void refreshRouteState()} /> : null}
+        projectApproval={selectedWorkspaceEndpoint ? <EngineProjectRecovery client={selectedWorkspaceEndpoint.client} workspaceId={selectedWorkspaceEndpoint.workspaceId} /> : null}
         initialSeats={eigenweltView?.entitlements?.seats}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
@@ -2594,7 +2594,6 @@ export function SessionRoute() {
       clientConnected={canCreateChat}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
-      onEngineProjectApproved={() => void refreshRouteState()}
       environmentClient={client}
       wikiWorkspace={activeWiki}
       wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, onOpenWiki: openWikiWorkspace, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined, onManageWikis: () => navigate("/wikis?manage=1") }}
