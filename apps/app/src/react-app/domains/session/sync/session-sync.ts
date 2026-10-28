@@ -150,6 +150,7 @@ type SyncEntry = {
   sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
   sessionStatusListeners: Set<NonNullable<SyncOptions["onSessionStatus"]>>;
   toolParts: Map<string, ToolPart>;
+  executionProviders: Map<string, string | undefined>;
   pendingDeltas: Map<
     string,
     { messageId: string; reasoning: boolean; text: string }
@@ -417,6 +418,7 @@ function clearTrackedSession(
   sessionId: string,
 ) {
   entry.trackedSessionRefs.delete(sessionId);
+  entry.executionProviders.delete(sessionId);
   const retainedTimer = entry.retainedSessionTimers.get(sessionId);
   if (retainedTimer) clearTimeout(retainedTimer);
   entry.retainedSessionTimers.delete(sessionId);
@@ -1175,6 +1177,7 @@ function applyEvent(
         );
       return;
     case "session.execution.started":
+      entry.executionProviders.set(sessionId, undefined);
       usageLimitStops.delete(`${workspaceId}:${sessionId}`);
       setStatus({ type: "busy" });
       return;
@@ -1188,6 +1191,7 @@ function applyEvent(
       void stopUsageLimitRetry(entry, workspaceId, sessionId, event.data.error);
       return;
     case "session.step.started": {
+      entry.executionProviders.set(sessionId, event.data.model.providerID);
       if (!isTrackedSession(entry, sessionId)) return;
       const message = {
         id: event.data.assistantMessageID,
@@ -1447,7 +1451,7 @@ function applyEvent(
       const snapshot = cache.getQueryData<LegalworkSessionSnapshot>(
         snapshotKey(workspaceId, sessionId),
       );
-      const provider = snapshot?.messages.findLast(
+      const provider = entry.executionProviders.has(sessionId) ? entry.executionProviders.get(sessionId) : snapshot?.messages.findLast(
         (message) => message.info.role === "assistant",
       )?.info.providerID;
       const usageLimitStop = consumeProviderUsageLimitStop(sessionId);
@@ -1492,6 +1496,7 @@ function applyEvent(
   }
   flushDeltas(entry, workspaceId);
   setStatus(idleStatus);
+  entry.executionProviders.delete(sessionId);
   refreshSnapshot(sessionId);
   for (const key of entry.toolParts.keys())
     if (key.startsWith(`${sessionId}:`)) entry.toolParts.delete(key);
@@ -1785,6 +1790,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
       input.onSessionStatus ? [input.onSessionStatus] : [],
     ),
     toolParts: new Map(),
+    executionProviders: new Map(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
@@ -2017,6 +2023,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions,client?:C
     sessionUpdatedListeners: new Set(),
     sessionStatusListeners: new Set(),
     toolParts: new Map(),
+    executionProviders: new Map(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,

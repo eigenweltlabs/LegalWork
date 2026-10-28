@@ -29,7 +29,7 @@ Open **Account** to sign in, inspect the current firm, plan and usage, and open 
 
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
 
-If your firm allows a provider that uses your own sign-in, such as OpenAI with ChatGPT, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not sign you into the provider.
+If your firm allows a provider that uses your own API key or sign-in, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not connect you. If your firm supplies the key, its models become available when that key is available; ask your administrator if it is missing.
 
 ## Access and secrets
 

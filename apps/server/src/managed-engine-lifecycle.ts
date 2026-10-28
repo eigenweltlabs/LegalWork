@@ -12,6 +12,7 @@ import { assertRegisteredLegacySessionPermissionsReady, restoreRegisteredLegacyS
 import type { ServerConfig } from "./types.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
+import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -228,11 +229,16 @@ export async function createConfiguredManagedEngine(config: ServerConfig, option
   config.managedEngineStarting = true;
   config.waitForManagedEngineEndpoint = () => endpoint;
   try {
-    return await createManagedOpencodeServer({ ...options, onAuthenticated(connection) {
+    const engine = await createManagedOpencodeServer({ ...options, onAuthenticated(connection) {
       config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
       for (const workspace of config.workspaces) { workspace.baseUrl = connection.url; workspace.opencodeUsername = connection.username; workspace.opencodePassword = connection.password; workspace.directory = workspace.path; }
       resolveEndpoint(); options.onAuthenticated?.(connection);
     } });
+    try {
+      const client = OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+      await importLegacyProviderCredentials(client, options);
+      return engine;
+    } catch (error) { await engine.close(); throw error; }
   } catch (error) { rejectEndpoint(error); throw error; }
   finally { config.managedEngineStarting = false; }
 }

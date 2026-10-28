@@ -30,6 +30,6 @@ With dictation enabled, closing the window can leave LegalWork running in the me
 
 ## Voice Mode
 
-Connect a compatible OpenAI account/key and use the available Voice Mode control. The voice integration is provider-dependent and may be hidden until its prerequisites are met. It supports realtime interaction and available app actions. Start and end the call explicitly. Its microphone/network behavior differs from local dictation and recording; installing a local transcription model does not make Voice Mode offline.
+Connect OpenAI with an API key in **Settings > AI Providers**, then use the available Voice Mode control. Voice Mode uses the active saved API key; signing in with ChatGPT alone is insufficient. Disconnecting the last saved key stops Voice Mode unless you have also configured `OPENAI_API_KEY` in **Settings > Secrets** or on your server. The voice integration is provider-dependent and may be hidden until its prerequisites are met. It supports realtime interaction and available app actions. Start and end the call explicitly. Its microphone/network behavior differs from local dictation and recording; installing a local transcription model does not make Voice Mode offline.
 
 Related: [Recorder settings](recorder-settings.md), [Settings and privacy](settings-privacy.md), [Feature availability](feature-availability.md), [Troubleshooting](troubleshooting.md).

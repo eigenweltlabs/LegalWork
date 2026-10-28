@@ -10,6 +10,8 @@ To add a connector, press **Add**, choose **Plugins** to open the **Plugin catal
 
 An MCP server publishes tools with its own access requirements. Local-command integrations run on the computer running LegalWork, so required software and credentials must exist there. A remote MCP URL connects to the external service instead of starting its program locally. A disabled connector or expired authorization can leave a card visible while its tools fail or are absent.
 
+Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. The connector may still require sign-in before its tools are available.
+
 Plugins add OpenCode tools or hooks. Use the Plugins tab's supported installation/import flow, including the Claude-plugin bundle preview when offered. Previewing a package does not establish that every third-party component works in this runtime. Follow any reported compatibility errors. Most repeatable drafting procedures need a skill or workflow rather than a custom plugin.
 
 ## LegalMemory and firm knowledge
