@@ -167,8 +167,7 @@ test("sandbox off permits approved host reads and writes with external wikis reg
     expect(await readFile(file, "utf8")).toBe("host-write");
     expect((await effectiveSandbox(f.config, f.workspace.id, [])).enabled).toBe(false);
     expect(f.executions).toHaveLength(0);
-    expect(f.prompts.map(request => request.action)).toEqual(["sandbox.host_access"]);
-    expect(f.prompts[0].summary).toContain("anywhere your computer account can access");
+    expect(f.prompts).toHaveLength(0);
   } finally { await store.close(); }
 });
 
@@ -476,11 +475,8 @@ test("application off and per-chat on run side by side, with all network modes a
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "block" });
   const run = (sessionID: string, lineage = [sessionID]) => f.service.run(f.workspace,
     { command: "echo host-proof", sessionID, write: false, timeoutMs: 10000 }, { type: "host" }, new AbortController().signal, [], lineage);
-  const hostRun = run("ordinary");
-  const [hostApproval] = await waitForWebApproval(f.service);
-  expect(hostApproval.action).toBe("sandbox.host_access");
-  f.service.approvals.respond(hostApproval.id, "always");
-  const host = await hostRun;
+  const host = await run("ordinary");
+  expect(f.service.approvals.list()).toEqual([]);
   expect(host).toMatchObject({ exitCode: 0, sandbox: "host" });
   expect(host.output).toContain("host-proof");
   expect(f.executions).toHaveLength(0);
@@ -492,10 +488,8 @@ test("application off and per-chat on run side by side, with all network modes a
   }
   await writeSandboxDefault(f.config, { enabled: true, networkMode: "allow" });
   await writeSessionSandbox(f.config, f.workspace.id, "ordinary", { enabled: false, networkMode: "block" });
-  const unprotected = run("ordinary");
-  const [unprotectedApproval] = await waitForWebApproval(f.service);
-  f.service.approvals.respond(unprotectedApproval.id, "allow");
-  expect((await unprotected).sandbox).toBe("host");
+  expect((await run("ordinary")).sandbox).toBe("host");
+  expect(f.service.approvals.list()).toEqual([]);
   await writeSessionSandbox(f.config, f.workspace.id, "ordinary", null);
   expect((await run("ordinary")).sandbox).toBe("virtual-machine");
   await closeRuntimeOpencodeConfig(f.config);
@@ -704,7 +698,7 @@ test("a legacy chat shell denial prevents real native execution after migration"
 });
 
 
-test("project commands skip implicit file prompts while unprotected commands require broader access approval", async () => {
+test("commands follow configured approvals without an extra prompt when sandboxing is off", async () => {
   const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]);
   const rules = explicitFileApprovals<AgentPermissionRule>([
     { permission: "*", pattern: "*", action: "allow" },
@@ -716,12 +710,6 @@ test("project commands skip implicit file prompts while unprotected commands req
     await writeSandboxDefault(f.config, { enabled, networkMode: "allow" });
     for (let run = 0; run < 2; run++) {
       const running = f.service.run(f.workspace, { command: "printf verified > result.txt; cat result.txt", sessionID: "chat", write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal, rules);
-      if (!enabled) {
-        const [approval] = await waitForWebApproval(f.service);
-        expect(approval.action).toBe("sandbox.host_access");
-        expect(approval.summary).toContain("outside added folders");
-        f.service.approvals.respond(approval.id, "allow");
-      }
       const result = await running;
       expect(result.exitCode).toBe(0);
     }
@@ -729,23 +717,38 @@ test("project commands skip implicit file prompts while unprotected commands req
   expect(f.prompts).toHaveLength(0);
 });
 
-test("unprotected command consent is explicit, denyable, chat-scoped and revocable", async () => {
-  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
+test("removing host consent does not bypass explicit project or agent folder denials", async () => {
+  for (const source of ["project", "agent"]) {
+    const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
+    await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+    if (source === "project") await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({
+      permissions: [{ action: "external_directory", resource: "*", effect: "deny" }],
+    }));
+    const rules: AgentPermissionRule[] = source === "agent" ? [{ permission: "external_directory", pattern: "*", action: "deny" }] : [];
+    await expect(f.service.run(f.workspace, { command: "echo blocked", sessionID: "chat", write: false, timeoutMs: 5000 },
+      { type: "host" }, new AbortController().signal, rules)).rejects.toThrow("external_directory is blocked");
+    expect(f.prompts).toHaveLength(0);
+    expect(f.service.approvals.list()).toEqual([]);
+  }
+});
+
+test("configured command approval remains denyable, chat-scoped and revocable with sandboxing off", async () => {
+  const f = await fixture([{ action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
   const run = (sessionID: string, command = "echo consent-proof") => f.service.run(f.workspace,
     { command, sessionID, write: false, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
   const declined = run("declined").catch(error => error);
   const [denial] = await waitForWebApproval(f.service);
-  expect(denial.summary).toContain("anywhere your computer account can access");
+  expect(denial.action).toBe("sandbox.bash");
   f.service.approvals.respond(denial.id, "deny");
   expect(await declined).toBeInstanceOf(Error);
   const first = run("approved");
   const [approval] = await waitForWebApproval(f.service);
-  expect(approval.action).toBe("sandbox.host_access");
+  expect(approval.action).toBe("sandbox.bash");
   expect(approval.canRemember).toBe(true);
   f.service.approvals.respond(approval.id, "always");
   expect((await first).output).toContain("consent-proof");
-  expect((await run("approved", "echo second-command")).output).toContain("second-command");
+  expect((await run("approved")).output).toContain("consent-proof");
   const other = run("other").catch(error => error);
   const [otherApproval] = await waitForWebApproval(f.service);
   f.service.approvals.respond(otherApproval.id, "deny");

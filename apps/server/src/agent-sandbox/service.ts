@@ -160,8 +160,11 @@ export class AgentSandboxService {
         await ask("read", "*", "Allow this command to read files on this computer? Sandboxing is off.", [workspace.path], commandAction("read"));
         await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
         await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
-        await ask("external_directory", "*", "Allow unprotected commands in this project to access files anywhere your computer account can access? This includes reading and changing files outside added folders. Turn on Sandboxing to enforce folder boundaries.", [workspace.path],
-          restrictive(["ask", wholeCommandAction((runtime.permissions ?? []).filter(rule => rule.action === "external_directory"), "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+        // Disabling sandboxing does not add a separate host-access approval.
+        // Explicit folder denials still cannot be enforced by unrestricted commands.
+        if (restrictive([wholeCommandAction((runtime.permissions ?? []).filter(rule => rule.action === "external_directory"), "external_directory"), wholeAgentAction(agentRules, "external_directory")]) === "deny") {
+          throw new ApiError(403, "sandbox_permission_denied", "external_directory is blocked by your permissions. Enable sandboxing to enforce folder restrictions.");
+        }
         if (command.skills?.length) {
           const skills = await listSkills(workspace.path, true);
           for (const name of command.skills) {
@@ -337,7 +340,7 @@ export class AgentSandboxService {
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: permission === "external_directory" && !settings.enabled ? "sandbox.host_access" : `sandbox.${permission}`,
+            action: `sandbox.${permission}`,
             summary, paths, sessionID: operation.sessionID, description: operation.description,
             ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([root, actor, this.config.readOnly, permission, pattern, paths, network, permissions,
               agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined);

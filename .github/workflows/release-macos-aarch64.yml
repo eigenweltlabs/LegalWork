@@ -70,6 +70,7 @@ jobs:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
+    if: needs.resolve-release.outputs.build_electron == 'true'
     uses: ./.github/workflows/sandbox-runtime.yml
     needs: resolve-release
     with:
