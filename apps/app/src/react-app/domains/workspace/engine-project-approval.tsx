@@ -36,7 +36,7 @@ export function EngineProjectRecoveryNotice(props: {
   </section>;
 }
 
-export function EngineProjectRecovery(props: { client: LegalworkServerClient; workspaceId: string; onApproved?: () => void }) {
+export function EngineProjectRecovery(props: { client: LegalworkServerClient; workspaceId: string }) {
   const queryClient = useQueryClient();
   const queryKey = engineProjectStatusQueryKey(props.client, props.workspaceId);
   const status = useQuery({ queryKey, queryFn: () => props.client.getEngineProjectStatus(props.workspaceId), retry: false,

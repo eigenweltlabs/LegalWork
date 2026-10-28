@@ -215,7 +215,6 @@ export type SessionPageProps = {
   clientConnected: boolean;
   legalworkServerStatus: LegalworkServerStatus;
   legalworkServerClient: LegalworkServerClient | null;
-  onEngineProjectApproved?: () => void;
   environmentClient?: LegalworkServerClient | null;
   legalworkServerToken?: string | null;
   legalworkServerHostToken?: string;
@@ -1266,7 +1265,7 @@ export function SessionPage(props: SessionPageProps) {
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
               {workspaceErrorNotice}
-              {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onApproved={props.onEngineProjectApproved} /> : null}
+              {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
                 <StatusBar
@@ -1358,7 +1357,7 @@ export function SessionPage(props: SessionPageProps) {
             </> : null}
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-                {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onApproved={props.onEngineProjectApproved} /> : null}
+                {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">

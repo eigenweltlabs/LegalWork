@@ -155,7 +155,7 @@ provider. Confirmed charges and conservative reservations are separate figures.
 Notify on budget exhaustion or an accounting-related pause.
 The ordinary gateway key budget alone is not a strict in-flight spending gate.
 
-See [budget operation and every introduced accounting limit](../scripts/benchmarks/budget.md).
+See [budget operation and every introduced accounting limit](https://github.com/eigenweltlabs/legalwork/blob/codex/v2-benchmark-tooling/scripts/benchmarks/budget.md).
 The guard preserves natural model capacity, refuses an unaffordable whole request
 before dispatch, and keeps unresolved costs reserved. It is conditional on audited
 gateway tariffs and all test traffic crossing that guard; supplier invoices and
@@ -167,7 +167,7 @@ Catalog/backend/fixture differences invalidate automatic parity unless explicitl
 reviewed. Clean OS profiles belong in the platform matrix. The user authorized
 `gcloud` VMs for later Linux/Windows testing; reserve their bounded cost and clean
 them up after use. The first isolated Linux V1 VM has now been allocated under
-the reviewed [isolation plan](opencode-v2-isolated-vm-plan.md), with a four-hour
+the reviewed [isolation plan](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/opencode-v2-isolated-vm-plan.md), with a four-hour
 automatic deletion lease and no attached cloud service account. Its source is
 the exact frozen dev archive; Linux runtime assets are regenerated there. Paid
 inference remains held until its filesystem/control/transport proof passes.
