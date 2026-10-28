@@ -5,9 +5,9 @@ first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
 To show or hide the Assistant entry, open **Customize navigation** using the
-gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**,
-then choose **Done**. This only changes sidebar visibility. To change its name
-or avatar, click the assistant at the top of its conversation, or open
+gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**
+below **New Chat**, then choose **Done**. This only changes sidebar visibility.
+To change its name or avatar, click the assistant at the top of its conversation, or open
 **Settings > Assistant**.
 
 The Assistant uses one conversation tab. Subagents work in the background until
