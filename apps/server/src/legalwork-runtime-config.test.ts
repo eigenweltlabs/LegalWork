@@ -179,6 +179,7 @@ test("unchanged managed settings preserve watched file identities while real edi
     managedEngineSettingsFilePath(config),
     mandatoryRuntimeConfigFilePath(config),
     join(orgPolicyEngineDir(config), "opencode.json"),
+    join(orgPolicyEngineDir(config), "runtime-config.revision"),
   ];
   const before = await Promise.all(paths.map(async path => {
     const info = await stat(path);
@@ -192,6 +193,7 @@ test("unchanged managed settings preserve watched file identities while real edi
   await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, mcp: { servers: { updated: { type: "remote", url: "https://connector.example/mcp", disabled: true } } } }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
   expect(await readFile(managedEngineSettingsFilePath(config), "utf8")).not.toBe(before[1]?.content);
+  expect(await readFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), "utf8")).not.toBe(before[4]?.content);
   expect((await stat(managedEngineSettingsFilePath(config))).mode & 0o777).toBe(0o600);
 });
 

@@ -4,7 +4,7 @@ import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
 import { permissionAction, permissionPatternMatches } from "./agent-sandbox/permissions.js";
-import { engineStorageDir } from "./engine-storage.js";
+import { engineStorageDir, legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { embeddedNativePluginBundle } from "./native-plugin-assets.js";
 import { resolveCapabilityLibrary } from "./capability-library.js";
@@ -78,7 +78,7 @@ import {
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
-import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
+import { buildOrgPolicyEngineLayer, orgPolicyEngineDir, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatEngineIds, orgChatProviderTemplates } from "./org-policy-ai.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
@@ -226,6 +226,7 @@ async function memberRuntimeConfig(config?: ServerConfig, workspaceId?: string):
 export async function buildLegalworkRuntimeSettings(
   config?: ServerConfig,
   workspaceId?: string,
+  systemOneSettings?: Awaited<ReturnType<typeof readSystemOneSettings>> | null,
 ) {
   const runtimeConfig = await memberRuntimeConfig(config, workspaceId);
   const personalization = config
@@ -252,7 +253,9 @@ export async function buildLegalworkRuntimeSettings(
   const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
     ? buildEigenweltPaidProviderBlock(paidManifest)
     : null;
-  const jevSettings = config ? await readSystemOneSettings(config).catch(() => null) : null;
+  const jevSettings = systemOneSettings === undefined
+    ? config ? await readSystemOneSettings(config).catch(() => null) : null
+    : systemOneSettings;
   const jevSearchEnabled = process.env.LEGALWORK_DISABLE_JEV_SEARCH !== "1" && !!jevSettings?.providers.some(provider => provider.status === "ready" && provider.id === jevSettings.selection.providerId
     && provider.models.some(model => model.id === jevSettings.selection.model && model.questionTypes.includes("noul") && model.questionTypes.includes("choice")));
   // The firm's providers stay on, whatever the member disconnected.
@@ -407,9 +410,7 @@ export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspa
   return JSON.stringify(await buildLegalworkRuntimeConfigObject(config, workspaceId));
 }
 
-export function legalworkRuntimeConfigFilePath(config: ServerConfig): string {
-  return join(engineStorageDir(config), "runtime-opencode-config.json");
-}
+export { legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 
 export function mandatoryRuntimeConfigFilePath(config: ServerConfig): string {
   return join(engineStorageDir(config), "runtime-opencode-mandatory.json");
@@ -463,8 +464,11 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     for (const directory of config.managedEnginePluginDirectories ?? []) {
       commonPlugins.add(await bundledPluginSpec(join(directory, "index.js"), config));
     }
+    // Provider readiness is global and can call the remote service. Resolve it
+    // once for this publication, not once for every registered project.
+    const systemOneSettings = await readSystemOneSettings(config).catch(() => null);
     for (const workspace of config.workspaces) {
-      const settings = await buildLegalworkRuntimeSettings(config, workspace.id);
+      const settings = await buildLegalworkRuntimeSettings(config, workspace.id, systemOneSettings);
       workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path };
       // Only application bundles belong in the common engine bootstrap.
       // User-owned project plugins are still discovered by the released host.
@@ -514,6 +518,10 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // expansion loader is replaced; native MCP discovery and execution remain.
     await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command"] }));
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
+    // The shared document lives outside the native configuration directory.
+    // Signal the completed publication inside its recursive watch as well: an
+    // atomic replacement alone can be missed by the explicit-file watch.
+    await writeGeneratedConfigFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), createHash("sha256").update(content).digest("hex"));
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);

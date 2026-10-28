@@ -7,6 +7,7 @@ import { z } from "zod";
 import { ApiError, findApiError } from "./errors.js";
 import { createEngineClient, workspaceEngineLocation } from "./engine-client.js";
 import { engineProjectStatus } from "./engine-project.js";
+import { legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import { readJsoncFile } from "./jsonc.js";
 import { globalOpencodeConfigDir, opencodeConfigPaths } from "./workspace-files.js";
@@ -230,11 +231,15 @@ export async function listMcpDisplay(config: ServerConfig, workspace: WorkspaceI
   for (const entry of entries) if (entry.type === "document" && entry.info.mcp?.timeout) timeout = { ...timeout, ...entry.info.mcp.timeout };
   for (const entry of entries) {
     if (entry.type !== "document") continue;
+    const managed = entry.path !== undefined && (entry.path === legalworkRuntimeConfigFilePath(config) || entry.path === project.projection.path);
     const globalRelative = entry.path ? relative(globalOpencodeConfigDir(), entry.path) : undefined;
     const global = globalRelative !== undefined && !isAbsolute(globalRelative) && globalRelative !== ".." && !globalRelative.startsWith("../") && !globalRelative.startsWith("..\\");
     for (const [name, server] of Object.entries(entry.info.mcp?.servers ?? {})) {
+      // Native watchers may still expose the previous generated document. A
+      // removed managed definition must not reappear as an authored connector.
+      if (managed && !owned.has(name)) continue;
       effective.set(name, { name, config: { ...server, timeout: { ...timeout, ...server.timeout } },
-        source: entry.path === project.projection.path && owned.has(name) ? "config.remote" : global ? "config.global" : "config.project" });
+        source: managed ? "config.remote" : global ? "config.global" : "config.project" });
     }
   }
   // A managed definition may still be propagating through the native watcher.
