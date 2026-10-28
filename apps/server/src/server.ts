@@ -114,6 +114,7 @@ import {
   sanitizeLegalworkTemplateConfig,
 } from "./blueprint-sessions.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
+import { OpenCode } from "@opencode/client";
 import { createSeededOpencodeSession } from "./opencode-db.js";
 import { listPortableFiles } from "./portable-files.js";
 import {
@@ -535,21 +536,21 @@ function mergeImportedRuntimeConfig(current: RuntimeOpencodeConfig, imported: Ru
   };
 }
 
-async function readOpenAiProviderApiKey(): Promise<string> {
-  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  try {
-    const raw = await readFile(join(dataHome, "opencode", "auth.json"), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    const openai = isRecord(parsed) ? parsed.openai : null;
-    if (!isRecord(openai) || openai.type !== "api") return "";
-    return typeof openai.key === "string" ? openai.key.trim() : "";
-  } catch {
-    return "";
-  }
+async function readOpenAiProviderApiKey(config: ServerConfig): Promise<string> {
+  const baseUrl = config.opencodeBaseUrl?.trim();
+  if (!baseUrl) return "";
+  const username = config.opencodeUsername?.trim(), password = config.opencodePassword?.trim();
+  // Voice is host-scoped. Credentials belong to its engine, independently of
+  // any selected project's configuration or admission state.
+  const client = OpenCode.make({ baseUrl, ...(username && password ? {
+    headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` },
+  } : {}) });
+  const credential = (await client.credential.list()).find(item => item.integrationID === "openai" && item.active);
+  return credential?.value.type === "key" ? credential.value.key.trim() : "";
 }
 
-async function resolveOpenAiProviderApiKey(env: EnvService): Promise<string> {
-  const providerKey = await readOpenAiProviderApiKey();
+async function resolveOpenAiProviderApiKey(config: ServerConfig, env: EnvService): Promise<string> {
+  const providerKey = await readOpenAiProviderApiKey(config);
   if (providerKey) return providerKey;
 
   const records = await env.list();
@@ -588,8 +589,8 @@ You are LegalWork. You have one continuous identity across text and voice. Alway
 - Be concise, calm, and direct.${contextSection}`;
 }
 
-async function getOpenAiRealtimeVoiceCapability(env: EnvService) {
-  const apiKey = await resolveOpenAiProviderApiKey(env);
+async function getOpenAiRealtimeVoiceCapability(config: ServerConfig, env: EnvService) {
+  const apiKey = await resolveOpenAiProviderApiKey(config, env);
   return {
     supported: Boolean(apiKey),
     providerId: apiKey ? "openai" : null,
@@ -598,10 +599,10 @@ async function getOpenAiRealtimeVoiceCapability(env: EnvService) {
   };
 }
 
-async function createOpenAiRealtimeVoiceCall(env: EnvService, input: unknown) {
-  const apiKey = await resolveOpenAiProviderApiKey(env);
+async function createOpenAiRealtimeVoiceCall(config: ServerConfig, env: EnvService, input: unknown) {
+  const apiKey = await resolveOpenAiProviderApiKey(config, env);
   if (!apiKey) {
-    throw new ApiError(409, "openai_provider_unavailable", "Connect the standard OpenAI provider before starting Voice Mode.");
+    throw new ApiError(409, "openai_provider_unavailable", "Connect OpenAI with an API key before starting Voice Mode.");
   }
 
   const offerSdp = isRecord(input) && typeof input.sdp === "string" ? input.sdp : "";
@@ -2010,8 +2011,8 @@ function createRoutes(
     serializeWorkspace,
     resolveToyUiEnabled,
     resolveDevLogPath,
-    getOpenAiRealtimeVoiceCapability,
-    createOpenAiRealtimeVoiceCall,
+    getOpenAiRealtimeVoiceCapability: env => getOpenAiRealtimeVoiceCapability(config, env),
+    createOpenAiRealtimeVoiceCall: (env, input) => createOpenAiRealtimeVoiceCall(config, env, input),
   });
 
   registerWorkspaceRoutes({
