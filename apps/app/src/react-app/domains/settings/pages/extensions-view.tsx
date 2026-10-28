@@ -23,7 +23,7 @@ import type { SkillCard } from "@/app/types";
 import type { SkillDetailsStore } from "./skill-details-dialog";
 import type { PluginDetailsAccess } from "./plugin-details-dialog";
 import type { ConnectorState } from "./connector-status";
-import { pluginImportDestination } from "./plugin-import-presentation";
+import { createdPluginSignInConnector, pluginImportDestination } from "./plugin-import-presentation";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
@@ -62,6 +62,7 @@ export type ExtensionsViewProps = {
   extensions: PluginsExtensionsStore;
   pluginImports?: PluginImportStore;
   pluginCreation?: PluginCreateStore;
+  onAuthorizeConnector?: (name: string) => void;
   skillImports?: SkillImportStore & Pick<SkillsExtensionsStore, "skills">;
   skillTools?: Pick<SkillsExtensionsStore, "importedPackages" | "removeImportedPackage" | "revealSkillsFolder">;
   skillDetails?: SkillDetailsStore & { skills: () => SkillCard[]; readPackageComponent: PluginDetailsAccess["readComponent"] };
@@ -201,11 +202,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </IntegrationMoreMenu>
           </div>
         </div>
-        {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={plugin => {
+        {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={(plugin, newConnector) => {
           if (currentPackageTarget.current !== packageTarget) return;
           setPackageLibrary(current => ({ target: packageTarget, items: [...(current?.target === packageTarget ? current.items : []).filter(item => item.pluginId !== plugin.pluginId), plugin] }));
           importedPackage();
           toast.success(t("plugin_create.created", { name: plugin.displayName ?? plugin.name }));
+          const connector = createdPluginSignInConnector(plugin, newConnector);
+          if (connector) props.onAuthorizeConnector?.(connector);
         }} /> : null}
         {enginePluginsOpen && props.developerMode ? <Dialog open onOpenChange={setEnginePluginsOpen}>
           <DialogContent finalFocus={moreButton} className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-3xl">

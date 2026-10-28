@@ -10,7 +10,7 @@ To add a connector, press **Add**, choose **Plugins** to open the **Plugin catal
 
 An MCP server publishes tools with its own access requirements. Local-command integrations run on the computer running LegalWork, so required software and credentials must exist there. A remote MCP URL connects to the external service instead of starting its program locally. A disabled connector or expired authorization can leave a card visible while its tools fail or are absent.
 
-Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. The connector may still require sign-in before its tools are available.
+Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. When the new connector uses browser sign-in (OAuth), sign-in opens automatically after creation. Complete it in your browser to make the connector's tools available. If you cancel, you can open the plugin later and choose **Sign in** to retry. API-key, no-authentication and local-command connectors do not open browser sign-in.
 
 Removing a shared plugin removes its bundled connectors and skills across projects. The library updates after removal without a manual refresh, and removal does not wait for unopened projects to connect.
 
