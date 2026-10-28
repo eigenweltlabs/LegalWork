@@ -262,7 +262,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(result.nextAction.includes("finish this turn silently"));
       assert.ok(result.nextAction.includes("do not fill the gap with a late acknowledgement"), "Dispatch must not trigger a second acknowledgement");
       assert.ok(result.nextAction.includes("A first-action bubble reaction is a complete acknowledgement"));
-      assert.ok(result.nextAction.includes("Only a real question, approval or actionable blocker warrants an earlier message"));
+      assert.ok(result.nextAction.includes("no useful authorized work can proceed without the answer or approval"));
       assert.equal(deliveries.length, 1); assert.equal(deliveries[0].directory, project.project.path);
       assert.equal(deliveries[0].agent, "legalwork"); assert.deepEqual(deliveries[0].model, { providerID: "fixture-provider", modelID: "chosen-model" });
       assert.equal(deliveries[0].parts[0].text, input.title + "\\n\\n" + input.scope);

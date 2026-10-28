@@ -10,6 +10,7 @@ import { runtimeDbPath } from "./runtime-db.js";
 import { currentWikiAgentSession } from "./wiki/agent-access.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
+import { assistantLanguageContext } from "./assistant-language-context.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one briefing, and handles combined events with its normal tools", async () => {
@@ -91,13 +92,14 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
       },
       deliver: async (combined, message, revision) => {
         deliveries++;
-        deliveredText = message;
+        deliveredText = message + await assistantLanguageContext(client.message, [destination.id, session.id]);
+        expect(deliveredText).toContain('"text":"Let me know when Alex sends the signature page. No morning briefing, thanks."');
         expect(scored).toEqual(events.map(event => event.id));
         expect(combined).toEqual(events.map(event => ({ ...event, relevanceProbability: 0.9 })));
         expect(message).toContain("use your normal tools");
         expect(await prepareAssistantEventSession(store, access, { sessionId: destination.id, directory: location.directory }, revision)).toBe(true);
-        const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", destination.id, message, revision);
-        await client.session.synthetic({ sessionID: receipt.sessionId, id: receipt.id, text: message, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
+        const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", destination.id, deliveredText, revision);
+        await client.session.synthetic({ sessionID: receipt.sessionId, id: receipt.id, text: deliveredText, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
         return true;
       },
     });

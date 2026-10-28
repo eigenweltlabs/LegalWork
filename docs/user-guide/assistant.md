@@ -122,6 +122,19 @@ without creating a separate recurring inbox task. It uses the installed skill's
 configured templates. Details about the future client are resolved when the
 request arrives, rather than blocking setup.
 
+Background updates stay in the language of your Assistant conversation, even
+when an email or document is in another language. Each update explains what
+arrived, who sent it and what it asks for, then gives you the prepared result and
+any remaining actions. It includes a source link when available.
+
+For requested intake work, the Assistant prepares the parts supported by the
+available information and brings back a draft with missing details clearly
+marked. An unknown client name does not stop independent preparation. It still
+needs the represented side before party-specific legal analysis, and cannot
+complete required approvals or checks on your behalf. Questions that can wait
+come with the prepared work; it asks earlier when no useful work can proceed
+without your answer or a decision is time-sensitive.
+
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,
 Outlook, Google Calendar and Outlook Calendar accounts about every three minutes.
