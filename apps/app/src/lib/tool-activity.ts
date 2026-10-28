@@ -22,6 +22,13 @@ import { legalMemoryActivityLabel } from "@/lib/legalmemory-activity";
 
 type AnyToolPart = ToolUIPart | DynamicToolUIPart
 
+export function isAppCapabilitiesToolPart(part: AnyToolPart): boolean {
+  const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
+  return (name === "legalwork_ui_execute_action" || name === "ui_execute_action")
+    && typeof part.input === "object" && part.input !== null
+    && "actionId" in part.input && part.input.actionId === "help.capabilities";
+}
+
 /** Only native execution traces identify inner tools; code and output are untrusted. */
 export function getCodeModeToolNames(part: AnyToolPart, completedOnly = false): string[] {
   if (part.type !== "dynamic-tool" || part.toolName !== "execute") return [];
@@ -40,6 +47,11 @@ export function codeModeToolLabel(part: AnyToolPart): string | undefined {
 }
 
 const productActivityLabels: Record<string, string> = {
+  legalwork_assistant_attention: "assistant.attention_checking",
+  legalwork_assistant_attention_present: "assistant.attention_presenting",
+  legalwork_assistant_attention_answer: "assistant.attention_answering",
+  legalwork_assistant_follow_up: "assistant.attention_following_up",
+  legalwork_assistant_set_name: "assistant.saving_name",
   legalwork_review_results: "tool_activity.reading_review_results",
   legalwork_review_get: "tool_activity.reading_review_results",
   legalwork_review_settings: "tool_activity.review_settings",
@@ -98,6 +110,7 @@ function hostnameOf(url: string | undefined): string | undefined {
  * streamed input (fields may be missing despite the type contract).
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
+  if (isAppCapabilitiesToolPart(part)) return t("tool_activity.checking_app_capabilities");
   const innerTools = codeModeToolLabel(part);
   if (innerTools) return t("tool_activity.running_tool", { tool: innerTools });
   const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");

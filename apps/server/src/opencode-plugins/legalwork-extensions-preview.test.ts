@@ -48,6 +48,7 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown, signal?: 
   globalThis.fetch = Object.assign(
     async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
+      if (url.endsWith("/assistant")) return Response.json({ workspace: null });
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
         const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;

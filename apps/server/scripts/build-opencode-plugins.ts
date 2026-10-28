@@ -9,7 +9,7 @@ export const pluginNames = [
   "legalwork-anthropic-adaptive-thinking", "legalwork-anthropic-tool-schema", "legalwork-openai-tool-call-ids",
   "legalwork-word-tools", "legalwork-excel-tools", "legalwork-powerpoint-tools", "legalwork-benchmark-tools",
   "legalwork-skill-tools", "legalwork-storage-tools", "legalwork-task-tools", "legalwork-calendar-tools",
-  "legalwork-draft-tools", "legalwork-scheduled-task-tools", "legalwork-project-tools", "legalwork-tool-output",
+  "legalwork-assistant-tools", "legalwork-draft-tools", "legalwork-scheduled-task-tools", "legalwork-project-tools", "legalwork-tool-output",
   "legalwork-review-tools", "legalwork-org-policy-guard", "legalwork-wiki-tools",
 ];
 const output = join(server, "dist", "opencode-plugins");

@@ -11,6 +11,9 @@ import { BackgroundTabStack } from "../background/background-tab-stack";
 import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
+import { AssistantHistory } from "./assistant-history";
+import { assistantBubbleMessages } from "./assistant-bubbles";
+import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
 /** @jsxImportSource react */
@@ -163,6 +166,10 @@ type SessionError = {
 export type SessionSurfaceProps = {
   /** Only the focused chat handles window-wide composer and voice events. */
   active?: boolean;
+  assistantDate?: string;
+  assistantName?: string;
+  assistantHeader?: ReactNode;
+  assistantOnboarding?: AssistantOnboardingControls;
   client: LegalworkServerClient;
   environmentClient?: LegalworkServerClient | null;
   workspaceId: string;
@@ -539,7 +546,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // Also needed while a connect notice may show: a firm on the Knowledge
     // Hub plan is signed in with no model and gets its own wording.
     enabled:
-      props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
+      Boolean(props.assistantDate) || props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   const subscriptionEndedNoticeVisible = hasEndedEigenweltSubscription(eigenweltEntitlementsQuery.data) &&
@@ -594,6 +601,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // the plan screen most of them show none. The red "model no longer
   // available" label stays tied to `modelUnavailable` alone; an empty
   // selection has no model to flag.
+  const onboardingNeeded = Boolean(props.assistantOnboarding?.state.needed);
+  const showOnboarding = props.assistantOnboarding && (onboardingNeeded || props.assistantOnboarding.state.sessionId === props.sessionId);
   const modelSendBlocked =
     Boolean(props.modelUnavailable) ||
     noModelNoticeVisible ||
@@ -924,7 +933,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     currentSnapshot,
     cachedRendered: rendered,
   });
-  const sendBlocked=modelSendBlocked || snapshot?.historyProvenance?.undo?.status==="unresolved";
+  const sendBlocked=(onboardingNeeded && props.assistantOnboarding?.state.step === "avatar") || modelSendBlocked || snapshot?.historyProvenance?.undo?.status==="unresolved";
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const activityRunning = sessionActivityStatus !== "idle" && sessionActivityStatus !== "error";
   const chatStreaming = sending || activityRunning || liveStatus.type === "busy" || liveStatus.type === "retry";
@@ -954,6 +963,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
       !hasAssistantReplyAfter(renderedMessages, message.id) &&
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
+  const displayedMessages = useMemo(() => props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
+    [props.assistantDate, renderedMessages, snapshot, chatStreaming]);
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -990,12 +1001,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   useEffect(() => {
-    if (props.active === false) return;
+    if (props.active === false || props.assistantDate) return;
     if (!autoOpenTarget || chatStreaming) return;
     if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
     autoOpenedTargetRef.current = autoOpenTarget.id;
     props.onOpenTarget?.(autoOpenTarget, { auto: true }, props.sessionId);
-  }, [props.active, autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
+  }, [props.assistantDate, props.active, autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1139,6 +1150,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const queueFailure = (error: unknown) => toast.error(t("composer.queue_failed"), { description: error instanceof Error ? error.message : String(error) });
   const queueDraft = async (text: string) => {
+    if (props.assistantOnboarding?.state.needed && props.assistantOnboarding.state.step === "avatar") return;
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
     queueSubmitting.current = true; setQueueSaving(true);
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
@@ -1809,6 +1821,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     contentRef,
   });
 
+  const onboardingStep = props.assistantOnboarding?.state.step;
+  useEffect(() => {
+    if (!onboardingNeeded || !onboardingStep) return;
+    const frame = requestAnimationFrame(() => sessionScroll.jumpToMessage(`assistant-onboarding-${onboardingStep}`));
+    return () => cancelAnimationFrame(frame);
+  }, [onboardingNeeded, onboardingStep, sessionScroll.jumpToMessage]);
+
   const searchMessagePresent = Boolean(searchMessageId && renderedMessages.some(message => message.id === searchMessageId));
   useEffect(() => {
     if (!searchMessageId || searchMessagePresent) return;
@@ -1919,7 +1938,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
       {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
@@ -1935,7 +1954,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
       {snapshot?.historyProvenance?.status==="unavailable" ? <p role="status" className="mx-6 rounded-lg border px-3 py-2 text-sm text-muted-foreground">{t("session.history_provenance_unavailable")}</p>:null}
       {snapshot?.historyProvenance?.undo?.status==="unresolved" ? <p role="alert" className="mx-6 rounded-lg border px-3 py-2 text-sm">{t("session.history_undo_unresolved")}</p>:null}
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden" data-session-chat-content="">
+        {props.assistantHeader}
         <div
           ref={scrollRef}
           aria-hidden={props.realtimeVoiceActive || undefined}
@@ -1955,10 +1975,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onScroll={sessionScroll.handleScroll}
           className={cn(
             "lw-session-transcript absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-4 md:px-8",
+            props.assistantDate && "[&_[data-user-message-bubble]]:bg-blue-3",
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
           <div ref={contentRef} className="lw-session-column">
+            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
+            <div className={cn(props.assistantDate && renderedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
+            {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
@@ -1982,9 +2006,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 )}
               </div>
             ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
-              <div className="px-6 py-12">
-                <AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} />
-              </div>
+              props.assistantDate ? null : <div className="px-6 py-12"><AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} /></div>
             ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
                 error={error}
@@ -2005,6 +2027,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
                     <MessageListProvider
+                      assistantChat={Boolean(props.assistantDate)}
                       legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
@@ -2021,6 +2044,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onEditUserMessage={handleEditUserMessage}
                     >
                       <MessageList
+                        showWelcome={!props.assistantDate}
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId) => {
                           const subscriptionRecovery = renderSubscriptionRecovery(error,
@@ -2039,9 +2063,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
                         }}
-                        messages={renderedMessages}
-                        status={status}
-                        retryStatus={retryStatusForDisplay}
+                        messages={displayedMessages}
+                        status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
+                        retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
@@ -2053,6 +2077,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 sourceSession={inlinePasswordQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession}
                 busy={props.questionReplyBusy ?? false} onReply={answers => props.respondQuestion?.(inlinePasswordQuestion.id, answers)} />
             </div> : null}
+            </div>
           </div>
         </div>
         {props.realtimeVoiceActive && props.realtimeVoiceSupported ? (
@@ -2066,7 +2091,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onStartJob={startVoiceJob}
             onClose={() => props.onRealtimeVoiceActiveChange?.(false)}
           />
-        ) : (
+        ) : onboardingNeeded ? null : (
           <SessionScrollOverlay
             sessionId={props.sessionId}
             isStreaming={chatStreaming}
@@ -2078,6 +2103,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       </div>
 
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
+        onboardingNeeded && onboardingStep === "avatar" && "hidden",
         !pendingSessionLoad && renderedMessages.length === 0 && "lw-fade-enter",
       )}>
         {fusionEnabled && !fusionConfigured ? (
@@ -2094,6 +2120,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
+          assistantName={props.assistantDate ? props.assistantName ?? t("assistant.title") : undefined}
           active={props.active}
           draft={draft}
           mentions={mentions}
@@ -2116,7 +2143,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onAttachFiles={handleAttachFiles}
         uploading={pendingAttachmentUploads > 0}
         onRemoveAttachment={handleRemoveAttachment}
-        attachmentsEnabled={props.attachmentsEnabled}
+        attachmentsEnabled={!onboardingNeeded && props.attachmentsEnabled}
         attachmentsDisabledReason={props.attachmentsDisabledReason}
         modelVariantLabel={props.modelVariantLabel}
         modelVariant={props.modelVariant}
@@ -2205,7 +2232,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {hasActivePlan ? (
                   <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />
                 ) : null}
-                {props.activePermission ? (
+                {props.activePermission && !props.assistantDate ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}
                     onOpenSession={props.onOpenInteractionSession}

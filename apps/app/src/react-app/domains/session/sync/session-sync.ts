@@ -13,6 +13,7 @@ import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
 import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
+import { textPartProviderMetadata } from "./assistant-message-sender";
 import type {
   FilePart,
   Part,
@@ -629,7 +630,7 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
       type: "text",
       text: part.text,
       state: "done",
-      providerMetadata: scheduledTextMetadata(part),
+      providerMetadata: { opencode: { ...scheduledTextMetadata(part).opencode, ...textPartProviderMetadata(part).opencode } },
     };
   }
   if (part.type === "reasoning") {
@@ -1271,7 +1272,7 @@ function applyEvent(
               event.type === "session.reasoning.ended" ? "reasoning" : "text",
             text: event.data.text,
             state: "done",
-            providerMetadata: { opencode: { partId: id } },
+            providerMetadata: { opencode: { partId: id, textComplete: true } },
           }),
       );
       return;

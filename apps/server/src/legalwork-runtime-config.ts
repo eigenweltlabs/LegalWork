@@ -1,3 +1,4 @@
+import { legalworkAssistantToolsPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
 import { Config } from "@opencode/schema/config";
@@ -346,6 +347,7 @@ export async function buildLegalworkRuntimeSettings(
       bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
       bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkAssistantToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkToolRecoveryPluginPath(), config),

@@ -8,7 +8,8 @@ import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usec
 import { parseScheduledRunMessage } from "../src/react-app/domains/scheduled-tasks/scheduled-message";
 
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
-import { groupMessages, isCompactionMessage } from "../src/components/chat/utils";
+import { getAssistantRenderGroups, groupMessages, isCompactionMessage } from "../src/components/chat/utils";
+import { parseAssistantNameResult } from "../src/components/chat/assistant-name-card";
 import {
   __applySessionSyncEventForTest,
   __createWorkspaceSessionSyncForTest,
@@ -170,6 +171,46 @@ describe("tool part mapper", () => {
       input: { content: "hello", filePath: "src/a.ts" },
       output: "ok",
     });
+  });
+
+  test("naming widgets survive appended app-state reminders in saved and live tool results", () => {
+    const result = { ok: true, showAvatarPicker: true, onboarding: { needed: true, greetingUnread: false, step: "avatar", sessionId: "session-a", name: "Johann", icon: "dot", agentNamed: true } };
+    const output = JSON.stringify(result) + '\n\n<system-reminder topic="main-assistant">\nSetup stage: avatar.\n</system-reminder>\n\n<system-reminder topic="project">\nCurrent project metadata.\n</system-reminder>';
+    const part = writeToolPart("completed", { name: "Johann" }, { tool: "legalwork_assistant_set_name" });
+    if (part.state.status !== "completed") throw new Error("Expected a completed tool");
+    part.state.output = output;
+    const mapped = parseDynamicToolUIPart(part);
+    expect(mapped?.state).toBe("output-available");
+    expect(parseAssistantNameResult(mapped?.output)).toEqual(result);
+    expect(part.state.output).toBe(output); // Model history keeps its reminders.
+    expect(getAssistantRenderGroups(mapped ? [mapped] : [], false)[0]?.kind).toBe("assistant-name");
+
+    const input = { workspaceId: "naming-project", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
+    const cleanup = __createWorkspaceSessionSyncForTest(input);
+    const release = trackWorkspaceSessionSync(input, part.sessionID);
+    try {
+      const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { type, id: "event", created: 1,
+        durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, data: { sessionID: part.sessionID, assistantMessageID: part.messageID, ...data } });
+      event("session.step.started", {});
+      event("session.tool.input.started", { id: part.callID, name: part.tool });
+      event("session.tool.called", { id: part.callID, input: part.state.input });
+      event("session.tool.success", { id: part.callID, content: [{ type: "text", text: output }], metadata: {} });
+      const messages = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, part.sessionID)) ?? [];
+      expect(messages[0]?.parts).toMatchObject([{ type: "dynamic-tool", toolName: part.tool, state: "output-available" }]);
+      const live = messages[0]?.parts[0];
+      expect(parseAssistantNameResult(live && "output" in live ? live.output : undefined)).toEqual(result);
+      expect(getAssistantRenderGroups(messages[0]?.parts ?? [], false)[0]?.kind).toBe("assistant-name");
+    } finally { release(); cleanup(); }
+  });
+
+  test("only trailing app reminders after valid JSON are removed from widget output", () => {
+    const reminder = '\n\n<system-reminder topic="project">\nCurrent project.\n</system-reminder>';
+    for (const output of ['not JSON' + reminder, '{broken' + reminder, '{"ok":true}' + reminder + '\nUser-facing result', JSON.stringify({ text: reminder })]) {
+      const part = writeToolPart("completed", {});
+      if (part.state.status !== "completed") throw new Error("Expected a completed tool");
+      part.state.output = output;
+      expect(parseDynamicToolUIPart(part)?.output).toBe(output);
+    }
   });
 
   test("maps env var request tools for rich chat rendering", () => {
