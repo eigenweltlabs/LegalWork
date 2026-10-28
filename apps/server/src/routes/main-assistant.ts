@@ -305,8 +305,11 @@ export function registerMainAssistantRoutes(options: {
         resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
     } catch (error) {
       const rejected = nativeDeliveryRejection(error);
-      if (rejected) return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId },
-        error: rejected.message, code: rejected.code }, rejected.status);
+      if (rejected) {
+        options.delegations.rejectInitial(session.id, initialMessageId);
+        options.changed();
+        return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId }, error: rejected.message, code: rejected.code }, rejected.status);
+      }
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
       return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed", messageId: initialMessageId }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
     }

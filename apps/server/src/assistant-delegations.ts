@@ -19,6 +19,7 @@ const delegationSchema = z.object({
   authority: SessionAuthoritySchema.optional(),
   authoritySessionId: z.string().optional(), // Internal children retain their delegated root's permission boundary.
   initialMessageId: z.string().optional(),
+  initialDeliveryRejected: z.boolean().optional(),
 });
 export type TrackedDelegation = z.infer<typeof delegationSchema>;
 const destinationSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
@@ -79,8 +80,12 @@ export class AssistantDelegations {
     this.db.run("INSERT OR IGNORE INTO assistant_delegations (session_id, data) VALUES (?, ?)", [data.sessionId, JSON.stringify(data)]);
     // An authenticated follow-up reauthorizes existing/legacy work without losing
     // delivery receipts or changing the result's established routing context.
-    if (data.authority) this.db.run("UPDATE assistant_delegations SET data = json_set(data, '$.authority', json(?)) WHERE session_id = ?", [JSON.stringify(data.authority), data.sessionId]);
+    if (data.authority) this.db.run("UPDATE assistant_delegations SET data = json_remove(json_set(data, '$.authority', json(?)), '$.initialDeliveryRejected') WHERE session_id = ?", [JSON.stringify(data.authority), data.sessionId]);
     if (data.authoritySessionId) this.db.run("UPDATE assistant_delegations SET data = json_set(data, '$.authoritySessionId', ?) WHERE session_id = ?", [data.authoritySessionId, data.sessionId]);
+  }
+  rejectInitial(sessionId: string, messageId: string) {
+    this.db.run("UPDATE assistant_delegations SET data = json_set(data, '$.initialDeliveryRejected', json('true')) WHERE session_id = ? AND json_extract(data, '$.initialMessageId') = ?", [sessionId, messageId]);
+    this.pendingWork.set(sessionId, false);
   }
   list(sourceWorkspaceId: string) {
     return this.db.all("SELECT data FROM assistant_delegations ORDER BY rowid DESC")
@@ -89,7 +94,7 @@ export class AssistantDelegations {
   }
   hasPendingWork(sourceWorkspaceId: string) {
     // Internal children return decisions only; their parent owns completion.
-    return this.list(sourceWorkspaceId).some(item => !item.inputOnly && this.pendingWork.get(item.sessionId) !== false);
+    return this.list(sourceWorkspaceId).some(item => !item.inputOnly && !item.initialDeliveryRejected && this.pendingWork.get(item.sessionId) !== false);
   }
   cards() {
     return this.db.all("SELECT data FROM assistant_attention_cards ORDER BY rowid DESC")
@@ -134,7 +139,7 @@ export class AssistantDelegations {
       if (this.stopped) return;
       try {
         const delegation = delegationSchema.parse(JSON.parse(String(row.data)));
-        if (this.executor.allowed?.(delegation) === false) continue;
+        if (delegation.initialDeliveryRejected || this.executor.allowed?.(delegation) === false) continue;
         let notice = row.notice ? noticeSchema.parse(JSON.parse(String(row.notice))) : null;
         if (!notice) {
           const result = await this.executor.result(delegation);
