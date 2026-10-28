@@ -7,29 +7,29 @@ Research checked on 2026-10-28. This is a practical shortlist of established and
 | Country | Services |
 | --- | --- |
 | Austria | RDB (MANZ), Lexis 360 |
-| Belgium | Strada lex Belgique |
+| Belgium | Strada lex Belgique, Libra (Wolters Kluwer) |
 | Bulgaria | Ciela Net |
 | Croatia | IUS-INFO Croatia |
 | Cyprus | Leginet |
-| Czechia | Beck-online CZ, ASPI CZ |
+| Czechia | Beck-online CZ, ASPI CZ, Libra (Wolters Kluwer) |
 | Denmark | Karnov |
 | Estonia | Estlex |
 | Finland | Edilex |
 | France | Dalloz, Lexis 360 Intelligence |
-| Germany | beck-online, juris |
+| Germany | beck-online, juris, Libra (Wolters Kluwer) |
 | Greece | NOMOS |
-| Hungary | Jogtár |
+| Hungary | Jogtár, Libra (Wolters Kluwer) |
 | Ireland | Westlaw Ireland, vLex |
-| Italy | DeJure, One LEGALE |
+| Italy | DeJure, One LEGALE, Libra (Wolters Kluwer) |
 | Latvia | Lursoft |
 | Lithuania | Infolex |
 | Luxembourg | Strada lex Luxembourg |
 | Malta | Lexis+ UK, HeinOnline |
-| Netherlands | InView Legal |
-| Poland | LEX, Legalis |
+| Netherlands | InView Legal, Libra (Wolters Kluwer) |
+| Poland | LEX, Legalis, Libra (Wolters Kluwer) |
 | Portugal | DataJuris, vLex |
-| Romania | Sintact, Lege5 |
-| Slovakia | Beck-online SK, ASPI SK |
+| Romania | Sintact, Lege5, Libra (Wolters Kluwer) |
+| Slovakia | Beck-online SK, ASPI SK, Libra (Wolters Kluwer) |
 | Slovenia | IUS-INFO Slovenia, Tax-Fin-Lex |
 | Spain | Aranzadi Digital, Tirant Online, vLex |
 | Sweden | JUNO |
@@ -40,12 +40,13 @@ Malta's suggestions are international services listed by the University of Malta
 
 ## Research entry points and sign-in origins
 
-The research URL starts a normal browser visit. The login URL supplies the vault origin. Stable addresses are stored without OAuth state, session IDs, nonces or authorization codes. User-entered login links are reduced to their origin before being included in the skill, so pasted OAuth query parameters are discarded. A login origin can differ from the research domain; it must not be inferred from the provider name or an assumed subdomain. Sources include provider documentation, public login forms and observed redirects from the linked research entry point. No paid account was used to claim successful authentication.
+The research URL starts a normal browser visit. The login URL supplies the vault origin. Stable addresses are stored without OAuth state, session IDs, nonces or authorization codes. The card stores the canonical sign-in origin; saved destination URLs omit query strings and fragments, so pasted OAuth parameters are discarded. A login origin can differ from the research domain; it must not be inferred from the provider name or an assumed subdomain. Sources include provider documentation, public login forms and observed redirects from the linked research entry point. No paid account was used to claim successful authentication.
 
 | Provider | Research entry | Login address / vault host | Sources |
 | --- | --- | --- | --- |
 | beck-online | [Research](https://beck-online.beck.de/Home) | [beck-online.beck.de](https://beck-online.beck.de/Home) | [1](https://status.beck.de/de) |
 | juris | [Research](https://www.juris.de/jportal/) | [www.juris.de](https://www.juris.de/jportal/) | [1](https://www.juris.de/jportal/nav/services/faqs/index.jsp) |
+| Libra (Wolters Kluwer) | [Research](https://app.libratech.ai/) | auth.libratech.ai, observed app redirect; start sign-in from the app | [Official entry](https://libratech.ai/), [collections](https://libratech.ai/product/legal-content), [ownership](https://www.wolterskluwer.com/en/news/wolters-kluwer-completes-acquisition-of-libra-technology-gmbh) |
 | RDB (MANZ) | [Research](https://rdb.manz.at/) | [login.manz.at](https://login.manz.at/login) | [1](https://rdb.manz.at/login) |
 | Lexis 360 | [Research](https://360.lexisnexis.at/) | [signin.lexisnexis.com](https://signin.lexisnexis.com/lnaccess/app/signin) | [1](https://360.lexisnexis.at/) |
 | Strada lex Belgique | [Research](https://www.stradalex.com/) | Unconfirmed: user must enter current login URL | [1](https://www.stradalex.com/), [2](https://statics.stradalex.com/doc/sl/en/SLBE_GENERAL_FR.pdf) |
@@ -109,6 +110,12 @@ The public CourtListener sign-in page returned HTTP 403 in this automated enviro
 Onboarding, chat and Settings share the existing encrypted BrowserPasswordStore. Provider setup validates a saved-login UUID against the actual sign-in domain and attaches destination metadata to that vault entry. Several destinations can share one login. Updates preserve linked destinations when the login website remains the same; moving credentials to a different main domain clears old links. Destination query strings and fragments are stripped. Host-only credential management and the existing main-domain/subdomain fill checks remain unchanged.
 
 Saving a login does not create a plugin or skill. The bundled `legal-research` skill is seeded in every workspace, discovers saved website metadata with `legalwork_browser_connections`, and optionally loads a site-specific skill from the normal catalogue. Country presets only prefill URLs. **Settings > Secrets > Browser passwords** is the single management view. Onboarding uses the full-page OnboardingCover, standard 32px heading, progress dots and bottom Back/Skip/Continue footer. There is no separate website-management modal under Integrations.
+
+### Direct website setup and Libra research
+
+For any website, `legalwork_browser_request_password` can display the existing vault card directly with a user-supplied `website_url`. Known providers use `provider` to resolve catalogue URLs internally. Missing URLs are requested from the user. Neither a live browser capability nor a research/help skill is required before this card. The existing `browser_url` path remains available when sign-in is encountered during browsing. A saved entry is validated through the scoped metadata-only discovery endpoint, filtered using the existing vault domain matcher. Reusing an account adds the requested destination without duplicating its password. Browser verification then starts at `start_url` to establish fresh authentication state.
+
+Libra is bundled with a `libra-research` skill and suggested in countries with listed source collections. The public app entry was observed redirecting to an email-first Auth0 page on `auth.libratech.ai`; state-bearing paths are not persisted. Authenticated chat controls have not been tested. The skill submits one research prompt, inspects submission before any retry, and checks observed progress with native browser waits of at most 30 seconds. The default overall deadline is five minutes. Timeout preserves the conversation and reports incomplete status; a later check reuses the same conversation. The skill reviews source citations and uses the general research skill's existing per-website operational memory and consent-before-staging flow.
 
 ### Persistent website experience
 
