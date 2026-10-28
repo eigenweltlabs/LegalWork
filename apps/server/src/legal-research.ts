@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { legalResearchProviders, researchDatabaseSetupSchema } from "@legalwork/types/legal-research";
+import { legalResearchProviders, researchDatabaseSetupSchema } from "./native-shared-values.js";
 import { ApiError } from "./errors.js";
 import { browserPasswords } from "./browser-passwords.js";
 import type { ServerConfig } from "./types.js";

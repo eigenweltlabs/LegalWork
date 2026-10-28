@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { connectedWebsiteSchema, websiteConnectionUrl, type ConnectedWebsite } from "@legalwork/types/browser-password-request";
+import { connectedWebsiteSchema, websiteConnectionUrl } from "./native-shared-values.js";
+import type { ConnectedWebsite } from "@legalwork/types/browser-password-request";
 import { getDomain } from "tldts";
 import { ApiError } from "./errors.js";
 import { OAuthVault, oauthVaultPath, vaultLock } from "./file-storage/oauth/vault.js";

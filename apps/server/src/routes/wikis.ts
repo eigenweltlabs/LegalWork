@@ -3,7 +3,7 @@ import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
-import { legalResearchCountries } from "@legalwork/types/legal-research";
+import { legalResearchCountries } from "../native-shared-values.js";
 import { ViewSaveInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
