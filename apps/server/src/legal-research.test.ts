@@ -1,18 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { legalResearchCountries, legalResearchProviders, researchProviderPluginId, researchWebsite } from "@legalwork/types/legal-research";
+import { dirname, join } from "node:path";
+import { legalResearchCountries, legalResearchProviders, researchWebsite } from "@legalwork/types/legal-research";
 import { browserPasswords } from "./browser-passwords.js";
-import { parseResearchDatabaseSetup, planResearchDatabase } from "./legal-research.js";
-import { pluginNamespace, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { parseResearchDatabaseSetup } from "./legal-research.js";
+import { readInstalledCloudPlugins } from "./cloud-plugins.js";
 import { GLOBAL_MCP_ID } from "./runtime-opencode-config-store.js";
-import { globalSkillsDir } from "./workspace-files.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
+import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 import LegalWorkSkillTools from "./opencode-plugins/legalwork-skill-tools.js";
-import { upsertSkill } from "./skills.js";
 
 const passwordId = "218d2173-2e4b-4ef2-98e6-52e0367d1d7b";
 test("catalog covers EU27, UK and US with stable secure URLs and a free test account", () => {
@@ -48,110 +48,111 @@ test("setup uses server-owned presets and rejects secrets, URL overrides and uns
   expect(parseResearchDatabaseSetup({ ...preset, providerId: "strada-be", loginUrl: "https://auth.example.org/" }).loginUrl).toBe("https://auth.example.org");
 });
 
-test("host setup reuses the vault, installs globally, survives retries and protects manual edits", async () => {
+test("all login entry points share discovery; research setup installs no skill and the general skill learns per website", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-research-"));
-  const previous = { db: process.env.LEGALWORK_RUNTIME_DB, xdg: process.env.XDG_CONFIG_HOME, url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN };
+  const previous = { db: process.env.LEGALWORK_RUNTIME_DB, xdg: process.env.XDG_CONFIG_HOME, url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, agent: process.env.LEGALWORK_WIKI_AGENT_TOKEN };
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   process.env.XDG_CONFIG_HOME = join(root, "global");
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) });
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "config.json"),
     approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
-    workspaces: ["first", "second"].map(id => ({ id, name: id, path: root, preset: "starter", workspaceType: "local", baseUrl: engine.url.origin })),
+    workspaces: ["first", "second"].map(id => ({ id, name: id, path: join(root, id), preset: "starter", workspaceType: "local", baseUrl: engine.url.origin })),
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
+  const core = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")!;
+  for (const workspace of config.workspaces) {
+    const file = join(workspace.path, core.path);
+    await mkdir(dirname(file), { recursive: true }); await writeFile(file, core.content);
+  }
   const server = await startServer(config);
+  let plugin: Awaited<ReturnType<typeof nativePluginTools>> | undefined;
   try {
     const vault = browserPasswords(config), secret = "synthetic-research-password";
     const saved = await vault.save({ label: "Lexis", origin: "https://signin.lexisnexis.com", username: "fixture-user", password: secret });
-    const wrong = await vault.save({ label: "Wrong site", origin: "https://plus.lexis.com", username: "fixture-user", password: "synthetic-other" });
+    const wrong = await vault.save({ label: "Ordinary website", origin: "https://other.example/path?code=private", username: "fixture-other", password: "synthetic-other" });
     const payload = { providerId: "lexis-uk", country: "GB", passwordId: saved.id };
+    const base = `http://127.0.0.1:${server.port}`;
     const hostHeaders = { Authorization: "Bearer test", "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
-    const create = (body: unknown, owner = true) => fetch(`http://127.0.0.1:${server.port}/workspace/first/research-databases`, {
+    const create = (body: unknown, owner = true) => fetch(`${base}/workspace/first/research-databases`, {
       method: "POST", headers: owner ? hostHeaders : { Authorization: "Bearer test", "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     expect((await create(payload, false)).status).toBe(401);
     expect((await create({ ...payload, passwordId: wrong.id })).status).toBe(400);
     expect((await create({ ...payload, password: secret })).status).toBe(400);
-    const plan = await planResearchDatabase(config, root, payload);
     const result = await create(payload);
     expect(result.status).toBe(200);
-    expect(await result.text()).not.toContain(secret);
+    const body = await result.json();
+    expect(body.item.id).toBe(saved.id);
+    expect(body.item.websites).toContainEqual({ name: "Lexis+ UK", url: "https://plus.lexis.com/uk", providerId: "lexis-uk", country: "GB" });
+    expect(JSON.stringify(body)).not.toContain(secret);
     expect((await create(payload)).status).toBe(200);
-    const registry = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
-    expect(Object.keys(registry.plugins)).toEqual([researchProviderPluginId("lexis-uk")]);
-    const installed = registry.plugins[researchProviderPluginId("lexis-uk")]!;
-    const skill = plan.preview.components.find(component => component.type === "skill")!;
-    const skillPath = join(globalSkillsDir(), pluginNamespace(plan.preview.name, plan.preview.id), skill.installedName, "SKILL.md");
-    const content = await readFile(skillPath, "utf8");
-    const connectionLink = content.match(/\[the connection\]\(([^)]+)\)/)?.[1];
-    expect(connectionLink).toBeDefined();
-    const connectionText = await readFile(resolve(dirname(skillPath), connectionLink!), "utf8");
-    expect(JSON.parse(connectionText)).toMatchObject({ passwordId: saved.id, country: "GB" });
-    expect(content + connectionText + JSON.stringify(installed)).not.toContain(secret);
-    expect(content + connectionText).not.toContain("fixture-user");
-    process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
-    process.env.LEGALWORK_SERVER_TOKEN = config.token;
-    const plugin = await nativePluginTools(LegalWorkSkillTools);
-    const context = { directory: root, sessionID: "research-first", ask: async () => {} };
-    const skillDirectory = await realpath(dirname(skillPath));
-    const experience = (operation: unknown, directory = skillDirectory, headers = hostHeaders) => fetch(`${process.env.LEGALWORK_SERVER_URL}/workspace/first/skills/${skill.installedName}/research-experience`, {
-      method: "POST", headers, body: JSON.stringify({ directory, operation }),
+    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins).toEqual({});
+    expect(await readFile(join(root, "first", core.path), "utf8")).toBe(core.content);
+    const discover = async (workspace = "first", headers: Record<string, string> = hostHeaders) => fetch(`${base}/workspace/${workspace}/browser-connections`, { headers });
+    const discovered = await (await discover()).json();
+    expect(discovered.items).toHaveLength(2);
+    expect(JSON.stringify(discovered)).not.toMatch(/synthetic|fixture-user|fixture-other|private|username|password/);
+    expect(discovered.items.find((item: { id: string }) => item.id === wrong.id).websites).toEqual([{ name: "Ordinary website", url: "https://other.example/path" }]);
+    expect(await (await discover("second")).json()).toEqual(discovered);
+    expect((await discover("first", { Authorization: "Bearer wrong" })).status).toBe(401);
+    expect((await discover("first", { Authorization: "Bearer test" })).status).toBe(200);
+    const agentToken = await ensureWikiAgentToken(config);
+    for (const sessionId of ["research-first", "research-next-chat", "viewer"])
+      await grantWikiAgentSession(config, { sessionId, directory: join(root, "first"), scope: sessionId === "viewer" ? "viewer" : "collaborator" });
+    const agentHeaders = { Authorization: "Bearer test", "x-legalwork-wiki-agent-token": agentToken, "x-legalwork-wiki-agent-session": "research-first", "x-legalwork-wiki-agent-directory": encodeURIComponent(await realpath(join(root, "first"))) };
+    expect((await discover("first", agentHeaders)).status).toBe(200);
+    expect((await discover("second", agentHeaders)).status).toBe(403);
+    expect((await discover("first", { ...agentHeaders, "x-legalwork-wiki-agent-session": "viewer" })).status).toBe(403);
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+    process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = config.token;
+    plugin = await nativePluginTools(LegalWorkSkillTools);
+    const context = { directory: join(root, "first"), sessionID: "research-first", ask: async () => {} };
+    const skillDirectory = await realpath(dirname(join(root, "first", core.path)));
+    const experience = (operation: unknown, directory = skillDirectory, connectionId = saved.id, websiteUrl = "https://plus.lexis.com/uk") => fetch(`${base}/workspace/first/skills/legal-research/research-experience`, {
+      method: "POST", headers: hostHeaders, body: JSON.stringify({ directory, connectionId, websiteUrl, operation }),
     });
     const note = { key: "expired-sign-in", status: "unresolved", situation: "Old sign-in page expired.", attempt: "Reloaded the old sign-in tab.", outcome: "The page still showed an expired link." };
-    const input = { name: skill.installedName, operation: { action: "save", note, expectedRevision: 0 } };
+    const input = { name: "legal-research", connectionId: saved.id, websiteUrl: "https://plus.lexis.com/uk", operation: { action: "save", note, expectedRevision: 0 } };
     await expect(plugin.tool.legalwork_research_experience.execute(input, context)).rejects.toThrow("Load this research skill");
-    const loaded = JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: skill.installedName }, context));
-    expect(loaded.payload.chain[0].researchExperience.entries).toEqual([]);
+    const loaded = JSON.parse(await plugin.tool.legalwork_skill_load.execute({ name: "legal-research" }, context));
+    expect(loaded.ok).toBe(true);
     await expect(plugin.tool.legalwork_research_experience.execute(input, { ...context, ask: async () => { throw new Error("Skill permission denied"); } })).rejects.toThrow("Skill permission denied");
-    expect((await (await experience({ action: "read" })).json()).entries).toEqual([]);
     expect(JSON.parse(await plugin.tool.legalwork_research_experience.execute(input, context)).payload.entries[0]).toMatchObject({ ...note, revision: 1 });
     expect((await experience({ action: "read" }, root)).status).toBe(409);
-    expect((await experience({ action: "read" }, dirname(skillPath), { Authorization: "Bearer wrong", "Content-Type": "application/json", "X-LegalWork-Host-Token": "wrong" })).status).toBe(401);
-    const secondPlugin = await nativePluginTools(LegalWorkSkillTools);
+    expect((await experience({ action: "read" }, skillDirectory, saved.id, "https://unconnected.example/")).status).toBe(404);
+    expect((await (await experience({ action: "read" }, skillDirectory, wrong.id, "https://other.example/path")).json()).entries).toEqual([]);
     const nextChat = { ...context, sessionID: "research-next-chat" };
-    await expect(secondPlugin.tool.legalwork_research_experience.execute(input, nextChat)).rejects.toThrow("Load this research skill");
-    const nextLoad = JSON.parse(await secondPlugin.tool.legalwork_skill_load.execute({ name: skill.installedName }, nextChat));
-    expect(nextLoad.payload.chain[0].researchExperience.entries[0]).toMatchObject({ ...note, revision: 1 });
-    // Reconfiguring does not mutate the package hash or discard its learned log.
+    await expect(plugin.tool.legalwork_research_experience.execute(input, nextChat)).rejects.toThrow("Load this research skill");
+    await plugin.tool.legalwork_skill_load.execute({ name: "legal-research" }, nextChat);
+    const reread = JSON.parse(await plugin.tool.legalwork_research_experience.execute({ ...input, operation: { action: "read" } }, nextChat));
+    expect(reread.payload.entries[0]).toMatchObject({ ...note, revision: 1 });
     expect((await create(payload)).status).toBe(200);
-    expect(await readFile(skillPath, "utf8")).toBe(content);
-    const elsewhere = await fetch(`${process.env.LEGALWORK_SERVER_URL}/workspace/second/skills/${skill.installedName}/composed`, { headers: hostHeaders });
-    expect((await elsewhere.json()).chain[0].researchExperience.entries[0]).toMatchObject({ ...note, needsRecheck: false });
-    const listed = await fetch(`http://127.0.0.1:${server.port}/workspace/second/cloud-plugins`, { headers: hostHeaders });
-    expect(await listed.text()).toContain(installed.pluginId);
-    expect(await vault.list()).toHaveLength(2);
+    const elsewhere = await fetch(`${base}/workspace/second/skills/legal-research/research-experience`, {
+      method: "POST", headers: hostHeaders, body: JSON.stringify({ directory: await realpath(dirname(join(root, "second", core.path))), connectionId: saved.id, websiteUrl: input.websiteUrl, operation: { action: "read" } }),
+    });
+    expect((await elsewhere.json()).entries[0]).toMatchObject({ ...note, needsRecheck: false });
     config.readOnly = true;
     expect((await create(payload)).status).toBe(403);
     expect((await experience({ action: "save", note, expectedRevision: 1 })).status).toBe(403);
     expect((await experience({ action: "read" })).status).toBe(200);
     config.readOnly = false;
-    await writeFile(skillPath, `${content}\nUser customization.\n`);
-    expect((await create(payload)).status).toBe(409);
-    expect(await readFile(skillPath, "utf8")).toContain("User customization.");
-    await writeFile(skillPath, content);
-    await removeCloudPlugin({ serverConfig: config, workspaceId: GLOBAL_MCP_ID, workspaceRoot: root, pluginId: installed.pluginId, scope: "global" });
-    expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins).toEqual({});
-    expect((await experience({ action: "read" })).status).toBe(404);
-    expect((await create(payload)).status).toBe(200);
-    expect((await (await experience({ action: "read" })).json()).entries[0]).toMatchObject({ ...note, revision: 1 });
+    await writeFile(join(root, "first", core.path), `${core.content}\nA different package\n`);
+    expect((await experience({ action: "read" })).status).toBe(409);
+    await writeFile(join(root, "first", core.path), core.content);
     expect((await experience({ action: "forget", key: note.key, expectedRevision: 1 })).status).toBe(200);
     expect((await (await experience({ action: "read" })).json()).entries).toEqual([]);
-    const shadow = await upsertSkill(root, { name: skill.installedName, scope: "project", content: "Unrelated project override", description: "A different package" });
-    expect((await experience({ action: "read" })).status).toBe(409);
-    expect((await experience({ action: "save", note, expectedRevision: 0 }, await realpath(dirname(shadow.path)))).status).toBe(409);
-    const shadowLoad = JSON.parse(await secondPlugin.tool.legalwork_skill_load.execute({ name: skill.installedName }, nextChat));
-    expect(shadowLoad.payload.chain[0].researchExperience).toBeUndefined();
-    await plugin.close(); await secondPlugin.close();
     expect((await vault.get(saved.id)).password).toBe(secret);
     await vault.delete(saved.id);
     expect((await create(payload)).status).toBe(400);
+    expect((await experience({ action: "read" })).status).toBe(404);
   } finally {
-    await server.stop(); engine.stop(true);
+    await plugin?.close(); await server.stop(); engine.stop(true);
     if (previous.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous.db;
     if (previous.xdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previous.xdg;
     if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url;
     if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token;
+    if (previous.agent === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previous.agent;
     await rm(root, { recursive: true, force: true });
   }
 });

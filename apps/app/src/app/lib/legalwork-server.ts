@@ -1001,6 +1001,7 @@ export type LegalworkInboxUploadResult = {
 };
 
 export type LegalworkBrowserPassword = {
+  websites: import("@legalwork/types/browser-password-request").ConnectedWebsite[];
   id: string;
   label: string;
   origin: string;
@@ -3413,9 +3414,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
 
     configureResearchDatabase: (workspaceId: string, payload: ResearchDatabaseSetup) =>
-      requestJson<{ item: ImportedPlugin }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/research-databases`, { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config }),
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/research-databases`, { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config }),
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
-    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
+    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string; websiteUrl?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 

@@ -1,3 +1,4 @@
+import { BrowserPasswords } from "./browser-passwords";
 import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dialog";
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 import { ResearchDatabasesSetup, type ResearchDatabasesProps } from "../../onboarding/research-databases";
@@ -107,6 +108,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         : "plugins";
   const [importOpen, setImportOpen] = useState(false);
   const [createPluginOpen, setCreatePluginOpen] = useState(false);
+  const [websitesOpen, setWebsitesOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
   const [researchActive, setResearchActive] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -188,10 +190,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-4">
           <SectionHeading size="page" className={props.showHeader === false ? "sr-only" : undefined} title={t("extensions.eyebrow_integrations")} description={props.showHeader === false ? undefined : t("integrations.description")} />
           <div className="flex max-w-full flex-wrap items-center gap-2">
+            {props.researchSetup?.client?.canApprove ? <Button variant="outline" onClick={() => setWebsitesOpen(true)}>{t("website_connections.title")}</Button> : null}
             {props.pluginImports ? <Button ref={importButton} variant="outline" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
             <IntegrationAddMenu size="default" triggerRef={addButton} disabled={props.busy} actions={[
               { label: t("extensions.filter_plugins"), icon: Package, onClick: () => setDirectoryRequest(value => value + 1) },
-              { label: t("research.menu"), icon: BookOpen, disabled: !props.researchSetup || !canImportPlugins || pluginsForbidden || skillsForbidden, onClick: () => setResearchOpen(true) },
+              { label: t("research.menu"), icon: BookOpen, disabled: !props.researchSetup?.client?.canApprove, onClick: () => setResearchOpen(true) },
               { label: t("skills.title"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
             ]} />
@@ -206,10 +209,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             </IntegrationMoreMenu>
           </div>
         </div>
+        {websitesOpen && props.researchSetup?.client ? <Dialog open onOpenChange={setWebsitesOpen}>
+          <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader><DialogTitle>{t("website_connections.title")}</DialogTitle><DialogDescription>{t("website_connections.description")}</DialogDescription></DialogHeader>
+            <BrowserPasswords client={props.researchSetup.client} />
+          </DialogContent>
+        </Dialog> : null}
         {researchOpen && props.researchSetup ? <Dialog open onOpenChange={open => { if (!open && !researchActive) setResearchOpen(false); }}>
           <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background sm:max-w-lg">
             <DialogHeader className="sr-only"><DialogTitle>{t("research.menu")}</DialogTitle><DialogDescription>{t("research.description")}</DialogDescription></DialogHeader>
-            <ResearchDatabasesSetup key={packageTarget} {...props.researchSetup} onActiveChange={setResearchActive} onInstalled={importedPackage} onDone={() => setResearchOpen(false)} />
+            <ResearchDatabasesSetup key={packageTarget} {...props.researchSetup} onActiveChange={setResearchActive} onInstalled={refresh} onDone={() => setResearchOpen(false)} />
           </DialogContent>
         </Dialog> : null}
         {createPluginOpen && props.pluginCreation ? <PluginCreateDialog key={packageTarget} store={props.pluginCreation} allowSkills={props.canAddSkill !== false && !skillsForbidden} allowConnectors={props.canAddConnector !== false && !connectorsForbidden} returnFocus={addButton} onClose={() => setCreatePluginOpen(false)} onCreated={plugin => {

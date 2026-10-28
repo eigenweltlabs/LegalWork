@@ -15,6 +15,9 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "website_connections.title": "Website-Zugänge",
+  "website_connections.description": "Gespeicherte Websites und Zugangsdaten sind in allen Ihren Chats verfügbar. Skills sind optional.",
+  "website_connections.destination": "Zu nutzende Website",
   "research.title": "Ihre juristische Recherche",
   "research.description": "Verbinden Sie die Recherche-Dienste, die Sie bereits nutzen. LegalWork kann sie für Recherchen in Browser Automation nutzen.",
   "research.country": "In welchem Land arbeiten Sie?",
@@ -35,10 +38,10 @@ const de = {
   "research.name": "Name der Datenbank",
   "research.set_up": "Integration einrichten",
   "research.skip": "Später einrichten",
-  "research.saved": "Recherche-Integrationen hinzugefügt",
-  "research.saved_hint": "Verfügbar unter Integrationen > Plugins. LegalWork prüft den Zugriff bei Ihrer ersten Recherche. Gespeicherte Zugänge verwalten Sie unter Einstellungen > Zugangsdaten > Browser-Passwörter.",
-  "research.setup_failed": "Der Zugang ist gespeichert, die Integration konnte jedoch nicht hinzugefügt werden. Wählen Sie Mit gespeichertem Zugang fortfahren, um es erneut zu versuchen. Falls Ihre Organisation eigene Integrationen einschränkt, wenden Sie sich an Ihre Administration.",
-  "research.load_failed": "Ihre Integrationen konnten nicht geladen werden.",
+  "research.saved": "Recherche-Websites verbunden",
+  "research.saved_hint": "Verwalten Sie gespeicherte Websites unter Integrationen > Website-Zugänge oder Einstellungen > Zugangsdaten > Browser-Passwörter. LegalWork prüft den Zugriff bei Ihrer ersten Recherche.",
+  "research.setup_failed": "Die Zugangsdaten sind gespeichert, aber die Recherche-Website konnte nicht verknüpft werden. Wählen Sie Mit gespeichertem Zugang fortfahren, um es erneut zu versuchen.",
+  "research.load_failed": "Ihre gespeicherten Websites konnten nicht geladen werden.",
   "research.invalid_url": "Geben Sie einen Namen und vollständige HTTPS-Adressen ohne eingebettete Zugangsdaten ein.",
   "research.unavailable": "Verbinden Sie sich mit Ihrem lokalen LegalWork-Desktop-Server, um die Browser-Recherche einzurichten. Sie können fortfahren und Datenbanken später unter Integrationen hinzufügen.",
   "research.managed": "Ihre Organisation verwaltet eigene Integrationen. Sie können fortfahren und die von Ihrer Administration bereitgestellten Integrationen nutzen.",

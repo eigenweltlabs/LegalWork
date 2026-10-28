@@ -1,4 +1,7 @@
-import { mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { CORE_OPENCODE_FILES } from "./core-skills.js";
+import { browserPasswords } from "./browser-passwords.js";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { ApiError } from "./errors.js";
@@ -20,6 +23,16 @@ export async function researchExperienceOwner(config: ServerConfig, workspace: s
     for (const file of plugin.files) if (file.objectType === "skill" && file.title === skill.name
       && await canonicalFilePath(resolveWorkspaceInstallPath(workspace, file.path, true)) === resolve(skill.directory, "SKILL.md")) return plugin.pluginId;
   }
+}
+
+/** The built-in skill owns per-website notes without installing a site skill. */
+export async function researchWebsiteExperienceOwner(config: ServerConfig, workspace: string, skill: Package, connectionId: string, websiteUrl: string) {
+  const source = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md");
+  if (!source || skill.name !== "legal-research" || await canonicalFilePath(resolve(workspace, source.path)) !== resolve(skill.directory, "SKILL.md")
+    || await readFile(resolve(skill.directory, "SKILL.md"), "utf8") !== source.content) return undefined;
+  const connection = (await browserPasswords(config).list()).find(item => item.id === connectionId);
+  if (!connection?.websites.some(site => site.url === websiteUrl)) throw new ApiError(404, "website_connection_not_found", "Choose an existing saved website destination.");
+  return `website:${connectionId}:${createHash("sha256").update(websiteUrl).digest("hex")}`;
 }
 
 /** Operational notes stay outside import-owned files, so setup and plugin updates preserve them. */

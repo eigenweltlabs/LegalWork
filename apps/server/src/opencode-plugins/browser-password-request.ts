@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode/plugin";
 import { OpenCode } from "@opencode/client";
 import { z } from "zod";
-import { browserPasswordRequestSchema } from "@legalwork/types/browser-password-request";
+import { browserPasswordRequestSchema, websiteConnectionUrl } from "@legalwork/types/browser-password-request";
 import { browserUrl, requestBrowser } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { nativeTool } from "./native-tool.js";
@@ -15,7 +15,7 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
   return nativeTool(ctx, {
     name: "legalwork_browser_request_password",
     description: "Show an inline saved-login form in this chat when a website needs sign-in and no matching password is available. Use the current tab's browser_url. The website is checked by the desktop, not supplied by the agent. Waits for the user to save or cancel, then returns only saved-entry metadata. Password input goes directly to LegalWork's vault, never through chat or native form answers. Reuse the returned ID with legalwork_browser_fill_password and a fresh observed field ref. If cancelled, do not ask again unless the user requests it. Local desktop browser only.",
-    schema: z.object({ browser_url: browserUrl, label: z.string().trim().min(1).max(200).optional(), username: z.string().max(500).optional() }),
+    schema: z.object({ browser_url: browserUrl, label: z.string().trim().min(1).max(200).optional(), username: z.string().max(500).optional(), start_url: websiteConnectionUrl.optional().describe("Stable website destination to associate with this login, when sign-in uses another URL. Shown to the user in the secure card. Omit OAuth state and session parameters.") }),
     async execute(input, context) {
       if (!context.sessionID || !context.abort) throw new Error("A browser password request requires its calling chat.");
       const sessionID = context.sessionID, signal = context.abort;
@@ -28,7 +28,7 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
       const current = listing.parse(await requestBrowser(input.browser_url, "passwords", undefined, context));
       if (current.passwords.length) return JSON.stringify(current);
       const parsed = browserPasswordRequestSchema.safeParse({ website: current.website,
-        label: input.label ?? (current.website ? new URL(current.website).hostname : ""), username: input.username ?? "" });
+        label: input.label ?? (current.website ? new URL(current.website).hostname : ""), username: input.username ?? "", ...(input.start_url ? { startUrl: input.start_url } : {}) });
       if (!parsed.success) throw new Error("Open a supported HTTPS website before requesting a saved login.");
       const request = parsed.data;
       const stream = new AbortController();

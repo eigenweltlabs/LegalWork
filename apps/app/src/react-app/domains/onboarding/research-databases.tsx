@@ -1,14 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, Plus, Search } from "lucide-react";
-import { legalResearchCountries, legalResearchProviders, researchProviderPluginId, researchWebsite, type ResearchProvider } from "@legalwork/types/legal-research";
+import { legalResearchCountries, legalResearchProviders, researchWebsite, type ResearchProvider } from "@legalwork/types/legal-research";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { currentLocale, t } from "@/i18n";
 import { BrowserPasswordForm } from "../session/modals/browser-password-form";
-import { useOrgPolicyForbids } from "../connections/org-policy";
 import { CoverBackButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 type Database = Pick<ResearchProvider, "name" | "researchUrl" | "loginUrl"> & { providerId?: string; needsLoginUrl?: boolean };
@@ -37,15 +36,13 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
   const [saving, setSaving] = useState(false), [error, setError] = useState("");
   const [added, setAdded] = useState<string[]>([]);
   const submitting = useRef(false);
-  const pluginsForbidden = useOrgPolicyForbids("plugins.allowCustom"), skillsForbidden = useOrgPolicyForbids("skills.allowCustom");
-  const forbidden = pluginsForbidden || skillsForbidden;
   const { client, workspaceId } = props;
-  const available = Boolean(client?.canApprove && workspaceId && !forbidden);
+  const available = Boolean(client?.canApprove && workspaceId);
   const installed = useQuery({
-    queryKey: ["research-databases", client?.baseUrl, workspaceId], enabled: available,
+    queryKey: ["browser-passwords", client?.baseUrl], enabled: available,
     queryFn: () => {
       if (!client || !workspaceId) throw new Error(t("research.unavailable"));
-      return client.listCloudPlugins(workspaceId);
+      return client.listBrowserPasswords();
     },
   });
   const names = new Intl.DisplayNames([currentLocale()], { type: "region" });
@@ -56,7 +53,7 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
     : provider.countries.includes(country));
   const current = queue[index];
   useEffect(() => { props.onActiveChange?.(Boolean(current)); }, [current, props.onActiveChange]);
-  const configured = (providerId: string) => Boolean(installed.data?.plugins[researchProviderPluginId(providerId)]);
+  const configured = (providerId: string) => Boolean(installed.data?.items.some(entry => entry.websites?.some(site => site.providerId === providerId || site.url === legalResearchProviders.find(item => item.id === providerId)?.researchUrl)));
   const begin = (items: Database[]) => { setQueue(items); setIndex(0); setError(""); setCustom(false); setLoginAddress(""); };
   const configure = async (passwordId: string) => {
     if (!client || !workspaceId || !current?.loginUrl || submitting.current) return;
@@ -65,8 +62,8 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
       const result = await client.configureResearchDatabase(workspaceId, current.providerId
         ? { providerId: current.providerId, country, passwordId, ...(current.needsLoginUrl ? { loginUrl: current.loginUrl } : {}) }
         : { name: current.name, researchUrl: current.researchUrl, loginUrl: current.loginUrl, country, passwordId });
-      cache.setQueryData<Awaited<ReturnType<LegalworkServerClient["listCloudPlugins"]>>>(["research-databases", client.baseUrl, workspaceId], previous => ({
-        marketplaces: previous?.marketplaces ?? {}, plugins: { ...previous?.plugins, [result.item.pluginId]: result.item },
+      cache.setQueryData<Awaited<ReturnType<LegalworkServerClient["listBrowserPasswords"]>>>(["browser-passwords", client.baseUrl], previous => ({
+        items: [...(previous?.items ?? []).filter(item => item.id !== result.item.id), result.item],
       }));
       setAdded(previous => [...new Set([...previous, current.name])]);
       setSelected(previous => previous.filter(value => value !== current.providerId));
@@ -115,8 +112,7 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
           <option value="OTHER">{t("research.other_country")}</option>
         </select>
       </div>
-      {forbidden ? <p role="status" className="text-sm text-muted-foreground">{t("research.managed")}</p>
-        : !available ? <p role="status" className="text-sm text-muted-foreground">{t("research.unavailable")}</p> : null}
+      {!available ? <p role="status" className="text-sm text-muted-foreground">{t("research.unavailable")}</p> : null}
       {country && available ? <>
         <div className="space-y-3">
           <h2 className="text-sm font-medium">{t("research.select")}</h2>

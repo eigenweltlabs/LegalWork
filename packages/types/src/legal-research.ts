@@ -432,5 +432,3 @@ export const legalResearchProviders: readonly ResearchProvider[] = [
     sources: ["https://github.com/freelawproject/courtlistener-api-client/blob/main/MCP_README.md", "https://wiki.free.law/c/courtlistener/help/memberships/individual-memberships/individual-memberships-faqs"],
   },
 ];
-
-export function researchProviderPluginId(id: string) { return `local:legal-research-${id}:global`; }

@@ -1,7 +1,7 @@
-/** Fixed instructions shared by connected research skills and wiki tools. */
+/** Fixed instructions shared by the general research skill and wiki tools. */
 export const legalResearchCaptureGuidance = `## Filing connected legal research
 
-After using a connected legal research website, identify useful, source-backed LEGAL KNOWLEDGE ONLY: legal propositions, legislation, case holdings, interpretation, exceptions and conflicting authorities. Do not offer to file website procedures, workflows, login or browser fixes, process notes, task logs, account details or client/matter records. Keep operational lessons solely in the database skill's experience log.
+After using a connected legal research website, identify useful, source-backed LEGAL KNOWLEDGE ONLY: legal propositions, legislation, case holdings, interpretation, exceptions and conflicting authorities. Do not offer to file website procedures, workflows, login or browser fixes, process notes, task logs, account details or client/matter records. Keep operational lessons solely in the research skill's website experience log.
 
 When there are concrete legal findings worth retaining, briefly name them and ask the user: "Would you like me to prepare these legal findings for your knowledge base?" In German: "Soll ich diese rechtlichen Erkenntnisse für Ihre Wissensbasis aufbereiten?" This connected-research offer is a narrow exception to the usual rule against proactive wiki contributions. Wait for an affirmative reply about these findings before creating or updating any staged draft. Silence and refusal are not consent. Do not offer the same declined findings again. An existing explicit request to file these identified findings already authorizes staging, so do not ask again.
 

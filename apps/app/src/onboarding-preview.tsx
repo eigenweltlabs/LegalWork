@@ -8,8 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { createLegalworkServerClient, type LegalworkServerClient, type LegalworkBrowserPassword } from "@/app/lib/legalwork-server";
-import type { ImportedPlugin } from "@/app/lib/extension-imports";
-import { legalResearchProviders, researchProviderPluginId } from "@legalwork/types/legal-research";
+import { legalResearchProviders } from "@legalwork/types/legal-research";
 import { ResearchDatabasesStep } from "@/react-app/domains/onboarding/research-databases";
 import { setLocale, t } from "@/i18n";
 import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
@@ -32,7 +31,6 @@ document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark"
 const delay = () => new Promise<void>((resolve) => window.setTimeout(resolve, 700));
 const queryClient = new QueryClient();
 const previewPasswords: LegalworkBrowserPassword[] = [];
-const previewResearchPlugins: Record<string, ImportedPlugin> = {};
 let researchAttempts = 0;
 let previewConfig: Record<string, unknown> = {};
 let previewSandbox: Awaited<ReturnType<LegalworkServerClient["sandboxStatus"]>> = {
@@ -43,22 +41,22 @@ let previewSandbox: Awaited<ReturnType<LegalworkServerClient["sandboxStatus"]>> 
 const permissionsClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "http://127.0.0.1:0" }),
   canApprove: true,
-  listBrowserPasswords: async origin => ({ items: previewPasswords.filter(item => item.origin === origin) }),
+  listBrowserPasswords: async origin => ({ items: previewPasswords.filter(item => origin === undefined || item.origin === origin) }),
   saveBrowserPassword: async input => {
     await delay();
-    const item = { id: crypto.randomUUID(), label: input.label, origin: input.origin, username: input.username, updatedAt: new Date().toISOString() };
+    const item = { id: crypto.randomUUID(), label: input.label, origin: input.origin, username: input.username, updatedAt: new Date().toISOString(), websites: [{ name: input.label, url: input.websiteUrl ?? input.origin }] };
     previewPasswords.push(item);
     return { item };
   },
-  listCloudPlugins: async () => ({ marketplaces: {}, plugins: { ...previewResearchPlugins } }),
   configureResearchDatabase: async (_workspaceId, input) => {
     await delay();
-    if (params.has("research-error") && researchAttempts++ === 0) throw new Error("Simulated installation failure");
+    if (params.has("research-error") && researchAttempts++ === 0) throw new Error("Simulated connection failure");
     const provider = "providerId" in input ? legalResearchProviders.find(item => item.id === input.providerId) : null;
     const name = provider?.name ?? ("name" in input ? input.name : "Research");
-    const pluginId = researchProviderPluginId(provider?.id ?? "custom-preview");
-    const item: ImportedPlugin = { pluginId, name, displayName: name, description: null, marketplaceId: null, updatedAt: null, importedAt: Date.now(), files: [], scope: "global", sourceKind: "plugin" };
-    previewResearchPlugins[pluginId] = item;
+    const item = previewPasswords.find(entry => entry.id === input.passwordId);
+    if (!item) throw new Error("Choose a saved login");
+    const url = provider?.researchUrl ?? ("researchUrl" in input ? input.researchUrl : item.origin);
+    item.websites = [...item.websites.filter(site => site.url !== url), { name, url, providerId: provider?.id }];
     return { item };
   },
   sandboxStatus: async () => previewSandbox,
