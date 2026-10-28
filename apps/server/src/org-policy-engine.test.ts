@@ -3,10 +3,11 @@ import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { buildOrgPolicyEngineLayerFor, managedEngineSettingsFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { buildOrgPolicyEngineLayerFor, mandatoryRuntimeConfigFilePath, managedEngineSettingsFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
@@ -17,7 +18,7 @@ import { nativePluginTestRuntime } from "./opencode-plugins/native-plugin-test-s
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { OcrManager } from "./ocr/manager.js";
-import { orgOcr } from "./org-policy-ai.js";
+import { orgOcr, orgChatProviderTemplates } from "./org-policy-ai.js";
 import { readSystemOneSettings, saveSystemOneMemberKey, saveSystemOneProvider, selectSystemOneProvider } from "./systemone.js";
 import { requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
 import { ReviewDefaults } from "./reviews/storage.js";
@@ -407,11 +408,58 @@ describe("the firm's own providers", () => {
     } finally { await engine.close(); }
   }, 45_000);
 
+  test.skipIf(!nativeMcpBinary)("firm API-key providers follow native credentials through connect, disconnect and restart", async () => {
+    const { config } = await setup({
+      ...entries,
+      "ai.chat.providers": { mode: "enforced", value: [
+        { ...entries["ai.chat.providers"].value[0], key: { by: "member" } },
+        { ...entries["ai.chat.providers"].value[1], key: { by: "firm", secretRef: "chat:missing" } },
+        entries["ai.chat.providers"].value[2],
+        { id: "org-mistral", name: "Firm Mistral", source: { type: "catalog", provider: "mistral" }, models: "all", key: { by: "firm", secretRef: "chat:mistral" } },
+      ] },
+    }, { "chat:mistral": "synthetic-firm-key" });
+    const layer = await buildOrgPolicyEngineLayerFor(config, "ws_1");
+    const connectionProviders = await orgChatProviderTemplates(config);
+    const requireConnection = Object.keys(connectionProviders);
+    expect(requireConnection).toEqual(["anthropic", "openai", "org-azure-1"]);
+    globalThis.fetch = realFetch;
+    const engine = await nativeMcpEngine(async root => {
+      const plugin = join(root, "catalog-plugin");
+      const build = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-model-catalog.ts", import.meta.url))],
+        outdir: plugin, naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
+      if (!build.success) throw new AggregateError(build.logs, "Catalog plugin must build");
+      return { ...layer, policies: [...Schema.decodeUnknownSync(Config.Info)(layer).policies ?? [],
+        { action: "integration.use", resource: "plugin:*", effect: "allow" }],
+        plugins: [{ package: plugin, options: { connectionProviders } }] };
+    });
+    const check = async (connected: boolean) => {
+      const client = engine.client(), location = engine.location;
+      const models = (await client.model.list({ location })).data;
+      const providers = (await client.provider.list({ location })).data;
+      for (const id of requireConnection) {
+        expect(providers.some(provider => provider.id === id)).toBe(connected);
+        expect(models.some(model => model.providerID === id)).toBe(connected);
+      }
+      expect(providers.some(provider => provider.id === "mistral")).toBe(true);
+    };
+    try {
+      await check(false);
+      expect(await engine.client().credential.list()).toHaveLength(0);
+      for (const integrationID of requireConnection) await engine.client().integration.connect.key({
+        integrationID, key: "synthetic-member-key", location: engine.location,
+      });
+      await check(true);
+      await engine.restart();
+      await check(true);
+      for (const credential of await engine.client().credential.list()) await engine.client().credential.remove({ credentialID: credential.id });
+      await check(false);
+      await engine.restart();
+      await check(false);
+    } finally { await engine.close(); }
+  }, 45_000);
+
   test("whole-provider access reaches the engine with a key: the firm's while signed in, or the member's own", async () => {
-    const { config, root } = await setup(entries, { "chat:org-anthropic-1": "sk-firm" });
-    // The member added their own key for the firm's Azure endpoint; OpenAI waits for their ChatGPT sign-in.
-    await mkdir(join(root, "data", "opencode"), { recursive: true });
-    await writeFile(join(root, "data", "opencode", "auth.json"), JSON.stringify({ "org-azure-1": { type: "api", key: "sk-mine" } }));
+    const { config } = await setup(entries, { "chat:org-anthropic-1": "sk-firm" });
     // A member's disconnect does not switch the firm's provider off.
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ policies: [{ action: "provider.use", resource: "anthropic", effect: "deny" }, { action: "provider.use", resource: "groq", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
@@ -423,8 +471,8 @@ describe("the firm's own providers", () => {
     expect(layer.policies?.filter(rule => rule.action === "provider.use")).toEqual([
       { action: "provider.use", resource: "*", effect: "deny" }, ...["eigenwelt", "anthropic", "openai", "org-azure-1"].map((resource): { action: "provider.use"; resource: string; effect: "allow" } => ({ action: "provider.use", resource, effect: "allow" })),
     ]);
-    expect(layer.providers).toMatchObject({
-      anthropic: { name: "Kanzlei Claude", settings: { apiKey: "sk-firm" } },
+    expect(layer.providers).toEqual({ anthropic: { name: "Kanzlei Claude", settings: { apiKey: "sk-firm" } } });
+    expect(await orgChatProviderTemplates(config)).toMatchObject({
       "org-azure-1": {
         package: "@opencode/ai/providers/openai/responses",
         name: "Kanzlei Azure",
@@ -441,9 +489,14 @@ describe("the firm's own providers", () => {
     const provider = (await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).providers;
     // Native provider identities remain discoverable for a future sign-in;
     // the withdrawn firm credential must not remain executable configuration.
-    expect(provider?.["org-azure-1"]?.settings?.baseURL).toBe("https://azure.example.com/v1");
+    expect(provider?.["org-azure-1"]).toBeUndefined();
+    const templates = await orgChatProviderTemplates(config);
+    expect(templates["org-azure-1"]?.settings?.baseURL).toBe("https://azure.example.com/v1");
+    const mandatory = await readJson(mandatoryRuntimeConfigFilePath(config));
+    expect(mandatory.plugins?.some(plugin => typeof plugin === "object"
+      && JSON.stringify(plugin.options?.connectionProviders) === JSON.stringify(templates))).toBe(true);
     expect(provider?.anthropic?.settings?.apiKey).toBeUndefined();
-    expect(JSON.stringify(provider)).not.toContain("sk-firm");
+    expect(JSON.stringify({ provider, templates })).not.toContain("sk-firm");
   });
 
   test("SystemOne lists the firm's provider until the member adds their key, and the firm's default model applies", async () => {
