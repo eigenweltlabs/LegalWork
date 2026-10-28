@@ -7738,6 +7738,17 @@ const de = {
   "views.project_hint": "Dashboards und Berichte, die Sie bewusst in diesem Projekt gespeichert haben.",
   "views.no_saved_dashboards": "Noch keine gespeicherten Dashboards. Erstellen Sie eines im Chat dieses Projekts und wählen Sie dann Speichern.",
   "views.report": "Bericht",
+  "wiki.source_files": "Quelldateien",
+  "wiki.source_files_draft": "Prüfen Sie diese Kopien zusammen mit der Seite. „Save to wiki“ legt beides gemeinsam ab und verlinkt die Dateien auf der Seite.",
+  "wiki.remove_source_file": "{name} aus diesem Entwurf entfernen",
+  "wiki.remove_source": "Entfernen",
+  "wiki.download_source": "Herunterladen",
+  "wiki.close_source_preview": "Quellenvorschau schließen",
+  "wiki.download_source_to_review": "Laden Sie die Datei herunter, um sie in der gewohnten Anwendung zu prüfen.",
+  "wiki.attach_source_in_chat": "Bitten Sie den Agenten im Chat, diese Projektdatei an den Entwurf anzuhängen.",
+  "wiki.filing_details": "Ablagedetails",
+  "wiki.source_file_count": "Quelldateien: {count}",
+  "wiki.review_filing_destination": "Prüfen Sie vor dem Speichern den Ablageort",
 } as const;
 
 export default de;
