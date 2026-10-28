@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { z } from "zod";
 import * as globalLibrary from "./managed-global-library.js";
+import * as systemOne from "./systemone.js";
 import { keepLegalworkRuntimeConfigFileFresh, legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, managedEngineSettingsFilePath, publishRuntimeConfigChanges, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
@@ -102,6 +103,7 @@ test("removing a shared plugin publishes everywhere without contacting any proje
   const server = await startServer(config);
   const stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
   const publish = spyOn(globalLibrary, "prepareManagedGlobalLibrary");
+  const readiness = spyOn(systemOne, "readSystemOneSettings");
   let request: Promise<Response> | undefined;
   try {
     const base = `http://127.0.0.1:${server.port}/workspace/${origin.id}/cloud-plugins`;
@@ -113,6 +115,7 @@ test("removing a shared plugin publishes everywhere without contacting any proje
     expect(refreshed).toEqual([]);
     await stopWatching();
     expect(publish).toHaveBeenCalledTimes(1);
+    expect(readiness).toHaveBeenCalledTimes(1);
     expect(await (await fetch(base, { headers })).json()).toMatchObject({ plugins: {} });
     for (const workspace of config.workspaces) {
       const settings = await readManagedEngineSettings(managedEngineSettingsFilePath(config), workspace.path);
@@ -120,7 +123,7 @@ test("removing a shared plugin publishes everywhere without contacting any proje
     }
   } finally {
     releaseOther(); await request?.catch(() => undefined);
-    await stopWatching(); publish.mockRestore(); await server.stop(); engine.stop(true);
+    await stopWatching(); publish.mockRestore(); readiness.mockRestore(); await server.stop(); engine.stop(true);
   }
 }), 30_000);
 

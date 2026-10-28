@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, getMcpConfig, listMcp, listMcpDisplay, mcpDisplayItem, mergeMcpEdit, removeMcp } from "./mcp.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
+import { legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 import { readGlobalMcpMap } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -78,6 +80,23 @@ test("stored connector metadata edits preserve saved values and leave native aut
     expect(await removeMcp(config, "matter", "authored")).toEqual([]);
     expect(await readFile(path, "utf8")).toBe(authored);
     expect((await listMcp(config, "matter", project)).find(item => item.name === "authored")?.config.url).toBe("{env:PRIVATE_ENDPOINT}");
+    const projection = await writeNativeProjectProjection(config, config.workspaces[0]!, {});
+    const native = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/api/config" ? Response.json([
+      { type: "document", path: legalworkRuntimeConfigFilePath(config), info: { mcp: { servers: { removedShared: saved, managed: saved } } } },
+      { type: "document", path: projection, info: { mcp: { servers: { removedProject: saved } } } },
+      { type: "document", path, info: { mcp: { servers: { authored: saved, local: saved } } } },
+      { type: "document", info: { mcp: { servers: { virtual: saved } } } },
+    ]) : new Response(null, { status: 404 }) });
+    config.opencodeBaseUrl = native.url.href;
+    try {
+      const updated = await listMcpDisplay(config, config.workspaces[0]!);
+      expect(updated.some(item => item.name === "removedShared" || item.name === "removedProject")).toBe(false);
+      expect(updated.find(item => item.name === "managed")).toMatchObject({ source: "config.remote", editable: true });
+      expect(updated.find(item => item.name === "virtual")).toMatchObject({ source: "config.project", editable: false });
+      expect(updated.find(item => item.name === "authored")).toMatchObject({ source: "config.project", editable: false });
+      expect(updated.find(item => item.name === "local")).toMatchObject({ source: "config.project", editable: false });
+    } finally { native.stop(true); }
+
   } finally {
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousXdg;
