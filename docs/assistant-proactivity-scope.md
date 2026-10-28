@@ -44,6 +44,7 @@ Example: after discussing an unsigned subscription agreement, a client email sup
 - Batch classification about every three minutes, with small jitter and no overlapping runs. Skip classification entirely without active watches or new eligible events.
 - Let the Assistant suppress, defer, or publish a concise update. Keep raw events, classification, reasoning, and tool calls out of the daily messenger UI.
 - Preserve scheduled tasks for timed or recurring checks, including website checks using the new browser automation capabilities. Do not turn them into the event polling implementation.
+- Let the Assistant suggest a morning briefing after a few useful exchanges if no briefing task exists. Accepting creates a normal scheduled task that reviews accessible recordings, emails, calendars, tasks and recent project activity, using the scratchpad to prioritize what the user needs to discuss or act on.
 
 Not in the first release: arbitrary plugins as event sources, cloud webhooks, closed-app execution, a second notification feed, autonomous external communication, a replacement calendar/task store, or a new agent-engine compatibility layer.
 
@@ -154,6 +155,39 @@ Timed work and event watching need separate records and controls. The user can c
 
 Existing `assistant-scheduled-work.ts` already isolates scheduled research and `scheduled-tasks/runner.ts` claims due runs durably. Keep those semantics. Replace engine-facing compatibility calls with native operations as part of the migration prerequisite, not a new adapter around them.
 
+### Suggest a morning briefing once the Assistant has useful context
+
+Keep this out of onboarding. After a few substantive user messages in the Assistant conversation, let the Assistant suggest a morning briefing when it would be useful and no briefing task exists. Proposed eligibility: three meaningful user turns, across daily Assistant chats. This is an opportunity to suggest, not a mandatory message at a counter threshold. Greetings, system activity, delegated worker returns and scheduled runs do not count. The Assistant should finish the current request and choose a natural pause, rather than interrupting urgent work or appending an offer to every reply.
+
+Make the offer a short conversational message tailored to known work. For example: “Would a morning briefing help? I could pull together client replies, meeting follow-ups and what you need to discuss today.” Mention only sources the Assistant can actually access. A small setup card is optional and explicitly chosen by the Assistant, never inserted automatically by an eligibility timer. Ordinary chat replies must work equally well.
+
+- Before suggesting, inspect the canonical scheduled-task store for an existing briefing, including paused or user-renamed tasks. Preserve the stable briefing purpose/identity independently of the title. Do not offer a duplicate when a briefing is paused; resume or change it only at the user's request.
+- Suggest once, with the offer and its response persisted across daily chats and restarts. Silence is not acceptance and does not cause a repeat offer. Respect “no” or “not now”; if the user specifies a later time, record that explicit deferral. A later direct request can always reopen setup. Deleting a briefing suppresses another unsolicited offer as well as automatic recreation.
+- On acceptance, confirm the schedule in the same exchange: time, visible timezone and weekdays. Reuse a stated preference; otherwise propose weekdays at 08:00 in the device's current timezone and obtain agreement to those details before creation. A single yes is sufficient when the original offer already included the schedule. Do not turn a general expression of interest into an unspecified schedule.
+- Create one ordinary scheduled task in the Assistant workspace through the existing tools, then confirm the saved schedule with a link to its settings. Users can edit its instructions, timing and source scope, pause, resume or delete it through the normal scheduled-task UI.
+- Recheck for an existing briefing at creation time and use the existing stable default-task identity to make retries and concurrent requests idempotent. If one appeared since the offer, show the existing task rather than creating another. Preserve custom prompts, timezone, timing and paused state.
+- Keep scheduled briefings, event watches and desktop notifications independently controllable. Turning desktop alerts off still leaves the briefing available in the Assistant chat.
+
+Each run gathers evidence through the available native tools, within the user's current project and connector permissions:
+
+| Source | Useful briefing content |
+| --- | --- |
+| Recordings and meeting transcripts | Recent discussion outcomes, decisions, unanswered questions and promised follow-ups, with recording links and timestamps where available |
+| Gmail and Outlook | New correspondence and replies, requests awaiting a response, and changes affecting current matters |
+| Calendars | Today's meetings and relevant changes, with preparation points drawn from the associated correspondence, recordings and project work |
+| Tasks, deadlines and project conversations | Due or overdue commitments, blockers, completed work and material updates, reconciled against newer evidence |
+| Scratchpad | Current priorities, awaited events and user feedback about which topics deserve more or less attention |
+
+Use the previous successful briefing's cutoff as the incremental window, with an initial lookback of 24 hours. Include older unresolved commitments and future appointments when they explain what needs attention today. Store the briefing cutoff separately from push-channel cursors: an event already consumed by the push service must remain available to a later briefing. Link earlier alerts where useful and summarize their current status rather than repeating them verbatim. Read the latest scratchpad on each run, so changing priorities does not require editing the schedule prompt.
+
+The scratchpad ranks emphasis; it is not an exclusive allowlist for this user-requested scheduled summary. A new deadline or an important meeting can belong in the briefing without a prior watch. The strict matching rule in section 3 applies only to unsolicited event-driven wake-ups. A watch created by the Assistant must not silently expand permissions or authorize action on a source.
+
+Organize the output around the user's day: decisions or replies needed, today's conversations and preparation points, then other meaningful changes. Say what is worth discussing and why, not just list unread items or meeting titles. Ground action items in sources, distinguish an explicit commitment from a suggested next step, and do not invent owners or deadlines. Read transcripts when available; do not claim to have reviewed a recording that has no accessible transcript or supported read path. Mention a missing source briefly only when it materially affects the briefing, without adding a standing “Coverage and limitations” section.
+
+Deliver one concise Assistant message with an explicitly chosen card for the saved briefing. Keep research, tool calls and scheduling instructions out of the conversation, and open the briefing only when the user asks or clicks. Use the existing scheduled worker and durable run receipt, with the final message going to the current Assistant day. An explicitly scheduled briefing still reports a quiet morning when there is no meaningful news; it is not subject to the event channel's silent-by-default decision. While the app is closed, no local run is promised. On resuming, coalesce missed briefing occurrences into one current briefing rather than sending a backlog of daily messages.
+
+The existing `ensureMorningBriefing` path creates a daily 06:00 task after `hasBriefingSessionThreshold` observes six root chats. Replace that automatic creation trigger with the conversational suggestion and acceptance flow. Track eligibility from native Assistant user-turn events and persist the offer state in the application store, without scanning the legacy session database or counting unrelated project chats. Supply eligibility, existing-task status and previous feedback as current turn context; the Assistant decides whether this is a good moment to offer. Preserve existing briefing tasks without duplication or changes to their enabled state. Briefing research and delivery must use the native migration contracts, and source reads must not change the visible UI.
+
 ## 6. Persistence and implementation boundaries
 
 Use the current application database with explicit migrations for watch entries, source cursors, event inbox, decisions, and delivery receipts. Native conversations remain in the engine's native store. These records are not a second task or email database: store source references and minimal transient excerpts, not complete mailbox bodies or duplicated task content. Proposed retention: seven days for processed event excerpts and 30 days for content-free deduplication/decision receipts; active watches and pending deliveries persist until resolved. Provider checkpoints/known identities needed for correctness have their own lifecycle.
@@ -170,6 +204,8 @@ Integrate one service into `createAssistantRuntime` startup/shutdown. It owns a 
 | `opencode-plugins/legalwork-assistant-tools.ts` | Watch and notify tools registered natively with explicit authority |
 | `session-execution-gate.ts`, `assistant-session-queue.ts` | Serialization and receipt concepts; fix known rejection/retry issue before reuse |
 | `assistant-scheduled-work.ts`, `scheduled-tasks/runner.ts` | Existing pull channel and worker behavior |
+| `assistant-briefing.ts`, Assistant turn context and scheduled-task tools | Replace threshold-based creation with an Assistant-chosen conversational offer; persist suggestion/response state and reuse the existing scheduled-task identity and controls |
+| `recording-library.ts`, `recording-access.ts`, `opencode-plugins/recording-tools.ts` | Discover and read permitted recordings/transcripts for scheduled briefings without opening the UI |
 | `push/events.ts`, `push/service.ts`, assistant notification UI | Notifications for committed messages, current name/avatar and preference |
 
 The earlier migration audit remains relevant. New-project admission, canonical access/config state, and definite-rejection handling must be fixed or proven against the native path before background delivery ships. Do not build this on legacy registry reads or extend `assistant-engine.ts` with more compatibility translations.
@@ -179,11 +215,12 @@ The earlier migration audit remains relevant. New-project admission, canonical a
 1. **Native delivery proof and watches:** confirm native internal decision and final-message publication contracts, add persistence/tools, recent-topic capture, lifecycle and basic settings. Verify a silent decision adds nothing to the visible conversation.
 2. **Task events end to end:** durable events through EU classification to a silent/deferred/notified decision, restart recovery, feedback, and one committed notification. Include a newly created project with all-project access.
 3. **Gmail, Outlook and calendars:** incremental collectors, baseline/pagination, account changes, cursor recovery and recurrence/folder deduplication. Validate against provider fixtures and controlled connected accounts.
-4. **Polish and release gate:** foreground/background notifications, completed bubble presentation, busy-chat priority, rate/cost measurements, pull-channel coexistence, and user help.
+4. **Conversational briefing setup:** eligibility after useful exchanges, an Assistant-chosen offer, explicit acceptance and schedule controls, recordings/transcripts and other connected-source research, scratchpad-based prioritization, saved briefing presentation, and removal of automatic creation without altering existing schedules.
+5. **Polish and release gate:** foreground/background notifications, completed bubble presentation, busy-chat priority, rate/cost measurements, pull-channel coexistence, and user help.
 
 Required acceptance cases:
 
-- No matching active watch means no Assistant wake-up and no message, even for an event labelled “urgent.”
+- No matching active watch means no event-driven Assistant wake-up and no message, even for an event labelled “urgent.” Explicitly scheduled briefings remain independent.
 - A relevant recent conversation produces a temporary watch and a later useful update without a separate user reminder request.
 - “Wait for Alex's signature page” alerts on the matching email, once, and closes the one-shot watch; unrelated Alex emails remain silent.
 - “Tell me if Lisa assigns a task” requires actor evidence and the correct assignment change, including in a project created after monitoring started.
@@ -194,6 +231,12 @@ Required acceptance cases:
 - Native execution rejection does not become endless delivery uncertainty, and background polling does not disable or flash the composer.
 - Sleep/resume, midnight, timezone changes, busy conversations, and multiple windows retain correct routing and deduplication.
 - A scheduled website check still runs independently, with its result eligible for a concise Assistant update.
+- A few substantive Assistant exchanges make a briefing suggestion eligible, but do not create a task or automatically render a card. Greetings, unrelated project chats and system turns do not advance eligibility; onboarding has no briefing setup step.
+- With no existing briefing and a useful natural pause, the Assistant can offer once. Silence, refusal or postponement do not create a task or cause repeated offers across daily chats and restarts. Deleting a briefing suppresses unsolicited recreation and re-suggestion.
+- An accepted offer with agreed scheduling details creates exactly one ordinary editable task. Retries and a concurrent task creation do not produce duplicates. Existing or paused briefing tasks suppress the offer and retain their custom instructions, timing and timezone.
+- A briefing combines relevant recording outcomes, correspondence, appointments and project commitments. Scratchpad topics receive priority while important new topics can still appear without a watch. With no watches, a scheduled briefing still works.
+- Briefing windows survive failures and retries without consuming push events or losing updates. Sleep/resume produces one current briefing, not a backlog; the message and saved briefing card appear once without opening a sidebar.
+- Missing or revoked source access does not cause invented findings or claims of having reviewed inaccessible material. Source content cannot change the briefing's instructions or authorize external actions.
 - A message uses the current configured Assistant name/avatar, appears once as a complete bubble, and respects desktop notification settings.
 
 Before rollout, run in an explicit test/shadow mode that records matches and Assistant decisions without sending messages, then inspect false positives and missed explicit watches. Record source lag, events collected, match rate, suppressed/delivered counts, retry counts, classifier tokens/cost, and wake-up count. Logs should retain IDs and reasons, not mailbox bodies or credentials. The implementation PR must include real end-to-end evidence in addition to unit tests.
