@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import AssistantPlugin, { ASSISTANT_REACTION_POLICY, LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
+import AssistantPlugin, { ASSISTANT_REACTION_POLICY, ASSISTANT_USER_DETAILS_INSTRUCTIONS, LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
 import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ASSISTANT_MESSAGE_POLICY } from "../assistant-handoff.js";
 import { nativePluginTestRuntime, nativeTestInvocation, nativeToolBefore } from "./native-plugin-test-support.js";
 
@@ -100,6 +100,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     expect(JSON.stringify(turn.parts)).toContain("Maya");
     expect(JSON.stringify(turn.parts)).toContain(preferences);
     expect(JSON.stringify(turn.parts)).toContain(ASSISTANT_MESSAGE_POLICY);
+    expect(JSON.stringify(turn.parts)).toContain(JSON.stringify(ASSISTANT_USER_DETAILS_INSTRUCTIONS).slice(1, -1));
     expect(JSON.stringify(turn.parts)).toContain("Bubble reactions are a requested part");
     expect(JSON.stringify(savedParts)).toBe(savedHistory);
     const toolOutput = { output: "Project found." };
@@ -113,6 +114,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     await plugin["chat.message"]({ sessionID: "today" }, next);
     expect(JSON.stringify(next.parts)).toContain("Momo");
     expect(JSON.stringify(next.parts)).toContain(preferences);
+    expect(JSON.stringify(next.parts)).toContain(JSON.stringify(ASSISTANT_USER_DETAILS_INSTRUCTIONS).slice(1, -1));
     expect(JSON.stringify(turn.parts)).toBe(originalParts);
     expect(after.system.join(" ")).not.toContain(preferences);
     expect(before.system.join(" ")).toContain(ASSISTANT_MESSAGE_POLICY);
