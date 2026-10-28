@@ -3,7 +3,7 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentInfo as Agent } from "@opencode/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Phone, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { IconTile } from "@/react-app/design-system/surface";
@@ -1219,17 +1219,17 @@ export function ReactSessionComposer(props: ComposerProps) {
               {/* Busy-session sends enter the queue; Stop pauses pending messages. */}
               <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-end justify-end gap-1.5">
                 <ComposerDictationButton dictation={dictation} disabled={props.inputDisabled || props.realtimeVoiceActive} />
-                {props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
+                {!props.assistantName && props.realtimeVoiceSupported && props.onToggleRealtimeVoice ? (
                   <button
                     type="button"
                     onClick={props.onToggleRealtimeVoice}
-                    className={props.assistantName ? "grid size-9 shrink-0 place-items-center rounded-full text-gray-11 transition-colors hover:bg-gray-3" : "grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"}
-                    title={props.realtimeVoiceActive ? t("composer.close_voice_mode") : props.assistantName ? t("assistant.talk_to", { name: props.assistantName }) : t("composer.start_voice_mode")}
-                    aria-label={props.realtimeVoiceActive ? t("composer.close_voice_mode") : props.assistantName ? t("assistant.talk_to", { name: props.assistantName }) : t("composer.start_voice_mode")}
+                    className="grid size-9 place-items-center rounded-full bg-gray-12 text-gray-1 shadow-sm transition-transform hover:scale-[1.04] hover:bg-black"
+                    title={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
+                    aria-label={props.realtimeVoiceActive ? t("composer.close_voice_mode") : t("composer.start_voice_mode")}
                     aria-pressed={props.realtimeVoiceActive}
                     data-testid="voice-mode-toggle"
                   >
-                    {props.realtimeVoiceActive ? <X size={16} /> : props.assistantName ? <Phone size={15} className="shrink-0" /> : <AudioLines size={17} />}
+                    {props.realtimeVoiceActive ? <X size={16} /> : <AudioLines size={17} />}
                   </button>
                 ) : null}
                 {props.busy ? (
