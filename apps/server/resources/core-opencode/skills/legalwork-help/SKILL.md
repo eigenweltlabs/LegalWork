@@ -22,7 +22,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |
 | Cloud drives or network storage | [connected-storage.md](references/connected-storage.md) |
-| Research databases, country suggestions, beck-online, Lexis, Westlaw or CourtListener setup | [integrations.md](references/integrations.md) |
+| Research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
 | Connectors, plugins, browser or Computer Use | [integrations.md](references/integrations.md) |
 | Wiki | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |

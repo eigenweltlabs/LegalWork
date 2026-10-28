@@ -8,7 +8,7 @@ import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle
 import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
 import { requestResourceChange } from "./request-resource-change.js";
-import { readSkillPackageFile } from "./skill-package.js";
+import { inspectSkillPackage, readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { registeredMessageQueue, stopMessageQueue } from "./session-message-queue.js";
 import { dispatchQueueAction } from "./session-dispatch.js";
@@ -101,6 +101,8 @@ import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
 import { planResearchDatabase } from "./legal-research.js";
+import { researchExperience, researchExperienceOwner, withResearchExperience } from "./research-experience.js";
+import { researchExperienceAction } from "./research-experience-schema.js";
 import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
@@ -4657,7 +4659,30 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+    const composed = await composedSkill(workspace.path, ctx.params.name);
+    return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/skills/:name/research-experience", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
+    if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
+    const { directory, operation } = parsed.data;
+    const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
+    const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
+    const owner = await researchExperienceOwner(config, workspace.path, skill);
+    if (!owner || skill.directory !== directory) throw new ApiError(409, "research_skill_changed", "Load the configured research skill again before accessing its experience log.");
+    if (operation.action !== "read") {
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      await requireOrgPolicyAllows(config, "skills.allowCustom");
+      await requireApproval(ctx, { workspaceId: workspace.id, action: "skills.upsert", summary: `Update research experience for ${skill.name}`, paths: [runtimeDbPath(config)] });
+    }
+    const result = await researchExperience(config, owner, skill, operation);
+    if (operation.action !== "read") await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "skills.upsert", target: runtimeDbPath(config), summary: `Updated research experience for ${skill.name}`, timestamp: Date.now() });
+    return jsonResponse(result);
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:name/package-file", "client", async ctx => {

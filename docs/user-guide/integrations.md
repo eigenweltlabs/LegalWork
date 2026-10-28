@@ -30,6 +30,16 @@ The research website and sign-in website can have different domains. For example
 
 “Set up” confirms that the integration and saved-login reference exist. It does not confirm a successful provider login or access to every database module. If setup fails after saving a login, choose **Continue with saved login** to retry. If you edited the installed skill yourself, LegalWork preserves those edits; review or remove the existing plugin before recreating it. If your organization disables custom integrations or skills, your administrator manages this setup. Browser password filling requires the local desktop browser.
 
+### Learning from research website problems
+
+Each configured database has a research skill with its own experience log. When the assistant encounters a website problem, it records the generic situation, what it tried and what happened. Failed attempts remain **unresolved**. An approach becomes **verified** only after the assistant observes it working. Outdated approaches can be marked **obsolete**. Normal tool permissions and your organization's rules still apply; the assistant reports when a note cannot be saved.
+
+Future chats load these notes with the database's skill before browsing. For example, if reopening an old sign-in page failed but starting from the database's homepage worked, the assistant can use that experience on its next visit. It still checks the current page. Notes from an older skill version or more than 30 days ago are flagged for rechecking.
+
+The log is saved on this LegalWork server and available across your projects. Reconfiguring or reinstalling the same integration preserves it. Sharing or exporting the plugin does not include this local log. Ask “Show me what you learned about using beck-online” to inspect its notes, or “Forget the expired sign-in note for beck-online” to remove one. Remove unwanted notes before removing the integration; they are otherwise retained for a future reinstall.
+
+Notes are for website navigation and search mechanics. The assistant must leave out passwords, usernames, session links, client details and research results. A saved note cannot authorize a new login domain, bypass MFA or CAPTCHA, or change subscription access.
+
 ## LegalMemory and firm knowledge
 
 LegalMemory is a separate Eigenwelt knowledge index. Connect the firm's instance using its connector when available. Search its live records for matters, documents and other firm knowledge; inspect the returned source evidence. Connecting ordinary file storage does not automatically create a LegalMemory index.

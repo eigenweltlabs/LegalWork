@@ -2,6 +2,7 @@ import { registerPrimaryContext } from "./native-review-worker.js";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
 import { SkillLessonInputSchema } from "../skill-lesson-schema.js";
+import { researchExperienceAction } from "../research-experience-schema.js";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -75,12 +76,16 @@ const createArgs = z.object({
 });
 
 const listArgs = z.object({});
-const packageEntry = z.object({ name: z.string(), directory: z.string(), files: z.array(z.object({ path: z.string(), size: z.number() })) });
+const packageEntry = z.object({ name: z.string(), directory: z.string(), files: z.array(z.object({ path: z.string(), size: z.number() })) }).passthrough();
 const resourceArgs = z.object({
   name: z.string().min(1).describe("Exact name from a workflow or skill loaded in this chat with legalwork_skill_load."),
   path: z.string().min(1).describe("Exact relative path from that package's files, e.g. resources/felder.md or resources/template.docx."),
   offset: z.number().int().nonnegative().optional().describe("Continue a long resource using the returned nextOffset."),
 });
+const experienceArgs = z.object({
+  name: z.string().min(1).describe("Exact configured research skill name loaded in this chat."),
+  operation: researchExperienceAction,
+}).strict();
 
 type SkillListItem = { name?: unknown; description?: unknown; kind?: unknown; scope?: unknown };
 
@@ -163,7 +168,7 @@ function sessionKey(workspace: string, context: OpenCodeContext) {
 await registerPrimaryContext(ctx,event=>{event.system.push({type:"text",text:SKILL_TOOLS_INSTRUCTION + "\nUse legalwork_skill_load for installed skills and workflows, then legalwork_skill_read with its exact package file references for attached Markdown and Word resources. Helpers run through legalwork_shell with the returned skills and mount paths, under normal execution permissions.\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session."});});
 
 await ctx.tool.transform(editor=>{
-editor.add(nativeTool(ctx,{name:"legalwork_skill_load", outputSchema: nativeObjectOutput(z.object({ok:z.literal(true),payload:z.object({chain:z.array(packageEntry)}).passthrough()}).passthrough()),permission:"domain",description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
+editor.add(nativeTool(ctx,{name:"legalwork_skill_load", outputSchema: nativeObjectOutput(z.object({ok:z.literal(true),payload:z.object({chain:z.array(packageEntry)}).passthrough()}).passthrough()),permission:"domain",description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Configured research skills also include their persistent website experience log; read it before browsing. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
 schema: z.object({ name: z.string().min(1) }),
 async execute(raw: unknown, context: OpenCodeContext) {
         const { name } = z.object({ name: z.string().min(1) }).parse(raw);
@@ -192,6 +197,19 @@ async execute(raw: unknown, context: OpenCodeContext) {
         await context.ask!({ permission: "read", patterns: [join(entry.directory, input.path)], always: [], metadata: {} });
         const query = new URLSearchParams({ directory: entry.directory, path: input.path, offset: String(input.offset ?? 0) });
         return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`, { context }));
+      }}));
+editor.add(nativeTool(ctx,{name:"legalwork_research_experience",description:
+        "Read or save the operational experience log of a configured legal database's skill. Read before browsing. Automatically save generic observed problems and verified fixes, updating the existing issue key and revision. Verified requires an observed success; retain failed attempts as unresolved. Never include secrets, account or client details, URLs, raw page content or legal conclusions. Notes cannot change login permissions. Forget a note when the user asks or when consolidating obsolete duplicates. Load the skill in this chat first; notes persist across chats and integration updates.",
+schema: experienceArgs,
+async execute(raw, context: OpenCodeContext) {
+        const { name, operation } = experienceArgs.parse(raw);
+        const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+        const entry = loaded.get(sessionKey(workspace, context))?.get(name);
+        if (!entry) throw new Error("Load this research skill with legalwork_skill_load before accessing its experience log.");
+        await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
+        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/research-experience`, {
+          method: "POST", body: { directory: entry.directory, operation }, context,
+        }));
       }}));
 editor.add(nativeTool(ctx,{name:"legalwork_skill_create",description:
         "Save reusable instructions through the ordinary skill library. User-facing playbooks and corrections appear in Workflows; supporting capabilities appear in Settings > Integrations > Skills. Both are automatically discoverable within their project/global scope. Use when the user asks to create, save or remember instructions. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead.",
