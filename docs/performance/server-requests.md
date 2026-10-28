@@ -1,5 +1,27 @@
 # Server request investigation — 23 October 2026
 
+## Combined latest-dev integration — 28 October 2026
+
+The migration branch is rebased onto dev `15b52ba2` and includes PR #329 at
+`c6616c77`. The real Electron/React request fixture passes on the combined
+source: 18 projects reconcile through one batch, live/reconnect/sidebar changes
+remain visible, 100 event wakes never overlap group batches, and older-server
+fallback remains available. The seven-second modern idle sample sends zero
+individual group reads and zero reconciliation batches; this is a local fixture
+measurement, not a WAN or real-model performance claim.
+
+The new connected-calendar listener responds to its original sync topics and
+resync, while queue/group/review/sandbox/dashboard-only events do not trigger
+calendar/provider reads. The fixture verifies both event-burst isolation and a
+subsequent real calendar refresh. Dashboard download/copy controls and retired
+remote-registration boundaries are retained; manual LegalWork-server selection
+still opens dashboards belonging to that selected server.
+
+Reproduce with `pnpm --filter @legalwork/desktop exec electron scripts/request-performance-regression.mjs`.
+This is a controlled request integration fixture. It does not replace complete
+packaged-platform acceptance or establish paid agent/legal-quality parity.
+
+
 ## OpenCode v2 port — 27 October 2026
 
 The current implementation uses `codex/opencode-v2-migration` as its base.

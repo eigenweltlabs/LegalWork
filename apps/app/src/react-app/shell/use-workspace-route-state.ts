@@ -382,7 +382,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!isCurrent()) return;
       // Restore saved dashboard tabs to the current desktop port before
       // exposing the new client. Only server-confirmed local owners can move.
-      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
+      if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.map(workspace => workspace.id));
       const { routeWorkspaceId, selectedSessionId } = routeSelectionRef.current;
       hasLoadedServerWorkspacesRef.current = true;
       setHasLoadedServerWorkspaces(true);
