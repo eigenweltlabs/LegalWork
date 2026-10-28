@@ -31,6 +31,7 @@ for (const scenario of ["publish", "rollback", "close"]) {
         inspectNativeEngineRecovery: async () => ({ sessions: [{ id: "held" }] }),
         assertNativeEngineRecoveryProjectsReady: async () => { if (!allowed) throw new Error("Project approval held"); },
       }));
+      mock.module(${JSON.stringify(new URL("./session-history-permissions.ts", import.meta.url).href)}, () => ({ assertRegisteredLegacySessionPermissionsReady: async () => {}, restoreRegisteredLegacySessionPermissions: async () => {} }));
       mock.module(${JSON.stringify(new URL("./managed-opencode-service.ts", import.meta.url).href)}, () => ({ stopManagedOpencodeService: async () => {} }));
       mock.module(${JSON.stringify(new URL("./managed-opencode.ts", import.meta.url).href)}, () => ({ createManagedOpencodeServer: async () => { throw new Error("Unexpected engine factory; use the owned injected creator"); } }));
       mock.module(${JSON.stringify(import.meta.resolve("@opencode/client"))}, () => ({ OpenCode: { make: () => ({

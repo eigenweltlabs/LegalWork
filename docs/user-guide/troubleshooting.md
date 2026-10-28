@@ -7,6 +7,9 @@ Start with the exact error, current workspace, platform and action that failed. 
 | Symptom | What to check |
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
+| New project or wiki cannot start a task | Read the project setup error. Retry setup after resolving it; the project must publish its engine configuration before accepting a task. |
+| Message delivery is unconfirmed or paused | Inspect the linked chat before retrying. Resolve the displayed cause, then resume the queued message explicitly. A lost response does not prove the message was rejected. |
+| Older chat reports missing migration data | Keep the recovery copies and contact support. Do not delete the app database or reset permissions to bypass the recovery error. |
 | Model request fails | Read the provider's authentication, quota, rate-limit or context-size error. Check the selected model/account and retry when appropriate; reconnecting storage will not fix a provider quota. |
 | File cannot be found or accessed | Confirm the project and path. Check folder Permissions, firm role and source/provider permissions. An attachment in another workspace may not be present here. |
 | Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials in the LegalWork installation running it. |

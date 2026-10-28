@@ -25,7 +25,7 @@ export function deriveSessionRenderModel(input: {
     };
   }
 
-  if (input.isError) {
+  if (input.isError && !input.hasSnapshot) {
     return {
       intendedSessionId: input.intendedSessionId,
       renderedSessionId: input.renderedSessionId,
@@ -55,7 +55,7 @@ export function deriveSessionRenderModel(input: {
   return {
     intendedSessionId: input.intendedSessionId,
     renderedSessionId: input.renderedSessionId,
-    transitionState: input.isFetching ? "switching" : "idle",
-    renderSource: "live",
+    transitionState: "idle",
+    renderSource: input.isError ? "cache" : "live",
   };
 }

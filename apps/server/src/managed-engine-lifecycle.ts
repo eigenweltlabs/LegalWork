@@ -5,6 +5,7 @@ import { inspectNativeEngineRecovery, assertNativeEngineRecoveryProjectsReady } 
 import { stopManagedOpencodeService, type ManagedOpencodeServiceOptions } from "./managed-opencode-service.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createManagedImageAffinity } from "./managed-image-affinity.js";
+import { assertRegisteredLegacySessionPermissionsReady, restoreRegisteredLegacySessionPermissions } from "./session-history-permissions.js";
 import type { ServerConfig } from "./types.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
@@ -21,6 +22,7 @@ export async function startManagedEngineLifecycle(options: {
   let mode: "service" | "recovery" | "promoting" = "recovery";
   let failure: { code: string; message: string } | undefined;
   let admissions = 0, closed = false, serviceStartupFailed = false;
+  let endpointLive = false, legacyPoliciesPrepared = false;
   const attempts = new Map<string, { kind: "oauth" | "command"; integrationID: string; attemptID: string; directory: string }>();
   let checking: Promise<void> | undefined;
   let events: AbortController | undefined;
@@ -28,7 +30,16 @@ export async function startManagedEngineLifecycle(options: {
   await stopManagedOpencodeService(options.service);
   const held = (await inspectNativeEngineRecovery(options.database)).sessions;
   const heldIDs = new Set(held.map(session => session.id));
-  const preflight = async () => { await assertNativeEngineRecoveryProjectsReady(config, options.database); };
+  const prepareLegacyPolicies = async () => {
+    await restoreRegisteredLegacySessionPermissions(config, client());
+    await assertRegisteredLegacySessionPermissionsReady(config, client());
+    legacyPoliciesPrepared = true;
+  };
+  const preflight = async () => {
+    if (endpointLive) await prepareLegacyPolicies();
+    else if (!legacyPoliciesPrepared) await assertRegisteredLegacySessionPermissionsReady(config);
+    await assertNativeEngineRecoveryProjectsReady(config, options.database);
+  };
   const publish = async () => {
     try {
       if (closed) throw new Error("Managed engine lifecycle closed during image history binding.");
@@ -44,6 +55,10 @@ export async function startManagedEngineLifecycle(options: {
       workspace.baseUrl = engine.url; workspace.opencodeUsername = engine.username; workspace.opencodePassword = engine.password;
       workspace.directory = workspace.path;
     }
+    endpointLive = true;
+    // Session get/update is passive in the released API. Restore original chat
+    // policies before service promotion can resume any interrupted agent work.
+    try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
   };
   const client = () => OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
   const remember = (error: unknown) => {
@@ -76,6 +91,7 @@ export async function startManagedEngineLifecycle(options: {
       if (admissions > 0) { mode = "recovery"; scheduleIdleRetry(); return; }
       events?.abort(); events = undefined;
       imageAffinity.disconnect();
+      endpointLive = false;
       await engine.close();
       try { engine = await options.create("service", preflight); await publish(); mode = "service"; serviceStartupFailed = false; failure = undefined; }
       catch (error) {
@@ -138,7 +154,7 @@ export async function startManagedEngineLifecycle(options: {
     get engine() { return engine; },
     refresh,
     async close() {
-      closed = true; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
+      closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
       delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },

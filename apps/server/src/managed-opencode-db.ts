@@ -257,7 +257,7 @@ export async function inventoryLegacyHistory(source: string, destination: string
  * A failed copy of existing managed history stops startup; silently starting
  * against another database would hide the user's chats.
  */
-export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Promise<ManagedEngineDb | null> {
+async function prepareManagedOpencodeEngineDbFiles(config: ServerConfig): Promise<ManagedEngineDb | null> {
     if (process.env.OPENCODE_DB?.trim()) return null;
 
     const storageDir = engineStorageDir(config);
@@ -266,7 +266,7 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
     if (existsSync(privatePath)) {
       // Earlier development migrations retained original v1 rows. Freeze
       // them before a future engine can clean up those tables.
-      if (!(await readLegacyHistoryBackup(config))) {
+      if (!existsSync(join(storageDir, "history-import-state.json")) && !(await readLegacyHistoryBackup(config))) {
         const db = await openSqliteReadonly(privatePath);
         try {
           const tables = new Set(db.all("SELECT name FROM sqlite_master WHERE type='table'").map(row => row.name));
@@ -277,6 +277,8 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
       }
       return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
     }
+
+    if (existsSync(join(storageDir, "history-import-state.json"))) throw new Error("The migrated engine history database is missing. Restore its private recovery copy before starting.");
 
     if (process.env.LEGALWORK_DEV_MODE === "1") return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
 
@@ -310,4 +312,14 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
       sharedDbCompatibility: compatibility,
       ...(migrationReport ? { migrationReport } : {}),
     };
+}
+
+/** Import application-owned history metadata once, before the engine can resume work. */
+export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Promise<ManagedEngineDb | null> {
+  const result = await prepareManagedOpencodeEngineDbFiles(config);
+  if (result) {
+    const { readCurrentHistory } = await import("./current-history-state.js");
+    await readCurrentHistory(config);
+  }
+  return result;
 }
