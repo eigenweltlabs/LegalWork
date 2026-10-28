@@ -28,9 +28,13 @@ When asking what was said previously, name the chat or topic and let the assista
 
 Answers display mathematical formulas and monetary calculations with their formatting, including euro amounts. This also applies when you reopen an earlier chat. Plain prices and examples inside code blocks keep their original text. A formula may appear as text while the assistant is still writing it and becomes formatted when it is complete. Wide formulas scroll horizontally within the answer.
 
-## Remote access
+## Connected services
 
-Use the remote connection flow with a LegalWork worker URL and its access token/password. The host must be reachable and running. A collaborator connection has fewer administrative powers than owner/host access. Sharing a worker gives access to that runtime under its permissions; it does not make a folder publicly available by itself. Treat a sharing token as a credential. Check the sharing details again after switching the host's active local folder.
+When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card inline in the conversation. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
+
+Reloading the LegalWork window keeps its browser pages and text you have entered open. Closing the app can still discard unsaved website changes; save those changes on the website before quitting.
+
+Connect cloud storage and other services through **Settings > Integrations**. Their account permissions apply separately from local folder permissions. A separately operated LegalWork server uses its own URL and access token and must remain reachable; its credentials and files belong to that server. Adding a remote agent as a workspace is no longer supported. Treat connection tokens as credentials.
 
 ## Keyboard shortcuts
 

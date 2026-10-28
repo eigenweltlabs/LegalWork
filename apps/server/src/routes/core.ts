@@ -26,6 +26,7 @@ import { addRoute, type Route } from "./registry.js";
 import { connectorSettings } from "../connectors/settings.js";
 import { registerConnectorRoutes } from "./connectors.js";
 import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
+import { registerBrowserPasswordRoutes } from "./browser-passwords.js";
 import { collectSupportDiagnostics } from "../support-diagnostics.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
@@ -82,6 +83,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
   registerConnectorRoutes({ routes, config, jsonResponse, readOptionalJsonBody, resolveWorkspace });
   const envPendingChangesByRuntime = new Map<string, boolean>();
+  registerBrowserPasswordRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable });
 
   const healthResponse = () => jsonResponse({
     ok: true,

@@ -6,34 +6,85 @@ import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { nativeTool } from "./native-tool.js";
 import { nativePluginTestRuntime, nativeTestInvocation } from "./native-plugin-test-support.js";
 import { z } from "zod";
+import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
 const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-browser-tools-")));
 const native = nativePluginTestRuntime(root), calls: Array<{ route: string; body: unknown; session: string | null }> = [];
 const token = "b".repeat(64), bytes = Buffer.alloc(6 * 1024 * 1024, 97), png = Buffer.from("complete-image-bytes");
 let holdCapture = false;
+let rejectPasswordFill = false;
 const broker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const url = new URL(request.url), body: unknown = request.method === "POST" ? await request.json() : undefined;
   calls.push({ route: url.pathname, body, session: request.headers.get("x-legalwork-browser-session") });
+  if (url.pathname.endsWith("/passwords")) return Response.json({ passwords: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", username: "user" }] });
+  if (url.pathname.endsWith("/fill-password")) return rejectPasswordFill
+    ? Response.json({ ok: false, error: "The current website does not match the saved password's website." }, { status: 400 })
+    : Response.json({ filled: true });
   if (url.pathname.endsWith("/upload")) return Response.json({ uploaded: [{ name: "source.bin", bytes: bytes.length }] });
   if (url.pathname.endsWith("/capture")) { if (holdCapture) await Bun.sleep(200); return Response.json({ data: png.toString("base64"), mime: "image/png" }); }
   return Response.json({ downloads: [] });
 } });
 const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+const previousDiscovery = process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
+const bridgeCalls: unknown[] = [];
+let bridgeResult: unknown;
 let transferReads = 0;
 const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
   if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: root }] });
   if (path.endsWith("/sandbox/session/ses_upload")) return Response.json({ enabled: true, networkMode: "allow" });
+  if (path === "/execute") { bridgeCalls.push(await request.json()); return Response.json(bridgeResult); }
   if (path.endsWith(`/extensions/${token}/execute/downloads`)) return Response.json({ downloads: [{ id: "file_remote", name: "large-record.bin", state: "completed", path: null, relativePath: null, receivedBytes: bytes.length, totalBytes: bytes.length, error: null, transferRequired: true }] });
   if (path.endsWith(`/extensions/${token}/execute/download`)) { expect(request.headers.get("authorization")).toBe("Bearer fixture"); expect(await request.json()).toEqual({ id: "file_remote" }); transferReads++; return Response.json({ id: "file_remote", name: "large-record.bin", data: bytes.toString("base64") }); }
   return new Response(null, { status: 404 });
 } });
 process.env.LEGALWORK_SERVER_URL = policy.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
-afterAll(async () => { broker.stop(true); policy.stop(true); await native.close(); await rm(root, { recursive: true, force: true }); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken; });
+afterAll(async () => { broker.stop(true); policy.stop(true); await native.close(); await rm(root, { recursive: true, force: true }); if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl; if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken; if (previousDiscovery === undefined) delete process.env.LEGALWORK_UI_CONTROL_DISCOVERY; else process.env.LEGALWORK_UI_CONTROL_DISCOVERY = previousDiscovery; });
 const browser_url = `${broker.url.origin}/${token}`;
-function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads") {
+test("registered browser tools expose typed direct results and compose with native tabID without another open", async () => {
+  const discovery = join(root, "bridge.json");
+  await writeFile(discovery, JSON.stringify({ baseUrl: policy.url.origin, token: "fixture" }));
+  process.env.LEGALWORK_UI_CONTROL_DISCOVERY = discovery;
+  const runtime = nativePluginTestRuntime(root);
+  await runtime.start(LegalWorkExtensionsPreview);
+  try {
+    const snapshot = { tab: { id: "exact-tab", url: "https://example.com/login", generation: 3 }, content: '@e1 [textbox] "Username"\n@e2 [textbox] "Password"', truncated: false };
+    bridgeResult = { ok: true, actionId: "browser.open_url", result: { tab_id: "exact-tab", url: snapshot.tab.url, browser_url, snapshot } };
+    const open = runtime.tools.get("legalwork_browser_open_url")!;
+    const connect = runtime.tools.get("legalwork_browser_connect")!;
+    const opened = (await open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).output;
+    const output = z.object({ tabID: z.string(), browser_url: z.string(), snapshot: z.object({ content: z.string() }) }).parse(opened);
+    expect(output).toMatchObject({ tabID: "exact-tab", browser_url, snapshot: { content: snapshot.content } });
+    expect(opened).not.toHaveProperty("result");
+    const advertised = z.fromJSONSchema(z.record(z.string(), z.unknown()).parse(open.output));
+    expect(advertised.safeParse(opened).success).toBe(true);
+    expect(advertised.safeParse({ ok: true, result: opened }).success).toBe(false);
+    const listed = await runtime.tools.get("legalwork_browser_passwords")!.execute({ browser_url: output.browser_url }, nativeTestInvocation("ses_upload"));
+    expect(listed.output).toMatchObject({ passwords: [{ username: "user" }] });
+    for (const input of [{ tabID: output.tabID }, { tab_id: output.tabID }]) {
+      expect((await connect.execute(input, nativeTestInvocation("ses_upload"))).output).toEqual(opened);
+      expect(bridgeCalls.at(-1)).toMatchObject({ actionId: "browser.connection", args: { tabId: output.tabID }, callerSessionId: "ses_upload" });
+    }
+    bridgeResult = { ok: false, error: "Browser unavailable" };
+    await expect(open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).rejects.toThrow();
+  } finally { await runtime.close(); }
+});
+function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password") {
   const definition = legalworkBrowserTools[name];
   return nativeTool(native.ctx, { name, description: definition.description, schema: z.object(definition.args), execute: (input, context) => definition.execute(input, context) });
 }
+test("native password tools send only the ID/ref, preserve calling identity and decline manual-server forwarding", async () => {
+  const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
+  native.permissionHandler(async () => {});
+  expect((await tool("legalwork_browser_passwords").execute({ browser_url }, nativeTestInvocation("ses_upload"))).output).toEqual({ passwords: [{ id: password_id, label: "Portal", username: "user" }] });
+  expect((await tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).output).toEqual({ filled: true });
+  expect(calls.at(-1)).toEqual({ route: `/${token}/fill-password`, body: { password_id, ref: "@e2" }, session: "ses_upload" });
+  rejectPasswordFill = true;
+  try {
+    await expect(tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("current website does not match");
+  } finally { rejectPasswordFill = false; }
+  const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;
+  await expect(tool("legalwork_browser_fill_password").execute({ browser_url: capability, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("local LegalWork desktop");
+});
 test("manual-server downloads save complete bytes under native edit permission and repeated reads do not duplicate writes", async () => {
   const asks: unknown[] = []; native.permissionHandler(async input => { asks.push(input); });
   const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;
