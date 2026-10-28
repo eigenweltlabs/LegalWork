@@ -4,13 +4,14 @@ import { systemOne, readSystemOneSettings } from "./systemone.js";
 import { assistantEventSources } from "./assistant-event-sources.js";
 import { assistantProactivityStore, type AssistantProactivityStore } from "./assistant-proactivity-store.js";
 import type { ProactiveEvent } from "./assistant-proactivity-schema.js";
-import { createEngineClient } from "./engine-client.js";
+import { createEngineClient, getWorkspaceEngineSession } from "./engine-client.js";
 import { isMainAssistant, type MainAssistant } from "./main-assistant.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { withSessionDispatch } from "./session-execution-gate.js";
 import { announceSyncChange } from "./app-sync-events.js";
-import { findApiError } from "./errors.js";
+import { ApiError, findApiError } from "./errors.js";
 import { ASSISTANT_FOLLOW_UP_STYLE } from "./assistant-handoff.js";
+import type { AssistantSessionAccess } from "./assistant-session-access.js";
 
 const RelevanceScoresSchema = z.record(z.string(), z.number().finite().min(0).max(1));
 type RelevantEvent = ProactiveEvent & { relevanceProbability: number };
@@ -107,7 +108,19 @@ export async function processAssistantEvents(store: AssistantProactivityStore, o
   await review(pending);
 }
 
-export async function startAssistantProactivity(config: ServerConfig, assistant: MainAssistant, resolveWorkspace: (id: string) => Promise<WorkspaceInfo>) {
+/** Restore only the authority saved with the user's conditions. The source and
+ * destination may both be cold after restart, or belong to different days. */
+export async function prepareAssistantEventSession(store: AssistantProactivityStore, access: AssistantSessionAccess, target: { sessionId: string; directory: string }, revision: number) {
+  if (store.scratchpad().revision !== revision) return false;
+  const source = store.scratchpadSource();
+  if (!source) throw new ApiError(403, "assistant_session_reauthorization", "Confirm the follow-up from an authenticated Assistant chat to restore its permissions.");
+  const authority = await access.prepare(source.sessionId, source.directory, source.authority);
+  if (source.sessionId !== target.sessionId) await access.prepareReturn(target.sessionId, target.directory, { ...authority, sourceSessionId: source.sessionId });
+  else if (source.directory !== target.directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The follow-up belongs to another working directory.");
+  return store.scratchpad().revision === revision;
+}
+
+export async function startAssistantProactivity(config: ServerConfig, assistant: MainAssistant, resolveWorkspace: (id: string) => Promise<WorkspaceInfo>, access: AssistantSessionAccess) {
   if (config.readOnly) return async () => {};
   const store = await assistantProactivityStore(config), sources = assistantEventSources(config, assistant, store, resolveWorkspace);
   const controller = new AbortController(), owner = randomUUID();
@@ -119,7 +132,9 @@ export async function startAssistantProactivity(config: ServerConfig, assistant:
     const [active, inbox, forms, approvals] = await Promise.all([client.session.active(request()), client.session.inbox.list({ sessionID: sessionId }, request()), client.session.form.list({ sessionID: sessionId }, request()), client.permission.list({ sessionID: sessionId }, request())]);
     const details = await Promise.all(forms.map(form => client.session.form.get({ sessionID: sessionId, formID: form.id }, request())));
     if (active[day.sessionId] || active[sessionId] || inbox.length || approvals.length || details.some(form => form.state.status === "pending")) return null;
-    return { client, sessionId };
+    const session = await getWorkspaceEngineSession(client, workspace, sessionId);
+    if (session.parentID || session.time.archived) return null;
+    return { client, sessionId, directory: session.location.directory };
   }
   async function classified(text: string, events: ProactiveEvent[]) {
     const settings = await readSystemOneSettings(config);
@@ -164,6 +179,7 @@ export async function startAssistantProactivity(config: ServerConfig, assistant:
             const latest = await current(target.sessionId);
             const allowed = await Promise.all(events.map(event => sources.allowed(event)));
             if (latest?.sessionId !== target.sessionId || allowed.includes(false) || store.scratchpad().revision !== revision || controller.signal.aborted) return false;
+            if (!await prepareAssistantEventSession(store, access, latest, revision) || controller.signal.aborted) return false;
             const delivery = store.prepareDelivery(events.map(event => event.id), `msg_${randomUUID().replaceAll("-", "")}`, target.sessionId, message, revision);
             if (delivery.sessionId !== target.sessionId) return false;
             let result;

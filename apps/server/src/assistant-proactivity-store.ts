@@ -6,8 +6,10 @@ import { openSqlite, runtimeDbPath, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ProactiveEventSchema, ScratchpadWriteSchema, type ProactiveEvent } from "./assistant-proactivity-schema.js";
 import { ASSISTANT_PROACTIVITY_INSTRUCTIONS } from "./assistant-handoff.js";
+import { SessionAuthoritySchema } from "./wiki/agent-access.js";
 
 const ScratchpadSchema = z.object({ text: z.string(), revision: z.number(), updatedAt: z.number() });
+const ScratchpadSourceSchema = z.object({ sessionId: z.string(), directory: z.string(), authority: SessionAuthoritySchema });
 const OfferSchema = z.object({ state: z.enum(["unoffered", "offered", "declined"]), at: z.number() });
 const DeliveryContentSchema = z.object({ message: z.string(), revision: z.number() });
 const AssessmentSchema = z.object({
@@ -35,13 +37,17 @@ export class AssistantProactivityStore {
     this.db.run("INSERT INTO assistant_proactivity_state VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET data = excluded.data", [key, JSON.stringify(value)]);
   }
   scratchpad() { return ScratchpadSchema.parse(this.read("scratchpad") ?? { text: "", revision: 0, updatedAt: 0 }); }
-  updateScratchpad(raw: unknown, now = Date.now()) {
+  scratchpadSource() { return ScratchpadSourceSchema.nullable().parse(this.read("scratchpad-source") ?? null); }
+  updateScratchpad(raw: unknown, now = Date.now(), source?: z.infer<typeof ScratchpadSourceSchema>) {
     const input = ScratchpadWriteSchema.parse(raw);
     return this.transaction(() => {
       const current = this.scratchpad();
       if (current.revision !== input.revision) throw new ApiError(409, "scratchpad_changed", "Read the current scratchpad before editing it again.");
       const saved = { text: input.text, revision: current.revision + 1, updatedAt: now };
       this.write("scratchpad", saved);
+      // Authority is captured by the authenticated route, never from note text
+      // or email data. Keep it atomic with the conditions it authorizes.
+      this.write("scratchpad-source", input.text && source ? ScratchpadSourceSchema.parse(source) : null);
       return saved;
     });
   }

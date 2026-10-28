@@ -4,7 +4,12 @@ import { z } from "zod";
 import { nativeChatResponse, nativeDomainEngine } from "./opencode-plugins/native-domain-engine.test-support.js";
 import { projectMessage } from "@legalwork/types/opencode-view";
 import { assistantProactivityStore } from "./assistant-proactivity-store.js";
-import { processAssistantEvents } from "./assistant-proactivity.js";
+import { prepareAssistantEventSession, processAssistantEvents } from "./assistant-proactivity.js";
+import { AssistantSessionAccess } from "./assistant-session-access.js";
+import { runtimeDbPath } from "./runtime-db.js";
+import { currentWikiAgentSession } from "./wiki/agent-access.js";
+import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one briefing, and handles combined events with its normal tools", async () => {
@@ -28,6 +33,7 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
     engine = await nativeDomainEngine({ binary, scopedRuntime: true, plugins: [join(import.meta.dir, "opencode-plugins/legalwork-assistant-tools.ts")], modelURL: model.url.origin + "/v1",
       configuration: { permissions: [{ action: "*", resource: "*", effect: "allow" }] },
       async setup(config, root) {
+        await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
         config.workspaces[0].preset = "main-assistant";
         config.projectsDirectory = join(root, "projects");
         config.managedEngineStorageDirectory = join(root, "isolated-engine");
@@ -57,7 +63,11 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
     expect(created.task.schedule.rrule).toContain("BYDAY=MO,TU,WE,TH,FR");
     const child = await client.session.create({ location, parentID: session.id, agent: "build" });
     expect((await call("/assistant/scratchpad", { workspaceId: "matter", sessionId: child.id, sourceSessionId: child.id, text: "worker overwrite", revision: 1 })).status).toBe(403);
-    const before = await client.session.context({ sessionID: session.id });
+    // Use a cold daily destination created directly in the engine. It has no
+    // authenticated proxy grant, just like a heartbeat after an app restart.
+    const destination = await client.session.create({ location, agent: "build" });
+    expect(currentWikiAgentSession(config, destination.id)).toBeUndefined();
+    const before = await client.session.context({ sessionID: destination.id });
     // The event turn must retain native tool access, including finishing its own
     // one-time condition. The source text itself never writes the scratchpad.
     calls.splice(0, calls.length,
@@ -66,6 +76,8 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
     );
     toolStep = 0;
     const store = await assistantProactivityStore(config);
+    expect(store.scratchpadSource()).toMatchObject({ sessionId: session.id, directory: location.directory, authority: { scope: "collaborator" } });
+    const access = await AssistantSessionAccess.open(runtimeDbPath(config), config);
     const events = Array.from({ length: 45 }, (_, index) => ({ id: `arrival-${index}`, source: "gmail", projectId: null, at: index, text: `Signature page ${index} arrived.` }));
     store.ingest("gmail", "45", events);
     const scored: string[] = [];
@@ -83,25 +95,26 @@ test.skipIf(!binary)("released engine: Assistant owns its scratchpad, offers one
         expect(scored).toEqual(events.map(event => event.id));
         expect(combined).toEqual(events.map(event => ({ ...event, relevanceProbability: 0.9 })));
         expect(message).toContain("use your normal tools");
-        const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", session.id, message, revision);
+        expect(await prepareAssistantEventSession(store, access, { sessionId: destination.id, directory: location.directory }, revision)).toBe(true);
+        const receipt = store.prepareDelivery(combined.map(event => event.id), "msg_combined_fixture", destination.id, message, revision);
         await client.session.synthetic({ sessionID: receipt.sessionId, id: receipt.id, text: message, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
         return true;
       },
     });
-    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
+    await client.session.wait({ sessionID: destination.id }, { signal: AbortSignal.timeout(30_000) });
     expect(deliveries).toBe(1);
     expect(store.pending()).toEqual([]);
-    const combinedHistory = await client.session.context({ sessionID: session.id });
+    const combinedHistory = await client.session.context({ sessionID: destination.id });
     expect(combinedHistory.filter(message => message.id === "msg_combined_fixture")).toHaveLength(1);
     const eventTools = combinedHistory.slice(before.length).flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool") : []);
     expect(eventTools.map(tool => tool.state.status), JSON.stringify(combinedHistory)).toEqual(["completed", "completed"]);
     expect(store.scratchpad().text).toBe("");
     const synthetic = combinedHistory.find(message => message.id === "msg_combined_fixture");
     if (!synthetic) throw new Error("Missing event turn");
-    expect(projectMessage(session.id, synthetic)).toEqual([]);
-    await client.session.synthetic({ sessionID: session.id, id: "msg_combined_fixture", text: deliveredText, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
-    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30_000) });
-    const replayed = await client.session.context({ sessionID: session.id });
+    expect(projectMessage(destination.id, synthetic)).toEqual([]);
+    await client.session.synthetic({ sessionID: destination.id, id: "msg_combined_fixture", text: deliveredText, description: "Assistant update", metadata: { legalworkSystemReminder: true } });
+    await client.session.wait({ sessionID: destination.id }, { signal: AbortSignal.timeout(30_000) });
+    const replayed = await client.session.context({ sessionID: destination.id });
     expect(replayed.filter(message => message.type !== "idle")).toEqual(combinedHistory.filter(message => message.type !== "idle"));
     expect(store.scratchpad().revision).toBe(2);
   } finally {
