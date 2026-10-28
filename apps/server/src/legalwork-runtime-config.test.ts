@@ -124,7 +124,8 @@ test.each(["managed", "native-project"] satisfies Array<NonNullable<ServerConfig
 });
 
 async function bundledSources(plugins: NativeConfig["plugins"]) {
-  return Promise.all(pluginTargets(plugins).map(async target => ({ target, source: await readFile(join(target, "index.js"), "utf8") })));
+  // Package plugins are resolved by the native host, not bundled directories.
+  return Promise.all(pluginTargets(plugins).filter(isAbsolute).map(async target => ({ target, source: await readFile(join(target, "index.js"), "utf8") })));
 }
 
 async function expectBundle(sources: Awaited<ReturnType<typeof bundledSources>>, name: string) {
@@ -514,4 +515,19 @@ test.each([false, true])("an empty Sync manifest removes stale workspace models 
   if (byo) expect(providers).toMatchObject({ openai: { models: { "gpt-test": { name: "My OpenAI model" } } } });
   else expect(Object.keys(providers ?? {})).toEqual([]);
   expect(providers?.eigenwelt).toBeUndefined();
+});
+
+
+test("only the Assistant registers a browser worker without broadening permissions", async () => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permissions: [{ action: "browser", resource: "*", effect: "ask" }] }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const ordinary = (await readSettings(config)).configuration;
+  expect(ordinary.agents?.["assistant-browser"]).toBeUndefined();
+  config.workspaces[0].preset = "main-assistant";
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const assistant = (await readSettings(config)).configuration;
+  expect(assistant.agents?.["assistant-browser"]).toMatchObject({ mode: "subagent", system: expect.stringContaining("browser worker") });
+  expect(assistant.agents?.["assistant-browser"]?.permissions).toBeUndefined();
+  expect(assistant.permissions).toEqual(ordinary.permissions);
 });

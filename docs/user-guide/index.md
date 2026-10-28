@@ -8,6 +8,7 @@ This manual is bundled with the app. Ask the assistant a question about LegalWor
 
 | Question | Read |
 | --- | --- |
+| How do I use and configure my Personal Assistant? | [Personal Assistant](assistant.md) |
 | How do I get started? | [Getting started](getting-started.md) |
 | What does each screen do, and where is it? | [Screen map](screens.md) |
 | How do folders, workspaces, chats and connected services work? | [Workspaces and chats](workspaces-chats.md) |

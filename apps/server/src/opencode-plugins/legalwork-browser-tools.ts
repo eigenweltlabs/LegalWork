@@ -6,7 +6,8 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path
 import { randomUUID } from "node:crypto";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { uiBridgeRequest } from "../inapp-document-bridge.js";
-import { serverToken, serverUrl } from "./office-plugin-shared.js";
+import { connectedWebsiteSchema } from "@legalwork/types/browser-password-request";
+import { serverToken, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { nativeToolAbortSignal, nativeToolSignal } from "./native-tool.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
@@ -124,7 +125,23 @@ async function receiveDownloads(capability: string, files: z.infer<typeof downlo
   return files;
 }
 
+export const websiteConnections = z.object({ items: z.array(z.object({
+  id: z.string().uuid(), label: z.string(), origin: z.string(), websites: z.array(connectedWebsiteSchema),
+})) });
+
 export const legalworkBrowserTools = {
+  legalwork_browser_connections: {
+    description: "Discover this user's saved website connections across chats: website names, destination URLs, sign-in origins and vault IDs only. Use before choosing sources for legal research. These are the same logins saved in chat, onboarding and Settings. A site-specific skill is optional. No usernames or passwords are returned; use legalwork_browser_passwords on the actual sign-in page to select an account.",
+    args: {}, outputSchema: websiteConnections,
+    async execute(_rawArgs: unknown, context: OpenCodeContext) {
+      const { workspaceId } = await requireBrowserNetwork(context);
+      const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspaceId)}/browser-connections`, {
+        headers: await workspaceToolHeaders(context), signal: nativeToolSignal(10000),
+      });
+      if (!response.ok) throw new Error("Saved website connections are unavailable to this chat.");
+      return JSON.stringify(websiteConnections.parse(await response.json()));
+    },
+  },
   legalwork_browser_passwords: {
     description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. Use browser_url from legalwork_browser_open_url or legalwork_browser_connect; opening and listing can share one Code Mode execute. If sign-in is needed and the list is empty, call legalwork_browser_request_password for the inline credential card. Never request passwords in chat. No password values are returned.",
     args: { browser_url: browserUrl },

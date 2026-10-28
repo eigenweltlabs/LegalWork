@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import DOMPurify from "dompurify";
+import { MemoryRouter } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
@@ -16,7 +17,7 @@ describe("math in answers", () => {
   afterAll(() => { Reflect.deleteProperty(DOMPurify, "sanitize"); });
 
   for (const [name, Component] of [["chat", MarkdownBlock], ["surface", SurfaceMarkdownBlock]] satisfies [string, typeof MarkdownBlock][]) {
-    const render = (text: string, streaming = false) => renderToStaticMarkup(<Component text={text} streaming={streaming} />);
+    const render = (text: string, streaming = false) => renderToStaticMarkup(<MemoryRouter><Component text={text} streaming={streaming} /></MemoryRouter>);
 
     test(`${name}: renders euro amounts and display calculations`, () => {
       const html = render(String.raw`Gesamterlös: $180,00 - 66,00 = $ $\mathbf{114,00\text{\euro/MWh}}$

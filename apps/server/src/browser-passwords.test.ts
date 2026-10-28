@@ -78,3 +78,26 @@ test("website matching shares main domains and subdomains while separating unrel
     ["https://deepl.com", "about:blank"],
   ]) expect(store.matchesWebsite(saved, current)).toBe(false);
 });
+
+test("one vault login retains multiple destinations across edits without expanding password domains", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-connections-"));
+  try {
+    const store = new BrowserPasswordStore(new OAuthVault(join(root, "test.vault")));
+    const login = await store.save({ label: "SSO account", origin: "https://auth.example.com/login", websiteUrl: "https://research.example.org/?code=private#session", username: "fixture", password: "fixture-secret" });
+    expect(login.websites).toEqual([{ name: "SSO account", url: "https://research.example.org/" }]);
+    await Promise.all([
+      store.connect(login.id, login.origin, { name: "Second product", url: "https://second.example.org/search", providerId: "second" }),
+      store.save({ id: login.id, label: "Renamed", origin: login.origin, username: "fixture" }),
+    ]);
+    const connected = (await store.list())[0]!;
+    expect(connected.websites).toHaveLength(2);
+    expect(connected.label).toBe("Renamed");
+    expect(await store.list("https://second.example.org")).toEqual([]);
+    await store.connect(login.id, login.origin, { name: "Second product", url: "https://second.example.org/search", providerId: "second" });
+    expect((await store.list())[0]!.websites).toHaveLength(2);
+    await expect(store.connect(login.id, "https://unrelated.example", { name: "No", url: "https://another.example" })).rejects.toThrow();
+    const changed = await store.save({ id: login.id, label: "New account", origin: "https://different.example", username: "fixture", password: "new-fixture" });
+    expect(changed.websites).toEqual([{ name: "New account", url: "https://different.example" }]);
+    expect((await store.get(login.id)).password).toBe("new-fixture");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -4,9 +4,11 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
+import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
+import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -36,7 +38,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { ConnectorStatus, ConnectorConnect, ConnectorFlow, ConnectorOAuthClient, ConnectorOAuthClientInput } from "@legalwork/types/connectors";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
-import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
@@ -905,7 +907,8 @@ export type LegalworkResolvedArtifactTarget = {
   kind: "file" | "url";
   value: string;
   name: string;
-  preview: "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  preview: "view" | "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  documentType?: "report" | "dashboard";
   confidence: number;
   reason: string;
   exists?: boolean;
@@ -1000,6 +1003,7 @@ export type LegalworkInboxUploadResult = {
 };
 
 export type LegalworkBrowserPassword = {
+  websites: import("@legalwork/types/browser-password-request").ConnectedWebsite[];
   id: string;
   label: string;
   origin: string;
@@ -1720,12 +1724,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),
     wikiSuggestion: (workspaceId: string, id: string) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken }),
+    downloadWikiSuggestionAttachment: (workspaceId: string, id: string, sha256: string, revision: string) => requestBinary(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(sha256)}?revision=${encodeURIComponent(revision)}`, { token, hostToken, timeoutMs: timeouts.binary }),
     updateWikiSuggestion: (workspaceId: string, id: string, input: WikiSuggestionInput & { revision: string }) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken, method: "PUT", body: input }),
     reviewWikiSuggestion: (workspaceId: string, id: string, action: "save" | "dismiss", revision: string) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}/${action}`, { token, hostToken, method: "POST", body: { revision } }),
     wikiProjects: (wikiId: string, sessionId: string) => requestJson<{ items: { id: string; name: string; granted: boolean }[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects`, { token, hostToken }),
     requestWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "POST", body: {}, timeoutMs: 900_000 }),
     revokeWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "DELETE" }),
     listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
+    ensureLegalResearchWiki: (language: "en" | "de", country?: string) => requestJson<{ wiki: WikiRegistration | null; created: boolean; updated?: boolean }>(baseUrl, "/wikis/legal-research/ensure", { token, hostToken, method: "POST", body: { language, ...(country ? { country } : {}) } }),
     wikiTeam: () => requestJson<WikiTeamOverview>(baseUrl, "/wikis/team", { token, hostToken, timeoutMs: 30_000 }),
     joinWiki: (input: { wikiId: string; root?: string }) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis/join", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     shareWiki: (id: string, input: WikiSharingInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
@@ -2830,6 +2836,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     calendarOccurrences: (workspaceId: string | null, from: string, to: string) =>
       requestJson<{ occurrences: CalendarOccurrence[] }>(baseUrl, `${workspaceId ? `/workspace/${encodeURIComponent(workspaceId)}` : ""}/calendar/occurrences?from=${from}&to=${to}`, { token, hostToken }),
     sessionInbox: (signal?: AbortSignal) => requestJson<{ sessions: import("@legalwork/types/scheduled-tasks").SessionInboxEntry[] }>(baseUrl, "/session-inbox", { token, hostToken, signal }),
+    assistantSettings: () => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken }),
+    updateAssistantSettings: (settings: AssistantSettings) => requestJson<{ settings: AssistantSettings }>(baseUrl, "/assistant/settings", { token, hostToken, method: "PATCH", body: settings }),
+    assistantSettingsCatalog: () => requestJson<AssistantSettingsCatalog>(baseUrl, "/assistant/settings/catalog", { token, hostToken }),
+    mainAssistantProfile: () => requestJson<{ profile: AssistantProfile; workspace: LegalworkWorkspaceInfo | null }>(baseUrl, "/assistant", { token, hostToken }),
+    assistantAttention: (cursor?: string) => requestJson<AssistantAttentionPage>(baseUrl, `/assistant/attention?presented=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { token, hostToken }),
+    setAssistantAttentionVisibility: (item: Pick<AssistantAttentionItem, "id" | "revision" | "workspaceId" | "sessionId">, visible: boolean) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/visibility", { token, hostToken, method: "POST", body: { id: item.id, revision: item.revision, workspaceId: item.workspaceId, sessionId: item.sessionId, visible } }),
+    replyAssistantAttention: (reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, "/assistant/attention/reply", { token, hostToken, method: "POST", body: reply }),
+    mainAssistantOnboarding: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken }),
+    viewAssistantGreeting: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding/view", { token, hostToken, method: "POST" }),
+    answerAssistantOnboarding: (answer: { name: string } | { icon: AssistantAvatarIcon }) => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken, method: "POST", body: answer }),
+    updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
+    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields } }),
+    mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
     scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),
@@ -3406,8 +3425,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.binary },
       ),
 
+    configureResearchDatabase: (workspaceId: string, payload: ResearchDatabaseSetup) =>
+      requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/research-databases`, { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config }),
     listBrowserPasswords: (origin?: string) => requestJson<{ items: LegalworkBrowserPassword[] }>(baseUrl, `/browser-passwords${origin ? `?${new URLSearchParams({ origin })}` : ""}`, { token, hostToken, timeoutMs: timeouts.config }),
-    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string }) =>
+    saveBrowserPassword: (value: { id?: string; label: string; origin: string; username: string; password?: string; websiteUrl?: string }) =>
       requestJson<{ item: LegalworkBrowserPassword }>(baseUrl, "/browser-passwords", { token, hostToken, method: "PUT", body: value, timeoutMs: timeouts.config }),
     deleteBrowserPassword: (id: string) => requestJson<{ ok: true }>(baseUrl, `/browser-passwords/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
 

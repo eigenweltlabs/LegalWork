@@ -4,6 +4,8 @@ Open in LegalWork: [Updates](legalwork://app/settings/updates), [AI Providers](l
 
 Start with the exact error, current workspace, platform and action that failed. Check whether the failure is in the app UI, its worker, a model provider or a connected service. A successful connection test for one does not test the others.
 
+After an engine upgrade, LegalWork copies your saved chat history into the new engine database before making chats available. It keeps the original database and a separate history backup. Development builds migrate their own saved development profile; they do not import the installed app's history. If an upgrade reports a history migration error or existing chats cannot be found, keep the profile intact and export diagnostics. Resetting your profile is not required to recover the saved chats.
+
 | Symptom | What to check |
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |

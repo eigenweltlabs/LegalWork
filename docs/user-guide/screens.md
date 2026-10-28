@@ -7,6 +7,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Screen | What it is for | Guide |
 | --- | --- | --- |
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
+| Your legal research | Choose your country and set up database accounts in the existing secure login card | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
@@ -21,6 +22,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
 | Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
 | Wiki | Maintain reusable firm knowledge with pages, links, properties and a graph | [Wiki](wiki.md) |
+| Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; review research drafts before saving | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 

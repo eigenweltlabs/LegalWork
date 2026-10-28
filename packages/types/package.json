@@ -50,6 +50,7 @@
     "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
+    "./main-assistant": "./src/main-assistant.ts",
     "./browser-password-request": "./src/browser-password-request.ts",
     "./session-history": "./src/session-history.ts",
     "./legalmemory": "./src/legalmemory.ts",
@@ -66,7 +67,10 @@
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts",
     "./chat-tool-results": "./src/chat-tool-results.ts",
-    "./line-diff": "./src/line-diff.ts"
+    "./line-diff": "./src/line-diff.ts",
+    "./opencode-view": "./src/opencode-view.ts",
+    "./legal-research": "./src/legal-research.ts",
+    "./legal-research-wiki": "./src/legal-research-wiki.ts"
   },
   "files": [
     "src",
@@ -80,6 +84,7 @@
   },
   "devDependencies": {
     "tsup": "^8.5.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@opencode/client": "2.1.4"
   }
 }

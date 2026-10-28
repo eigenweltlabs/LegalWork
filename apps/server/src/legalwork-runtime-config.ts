@@ -1,3 +1,5 @@
+import { legalworkAssistantToolsPluginPath } from "./legalwork-extensions-plugin-path.js";
+import { ASSISTANT_BROWSER_AGENT, ASSISTANT_BROWSER_WORKER_INSTRUCTIONS } from "./assistant-browser.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
 import { Config } from "@opencode/schema/config";
@@ -314,6 +316,10 @@ export async function buildLegalworkRuntimeSettings(
       ...core.agents,
       ...runtimeAgentMap(runtimeConfig),
       [REVIEW_AGENT]: reviewAgentConfig(),
+      ...(workspace?.preset === "main-assistant" ? { [ASSISTANT_BROWSER_AGENT]: {
+        description: "All Assistant browser work, using the separately configured capable model", mode: "subagent",
+        system: agentPrompt + "\n" + ASSISTANT_BROWSER_WORKER_INSTRUCTIONS,
+      } } : {}),
       [PROJECT_TASK_AGENT]: {
         description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
         system: agentPrompt + "\nThis scheduled run may access its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. The recording tools legalwork_recordings_list and legalwork_recording_read also include unassigned global recordings; other projects' recordings are unavailable. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial or request broader project access during the run. Explain any missing capability. Existing chat history remains visible.",
@@ -349,6 +355,7 @@ export async function buildLegalworkRuntimeSettings(
       bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
       bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
+      bundledPluginSpec(legalworkAssistantToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkToolRecoveryPluginPath(), config),

@@ -160,14 +160,7 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean, 
   }
 
   if (includeGlobal) {
-    const globalLegalWork = globalSkillsDir();
-    const globalClaude = join(homedir(), ".claude", "skills");
-    const globalAgents = join(homedir(), ".agents", "skills");
-    const globalAgentLegacy = join(homedir(), ".agent", "skills");
-    items.push(...(await listSkillsInDir(globalLegalWork, "global", skipped)));
-    items.push(...(await listSkillsInDir(globalClaude, "global", skipped)));
-    items.push(...(await listSkillsInDir(globalAgents, "global", skipped)));
-    items.push(...(await listSkillsInDir(globalAgentLegacy, "global", skipped)));
+    items.push(...await listGlobalSkills(skipped));
   } else {
     // Remote clients also get shipped workflows, without listing the host's
     // other personal workflows or skills.

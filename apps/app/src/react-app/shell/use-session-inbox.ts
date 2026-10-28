@@ -6,6 +6,14 @@ import { startRequestPolling } from "@/app/lib/request-poller";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { useSessionInboxStore } from "../domains/session/sidebar/session-inbox-store";
 import type { SessionInboxEntry } from "@legalwork/types/scheduled-tasks";
+import { useSessionActivityStore } from "../domains/session/status/session-activity-store";
+
+export function reconcileInboxActivity(sessions: SessionInboxEntry[]) {
+  const activity = useSessionActivityStore.getState();
+  for (const entry of sessions) {
+    if (entry.status && entry.status !== "unknown") activity.setRunStatus(entry.workspaceId, entry.sessionId, entry.status);
+  }
+}
 
 type ListedSession = { id: string; time?: { updated?: number; created?: number } };
 
@@ -28,6 +36,7 @@ export function useSessionInbox(client: LegalworkServerClient | null, workspaces
     const poller = startRequestPolling(async signal => {
       const { sessions } = await latest.current.client!.sessionInbox(signal);
       if (signal.aborted) return;
+      reconcileInboxActivity(sessions);
       const changed = new Set(useSessionInboxStore.getState().receive(sessions));
       const ids = new Set(sessions.map(entry => entry.sessionId));
       // Archive/deletion is a change too, so unchanged projects no longer need

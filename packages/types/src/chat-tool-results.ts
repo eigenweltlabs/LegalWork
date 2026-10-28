@@ -8,11 +8,15 @@ import { ScheduledTaskSchema } from "./scheduled-tasks.js";
 import { projectContentsSchema } from "./workspace.js";
 import { WikiSuggestionSchema } from "./wiki-suggestions.js";
 import { ViewPreviewSchema, ViewRecordSchema } from "./views.js";
+import { AssistantDelegationResultSchema, AssistantNameResultSchema, AssistantSharedFileResultSchema } from "./main-assistant.js";
 
 const callSchema = z.object({ tool: z.string(), status: z.enum(["running", "completed", "error"]), input: z.unknown().optional() });
 const email = z.object({ draft: EmailDraftSchema.extend({ subject: EmailDraftSchema.shape.subject.unwrap() }) });
 const calendar = z.object({ draft: CalendarEventDraftSchema });
 const schemas: Record<string, z.ZodType> = {
+  legalwork_assistant_share_file: AssistantSharedFileResultSchema,
+  legalwork_assistant_delegate: AssistantDelegationResultSchema,
+  legalwork_assistant_set_name: AssistantNameResultSchema,
   legalwork_review_create: ReviewToolCardSchema, legalwork_review_launch: ReviewToolCardSchema,
   legalwork_review_edit: ReviewToolCardSchema, legalwork_review_start: ReviewToolCardSchema, legalwork_review_cancel: ReviewToolCardSchema,
   legalwork_jev_corpus_question: JevSearchCardSchema,
@@ -27,6 +31,7 @@ const schemas: Record<string, z.ZodType> = {
 };
 
 function schemaFor(tool: string, input: unknown) {
+  if (tool === "legalwork_assistant_briefing") return z.object({ action: z.literal("create") }).safeParse(input).success ? z.object({ task: ScheduledTaskSchema }) : undefined;
   if (tool !== "legalwork_extension_call") return Object.hasOwn(schemas, tool) ? schemas[tool] : undefined;
   const action = z.object({ extensionId: z.string(), action: z.string() }).safeParse(input);
   if (!action.success) return;
@@ -59,11 +64,15 @@ export function codeModeWidgetResults(callId: string, metadata: Record<string, u
   }
   const result: CodeModeWidgetResult[] = [];
   for (const value of Array.isArray(parsed) ? parsed : [parsed]) {
-    if (!value || typeof value !== "object" || ("ok" in value && value.ok === false)) continue;
+    if (!value || typeof value !== "object") continue;
     let payload = "referenceData" in value ? value.referenceData : value;
     if (payload && typeof payload === "object" && "result" in payload) payload = payload.result;
-    if (payload && typeof payload === "object" && "ok" in payload && payload.ok === false) continue;
-    const index = calls.findIndex(call => call.status === "completed" && schemaFor(call.tool, call.input)?.safeParse(payload).success);
+    const failed = "ok" in value && value.ok === false || Boolean(payload && typeof payload === "object" && "ok" in payload && payload.ok === false);
+    // An unconfirmed delegation has a real created chat and a warning card.
+    // Other failed results must never become successful-looking widgets.
+    const index = calls.findIndex(call => call.status === "completed"
+      && (!failed || call.tool === "legalwork_assistant_delegate" && payload && typeof payload === "object" && "ok" in payload && payload.ok === false)
+      && schemaFor(call.tool, call.input)?.safeParse(payload).success);
     if (index < 0) continue;
     const [call] = calls.splice(index, 1);
     result.push({ callId, tool: call.tool, input: call.input, output: payload });

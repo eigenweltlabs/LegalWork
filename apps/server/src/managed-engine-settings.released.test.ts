@@ -20,7 +20,7 @@ test.skipIf(!binary)("released native files keep two projects isolated across ed
   const settingsPath = join(root, "settings.json");
   const entry = (directory: string, label: string) => ({ directory,
     configuration: { default_agent: "legalwork", agents: { legalwork: { system: `Instructions for ${label}` } },
-      providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://127.0.0.1:7/v1" }, models: { [label]: { capabilities: { tools: true, reasoning: { supported: true } },
+      providers: { ...(label === "first" ? { openai: { models: { "project-only": { name: "Only in first project" } } } } : {}), fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://127.0.0.1:7/v1" }, models: { [label]: { capabilities: { tools: true, reasoning: { supported: true } },
         limit: { context: 800_000, output: 70_000 }, variants: [{ id: "custom", settings: { temperature: label === "first" ? 0.1 : 0.8 } }] } } } },
       skills: [join(directory, "shared-name")],
       mcp: { servers: { [label]: { type: "remote", url: "https://example.invalid/mcp", disabled: true } } } },
@@ -44,6 +44,7 @@ test.skipIf(!binary)("released native files keep two projects isolated across ed
     const client = OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
     await client.location.get({ location: { directory: first } });
     await client.model.list({ location: { directory: first } });
+    await client.integration.connect.key({ integrationID: "openai", key: "synthetic-catalog-test", location: { directory: first } });
     const plugins = (await client.plugin.list({ location: { directory: first } })).data;
     const failed = plugins.filter(plugin => plugin.state.status === "failed");
     expect(failed, JSON.stringify(failed)).toEqual([]);
@@ -55,6 +56,11 @@ test.skipIf(!binary)("released native files keep two projects isolated across ed
       await client.model.list({ location });
       expect((await client.agent.get({ location, agentID: "legalwork" })).data.system).toBe(`Instructions for ${label}`);
       expect((await client.model.list({ location })).data.filter(model => model.providerID === "fixture").map(model => model.id)).toEqual([label]);
+      // A provider configured in one project must not hide the signed-in
+      // native catalog in every other project. Its added models stay local.
+      const openai = (await client.model.list({ location })).data.filter(model => model.providerID === "openai");
+      expect(openai.length).toBeGreaterThan(1);
+      expect(openai.some(model => model.id === "project-only")).toBe(label === "first");
       const model = (await client.model.list({ location })).data.find(model => model.providerID === "fixture" && model.id === label);
       expect(model?.limit).toMatchObject({ context: 800_000, output: 70_000 });
       expect(model?.variants.find(variant => variant.id === "custom")?.settings?.temperature).toBe(label === "first" ? 0.1 : 0.8);

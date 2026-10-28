@@ -81,8 +81,13 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     };
   }, [client.baseUrl, workspaceId, sessionId]);
   return {
-    ready: query.isSuccess, error: query.error,
-    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
+    ready: query.isSuccess, error: query.error, state: query.data,
+    reserve: (draft: ComposerDraft, editor?: ComposerSessionState) => {
+      const signature = JSON.stringify([draft, editor]);
+      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
+      return editor?.queuedDraftId ?? submission.current.id;
+    },
+    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState, reservedId?: string) => {
       const editor = preparedEditor ?? useComposerStateStore.getState().sessions[sessionId];
       const snapshot = await snapshotQueuedDraft(draft, editor);
       const signature = JSON.stringify(snapshot);
@@ -91,8 +96,10 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
         useComposerStateStore.getState().recoverQueuedEdit(sessionId);
         throw new Error(t("composer.queue_edit_recovered"));
       }
-      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
-      try { await send({ id: current?.id ?? submission.current.id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
+      if (!reservedId && (!submission.current || submission.current.signature !== signature)) submission.current = { signature, id: crypto.randomUUID() };
+      const id = current?.id ?? reservedId ?? submission.current?.id;
+      if (!id) throw new Error("Missing queue submission ID");
+      try { await send({ id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
       catch (error) {
         if (current && error instanceof LegalworkServerError && error.status === 409) {
           claim.current = null;

@@ -1,3 +1,4 @@
+import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
 import { sessionDispatchSchema } from "../session-queue-schema.js";
 import { dispatchQueueAction } from "../session-dispatch.js";
 import { announceSyncChange } from "../app-sync-events.js";
@@ -88,6 +89,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     announceSyncChange(config, "groups");
   };
   async function validateQueuedExecution(client: WorkspaceOpencodeClient, workspace: WorkspaceInfo, execution: QueueEntry["execution"]) {
+    await requireAssistantWorkspaceSubscription(config, workspace.id);
     if (!config.agentSandboxEnabled && !(await new WikiStore(config).list()).length) return;
     if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
     if (execution.kind === "command") {
@@ -113,6 +115,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/dispatch", "client", async ctx => {
     ensureWritable(config); requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id), sessionID = ctx.params.sessionId;
+    await requireAssistantWorkspaceSubscription(config, workspace.id);
     const client = await queueClient(workspace, sessionID);
     const parsed = sessionDispatchSchema.safeParse(await readJsonBody(ctx.request));
     if (!parsed.success) throw new ApiError(400, "invalid_session_dispatch", "Valid native message or command input is required.", { issues: parsed.error.issues });

@@ -1,3 +1,6 @@
+import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
+import { createAssistantRuntime } from "./assistant-runtime.js";
+import { browserPasswords } from "./browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -8,7 +11,7 @@ import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle
 import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
 import { requestResourceChange } from "./request-resource-change.js";
-import { readSkillPackageFile } from "./skill-package.js";
+import { inspectSkillPackage, readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { registeredMessageQueue, stopMessageQueue } from "./session-message-queue.js";
 import { dispatchQueueAction } from "./session-dispatch.js";
@@ -103,6 +106,9 @@ import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWik
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
+import { configureResearchDatabase } from "./legal-research.js";
+import { researchExperience, researchExperienceOwner, researchWebsiteExperienceOwner, withResearchExperience } from "./research-experience.js";
+import { researchExperienceAction } from "./research-experience-schema.js";
 import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
@@ -908,12 +914,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, resolveWorkspace: id => resolveWorkspace(config, id),
+    changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
 
     return workspace;
   };
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
       if (config.readOnly) return false;
       const workspace = await scheduledWorkspace(task);
@@ -928,6 +937,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     send: async (task, sessionId) => {
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
+      const work = await assistantRuntime.scheduledWork(task, workspace, sessionId);
       const agent = task.projectAccess === "all" ? ALL_PROJECTS_TASK_AGENT : PROJECT_TASK_AGENT;
       await withSessionDispatch(config, sessionId, async () => {
       const session = await getWorkspaceEngineSession(client, workspace, sessionId);
@@ -947,8 +957,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const queue = registeredMessageQueue(config);
       if (!queue) throw new ApiError(503, "queue_unavailable", "The message queue is not ready.");
       const action = dispatchQueueAction({ kind: "prompt", id: `msg_schedule_${task.id}_${task.nextRunAt}`, agent,
-        ...(task.model ? { model: { providerID: task.model.providerID, id: task.model.modelID } } : {}),
-        text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
+        ...(work.model ? { model: { providerID: work.model.providerID, id: work.model.modelID } } : {}),
+        text: `[Scheduled task: ${task.title}]\n\n${work.prompt}`,
         metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } });
       const state = await queue.act(workspace.id, sessionId, { ...action, resumeStopped: false });
       const entry = state.entries.find(entry => entry.id === action.id);
@@ -956,6 +966,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
     const session = await getWorkspaceEngineSession(createDirectoryOpencodeClient(config, workspace, directory), workspace, sessionID);
@@ -1170,6 +1181,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         const metadataOnly = url.pathname === "/session-inbox" || url.pathname === "/session-groups/events" || /^\/workspace\/[^/]+\/(?:events|session-groups(?:\/.*)?)$/.test(url.pathname);
         if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method, metadataOnly, readWikis);
         await guardWikiDirectory(actor, request, url, readWikis);
+        if (assistantRouteRequiresSubscription(request.method, url.pathname)) await requireAssistantSubscription(config);
         let response = await route.handler({
           request,
           url,
@@ -1276,6 +1288,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       approvals.dispose();
       officeConnection.dispose();
       stopMessageQueue(config);
+      await assistantRuntime.close();
       await corpus.stop();
       reviews.stop();
       preparation.stop();
@@ -1406,6 +1419,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     sessionDirectory = session.location.directory;
     if (method === "PATCH" && /^\/session\/[^/]+$/.test(path)) await restoreLegacySessionPermissions(input.config, workspace, client, session);
     if (method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path)) {
+      await requireAssistantWorkspaceSubscription(input.config, workspace.id);
       await assertSessionHistoryReady(input.config, workspace, client, sessionID);
     }
     if (method === "POST" && path.endsWith("/interrupt")) {
@@ -1947,6 +1961,7 @@ function createRoutes(
     },
   });
   registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, resolveWorkspaceMetadata,
+    getStatuses: async workspace => Object.fromEntries(Object.keys(await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) })).map(id => [id, { type: "busy" }])) ,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
     getSession: async (workspace, id) => {
@@ -2031,7 +2046,6 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
     onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
@@ -2240,6 +2254,20 @@ function createRoutes(
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode: projection.opencode, providerDisplay: projection.providerDisplay,
       authoredConfig: projection.authoredConfig, legalwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/research-databases", "host-token", async ctx => {
+    ensureWritable(config);
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
+  });
+
+  // Agent discovery exposes destinations and vault references, never credentials.
+  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
+    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
@@ -4620,7 +4648,33 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+    const composed = await composedSkill(workspace.path, ctx.params.name);
+    return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/skills/:name/research-experience", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
+    if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
+    const { directory, operation, connectionId, websiteUrl } = parsed.data;
+    const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
+    const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
+    if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
+    const owner = connectionId && websiteUrl
+      ? await researchWebsiteExperienceOwner(config, workspace.path, skill, connectionId, websiteUrl)
+      : await researchExperienceOwner(config, workspace.path, skill);
+    if (!owner || skill.directory !== directory) throw new ApiError(409, "research_skill_changed", "Load the configured research skill again before accessing its experience log.");
+    if (operation.action !== "read") {
+      ensureWritable(config);
+      requireClientScope(ctx, "collaborator");
+      await requireOrgPolicyAllows(config, "skills.allowCustom");
+      await requireApproval(ctx, { workspaceId: workspace.id, action: "skills.upsert", summary: `Update research experience for ${skill.name}`, paths: [runtimeDbPath(config)] });
+    }
+    const result = await researchExperience(config, owner, skill, operation);
+    if (operation.action !== "read") await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "skills.upsert", target: runtimeDbPath(config), summary: `Updated research experience for ${skill.name}`, timestamp: Date.now() });
+    return jsonResponse(result);
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:name/package-file", "client", async ctx => {

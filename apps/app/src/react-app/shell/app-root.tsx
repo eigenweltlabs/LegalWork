@@ -23,6 +23,7 @@ import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
+import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -184,6 +185,7 @@ export function AppRoot() {
       <NewProvidersListener />
       <TaskNotificationsListener />
       <OrgPolicyRoot />
+      <AssistantNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
