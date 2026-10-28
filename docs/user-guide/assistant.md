@@ -20,7 +20,9 @@ while you are not chatting. It keeps its own concise scratchpad of important
 recent topics, things you asked to hear about, and specific developments it wants
 to bring back to you. There is no list you need to create or maintain. Tell it
 "let me know when Alex sends the signed agreement" or "stop updating me about
-that matter" and it updates its scratchpad itself.
+that matter" and it updates its scratchpad itself. When you say you are waiting
+for an email and ask to be told, it checks now and keeps an eye out if it has not
+arrived. You do not need to repeat the request or configure an alert.
 
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,
@@ -40,8 +42,9 @@ The existing desktop notification preference applies to new Assistant messages.
 
 Checks require a connected source and an available EU decision model. If a
 source or model is unavailable, the check waits and retries. An empty scratchpad
-means no event alerts. Closing LegalWork stops the local checks until it runs
-again. Timed checks, such as revisiting a website in five hours, still use normal
+means there are no follow-ups being checked. Closing LegalWork stops the local
+checks until it runs again. Timed checks, such as revisiting a website in five
+hours, still use normal
 [scheduled tasks](scheduled-tasks.md).
 
 ## Morning briefings
