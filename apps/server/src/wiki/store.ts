@@ -129,6 +129,7 @@ export class WikiStore {
         CREATE TABLE IF NOT EXISTS wiki_history_changes (historyId TEXT PRIMARY KEY,added INTEGER,removed INTEGER);
         CREATE TABLE IF NOT EXISTS wiki_folders (root TEXT PRIMARY KEY,id TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS wiki_defaults (purpose TEXT PRIMARY KEY,id TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_research_structure (wiki TEXT PRIMARY KEY,version INTEGER NOT NULL,language TEXT NOT NULL,country TEXT);
         CREATE INDEX IF NOT EXISTS wiki_history_path ON wiki_history(wiki,path,createdAt DESC);`);
       return db;
     })();
@@ -187,12 +188,15 @@ export class WikiStore {
   }
   /** Release migration, also used for first-run installs. A durable marker
    * preserves renames, local edits and deliberate removal across restarts. */
-  async ensureLegalResearch(language: "en" | "de"): Promise<{ wiki: WikiRegistration | null; created: boolean }> {
+  async ensureLegalResearch(language: "en" | "de", country?: string): Promise<{ wiki: WikiRegistration | null; created: boolean; updated?: boolean }> {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
     return serial(`${this.path}:legal-research`, async () => {
       const items = await this.list(), deleted = await this.deleted(), db = await this.db();
       const marker = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_defaults WHERE purpose='legal-research'")[0]);
-      if (marker) return { wiki: items.find(wiki => wiki.id === marker.id) ?? null, created: false };
+      if (marker) {
+        const wiki = items.find(wiki => wiki.id === marker.id) ?? null;
+        return { wiki, created: false, ...(wiki ? { updated: await this.ensureResearchStructure(wiki, language, country) } : {}) };
+      }
       // Recover a completed registration if a process stopped before recording
       // the marker. Never adopt an unrelated wiki merely because its title matches.
       const existing = items.find(wiki => wiki.purpose === "legal-research");
@@ -200,12 +204,49 @@ export class WikiStore {
       const initialized = existing ?? removed?.wiki;
       if (initialized) {
         db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [initialized.id]);
-        return { wiki: existing ?? null, created: false };
+        return { wiki: existing ?? null, created: false, ...(existing ? { updated: await this.ensureResearchStructure(existing, language, country) } : {}) };
       }
-      const seed = legalResearchWikiFiles(language);
+      const seed = legalResearchWikiFiles(language, country);
       const wiki = await this.createWithFiles({ name: seed.name }, { purpose: "legal-research", files: seed.files });
       db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [wiki.id]);
+      await this.ensureResearchStructure(wiki, language, country);
       return { wiki, created: true };
+    });
+  }
+  /** Add navigation once; only untouched v1 starter files may be replaced. */
+  private async ensureResearchStructure(wiki: WikiRegistration, language: "en" | "de", country?: string): Promise<boolean> {
+    if (wiki.sync) return false;
+    return serial(`${this.path}:${wiki.id}`, async () => {
+      const db = await this.db();
+      const state = z.object({ version: z.number(), language: z.enum(["en", "de"]), country: z.string().nullable() }).optional().parse(db.all("SELECT version,language,country FROM wiki_research_structure WHERE wiki=?", [wiki.id])[0]);
+      const selectedCountry = state?.country ?? (country && country !== "OTHER" ? country : null);
+      if (state?.version === 2 && state.country === selectedCountry) return false;
+      let home: string | null = null;
+      try { home = (await this.fileBytes(wiki, "Wiki.md", WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
+      catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+      const oldHome = { en: "4f8b851fde89c08760989429feb234110591eff9fec8411f9159c9c03422811d", de: "1118b349f315c6d29145b1604a97bcb468cc6ea8c167d4caaf573eeec99661cd" };
+      const oldGuidance = "ff10dee3f9a6e874f208c0aba57ac4a6cf78177b2239b71e283e31751e12f590";
+      const seededLanguage = home ? markdownData(home).data.research_language : undefined;
+      const locale = state?.language ?? (home && hash(home) === oldHome.de || seededLanguage === "de" ? "de" : home && hash(home) === oldHome.en || seededLanguage === "en" ? "en" : language);
+      const seed = legalResearchWikiFiles(locale, selectedCountry ?? undefined);
+      const initialFiles = legalResearchWikiFiles(locale).files;
+      let changed = false;
+      for (const [path, source] of Object.entries(seed.files)) {
+        // A country chosen after first launch adds its landing pages only.
+        if (state?.version === 2 && Object.hasOwn(initialFiles, path)) continue;
+        let current: string | null = null;
+        try { current = (await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
+        catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+        const legacy = current !== null && (path === "AGENTS.md" ? hash(current) === oldGuidance : path === "Wiki.md" && Object.values(oldHome).includes(hash(current)));
+        if (current !== null && !legacy) continue;
+        // Deleted original control files are deliberate, not migration holes.
+        if (current === null && (path === "Wiki.md" || path === "AGENTS.md")) continue;
+        const content = path === "Wiki.md" ? markdownWithData(source, { name: wiki.name }) : source;
+        await this.writePage(wiki.id, path, content, current === null ? "" : hash(current), "write");
+        changed = true;
+      }
+      db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,2,?,?)", [wiki.id, locale, selectedCountry]);
+      return changed;
     });
   }
   private async createWithFiles(input: WikiCreateInput, seed?: { purpose: "legal-research"; files: Record<string, string> }): Promise<WikiRegistration> {

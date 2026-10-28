@@ -6,15 +6,15 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 
 /** Runs for existing users as well as onboarding, independently of database setup. */
-export function useResearchWiki(client: LegalworkServerClient | null, owner: boolean, refreshWorkspaces: () => unknown) {
+export function useResearchWiki(client: LegalworkServerClient | null, owner: boolean, refreshWorkspaces: () => unknown, country?: string) {
   const language = useLocale() === "de" ? "de" : "en";
   const cache = useQueryClient();
   const setup = useQuery({
-    queryKey: ["legal-research-wiki", client?.baseUrl, owner, language],
+    queryKey: ["legal-research-wiki", client?.baseUrl, owner, language, country],
     enabled: Boolean(client && owner), staleTime: Infinity,
     queryFn: async () => {
       if (!client) throw new Error("LegalWork is not connected.");
-      const result = await client.ensureLegalResearchWiki(language);
+      const result = await client.ensureLegalResearchWiki(language, country);
       if (result.wiki) {
         await cache.invalidateQueries({ queryKey: ["wikis", client.baseUrl] });
         await refreshWorkspaces();
