@@ -79,7 +79,7 @@ test("creating a custom plugin publishes once for 11 projects without waiting on
   }
 }), 30_000);
 
-test("removing a shared plugin publishes once and does not wait on unrelated engines", async () => fixture(async config => {
+test("removing a shared plugin publishes everywhere without contacting any project engine", async () => fixture(async config => {
   const origin = config.workspaces[0]!;
   await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { retained: { type: "remote", url: "https://example.invalid/retained", disabled: true } } } }));
   const input = parsePluginCreateRequest({ name: "Remove fixture", skills: [], connectors: [], newConnector: { type: "remote", url: "https://example.invalid/removed", oauth: false } });
@@ -93,7 +93,7 @@ test("removing a shared plugin publishes once and does not wait on unrelated eng
     if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
       const directory = url.searchParams.get("location[directory]") ?? "";
       refreshed.push(directory);
-      if (directory !== origin.path) { notifyOther(); await otherBlocked; }
+      notifyOther(); await otherBlocked;
       return Response.json({ refreshed: true });
     }
     return Response.json({ code: "not_found" }, { status: 404 });
@@ -108,9 +108,9 @@ test("removing a shared plugin publishes once and does not wait on unrelated eng
     const headers = { authorization: "Bearer test", "x-legalwork-host-token": "host" };
     request = fetch(`${base}/${encodeURIComponent(createdPluginId(input.name))}`, { method: "DELETE", headers, signal: AbortSignal.timeout(15_000) });
     const first = await Promise.race([request.then(response => ({ response })), otherRequested.then(() => ({ response: null }))]);
-    expect(first.response, "Removal must finish without contacting an unrelated project").not.toBeNull();
+    expect(first.response, "Removal must finish without contacting any project engine").not.toBeNull();
     expect(first.response?.status).toBe(200);
-    expect(refreshed).toEqual([origin.path]);
+    expect(refreshed).toEqual([]);
     await stopWatching();
     expect(publish).toHaveBeenCalledTimes(1);
     expect(await (await fetch(base, { headers })).json()).toMatchObject({ plugins: {} });
@@ -141,6 +141,7 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let stopWatching: (() => Promise<void>) | undefined;
   try {
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { retained: { type: "remote", url: `${mcp.url}mcp`, oauth: false } } } }));
     await writeLegalworkRuntimeConfigFile(config, origin.id);
     server = await startServer(config);
     engine = await createManagedOpencodeServer({ bin: binary, cwd: root, timeoutMs: 30_000, parentLease: true, env: {
@@ -154,7 +155,8 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
       await client.model.list({ location: { directory: workspace.path } });
       await waitForNativeFixture(async () => (await client.plugin.list({ location: { directory: workspace.path } })).data,
         plugins => plugins.some(plugin => plugin.id === "opencode.config.mcp" && plugin.state.status === "active"), `active MCP configuration in ${workspace.id}`);
-      expect((await client.mcp.list({ location: { directory: workspace.path } })).data).toEqual([]);
+      await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
+        entries => entries.length === 1 && entries[0]?.name === "retained", `retained connector in ${workspace.id}`);
     }
     stopWatching = keepLegalworkRuntimeConfigFileFresh(config, origin.id);
     const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/workflow-plugins`, {
@@ -167,8 +169,8 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
       // Opening a cold project activates its native plugin registrations.
       if (workspace === unopened) await client.model.list({ location: { directory: workspace.path } });
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
-        entries => entries.length === 1 && entries[0]?.status.status === "connected", `connected plugin in ${workspace.id}`);
-      expect(connectors).toHaveLength(1);
+        entries => entries.length === 2 && entries.every(entry => entry.status.status === "connected"), `connected plugin in ${workspace.id}`);
+      expect(connectors).toHaveLength(2);
     }
     const removed = await fetch(`http://127.0.0.1:${server.port}/workspace/${origin.id}/cloud-plugins/${encodeURIComponent(createdPluginId("Native custom connector"))}`, {
       method: "DELETE", headers: { authorization: "Bearer test", "x-legalwork-host-token": "host" }, signal: AbortSignal.timeout(15_000),
@@ -177,7 +179,14 @@ test.skipIf(!binary)("created and removed connectors reach loaded and unopened n
     for (const workspace of [origin, loaded, unopened, config.workspaces[3]!]) {
       if (workspace === config.workspaces[3]) await client.model.list({ location: { directory: workspace.path } });
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
-        entries => entries.length === 0, `removed plugin in ${workspace.id}`);
+        entries => entries.length === 1 && entries[0]?.name === "retained", `removed plugin in ${workspace.id}`);
+      expect(connectors.map(entry => entry.name)).toEqual(["retained"]);
+    }
+    await publishRuntimeConfigChanges(config, origin.id, () => writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: {} } })));
+    for (const workspace of [origin, loaded, unopened, config.workspaces[4]!]) {
+      if (workspace === config.workspaces[4]) await client.model.list({ location: { directory: workspace.path } });
+      const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
+        entries => entries.length === 0, `last connector removed in ${workspace.id}`);
       expect(connectors).toEqual([]);
     }
   } finally { await stopWatching?.(); await engine?.close(); await server?.stop(); mcp.stop(true); }

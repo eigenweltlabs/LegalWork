@@ -12,7 +12,7 @@ An MCP server publishes tools with its own access requirements. Local-command in
 
 Creating a custom plugin saves it to your shared library and prepares it for the current project. Other projects receive it automatically, including when you next open them; creation does not wait for every project to connect. When the new connector uses browser sign-in (OAuth), sign-in opens automatically after creation. Complete it in your browser to make the connector's tools available. If you cancel, you can open the plugin later and choose **Sign in** to retry. API-key, no-authentication and local-command connectors do not open browser sign-in.
 
-Removing a shared plugin removes its bundled connectors and skills across projects. The library updates after removal without a manual refresh, and removal does not wait for unopened projects to connect.
+Removing a shared plugin removes its bundled connectors and skills from every project. Open projects update automatically; unopened projects use the updated shared library when opened. The settings list updates without a manual refresh, and removal does not wait for any project's engine to start or reconnect.
 
 Plugins add OpenCode tools or hooks. Use the Plugins tab's supported installation/import flow, including the Claude-plugin bundle preview when offered. Previewing a package does not establish that every third-party component works in this runtime. Follow any reported compatibility errors. Most repeatable drafting procedures need a skill or workflow rather than a custom plugin.
 
