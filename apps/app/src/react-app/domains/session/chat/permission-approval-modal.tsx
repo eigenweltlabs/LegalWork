@@ -62,7 +62,6 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
 function readablePermissionLabel(permission: string): string {
   if (permission === "legalwork_project_set_instructions") return t("project_settings.writing");
   if (permission === "bash") return "Bash";
-  if (permission === "host_access") return t("session.permission_title_host_access");
   if (permission === "edit") return t("session.permission_kind_edit");
   if (permission === "read") return t("session.permission_kind_read");
   if (permission === "external_directory") return t("session.permission_kind_external_directory");
@@ -74,10 +73,6 @@ function readablePermissionLabel(permission: string): string {
 }
 
 function permissionCopy(permission: string): Pick<PermissionPresentation, "title" | "message"> {
-  if (permission === "host_access") return {
-    title: t("session.permission_title_host_access"),
-    message: t("session.permission_message_host_access"),
-  };
   if (permission === "legalwork_project_set_instructions") return {
     title: t("session.project_instructions_approval_title"),
     message: t("session.project_instructions_approval_message"),
