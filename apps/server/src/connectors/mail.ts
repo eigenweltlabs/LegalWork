@@ -20,9 +20,9 @@ export type MailAttachment = {
   response: Response; encoding: "binary" | "base64url-json";
 };
 
-type GmailPart = { mimeType?: string; filename?: string; headers?: { name: string; value: string }[]; body?: { data?: string; attachmentId?: string; size?: number }; parts?: GmailPart[] };
+type GmailPart = { partId?: string; mimeType?: string; filename?: string; headers?: { name: string; value: string }[]; body?: { data?: string; attachmentId?: string; size?: number }; parts?: GmailPart[] };
 const gmailPart: z.ZodType<GmailPart> = z.lazy(() => z.object({
-  mimeType: z.string().optional(), filename: z.string().optional(),
+  partId: z.string().optional(), mimeType: z.string().optional(), filename: z.string().optional(),
   headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   body: z.object({ data: z.string().optional(), attachmentId: z.string().optional(), size: z.number().optional() }).optional(),
   parts: z.array(gmailPart).optional(),
@@ -54,10 +54,10 @@ function gmailBody(part: GmailPart | undefined, mimeType: string): string {
   return (part.parts ?? []).map((child) => gmailBody(child, mimeType)).filter(Boolean).join("\n");
 }
 
-function gmailAttachments(part: GmailPart | undefined): { id: string; filename: string; mimeType: string | null; size: number | null }[] {
+function gmailAttachments(part: GmailPart | undefined): { id: string; providerId: string; filename: string; mimeType: string | null; size: number | null }[] {
   if (!part) return [];
   const own = part.filename && part.body?.attachmentId
-    ? [{ id: part.body.attachmentId, filename: part.filename, mimeType: part.mimeType ?? null, size: part.body.size ?? null }] : [];
+    ? [{ id: part.partId === undefined ? part.body.attachmentId : `part:${part.partId}`, providerId: part.body.attachmentId, filename: part.filename, mimeType: part.mimeType ?? null, size: part.body.size ?? null }] : [];
   return [...own, ...(part.parts ?? []).flatMap(gmailAttachments)];
 }
 
@@ -88,15 +88,19 @@ export const gmailAdapter = {
   async get(request: ConnectorRequest, input: z.infer<typeof mailMessageInput>) {
     const message = parse(gmailMessage, await request(`/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}?format=full`));
     const text = gmailBody(message.payload, "text/plain");
-    return { ...gmailSummary(message), body: text || gmailBody(message.payload, "text/html"), bodyType: text ? "text" : "html", attachments: gmailAttachments(message.payload) };
+    return { ...gmailSummary(message), body: text || gmailBody(message.payload, "text/html"), bodyType: text ? "text" : "html",
+      attachments: gmailAttachments(message.payload).map(({ providerId: _providerId, ...attachment }) => attachment) };
   },
   async attachment(request: StreamingConnectorRequest, input: z.infer<typeof mailAttachmentInput>): Promise<MailAttachment> {
     const path = `/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}`;
     const message = parse(gmailMessage, await request(`${path}?format=full&fields=id,payload`));
-    const attachment = gmailAttachments(message.payload).find((item) => item.id === input.attachmentId);
-    if (!attachment) throw new ApiError(404, "connector_item_not_found", "The requested attachment was not found in this email.");
-    return { filename: attachment.filename, mimeType: attachment.mimeType, expectedSize: attachment.size, encoding: "base64url-json",
-      response: await request.response(`${path}/attachments/${encodeURIComponent(input.attachmentId)}?fields=data`, { bytes: true }) };
+    const attachment = gmailAttachments(message.payload).find((item) => item.id === input.attachmentId || item.providerId === input.attachmentId);
+    if (!attachment && input.attachmentId.startsWith("part:")) throw new ApiError(404, "connector_item_not_found", "The requested attachment was not found in this email.");
+    // Gmail can issue a different opaque token on each message read. Stable
+    // MIME-part IDs resolve to the current token; older callers can still use
+    // their token directly, without requiring equality with a fresh listing.
+    return { filename: attachment?.filename ?? "attachment", mimeType: attachment?.mimeType ?? null, expectedSize: attachment?.size ?? null, encoding: "base64url-json",
+      response: await request.response(`${path}/attachments/${encodeURIComponent(attachment?.providerId ?? input.attachmentId)}?fields=data`, { bytes: true }) };
   },
   async draft(request: ConnectorRequest, input: z.infer<typeof mailDraftInput>) {
     const headers = [`To: ${input.to.join(", ")}`];

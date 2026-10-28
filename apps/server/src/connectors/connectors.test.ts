@@ -74,10 +74,10 @@ function attachmentFixture(provider: "gmail" | "outlook", bytes: Buffer, filenam
   };
 }
 
-async function downloadAttachment(provider: "gmail" | "outlook", context: Record<string, unknown> = { directory: root }) {
+async function downloadAttachment(provider: "gmail" | "outlook", context: Record<string, unknown> = { directory: root }, attachmentId = "attachment") {
   if (provider === "outlook") await recordConnectorActivation(config, provider, connection.id, true);
   return callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), {
-    extensionId: provider, action: "get_attachment", args: { messageId: "message", attachmentId: "attachment" }, context,
+    extensionId: provider, action: "get_attachment", args: { messageId: "message", attachmentId }, context,
   }, { personalConnections: true });
 }
 
@@ -844,6 +844,48 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
     expect(await readdir(join(root, ".legalwork", "attachments", "email"))).toEqual([]);
   });
 }
+
+test("Gmail downloads the same MIME part after provider attachment tokens change between message reads", async () => {
+  const bytes = Buffer.from("the second same-named attachment");
+  attachmentFixture("gmail", bytes);
+  const previous = response;
+  let reads = 0;
+  response = (url, init) => {
+    if (url.hostname === "gmail.googleapis.com" && !url.pathname.includes("/attachments/")) {
+      reads++;
+      return Response.json({ id: "message", payload: { parts: [
+        { partId: "1", filename: "Contract.pdf", mimeType: "application/pdf", body: { attachmentId: `token-${reads}-first`, size: 10 } },
+        { partId: "2", filename: "Contract.pdf", mimeType: "application/pdf", body: { attachmentId: `token-${reads}-second`, size: bytes.length } },
+      ] } });
+    }
+    return previous(url, init);
+  };
+  const message = await gmailAdapter.get(await createConnectorRequest(config, "gmail"), { messageId: "message" });
+  expect(message.attachments.map(item => item.id)).toEqual(["part:1", "part:2"]);
+  expect(JSON.stringify(message.attachments)).not.toContain("token-1");
+  const file = downloadedAttachment.parse((await downloadAttachment("gmail", { directory: root }, message.attachments[1].id)).result);
+  expect(file.filename).toBe("Contract.pdf");
+  expect(await readFile(file.path, "utf8")).toBe(bytes.toString());
+  expect(requests.filter(({ url }) => url.pathname.includes("/attachments/")).map(({ url }) => url.pathname)).toEqual([
+    "/gmail/v1/users/me/messages/message/attachments/token-2-second",
+  ]);
+});
+
+test("Gmail accepts a legacy opaque attachment token even when metadata now contains a different token", async () => {
+  attachmentFixture("gmail", Buffer.from("legacy attachment"));
+  const file = downloadedAttachment.parse((await downloadAttachment("gmail", { directory: root }, "older-opaque-token")).result);
+  expect(file.filename).toBe("attachment");
+  expect(await readFile(file.path, "utf8")).toBe("legacy attachment");
+  expect(requests.filter(({ url }) => url.pathname.includes("/attachments/")).map(({ url }) => url.pathname)).toEqual([
+    "/gmail/v1/users/me/messages/message/attachments/older-opaque-token",
+  ]);
+});
+
+test("Gmail refuses an unknown stable MIME part without requesting attachment bytes", async () => {
+  attachmentFixture("gmail", Buffer.from("attachment"));
+  await expect(downloadAttachment("gmail", { directory: root }, "part:missing")).rejects.toMatchObject({ code: "connector_item_not_found" });
+  expect(requests.some(({ url }) => url.pathname.includes("/attachments/"))).toBe(false);
+});
 
 test("Outlook reference attachments are rejected before any content download", async () => {
   attachmentFixture("outlook", Buffer.alloc(0));
