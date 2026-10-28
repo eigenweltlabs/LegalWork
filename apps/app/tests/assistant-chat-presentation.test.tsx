@@ -11,6 +11,7 @@ import { MessageList } from "../src/components/chat/message-list";
 import { AssistantSharedFileCard, AssistantLinkedFileCards } from "../src/components/chat/assistant-chat-cards";
 import { MessageListProvider } from "../src/components/chat/message-list-provider";
 import { OpenTargetProvider } from "../src/lib/target-provider";
+import { resolveHrefOpenTarget, type OpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 
 const user: UIMessage = { id: "user", role: "user", parts: [{ type: "text", text: "Please check the matters" }] };
 const tool = (name: string, output: unknown): DynamicToolUIPart => ({ type: "dynamic-tool", toolName: name, toolCallId: name, state: "output-available", input: {}, output });
@@ -180,5 +181,19 @@ test("saved reports and dashboards have a deliberate document card without inter
     expect(html).toContain('aria-label="Open: Morning briefing"');
     expect(html).not.toContain(".view.json");
     expect(html).not.toContain('disabled=""');
+  }
+});
+
+test("linked saved views use their verified document type and open the rendered view", () => {
+  for (const documentType of ["dashboard", "report"] satisfies Array<"dashboard" | "report">) {
+    const path = "Moved/11111111-1111-4111-8111-111111111111.view.json";
+    const targets: OpenTarget[] = [{ id: `file:${path.toLowerCase()}`, kind: "file", value: path, name: "11111111-1111-4111-8111-111111111111.view.json", preview: "view", documentType, confidence: 95, reason: "link", exists: true }];
+    const linked: UIMessage = { ...response, parts: [{ type: "text", text: `[Your day](${path}) is ready.` }] };
+    const html = renderToStaticMarkup(<OpenTargetProvider openTargets={targets} onOpenTarget={() => {}}><AssistantLinkedFileCards messages={[linked]} /></OpenTargetProvider>);
+    expect(html).toContain(documentType === "dashboard" ? ">Dashboard<" : ">Report<");
+    expect(html).toContain('aria-label="Open: Your day"');
+    expect(html).not.toContain(">JSON<");
+    expect(html).not.toContain(".view.json");
+    expect(resolveHrefOpenTarget(path, targets)).toMatchObject({ value: path, preview: "view", documentType });
   }
 });

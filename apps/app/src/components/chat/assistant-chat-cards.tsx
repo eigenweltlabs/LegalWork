@@ -35,7 +35,7 @@ export function AssistantSharedFileCard({ file }: { file: { path: string; title:
     id: `file:${file.path}`, kind: "file", value: file.path, name: file.title,
     preview: classifyOpenTarget(file.path, "file"), confidence: 1, reason: "assistant-shared",
   } satisfies OpenTarget;
-  const kind = file.documentType ?? (target.preview === "view" ? "report" : null);
+  const kind = file.documentType ?? target.documentType ?? (target.preview === "view" ? "report" : null);
   const Icon = kind === "dashboard" ? DashboardIcon : kind === "report" ? ChartNoAxesCombined : FileText;
   return <button type="button" data-assistant-file-card="" aria-label={`${t("scheduled.open")}: ${file.title}`}
     className="group my-1 flex w-[420px] max-w-[90%] items-start gap-3 rounded-3xl border border-border/60 bg-foreground/[0.035] p-4 text-left transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"

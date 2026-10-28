@@ -906,7 +906,8 @@ export type LegalworkResolvedArtifactTarget = {
   kind: "file" | "url";
   value: string;
   name: string;
-  preview: "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  preview: "view" | "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  documentType?: "report" | "dashboard";
   confidence: number;
   reason: string;
   exists?: boolean;

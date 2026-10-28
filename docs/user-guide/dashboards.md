@@ -15,6 +15,8 @@ In the Personal Assistant, requested reports and scheduled briefings can be save
 
 A Markdown briefing can embed a saved chart while keeping the summary, email links and task checkboxes editable. Select the embedded chart's **Open in tab** button to expand it. Report and dashboard cards use their readable titles rather than internal filenames. Priority email links open the original message in its provider; task links open the task in LegalWork.
 
+Cards labelled **Dashboard** or **Report**, including cards from links in a reply, open the rendered document beside the chat. The underlying `.view.json` file is its saved format, not a code document. Ordinary JSON files still open in the text editor.
+
 To embed an existing saved view, ask the Assistant to add it to your Markdown file. The file keeps a `legalwork-view` fenced reference, so reopening the document loads that same view. Source mode preserves the reference. Removing the block removes the embed, not the saved report file. An unsaved preview cannot be embedded as a saved chart.
 
 ## Save an independent copy
