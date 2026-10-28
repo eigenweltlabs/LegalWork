@@ -1,5 +1,6 @@
 import { sessionDispatchSchema } from "../session-queue-schema.js";
 import { dispatchQueueAction } from "../session-dispatch.js";
+import { announceSyncChange } from "../app-sync-events.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution, withSessionDispatch } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -57,6 +58,7 @@ interface RegisterSessionRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,7 +81,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   } = options;
   registerHistoryImageRoutes({ routes, config, resolveWorkspace, jsonResponse });
   const originalImages = toolImageOriginalStore(config);
+  const metadata = options.resolveWorkspaceMetadata ?? resolveWorkspace;
   const sessionGroupEvents = new SessionGroupEventStore();
+  const groupChanged = (workspaceId: string, action: Parameters<SessionGroupEventStore["record"]>[1], details?: Parameters<SessionGroupEventStore["record"]>[2]) => {
+    sessionGroupEvents.record(workspaceId, action, details);
+    announceSyncChange(config, "groups");
+  };
   async function validateQueuedExecution(client: WorkspaceOpencodeClient, workspace: WorkspaceInfo, execution: QueueEntry["execution"]) {
     if (!config.agentSandboxEnabled && !(await new WikiStore(config).list()).length) return;
     if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
@@ -237,8 +244,32 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "GET", "/session-groups/events", "client", async (ctx) => {
+    let raw: unknown;
+    try { raw = JSON.parse(ctx.url.searchParams.get("cursors") || "{}"); }
+    catch { throw new ApiError(400, "invalid_cursors", "Invalid group event cursors."); }
+    if (!isRecord(raw) || Object.keys(raw).length > 500) throw new ApiError(400, "invalid_cursors", "Invalid group event cursors.");
+    const items = [];
+    for (const [id, since] of Object.entries(raw)) {
+      ctx.request.signal.throwIfAborted();
+      if (since !== null && (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0)) throw new ApiError(400, "invalid_cursors", "Invalid group event cursor.");
+      try {
+        const workspace = await metadata(config, id);
+        const cursor = sessionGroupEvents.cursor(workspace.id);
+        const events = sessionGroupEvents.list(workspace.id, typeof since === "number" ? since : undefined);
+        // Include state on the first read and cursor reset (a server restart), too.
+        const state = since === null || (typeof since === "number" && since > cursor) || events.length > 0
+          ? await readSessionGroupState(config, workspace.id) : undefined;
+        items.push({ workspaceId: workspace.id, cursor, ...(state ? { state: state.state, updatedAt: state.updatedAt } : {}) });
+      } catch (error) {
+        if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
+      }
+    }
+    return jsonResponse({ items });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/session-groups", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const result = await readSessionGroupState(config, workspace.id);
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
@@ -246,18 +277,18 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   addRoute(routes, "PUT", "/workspace/:id/session-groups", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const state = normalizeSessionGroupState(body.state);
     const result = await updateWorkspaceSessionGroups(workspace.id, () => state);
-    sessionGroupEvents.record(workspace.id, "imported");
+    groupChanged(workspace.id, "imported");
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "POST", "/workspace/:id/session-groups", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const label = requireStringField(body, "label").slice(0, 120);
     const requestedId = typeof body.id === "string" ? body.id.trim().slice(0, 128) : "";
@@ -267,14 +298,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return { ...current, groups: [...current.groups, { id, label }] };
     });
     const groupId = result.state.groups[result.state.groups.length - 1]?.id;
-    sessionGroupEvents.record(workspace.id, "created", groupId ? { groupId } : undefined);
+    groupChanged(workspace.id, "created", groupId ? { groupId } : undefined);
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/reorder", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const requestedIds = Array.isArray(body.groupIds)
       ? body.groupIds.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean)
@@ -294,14 +325,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       return { ...current, groups };
     });
-    sessionGroupEvents.record(workspace.id, "reordered");
+    groupChanged(workspace.id, "reordered");
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/assignments/:sessionId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const sessionId = (ctx.params.sessionId ?? "").trim();
     if (!sessionId) throw new ApiError(400, "invalid_payload", "sessionId is required");
     const body = await readJsonBody(ctx.request);
@@ -315,14 +346,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       return { ...current, assignments };
     });
-    sessionGroupEvents.record(workspace.id, "assigned", { sessionId, ...(groupId ? { groupId } : {}) });
+    groupChanged(workspace.id, "assigned", { sessionId, ...(groupId ? { groupId } : {}) });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/:groupId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const groupId = (ctx.params.groupId ?? "").trim();
     if (!groupId) throw new ApiError(400, "invalid_payload", "groupId is required");
     const body = await readJsonBody(ctx.request);
@@ -331,14 +362,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       ...current,
       groups: current.groups.map((group) => group.id === groupId ? { ...group, label } : group),
     }));
-    sessionGroupEvents.record(workspace.id, "updated", { groupId });
+    groupChanged(workspace.id, "updated", { groupId });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/session-groups/:groupId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const groupId = (ctx.params.groupId ?? "").trim();
     if (!groupId) throw new ApiError(400, "invalid_payload", "groupId is required");
     const result = await updateWorkspaceSessionGroups(workspace.id, (current) => {
@@ -351,12 +382,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         assignments,
       };
     });
-    sessionGroupEvents.record(workspace.id, "deleted", { groupId });
+    groupChanged(workspace.id, "deleted", { groupId });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "GET", "/workspace/:id/session-groups/events", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const sinceRaw = ctx.url.searchParams.get("since");
     const since = sinceRaw ? Number(sinceRaw) : undefined;
     const items = sessionGroupEvents.list(workspace.id, since);

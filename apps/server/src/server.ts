@@ -7,6 +7,7 @@ import { toolImageOriginalStore } from "./tool-image-original-store.js";
 import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle.js";
 import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
+import { requestResourceChange } from "./request-resource-change.js";
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { registeredMessageQueue, stopMessageQueue } from "./session-message-queue.js";
@@ -856,7 +857,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const agentSandbox = new AgentSandboxService(config, approvals, undefined, rawHttpTransport?.send);
   const officeTls = config.wordAddin?.enabled ? await loadWordAddinTls(config.wordAddin) : null;
   const officeConnection = new OfficeConnectionService(officeTls ? await loadOfficeConnectionToken(officeTls.keyPath) : undefined);
-  const reloadEvents = new ReloadEventStore();
+  const reloadEvents = new ReloadEventStore(200, () => announceSyncChange(config, "reload"));
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
@@ -1014,16 +1015,16 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       ]), domainRules(session.permissions ?? []));
     },
   });
-  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string) => {
-    const wiki = (await wikiStore.list()).find((item) => item.workspaceId === workspaceId);
+  const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string, metadataOnly = false, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
+    const wiki = (await readWikis()).find((item) => item.workspaceId === workspaceId);
     assertWikiWorkspaceAccess(actor, wiki);
-    if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
+    if (wiki && !metadataOnly) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && method !== "GET" && method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
   };
-  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL) => {
+  const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
     const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await wikiStore.list(), await realpath(directory).catch(() => resolve(directory)));
+    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)));
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1040,6 +1041,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     fetch: async (request: Request) => {
       const url = new URL(request.url);
       const startedAt = Date.now();
+      // One authorization snapshot per request, without retaining permissions across requests.
+      let registrations: ReturnType<WikiStore["list"]> | undefined;
+      const readWikis = () => registrations ??= wikiStore.list();
       let authMode: AuthMode = "none";
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
@@ -1066,8 +1070,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         authMode = "client";
         try {
           const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
-          await guardWikiWorkspace(actor, mount.workspaceId, request.method);
-          await guardWikiDirectory(actor, request, url);
+          await guardWikiWorkspace(actor, mount.workspaceId, request.method, false, readWikis);
+          await guardWikiDirectory(actor, request, url, readWikis);
           assertOpencodeProxyAllowed(actor, request.method, mount.restPath);
           const workspace = await resolveWorkspace(config, mount.workspaceId);
           proxyService = "opencode";
@@ -1144,8 +1148,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         proxyBaseUrl = config.workspaces[0]?.baseUrl?.trim() || undefined;
         try {
           const actor = officeConnection.actor(request) ?? await requireClient(request, config, tokens);
-          if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method);
-          await guardWikiDirectory(actor, request, url);
+          if (config.workspaces[0]) await guardWikiWorkspace(actor, config.workspaces[0].id, request.method, false, readWikis);
+          await guardWikiDirectory(actor, request, url, readWikis);
           assertOpencodeProxyAllowed(actor, request.method, url.pathname);
           proxyService = "opencode";
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0], actor });
@@ -1178,8 +1182,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
                 ? officeConnection.actor(request) ?? await requireClient(request, config, tokens)
                 : undefined);
         const workspaceId = route.params.id ?? route.params.workspaceId;
-        if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method);
-        await guardWikiDirectory(actor, request, url);
+        const metadataOnly = url.pathname === "/session-inbox" || url.pathname === "/session-groups/events" || /^\/workspace\/[^/]+\/(?:events|session-groups(?:\/.*)?)$/.test(url.pathname);
+        if (workspaceId) await guardWikiWorkspace(actor, workspaceId, request.method, metadataOnly, readWikis);
+        await guardWikiDirectory(actor, request, url, readWikis);
         let response = await route.handler({
           request,
           url,
@@ -1190,17 +1195,20 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
           tokens,
           actor,
         });
-        const workspaceList = url.pathname === "/workspaces" ? { field: "items", identity: "id" }
+        const resource = requestResourceChange(request.method, url.pathname);
+        if (response.ok && resource) announceSyncChange(config, resource);
+        const workspaceList = url.pathname === "/session-groups/events" ? { field: "items", identity: "workspaceId" }
+          : url.pathname === "/workspaces" ? { field: "items", identity: "id" }
           : url.pathname === "/scheduled-tasks/projects" ? { field: "projects", identity: "id" }
           : url.pathname === "/scheduled-tasks" ? { field: "tasks", identity: "workspaceId" }
           : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
         if (request.method === "GET" && workspaceList && response.ok) {
-          const wikis = await wikiStore.list();
+          const wikis = await readWikis();
           const hidden = new Set<string>();
           for (const wiki of wikis) {
             if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
             else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
-            else { try { await wikiSync.ensureReadable(wiki, ownsWikis(actor)); } catch { hidden.add(wiki.workspaceId); } }
+            else if (!metadataOnly) { try { await wikiSync.ensureReadable(wiki, ownsWikis(actor)); } catch { hidden.add(wiki.workspaceId); } }
           }
           const payload: unknown = await response.json();
           if (isRecord(payload)) {
@@ -1213,6 +1221,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         }
         return finalize(response);
       } catch (error) {
+        if (request.signal.aborted) return finalize(new Response(null, { status: 499 }));
         if (!findApiError(error)) {
           console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
         }
@@ -1579,6 +1588,7 @@ function withCors(response: Response, request: Request, config: ServerConfig) {
   );
   headers.set("Access-Control-Expose-Headers", "X-LegalWork-Updated-At");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  if (request.method === "OPTIONS") headers.set("Access-Control-Max-Age", "600");
   headers.set("Vary", "Origin");
   return new Response(response.body, { status: response.status, headers });
 }
@@ -1929,7 +1939,7 @@ function createRoutes(
       return session ? { ...session, directory: session.location.directory } : null;
     },
   });
-  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace,
+  registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, resolveWorkspaceMetadata,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
     getSession: async (workspace, id) => {
@@ -2035,7 +2045,7 @@ function createRoutes(
     ensureWritable,
     requireClientScope,
     resolveWorkspace,
-
+    resolveWorkspaceMetadata,
   });
 
   registerToolOutputRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
@@ -4381,6 +4391,7 @@ function createRoutes(
     readJsonBody,
     requireClientScope,
     resolveWorkspace,
+    resolveWorkspaceMetadata,
     // The app reloads after a key or sign-in changed: the firm's providers that use it come in with the rebuilt config.
     reloadOpencodeEngine: async (target, workspace) => {
       await writeLegalworkRuntimeConfigFile(target, target.workspaces?.[0]?.id ?? workspace.id).catch(() => undefined);
@@ -5234,7 +5245,7 @@ function createRoutes(
   return routes;
 }
 
-async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
+function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceInfo {
   const workspaceId = id.trim();
   const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
   const workspace =
@@ -5243,6 +5254,15 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
   if (!workspace) {
     throw new ApiError(404, "workspace_not_found", "Workspace not found");
   }
+  const path = resolve(workspace.path);
+  if (!config.authorizedRoots.some(root => path === resolve(root) || path.startsWith(resolve(root) + sep))) {
+    throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
+  }
+  return { ...workspace, path };
+}
+
+async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
+  const workspace = resolveWorkspaceMetadata(config, id);
   const resolvedWorkspace = resolve(workspace.path);
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {
