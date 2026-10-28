@@ -1,3 +1,4 @@
+import { browserPasswords } from "./browser-passwords.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -100,8 +101,8 @@ import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWik
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
-import { planResearchDatabase } from "./legal-research.js";
-import { researchExperience, researchExperienceOwner, withResearchExperience } from "./research-experience.js";
+import { configureResearchDatabase } from "./legal-research.js";
+import { researchExperience, researchExperienceOwner, researchWebsiteExperienceOwner, withResearchExperience } from "./research-experience.js";
 import { researchExperienceAction } from "./research-experience-schema.js";
 import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
@@ -2240,18 +2241,15 @@ function createRoutes(
 
   addRoute(routes, "POST", "/workspace/:id/research-databases", "host-token", async ctx => {
     ensureWritable(config);
-    await requireOrgPolicyAllows(config, "plugins.allowCustom");
-    await requireOrgPolicyAllows(config, "skills.allowCustom");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const input = await readJsonBody(ctx.request);
-    const item = await withPluginImportLock(async () => {
-      const plan = await planResearchDatabase(config, workspace.path, input);
-      await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Set up research database ${plan.preview.name}`, paths: [globalOpencodeConfigDir(), globalSkillsDir()] });
-      return installPluginImport(config, workspace.id, workspace.path, plan, true);
-    });
-    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Set up research database ${item.name}`, timestamp: Date.now() });
-    for (const target of config.workspaces) emitReloadEvent(ctx.reloadEvents, target, "skills");
-    return jsonResponse({ item });
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ item: await configureResearchDatabase(config, await readJsonBody(ctx.request)) });
+  });
+
+  // Agent discovery exposes destinations and vault references, never credentials.
+  addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ items: (await browserPasswords(config).list()).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
@@ -4666,13 +4664,16 @@ function createRoutes(
   addRoute(routes, "POST", "/workspace/:id/skills/:name/research-experience", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
+    const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
     if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
-    const { directory, operation } = parsed.data;
+    const { directory, operation, connectionId, websiteUrl } = parsed.data;
     const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
     if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
     const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
-    const owner = await researchExperienceOwner(config, workspace.path, skill);
+    if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
+    const owner = connectionId && websiteUrl
+      ? await researchWebsiteExperienceOwner(config, workspace.path, skill, connectionId, websiteUrl)
+      : await researchExperienceOwner(config, workspace.path, skill);
     if (!owner || skill.directory !== directory) throw new ApiError(409, "research_skill_changed", "Load the configured research skill again before accessing its experience log.");
     if (operation.action !== "read") {
       ensureWritable(config);

@@ -33,7 +33,7 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
     if (entryId) { onComplete(entryId); return; }
     submitting.current = true; setSaving(true); setError("");
     try {
-      const { item } = await client.saveBrowserPassword({ origin: request.website, label: request.label, username, password });
+      const { item } = await client.saveBrowserPassword({ origin: request.website, label: request.label, username, password, ...(request.startUrl ? { websiteUrl: request.startUrl } : {}) });
       if (!active.current) return;
       setPassword(""); setSavedId(item.id);
       void cache.invalidateQueries({ queryKey: ["browser-passwords", client.baseUrl] });
@@ -53,6 +53,10 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
         <span className="text-xs text-muted-foreground">{t("settings.browser_passwords.website")}</span>
         <span className="min-w-0 break-all text-sm" title={request.website}>{request.website}</span>
       </div>
+      {request.startUrl ? <div className={rowClass}>
+        <span className="text-xs text-muted-foreground">{t("website_connections.destination")}</span>
+        <span className="min-w-0 break-all text-sm">{request.startUrl}</span>
+      </div> : null}
       {!available ? <p role="alert" className="px-5 py-3 text-xs text-muted-foreground">{t("browser_password_request.unavailable")}</p> : null}
       {existing.isLoading ? <p role="status" className="px-5 py-3 text-xs text-muted-foreground">{t("settings.browser_passwords.loading")}</p> : null}
       {existing.error ? <div role="alert" className="space-y-2 px-5 py-3 text-xs text-destructive"><p>{t("browser_password_request.load_failed")}</p>

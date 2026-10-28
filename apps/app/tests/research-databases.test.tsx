@@ -7,7 +7,7 @@ import { ResearchDatabasesStep } from "../src/react-app/domains/onboarding/resea
 test("onboarding suggests databases by country and offers custom and deferred setup", () => {
   const client = createLegalworkServerClient({ baseUrl: "http://fixture.invalid", token: "fixture", hostToken: "fixture-host" });
   const cache = new QueryClient();
-  cache.setQueryData(["research-databases", client.baseUrl, "project"], { marketplaces: {}, plugins: {} });
+  cache.setQueryData(["browser-passwords", client.baseUrl], { items: [] });
   const render = (initialCountry: string, totalSteps = 7) => renderToStaticMarkup(<QueryClientProvider client={cache}>
     <ResearchDatabasesStep client={client} workspaceId="project" initialCountry={initialCountry} totalSteps={totalSteps} onCountryChange={() => {}} onDone={() => {}} />
   </QueryClientProvider>);
@@ -28,7 +28,7 @@ test("research setup sends only the saved vault reference and provider selection
   const calls: Array<{ path: string; body: unknown; host: string | null }> = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     calls.push({ path: new URL(request.url).pathname, body: await request.json(), host: request.headers.get("x-legalwork-host-token") });
-    return Response.json({ item: { pluginId: "local:legal-research-courtlistener:global" } });
+    return Response.json({ item: { id: payload.passwordId, websites: [{ name: "CourtListener", url: "https://www.courtlistener.com/", providerId: "courtlistener" }] } });
   } });
   try {
     const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "fixture-host" });

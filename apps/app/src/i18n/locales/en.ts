@@ -5,6 +5,9 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "website_connections.title": "Website logins",
+  "website_connections.description": "Saved websites and sign-in details are available across your chats. Skills are optional.",
+  "website_connections.destination": "Website to use",
   "research.title": "Your legal research",
   "research.description": "Connect the research services you already use. LegalWork can use them for research in Browser Automation.",
   "research.country": "Which country do you work in?",
@@ -25,10 +28,10 @@ export default {
   "research.name": "Database name",
   "research.set_up": "Set up integration",
   "research.skip": "Set up later",
-  "research.saved": "Research integrations added",
-  "research.saved_hint": "Available under Integrations > Plugins. LegalWork will check access when you first ask it to research. Manage saved logins in Settings > Secrets > Browser passwords.",
-  "research.setup_failed": "The login is saved, but the integration could not be added. Select Continue with saved login to retry. If your firm restricts custom integrations, contact your administrator.",
-  "research.load_failed": "Your integrations could not be loaded.",
+  "research.saved": "Research websites connected",
+  "research.saved_hint": "Manage saved websites under Integrations > Website logins or Settings > Secrets > Browser passwords. LegalWork checks access when you first ask it to research.",
+  "research.setup_failed": "The login is saved, but the research website could not be linked. Select Continue with saved login to retry.",
+  "research.load_failed": "Your saved websites could not be loaded.",
   "research.invalid_url": "Enter a name and complete HTTPS addresses without embedded credentials.",
   "research.unavailable": "Connect to your local LegalWork desktop server to set up browser research. You can continue and add databases later under Integrations.",
   "research.managed": "Your organization manages custom integrations. You can continue and use the integrations made available by your administrator.",

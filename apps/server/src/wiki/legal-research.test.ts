@@ -9,7 +9,7 @@ import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
 import WikiTools from "../opencode-plugins/legalwork-wiki-tools.js";
 import { legalResearchCaptureGuidance } from "../legal-research-guidance.js";
-import { researchDatabaseSkill } from "../legal-research.js";
+import { CORE_OPENCODE_FILES } from "../core-skills.js";
 import { legalResearchWikiFiles } from "./legal-research-template.js";
 import { researchIndexGroups } from "@legalwork/types/legal-research-wiki";
 import { openSqlite } from "../runtime-db.js";
@@ -147,7 +147,7 @@ test("default wiki is owner-provisioned and requested legal findings stage until
       const prompt: { system: Array<{ type: "text"; text: string }> } = { system: [] };
       await plugin.runtime.hook("session", "context", prompt);
       expect(prompt.system.some(part => part.text.includes(legalResearchCaptureGuidance))).toBe(true);
-      expect(researchDatabaseSkill).toContain(legalResearchCaptureGuidance);
+      expect(CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")?.content).toContain(legalResearchCaptureGuidance);
       expect(legalResearchCaptureGuidance).toContain("Wait for an affirmative reply");
       expect(legalResearchCaptureGuidance).toContain("Silence and refusal are not consent");
       const listed = JSON.parse(await plugin.tool.wiki_list.execute({}));
