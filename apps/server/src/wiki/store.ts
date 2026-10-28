@@ -685,6 +685,66 @@ export class WikiStore {
   async write(id: string, path: string, content: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, () => this.writePage(id, path, content, baseRevision, "write"));
   }
+  /** One human review publishes the page and its staged source files. Assets
+   * precede the page, so readers never see a page with half-copied sources. */
+  async writeContribution(id: string, path: string, content: string, baseRevision: string, attachments: { path: string; data: Buffer }[]) {
+    if (!attachments.length) return this.write(id, path, content, baseRevision);
+    return serial(`${this.path}:${id}`, async () => {
+      const wiki = await this.get(id);
+      if (!isMarkdown(wikiPath(path)) || Buffer.byteLength(content) > WIKI_MAX_PAGE_BYTES)
+        throw new ApiError(400, "invalid_wiki_page", "Choose a Markdown page of up to 2 MB.");
+      let previous: Buffer | null = null;
+      try { previous = await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES); }
+      catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
+      // Recover a completed write if updating the project's draft status failed.
+      const alreadyPublished = previous !== null && hash(previous) === hash(content);
+      if (!alreadyPublished) this.conflict(baseRevision, previous === null ? null : hash(previous));
+      const missingAssets: { path: string; data: Buffer }[] = [];
+      let total = 0;
+      for (const asset of attachments) {
+        wikiPath(asset.path);
+        total += asset.data.length;
+        if (isMarkdown(asset.path) || asset.path === path || total > WIKI_MAX_ASSET_BYTES)
+          throw new ApiError(400, "invalid_wiki_attachment", "Choose source files totalling up to 100 MB.");
+        try {
+          const current = await this.fileBytes(wiki, asset.path, WIKI_MAX_ASSET_BYTES);
+          if (hash(current) !== hash(asset.data)) throw new ApiError(409, "wiki_attachment_exists", "A different source file already exists at this destination. Keep the draft and choose a different filename.");
+        } catch (error) {
+          if (!(error instanceof ApiError && error.status === 404)) throw error;
+          missingAssets.push(asset);
+        }
+      }
+      const written: typeof missingAssets = [];
+      const createdFolders = new Set<string>();
+      try {
+        for (const asset of missingAssets) {
+          const parts = asset.path.split("/");
+          for (let i = 1; i < parts.length; i++) {
+            const folder = parts.slice(0, i).join("/");
+            if (!await lstat(await this.safePath(wiki, folder)).catch(error => { if (missing(error)) return null; throw error; })) createdFolders.add(folder);
+          }
+          // Create-only semantics also protect files changed outside this process.
+          await this.atomicWrite(wiki, asset.path, asset.data, "");
+          written.push(asset);
+        }
+        if (alreadyPublished) return { path, content, revision: hash(content), updatedAt: (await stat(await this.safePath(wiki, path))).mtimeMs };
+        return await this.writePage(id, path, content, baseRevision, "write");
+      } catch (error) {
+        let published = false;
+        try { published = hash(await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)) === hash(content); }
+        catch { /* The original error is reported below. */ }
+        if (!published) {
+          for (const asset of written.reverse()) {
+            if (hash(await this.fileBytes(wiki, asset.path, WIKI_MAX_ASSET_BYTES)) === hash(asset.data)) await rm(await this.safePath(wiki, asset.path));
+          }
+          for (const folder of [...createdFolders].reverse()) await rmdir(await this.safePath(wiki, folder)).catch(cleanup => {
+            if (!missing(cleanup) && !(cleanup instanceof Error && "code" in cleanup && cleanup.code === "ENOTEMPTY")) throw cleanup;
+          });
+        }
+        throw error;
+      }
+    });
+  }
   async updateProperties(id: string, path: string, patch: WikiPropertiesPatch, baseRevision: string): Promise<WikiDocument> {
     wikiPath(path);
     if (!isMarkdown(path)) throw new ApiError(400, "invalid_wiki_page", "Properties belong to a Markdown page.");

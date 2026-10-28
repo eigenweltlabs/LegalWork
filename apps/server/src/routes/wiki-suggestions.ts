@@ -7,7 +7,7 @@ import type { WikiContribution } from "@legalwork/types/wiki-suggestions";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope } from "../types.js";
 import { WikiSuggestions } from "../wiki/suggestions.js";
-import { WikiStore, wikiPath } from "../wiki/store.js";
+import { WikiStore, wikiPath, wikiAssetContentType } from "../wiki/store.js";
 import { wikiAgentCanAccess } from "../wiki/access.js";
 import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -83,6 +83,17 @@ export function registerWikiSuggestionRoutes(options: {
     return jsonResponse({ items: (await repo.list()).map(({ content, ...item }) => item) });
   });
   addRoute(routes, "GET", `${base}/:suggestionId`, "client", async ctx => jsonResponse(await (await repository(ctx)).read(ctx.params.suggestionId)));
+  addRoute(routes, "GET", `${base}/:suggestionId/attachments/:sha256`, "client", async ctx => {
+    const repo = await repository(ctx);
+    const draft = await repo.read(ctx.params.suggestionId);
+    if (new URL(ctx.request.url).searchParams.get("revision") !== draft.revision) throw new ApiError(409, "suggestion_changed", "This draft changed. Reload it before opening the source file.");
+    const index = draft.attachments.findIndex(file => file.sha256 === ctx.params.sha256);
+    const file = await repo.attachment(draft, index);
+    return new Response(new Uint8Array(file.data), { headers: {
+      "content-type": wikiAssetContentType(file.path), "content-length": String(file.data.length),
+      "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'", "cache-control": "private, no-store",
+    } });
+  });
   addRoute(routes, "POST", base, "client", async ctx => {
     const repo = await repository(ctx, true);
     const input = await parse(ctx, WikiSuggestionInputSchema);
@@ -106,7 +117,9 @@ export function registerWikiSuggestionRoutes(options: {
       if (action === "dismiss") return jsonResponse(await repo.finish(draft, "dismissed"));
       const wiki = await destination(ctx, draft.destination, true);
       // Exact file and exact wiki revision reviewed by the user, never an upsert.
-      await store.write(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "");
+      const attachments = [];
+      for (let index = 0; index < draft.attachments.length; index++) attachments.push(await repo.attachment(draft, index));
+      await store.writeContribution(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "", attachments);
       options.onChanged?.(wiki.id);
       return jsonResponse(await repo.finish(draft, "saved"));
     });
