@@ -108,7 +108,7 @@ The public CourtListener sign-in page returned HTTP 403 in this automated enviro
 
 Onboarding, chat and Settings share the existing encrypted BrowserPasswordStore. Provider setup validates a saved-login UUID against the actual sign-in domain and attaches destination metadata to that vault entry. Several destinations can share one login. Updates preserve linked destinations when the login website remains the same; moving credentials to a different main domain clears old links. Destination query strings and fragments are stripped. Host-only credential management and the existing main-domain/subdomain fill checks remain unchanged.
 
-Saving a login does not create a plugin or skill. The bundled `legal-research` skill is seeded in every workspace, discovers saved website metadata with `legalwork_browser_connections`, and optionally loads a site-specific skill from the normal catalogue. Country presets only prefill URLs. **Integrations > Website logins** and **Settings > Secrets > Browser passwords** use the same management view.
+Saving a login does not create a plugin or skill. The bundled `legal-research` skill is seeded in every workspace, discovers saved website metadata with `legalwork_browser_connections`, and optionally loads a site-specific skill from the normal catalogue. Country presets only prefill URLs. **Settings > Secrets > Browser passwords** is the single management view. Onboarding uses the full-page OnboardingCover, standard 32px heading, progress dots and bottom Back/Skip/Continue footer. There is no separate website-management modal under Integrations.
 
 ### Persistent website experience
 
@@ -128,7 +128,7 @@ The connected-research skill and fixed wiki-tool guidance instruct the agent to 
 
 UI evidence uses the explicitly labeled development preview with synthetic credentials. Server tests use a temporary vault, runtime database and configuration directory. They cover preset validation, mismatched domains, owner authorization, repeat setup, global visibility, read-only mode, manual edits and uninstall. These tests do not authenticate to external providers.
 
-To reproduce the interface, run `pnpm --filter @legalwork/app dev` and open `/onboarding-preview.html?step=research&lang=de&country=DE`. Add `research-error` to simulate one connection failure. This preview never stores real passwords or links real websites. Production setup is in onboarding and **Settings > Integrations > Add > Research databases**.
+To reproduce the interface, run `pnpm --filter @legalwork/app dev` and open `/onboarding-preview.html?step=research&lang=de&country=DE`. Add `research-error` to simulate one connection failure. This preview never stores real passwords or links real websites. The full research selection is an onboarding step. Later login management is in **Settings > Secrets > Browser passwords**.
 
 ### Research wiki classification and review
 
