@@ -1183,8 +1183,8 @@ export function createBrowserPage(win, options) {
                 (properties.get("focusable") || /^(button|link|textbox|searchbox|combobox|checkbox|radio|option)$/.test(role));
             const name = String(node.name?.value ?? "").replace(/\s+/g, " ").slice(0, 300);
             const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined;
-            const structural = !known && !actionable && !name && ["generic", "none", "group", "node"].includes(role);
-            const visible = !node.ignored && !structural;
+            const structural = !known && !actionable && !name && ["generic", "none", "presentation", "group", "node"].includes(role);
+            const visible = !node.ignored && (role !== "InlineTextBox" || Boolean(known)) && !structural;
             if (visible) {
                 // A picked element keeps the ref its comment names, even when it is not otherwise actionable.
                 const ref = known ?? (actionable && node.backendDOMNodeId ? options.shared.ref() : "");

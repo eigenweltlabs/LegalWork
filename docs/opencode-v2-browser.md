@@ -28,6 +28,13 @@ The main-process attachment retains its existing browser pages when its owning r
 
 Fixed browser instructions teach focused Code Mode discovery with complete signatures, reuse of retrieved definitions, and sequential awaited native operations in one execute for already-observed, authorized steps. A normal sign-in can open/list metadata together, then fill username/password and submit together, followed by a condition wait and verification. Navigation, new fields, MFA/CAPTCHA and partial failure require observation before further mutations. This uses the released Code Mode and browser tools; it adds no execution limits or detached agent and changes no permission decisions.
 
+The fixed browser instructions include directly callable Code Mode examples for
+opening and observing a tab, reusing its ID, finding controls and interacting with
+fresh refs. These common operations do not require a catalogue search. Additional
+operations remain discoverable through targeted searches. This avoids requiring
+the model to page through all 45 browser tools before starting ordinary research;
+the instructions contain no live tab state or website-specific selectors.
+
 `legalwork_browser_upload` copies complete file bytes under normal native read permission for each exact server/project path. Desktop receives bytes and filenames, not arbitrary server paths it is expected to open. Private temporary upload files are removed when their tab capability closes.
 
 `legalwork_browser_capture` offers background capture and saves the complete image under normal native edit permission inside the originating project. File-path/symlink checks prevent saving into another project. It does not require exposing or focusing that tab. Background rendering has unresolved failures described below; the presence of this operation does not establish reliable background screenshots.
@@ -71,7 +78,7 @@ checks or the intended extension contract above.
 | Contract | Native 2.1.4 behavior | LegalWork preservation |
 |---|---|---|
 | Native transferred file | 5 MiB | Complete upload/download/capture extensions; native limit remains truthful |
-| Native snapshot | 100,000 characters; 500 rendered accessibility lines; explicit depth at most 20, default traverses nested controls | Focused native find reaches matches past the default output budget; paged snapshot extension remains available |
+| Native snapshot/find | 100,000 characters; 500 accessibility lines; default structural depth 8; explicit depth 1–20 | Compact observations with semantic depth; full-tree find before limiting matches; unchanged output limits and existing paged snapshot extension |
 | Native JSON operation output | 512,000 characters | Native error is reported; extension paging/full file storage covers the supported extended operations |
 | Native screenshot | Visible-tab readiness guard of 3 seconds; at most 16 megapixels; default maxWidth 2,000, optional maxWidth at most 4,000 | Background full-image capture operation, with unresolved rendering failures above |
 | Native retained console/network data | Bounded native diagnostic buffers (500 records); network text-body capture at most 20,000 characters | Upstream behavior retained, truncation/availability metadata preserved |
@@ -82,6 +89,12 @@ checks or the intended extension contract above.
 `scripts/browser-native-regression.mjs` runs actual Electron/CDP against the isolated released CLI and a separate real LegalWork server process. It verifies all native operations are registered; navigation/snapshots/evaluation; shared cookies/storage; session ownership and replacement; legacy batch; complete 6 MiB uploads/downloads; background and visible screenshots; console/network; manual-server gateway and extension transfer; native project approval; viewer and second-client denial; review-worker exclusion; cancelled delivered mutation without replay; idle network-policy revocation. It uses no model inference, account credentials or global profile.
 
 Focused service tests additionally cover exact native file permissions, cancellation without post-abort writes, foreign symlink rejection, complete provenance output, undelivered mutation removal and disconnect invalidation. These are engine/transport tests, not evidence of real-model browsing quality. Real websites, authenticated services, live Office behavior, packaged platform matrix and paid-model quality are separate acceptance runs.
+
+`pnpm --filter @legalwork/desktop test:browser-observation` runs the shipping
+controller against actual Electron/CDP in a hidden, unfocused window. It covers
+forty layout wrappers, explicit semantic depth, fresh/stale refs, targets after
+600 controls, bounded matching output and same-/cross-origin frames. It uses no
+model calls and does not establish a paid-model speed improvement.
 
 Sources: [native browser plugin/RPC](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/plugin-browser), [upstream Electron driver](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/gui-extensions/src/browser).
 
