@@ -1,5 +1,27 @@
 # Engine and capability acceptance status
 
+Current integration, 28 October: the branch is rebased onto dev `15b52ba2`
+and includes PR #329 at `c6616c77`. The final combined-source local checks pass:
+2,883 server tests (45 environment-dependent skips), 1,862 app tests (one
+host-timezone skip, separately covered by 13 passing Europe/Berlin calendar
+checks), and 473 desktop tests (four skips). App/server builds, all three type
+checks, translation/help checks, shared-module packaging and real Electron
+request integration pass. The latter verifies 18-project batching, cancellation,
+reconnect and calendar isolation from unrelated metadata events.
+
+New dev PDF reading uses native v2 hooks. A narrowly tested post-authorization
+fallback preserves the existing 64 MiB service boundary beyond v2's new 20 MiB
+media gate; real 21 MiB denial, full-byte/hash delivery and extraction pass.
+Technical support export now reads native v2 messages/events and awaits desktop
+runtime diagnostics, preserving existing redaction and export limits. No new
+content cap, dependency or engine patch was added for these adaptations.
+
+Fresh combined-source six-platform CI remains required; the matrix below is
+historical baseline evidence. The user also requested waiting for PR #343 to
+include the updated migration branch and become mergeable with passing required
+checks, then integrating it into this branch. PR #343 is not yet included.
+No release or binary publication is authorized.
+
 Direct debugging follow-up, 27 October: the user approved one shared managed
 configuration with automatic project/ancestor discovery disabled. This replaces
 the folder-approval flow in the candidate below without changing the pinned
@@ -22,7 +44,8 @@ The five real-engine recovery tests pass for disable/remove/disconnect barriers
 and OAuth polling from either project. Startup/admission tests also pass. Their
 cloud fixture now denies access to the actual case folder, rather than only an
 unused per-project core stamp; its original 503 and retry requirements remain.
-The final local server suite passes: 2,814 tests, 27,078 assertions, zero failures
+At that 27 October checkpoint, the local server suite passed: 2,814 tests,
+27,078 assertions, zero failures
 and 45 environment-dependent skips across 397 files. The server build/type check,
 bundled-help verification and actual Mac dev app capability inventory pass. Fresh
 cross-platform CI remains pending for this follow-up; the matrix below is baseline
@@ -65,20 +88,14 @@ selection is checked against the committed source policy and recipe. Cache and
 installed-runtime directories use full manifest identities, preserving older
 same-version outputs. Runtime startup never compiles source.
 
-Latest source includes `dev` commit `14b76cc99189a5525dd291f09d52b6d47768d7ee`
-(the new bundled help and app navigation), merged at `ee67b1f7`. The imported help
-uses the native v2 plugin test API, and its guidance reflects the approved removal
-of remote agent workspaces. Existing manual LegalWork-server connections and
-external connectors remain supported. Build and source tests generate the full
-translation reference without committing duplicate payloads.
-
-The user explicitly chose to finish this already-tested dev snapshot after three
-newer commits landed, ending at `7d4f2bcc`: meeting/audio fixes, dashboard-file
-integration and detailed support exports. They are not included. The uncommitted
-merge preview was cancelled and the original clean checkout restored. Future
-integration must adapt the new support exporter from v1 database tables to native
-v2 tables; a mechanical merge would miss new chats. This is a deferred dev
-integration, not an unresolved capability in the frozen candidate.
+Latest source includes `dev` commit `15b52ba2`, fetched for the user's
+28 October rebase request, plus PR #329's batching, safe read sharing,
+metadata push and request cancellation changes. This supersedes the earlier
+choice to stop at `14b76cc9`. The seven newer dev commits are now included;
+recording, dashboard files and technical support export are no longer deferred.
+The original tested snapshots and receipts remain distinct. Support export now
+reads native v2 records, and the PDF plugin uses native v2 hooks. These
+adaptations pass the local checks above; fresh platform CI remains separate.
 
 The latest [integrated acceptance40498732383](https://github.com/eigenweltlabs/legalwork/actions/runs/40498732383)
 at `5016c34d` reuses all twelve exact production-produced engine archives. Its

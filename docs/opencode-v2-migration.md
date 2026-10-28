@@ -2,18 +2,20 @@
 
 ## Agreed target
 
-The implementation checkout, `codex/opencode-v2-migration`, now includes
-`eigenweltlabs/legalwork` dev commit
-`3b214a80c6df6739d34e5c14506406e2c75cd149`, fetched again on
-2026-10-26. Firecrawl, Office pairing, retirement of unused sharing/messaging,
-checkout/sign-in expiry and Mac updater shutdown changes are preserved. Earlier
-comparison packages retain their frozen `fdb89d9e06990fd7fa9517c59b5709d8857453a7`
-source; final7 and final8 retain their exact later `9c278ff0` base and captured
-migration changes. Current CI uses the latest-dev integration. The original detached v1
-baseline at `4cd058941a96752ce7aca97ea71c97341f56a84b` and all earlier receipts
-remain immutable historical evidence. Comparison-source differences must be
-reported explicitly; passing an older comparison does not close final-package
-acceptance. Existing user working copies are not migration inputs.
+On 28 October 2026 the user requested rebasing `codex/opencode-v2-migration`
+onto current `dev` and integrating PR #329. The branch now includes `dev`
+`15b52ba294b7034518b45af323065f8b5f439d1f` and PR #329's request-performance changes from
+`c6616c77893b69c253bef22148565ba3436d56d8`. The engine target remains
+OpenCode 2.1.4; this does not adopt a newer engine release.
+
+The new dev integration includes recording/speaker changes, dashboard files,
+technical support exports, mail/calendar organization, PDF reading/selective OCR
+and chat math. Native PDF hooks and v2 support-history export are adapted as
+part of the integration. Earlier comparison packages retain their exact frozen
+sources and receipts; their passing results do not establish acceptance of this
+new combined source. The original detached v1 baseline at
+`4cd058941a96752ce7aca97ea71c97341f56a84b` and all historical evidence remain
+unchanged. Existing user working copies are not migration inputs.
 
 For current results and remaining gates, use the
 [acceptance register](opencode-v2-capability-status.md). Historical test

@@ -1,6 +1,5 @@
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { Plugin } from "@opencode/plugin";
-import type { Result } from "@opencode/plugin/promise/tool";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { constants, createReadStream } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -12,7 +11,7 @@ import { ApiError } from "../errors.js";
 import { storagePath, renameDestination } from "../file-storage/common.js";
 import { storageSearchModeSchema } from "@legalwork/types/file-storage";
 import { serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
-import { pdfReading, PdfToolResult } from "./pdf-reading.js";
+import { pdfReading, PdfToolResult, nativePdfResult } from "./pdf-reading.js";
 import { PDF_MAX_BYTES, pdfReadOptions } from "../pdf-read-schema.js";
 
 const RULES = `## Connected file storage
@@ -120,14 +119,7 @@ function defineTool<T extends z.ZodRawShape>(
       try {
         const result = await toolContext.run(context, () => execute(input, context));
         if (!(result instanceof PdfToolResult)) return JSON.stringify(result, null, 2);
-        const native: Result = {
-          content: [
-            { type: "text", text: result.result.output },
-            ...(result.result.attachments ?? []).map(file => ({ type: file.type, uri: file.url, mime: file.mime, name: file.filename })),
-          ],
-          metadata: { ...result.result.metadata, title: result.result.title },
-        };
-        return native;
+        return result.result;
       } catch (error) {
         return JSON.stringify(failure(error));
       }
@@ -166,6 +158,7 @@ export default Plugin.define({
   id: "legalwork.storage",
   async setup(ctx) {
     const pdf = pdfReading();
+    await pdf.register(ctx);
     await registerPrimaryContext(ctx, event => { event.system.push({ type: "text", text: RULES }); });
     await ctx.tool.transform(editor => {
       editor.add(defineTool(ctx, "storage_list_connections", "List the enabled file storage connections in this task's workspace, including IDs, names, provider types and write access. Does not scan the connected storage.",
@@ -319,8 +312,8 @@ export default Plugin.define({
           if (bytes.length > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "The PDF exceeds 64 MiB.");
           const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(args.path), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
             { ocr: args.ocr, pages: args.pages, offset: args.offset, limit: args.max_chars }, context);
-          return new PdfToolResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
-            metadata: { ...metadata, ...result.metadata } });
+          return new PdfToolResult(nativePdfResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
+            metadata: { ...metadata, ...result.metadata } }));
         }
         if (file.documentText) return { ...metadata, ...file.documentText };
         if (file.readError) return { ...metadata, ok: false, code: file.readError.code, error: file.readError.message };
