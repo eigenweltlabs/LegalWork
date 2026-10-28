@@ -8,7 +8,8 @@ import { ASSISTANT_BROWSER_AGENT, ASSISTANT_BROWSER_WORKER_INSTRUCTIONS } from "
 
 // The controlled model deliberately requests the cheap model and foreground
 // browsing. Exercise native subagent execution and nested Code Mode tool hooks.
-test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine pins browser delegation to Terra and keeps worker tabs in the background", async () => {
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine resolves the EU Terra alias and keeps worker tabs in the background", async () => {
+  const browser = { providerID: "eigenwelt", id: "Eigenwelt Europe GPT Terra", name: "GPT-6.1 Terra (EU)" };
   const root = await mkdtemp(join(tmpdir(), "assistant-browser-fixture-"));
   const source = join(root, "fixture.ts");
   await writeFile(source, `import {Plugin} from "@opencode/plugin";
@@ -38,8 +39,10 @@ await ctx.rpc.register({id:"browser-fixture",methods:{opened:{input:{type:"objec
         permissions: [{ action: "*", resource: "*", effect: "allow" }],
         providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: model.url.origin + "/v1", apiKey: "synthetic-fixture" }, models: {
           fixture: { limit: { context: 128000, output: 4096 }, capabilities: { tools: true } },
-          "gpt-6.1-terra": { limit: { context: 128000, output: 4096 }, capabilities: { tools: true } },
+        } }, [browser.providerID]: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: model.url.origin + "/v1", apiKey: "synthetic-fixture" }, models: {
+          [browser.id]: { name: browser.name, limit: { context: 128000, output: 4096 }, capabilities: { tools: true } },
         } } },
+        policies: [{ action: "provider.use", resource: "*", effect: "deny" }, ...["fixture", browser.providerID].map(resource => ({ action: "provider.use", resource, effect: "allow" }))],
       },
       setup: async config => { config.workspaces[0].preset = "main-assistant"; },
     });
@@ -50,9 +53,9 @@ await ctx.rpc.register({id:"browser-fixture",methods:{opened:{input:{type:"objec
     expect(children).toHaveLength(1);
     const child = children[0];
     expect(child.agent).toBe(ASSISTANT_BROWSER_AGENT);
-    expect(child.model).toMatchObject({ providerID: "fixture", id: "gpt-6.1-terra" });
+    expect(child.model).toMatchObject({ providerID: browser.providerID, id: browser.id });
     await host.appClient.session.wait({ sessionID: child.id }, { signal: AbortSignal.timeout(20000) });
-    expect(calls.get("gpt-6.1-terra")).toBeGreaterThanOrEqual(2);
+    expect(calls.get(browser.id)).toBeGreaterThanOrEqual(2);
     const opened = await host.client.rpc.call({ location: host.location, rpcID: "browser-fixture", method: "opened", input: {} });
     expect(opened.output).toEqual([{ input: { show: false }, sessionID: child.id }]);
     // The same browser tool cannot run from the coordinator, even via Code Mode.

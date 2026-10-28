@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { BrowserPanelTab } from "../src/app/lib/desktop-types";
-import { visibleTaskBrowserTabs } from "../src/react-app/domains/session/background/task-browser-tabs";
+import { assistantBrowserWorkerIds, visibleTaskBrowserTabs } from "../src/react-app/domains/session/background/task-browser-tabs";
 import { openBackgroundTab } from "../src/react-app/domains/session/background/open-background-tab";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 
@@ -13,6 +13,22 @@ test("Assistant browser tiles include known descendants without including unrela
   expect(visibleTaskBrowserTabs(tabs, "parent", false, sessions).map(tab => tab.taskSessionId)).toEqual(["parent"]);
   expect(visibleTaskBrowserTabs([{ ...browser("worker"), workspaceId: "native-workspace-alias" }], "parent", true, sessions)).toHaveLength(1);
   expect(visibleTaskBrowserTabs([{ ...browser("worker"), dismissed: true }, { ...browser("worker"), background: false }], "parent", true, sessions)).toEqual([]);
+});
+
+test("the main Assistant discovers unopened workers from other daily contexts without opening their chats", async () => {
+  const panelBefore = usePanelTabStore.getState().sessions;
+  const owners = ["today-worker", "yesterday-worker", "nested-worker", "other-project", "ordinary-chat", "deleted"];
+  const workers = await assistantBrowserWorkerIds(async id => {
+    if (id === "deleted") throw new Error("Not found");
+    return {
+      location: { directory: id === "other-project" ? "/another-project" : "/Assistant" },
+      parentID: id.endsWith("worker") ? "another-assistant-context" : id === "other-project" ? "another-parent" : undefined,
+    };
+  }, "today", owners);
+  expect(workers).toEqual(["today-worker", "yesterday-worker", "nested-worker"]);
+  expect(visibleTaskBrowserTabs(owners.map(browser), "today", true, {}, workers).map(tab => tab.taskSessionId)).toEqual(workers);
+  expect(visibleTaskBrowserTabs(owners.map(browser), "today", false, {}, workers)).toEqual([]);
+  expect(usePanelTabStore.getState().sessions).toBe(panelBefore);
 });
 
 test("opening a child browser tile keeps its actual browser and worker ownership beside the parent", () => {

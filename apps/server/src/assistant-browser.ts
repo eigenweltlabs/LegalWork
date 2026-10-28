@@ -13,7 +13,10 @@ export function assistantBrowserModel(models: readonly BrowserModel[], selected:
     if (!model) throw new Error("The selected browser model is unavailable. Connect it or change Browser model in Assistant settings. No other model was used.");
     return model;
   }
-  const candidates = models.filter(model => [model.id, model.name, model.modelID].some(value => value && /^gpt[- ]6\.1[- ]terra$/i.test(value.trim())));
+  // Provider IDs can be aliases (e.g. "Eigenwelt Europe GPT Terra"). Match the
+  // model's catalog name too, allowing service/region labels without changing
+  // its identity. Return the original provider and ID for native dispatch.
+  const candidates = models.filter(model => [model.id, model.name, model.modelID].some(value => value && /^gpt[- ]6\.1[- ]terra(?:[- ]fast)?(?:\s+\([^()]+\))?$/i.test(value.trim())));
   const model = candidates.find(model => model.providerID === "openai") ?? candidates.find(model => model.providerID === "eigenwelt") ?? candidates[0];
   if (!model) throw new Error("Browser work requires GPT-6.1 Terra. Connect it or select another capable Browser model in Assistant settings. No cheaper model was used.");
   return model;

@@ -60,14 +60,19 @@ open until the work returns a final result.
 The Assistant delegates all browser work, including short website tasks, to a
 browser worker. This keeps the conversation available while the worker uses a
 separate model. The default is **GPT-6.1 Terra**, independent of the model you
-choose for the Assistant. If it is unavailable, browsing waits for you to connect
+choose for the Assistant. Connected variants such as **GPT-6.1 Terra (EU)** and
+**GPT-6.1 Terra Fast** are recognized automatically; no separate selection is
+needed. If Terra is unavailable, browsing waits for you to connect
 it or select another browser model. It never silently uses the Assistant's model.
 
 Click the Assistant at the top of the chat, expand **Advanced**, and choose
 **Browser model**. You can also change it under **Settings > Assistant**. Changes
 save automatically.
 
-The worker's browser appears as a small preview tile in the Assistant chat.
+The worker's browser appears as a small preview tile in the main Assistant chat,
+including when the worker started in an earlier daily chat. Its own chat stays
+closed unless you open it. Workers do not send desktop notifications; only the
+Assistant's replies to you can notify you.
 Click the tile to open that actual browser beside the
 conversation. Background browsing does not switch your screen. Existing website
 permissions and approval requirements still apply.

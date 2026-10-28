@@ -15,6 +15,23 @@ test("browser default resolves Terra 6.1 only and explicit selections never fall
   expect(assistantBrowserModel([cheap, terra], { providerID: terra.providerID, modelID: terra.id })).toBe(terra);
 });
 
+test("browser default recognizes the connected EU catalogue without selecting older Terra models", () => {
+  const eu = { providerID: "eigenwelt", id: "Eigenwelt Europe GPT Terra", modelID: "Eigenwelt Europe GPT Terra", name: "GPT-6.1 Terra (EU)" };
+  const older = ["gpt-5.6-terra", "gpt-5.6-terra-fast"].map(id => ({ providerID: "openai", id }));
+  expect(assistantBrowserModel([...older, cheap, eu], null)).toBe(eu);
+  expect(() => assistantBrowserModel(older, null)).toThrow("requires GPT-6.1 Terra");
+});
+
+test("browser default accepts Terra service labels but not another model or version", () => {
+  for (const name of ["GPT-6.1 Terra Fast", "GPT-6.1 Terra Fast (EU)", " GPT-6.1 Terra (EU) "]) {
+    const model = { providerID: "fixture", id: "alias", name };
+    expect(assistantBrowserModel([model], null)).toBe(model);
+  }
+  for (const name of ["GPT-5.6 Terra (EU)", "GPT-6.1 Sol (EU)", "GPT-6.10 Terra", "GPT-6.1 Terra Mini", "GPT-6.1 Terra-like"]) {
+    expect(() => assistantBrowserModel([{ providerID: "fixture", id: "alias", name }], null)).toThrow("requires GPT-6.1 Terra");
+  }
+});
+
 test("Assistant browser work is isolated, model-pinned and cannot bring tabs to the foreground", async () => {
   const runtime = nativePluginTestRuntime("/Assistant");
   runtime.models([cheap, terra]);
