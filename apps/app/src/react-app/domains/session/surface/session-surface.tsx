@@ -12,7 +12,8 @@ import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { AssistantHistory } from "./assistant-history";
-import { assistantBubbleMessages } from "./assistant-bubbles";
+import { assistantBubbleMessages, assistantIsWriting } from "./assistant-bubbles";
+import { addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
@@ -963,8 +964,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
     !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
       !hasAssistantReplyAfter(renderedMessages, message.id) &&
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
-  const displayedMessages = useMemo(() => props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
-    [props.assistantDate, renderedMessages, snapshot, chatStreaming]);
+  const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
+  const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
+  const displayedMessages = useMemo(() => props.assistantDate
+    ? mergeAssistantOutgoingMessages(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), outgoingMessages, outgoingScope)
+    : renderedMessages, [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope]);
+  useEffect(() => {
+    const confirmed = new Set(renderedMessages.map(message => message.id));
+    for (const entry of outgoingMessages) {
+      if (entry.scope === outgoingScope && confirmed.has(entry.message.id)) removeAssistantOutgoingMessage(entry.queueId);
+    }
+  }, [renderedMessages, outgoingMessages, outgoingScope]);
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -972,7 +982,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     [openTargets],
   );
   const autoOpenTarget = selectAutoOpenTarget(verifiedOpenTargets);
-  const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && renderedMessages.length === 0;
+  const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && displayedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
     return renderedMessages
@@ -1154,9 +1164,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if ((!text && attachments.length === 0) || queueSubmitting.current) return;
     queueSubmitting.current = true; setQueueSaving(true);
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
+    let outgoingId: string | undefined;
     try {
+      if (props.assistantDate) {
+        const localDraft = buildDraft(text, attachments);
+        outgoingId = sharedQueue.reserve(localDraft, editor);
+        addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
+        sessionScroll.scrollToBottom("auto");
+      }
       const prepared = await prepareProjectAttachments(text, attachments);
-      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions });
+      await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);
       preparedProjectDraft.current = null;
       // Typing during the request must not be cleared by its acknowledgement.
       if (useComposerStateStore.getState().sessions[props.sessionId] === editor) clearComposer();
@@ -1170,12 +1187,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
         });
       }
       appendComposerHistory(props.sessionId, text);
-    } catch (error) { queueFailure(error); }
+    } catch (error) {
+      if (outgoingId) removeAssistantOutgoingMessage(outgoingId);
+      queueFailure(error);
+    }
     finally { queueSubmitting.current = false; setQueueSaving(false); }
   };
   const handleQueue = () => queueDraft(draft.trim());
   const handleSend = handleQueue;
-  const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).catch(queueFailure); };
+  const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).then(() => removeAssistantOutgoingMessage(id)).catch(queueFailure); };
   const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
   const cancelQueuedEdit = () => { void sharedQueue.cancelEdit().then(clearComposer).catch(queueFailure); };
   const reorderQueuedDrafts = async (ids: string[]) => { await sharedQueue.reorder(ids).catch(queueFailure); };
@@ -1816,7 +1836,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const sessionScroll = useSessionScrollController({
     selectedSessionId: props.sessionId,
-    renderedMessages,
+    renderedMessages: displayedMessages,
     containerRef: scrollRef,
     contentRef,
   });
@@ -1981,7 +2001,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         >
           <div ref={contentRef} className="lw-session-column">
             {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
-            <div className={cn(props.assistantDate && renderedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
+            <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
             {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
@@ -1989,7 +2009,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   <div className="text-sm text-dls-secondary">{t("session.opening")}</div>
                 </div>
               </div>
-            ) : null) : (snapshotQuery.isError || error) && !snapshot && renderedMessages.length === 0 ? (
+            ) : null) : (snapshotQuery.isError || error) && !snapshot && displayedMessages.length === 0 ? (
               <div className="px-6 py-8">
                 {error ? (
                   <SessionErrorCard
@@ -2005,9 +2025,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   </div>
                 )}
               </div>
-            ) : renderedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
+            ) : displayedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
               props.assistantDate ? null : <div className="px-6 py-12"><AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} /></div>
-            ) : renderedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
+            ) : displayedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
                 error={error}
                 onDismiss={handleDismissError}
@@ -2064,6 +2084,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                           />;
                         }}
                         messages={displayedMessages}
+                        assistantTyping={Boolean(props.assistantDate) && assistantIsWriting(renderedMessages, snapshot, chatStreaming)}
                         status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
                         retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />

@@ -35,3 +35,5 @@ Ask to annotate, fill a form, stamp a signature or read a PDF; the assistant can
 ## Saving and source files
 
 Check the returned output path and open the saved file. Local editor saves update workspace files or working copies. A connected-storage working copy requires **Save to [connection]** to publish changes back; automatic local saving does not publish it. See [Connected storage](connected-storage.md). Files created for a task can also be attached back to that task so they are discoverable from the work list.
+
+Markdown files can include saved report and dashboard blocks. The chart renders within the document, and its **Open in tab** control opens a larger view. Assistant document cards open the file only when selected. See [Dashboards and reports](dashboards.md).

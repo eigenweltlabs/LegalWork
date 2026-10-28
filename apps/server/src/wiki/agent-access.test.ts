@@ -37,6 +37,19 @@ test("runtime credential is stable per running server and never an owner/host cr
   await expect(authenticateWikiAgentRequest(config, request("/wikis", { token: config.hostToken }))).rejects.toMatchObject({ code: "wiki_agent_unauthorized" });
 });
 
+test("Assistant report saves retain the authenticated chat and its current permission scope", async () => {
+  const { config, root, request } = await fixture();
+  const save = (sourceSessionId: string) => new Request(request("/assistant/save-report", { method: "POST" }), {
+    body: JSON.stringify({ sourceSessionId }),
+  });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "collaborator" });
+  expect(await authenticateWikiAgentRequest(config, save("session-1"))).toMatchObject({ sessionId: "session-1", actor: { scope: "collaborator" } });
+  await expect(authenticateWikiAgentRequest(config, save("another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
+  expect((await authenticateWikiAgentRequest(config, save("session-1")))?.actor.scope).toBe("viewer");
+  await expect(authenticateWikiAgentRequest(config, request("/assistant/save-report"))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
 test("server-recorded origin controls actor scope and collaborator takeover downgrades immediately", async () => {
   const { config, root, request } = await fixture();
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });

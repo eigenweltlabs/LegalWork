@@ -1318,7 +1318,6 @@ export function SessionPage(props: SessionPageProps) {
           onOpenAssistant={props.sidebar.onOpenAssistant}
           assistantProfile={props.sidebar.assistantProfile}
           assistantWorkspaceId={props.sidebar.assistantWorkspaceId}
-          onSaveAssistantProfile={props.sidebar.onSaveAssistantProfile}
           assistantActive={props.sidebar.assistantActive}
           assistantGreetingUnread={props.sidebar.assistantGreetingUnread}
           assistantDisabled={props.sidebar.assistantDisabled}
