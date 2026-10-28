@@ -100,6 +100,7 @@ import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, grantWik
 import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
+import { planResearchDatabase } from "./legal-research.js";
 import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable, currentPluginImportTarget } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
@@ -2233,6 +2234,22 @@ function createRoutes(
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode: projection.opencode, providerDisplay: projection.providerDisplay,
       authoredConfig: projection.authoredConfig, legalwork, updatedAt: lastAudit?.timestamp ?? null });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/research-databases", "host-token", async ctx => {
+    ensureWritable(config);
+    await requireOrgPolicyAllows(config, "plugins.allowCustom");
+    await requireOrgPolicyAllows(config, "skills.allowCustom");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const input = await readJsonBody(ctx.request);
+    const item = await withPluginImportLock(async () => {
+      const plan = await planResearchDatabase(config, workspace.path, input);
+      await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Set up research database ${plan.preview.name}`, paths: [globalOpencodeConfigDir(), globalSkillsDir()] });
+      return installPluginImport(config, workspace.id, workspace.path, plan, true);
+    });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Set up research database ${item.name}`, timestamp: Date.now() });
+    for (const target of config.workspaces) emitReloadEvent(ctx.reloadEvents, target, "skills");
+    return jsonResponse({ item });
   });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {
