@@ -30,16 +30,17 @@ export function registerWikiSuggestionRoutes(options: {
     await authenticateWikiAgentRequest(config, ctx.request);
     return new WikiSuggestions(project.directory || project.path, project.id);
   };
-  const destination = async (ctx: RequestContext, target: { wikiId: string; path: string }, writing = false) => {
+  const destination = async (ctx: RequestContext, target: { wikiId: string; path: string; createFolders?: boolean }, writing = false) => {
     wikiPath(target.path);
     if (!/\.md$/i.test(target.path)) throw new ApiError(400, "invalid_wiki_page", "Choose a Markdown page ending in .md.");
     const wiki = await store.get(target.wikiId);
     if (ctx.actor?.type !== "host" && ctx.actor?.scope !== "owner" && !wiki.sync) throw new ApiError(404, "wiki_not_found", "This wiki is not available.");
+    if (target.createFolders && wiki.purpose !== "legal-research") throw new ApiError(400, "wiki_folder_proposal_unavailable", "New folders can be proposed only in the legal research wiki.");
     const project = config.workspaces.find(item => item.id === ctx.params.workspaceId);
     if (!project || !await wikiAgentCanAccess(config, await store.list(), wiki, await realpath(project.directory || project.path))) throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project.");
     await options.ensureWikiReadable?.(ctx, wiki);
     const folder = target.path.includes("/") ? target.path.slice(0, target.path.lastIndexOf("/")) : "";
-    if (folder && !((await store.snapshot(wiki.id)).folders ?? []).includes(folder)) {
+    if (folder && !target.createFolders && !((await store.snapshot(wiki.id)).folders ?? []).includes(folder)) {
       throw new ApiError(400, "wiki_folder_missing", "This folder is not in the selected wiki. Choose an existing folder.");
     }
     if (writing) await options.ensureWikiWritable?.(ctx, wiki);

@@ -666,7 +666,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const stepDots =
     mode === "onboarding" ? (
       <div className="flex justify-center [&>div]:mb-4">
-        <StepDots step={(props.totalSteps ?? 6) - 1} total={props.totalSteps ?? 6} />
+        <StepDots step={(props.totalSteps ?? 7) - 2} total={props.totalSteps ?? 7} />
       </div>
     ) : null;
 

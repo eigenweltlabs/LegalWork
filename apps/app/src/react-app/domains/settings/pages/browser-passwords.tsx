@@ -41,6 +41,7 @@ export function BrowserPasswords({ client }: { client: LegalworkServerClient }) 
         <div className="min-w-0">
           <p className="font-medium break-words">{item.label}</p>
           <p className="text-sm text-muted-foreground break-all">{item.origin}{item.username ? ` · ${item.username}` : ""}</p>
+          {item.websites?.filter(site => site.url !== `${item.origin}/` && site.url !== item.origin).map(site => <p key={site.url} className="text-xs text-muted-foreground break-all">{site.name}: {site.url}</p>)}
         </div>
         <div className="flex gap-1">
           <Button size="icon-sm" variant="ghost" className="text-muted-foreground" aria-label={`${t("settings.browser_passwords.edit")} ${item.label}`} title={t("settings.browser_passwords.edit")} disabled={busy} onClick={() => open({ ...item, password: "" })}><Pencil /></Button>
