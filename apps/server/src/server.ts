@@ -208,6 +208,7 @@ import {
   buildOrgPolicyEngineLayerFor,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
+  publishRuntimeConfigChanges,
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
@@ -2253,12 +2254,15 @@ function createRoutes(
       if (installed.plugins[createdPluginId(input.name)]) throw new ApiError(409, "plugin_exists", "A plugin with this name already exists. Choose another name.");
       const plan = await planPluginCreation(config, workspace.path, input);
       await requireApproval(ctx, { workspaceId: workspace.id, action: "cloud_plugins.install", summary: `Create plugin ${input.name}`, paths: [globalOpencodeConfigDir(), globalSkillsDir()] });
-      return installPluginImport(config, workspace.id, workspace.path, plan, true);
+      return publishRuntimeConfigChanges(config, workspace.id, () => installPluginImport(config, workspace.id, workspace.path, plan, true));
     });
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "cloud_plugins.install", target: globalOpencodeConfigDir(), summary: `Created plugin ${input.name}`, timestamp: Date.now() });
+    // The shared files already contain every project's new definition. Native
+    // watchers update loaded locations; unopened locations read it on demand.
+    // Warming all projects here both repeats global work and races OAuth setup.
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, true).catch(() => undefined);
     for (const target of config.workspaces) {
       for (const reason of ["skills", "mcp"] satisfies Array<"skills" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
-      await syncRuntimeMcpToOpencodeEngine(config, target).catch(() => undefined);
     }
     return jsonResponse({ item });
   });
@@ -5509,10 +5513,10 @@ function normalizeOpencodeDirectory(directory: string): string {
   return directory;
 }
 
-async function refreshManagedEngineLocation(config: ServerConfig, workspace: WorkspaceInfo, directory = workspaceEngineLocation(workspace).directory): Promise<void> {
+async function refreshManagedEngineLocation(config: ServerConfig, workspace: WorkspaceInfo, directory = workspaceEngineLocation(workspace).directory, configurationPublished = false): Promise<void> {
   // The app-owned library file is authoritative. The native plugin reads this
   // registered location and refreshes domains without resetting other projects.
-  await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  if (!configurationPublished) await writeLegalworkRuntimeConfigFile(config, workspace.id);
   const client = createEngineClient(config, workspace);
   const refresh = async () => {
     for (const delay of [0, 150, 300, 600]) {
@@ -5624,12 +5628,12 @@ async function workspaceEngineBusy(config: ServerConfig, workspace: WorkspaceInf
 // typed settings update. The released engine owns initial config discovery,
 // connector startup and OAuth; startup does not push duplicate definitions.
 // Outcomes remain visible through engineMcpSyncState for actionable failures.
-async function syncRuntimeMcpToOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, onlyNames?: string[]): Promise<void> {
+async function syncRuntimeMcpToOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, onlyNames?: string[], configurationPublished = false): Promise<void> {
   if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
   const names = Object.keys(await allowedMemberConnectors(config, await runtimeMcpMapForWorkspace(config, workspace.id))).filter(name => !onlyNames || onlyNames.includes(name));
   if (!names.length) return;
   const failures: EngineMcpSyncFailure[] = [];
-  try { await refreshManagedEngineLocation(config, workspace); }
+  try { await refreshManagedEngineLocation(config, workspace, workspaceEngineLocation(workspace).directory, configurationPublished); }
   catch (error) {
     for (const name of names) failures.push({ name, message: error instanceof Error ? error.message : String(error) });
   }
