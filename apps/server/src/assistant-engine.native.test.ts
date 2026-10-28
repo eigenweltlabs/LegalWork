@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { OpenCode } from "@opencode/client";
 import { z } from "zod";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assistantEngineClient } from "./assistant-engine.js";
 import { nativeChatResponse, nativeDomainEngine } from "./opencode-plugins/native-domain-engine.test-support.js";
@@ -83,3 +83,56 @@ test.skipIf(!binary)("released v2 exposes Assistant interactions directly and pr
     expect(turns).toBe(3);
   } finally { await fixture.close(); provider.stop(true); }
 }, 45_000);
+
+test.skipIf(!binary)("released v2 admits delegated work and delivers a busy follow-up once with its original identity", async () => {
+  let turns = 0;
+  let releaseFirst: () => void = () => {};
+  const firstResponse = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const provider = Bun.serve({ port: 0, async fetch() {
+    const turn = ++turns;
+    if (turn === 1) await firstResponse;
+    return nativeChatResponse(undefined, turn);
+  } });
+  const fixture = await nativeDomainEngine({ binary: binary!, plugins: [], modelURL: provider.url.origin + "/v1",
+    configuration: { agents: { legalwork: {} } },
+    setup: async (config, root) => {
+      const directory = join(root, "assistant");
+      await mkdir(directory);
+      config.projectsDirectory = root;
+      config.authorizedRoots.push(directory);
+      config.workspaces.push({ id: "assistant", name: "Assistant", path: directory, preset: "main-assistant", workspaceType: "local" });
+    },
+  });
+  const call = (path: string, body: unknown) => fetch(fixture.serverURL + path, { method: "POST",
+    headers: { authorization: `Bearer ${fixture.config.token}`, "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+  const receiptSchema = z.object({ ok: z.literal(true), message: z.object({ id: z.string(), state: z.string() }) });
+  try {
+    const source = await fixture.client.session.create({ location: { directory: join(fixture.root, "assistant") }, title: "Delegation source" });
+    const response = await call("/assistant/delegate", { sourceWorkspaceId: "assistant", sourceSessionId: source.id, workspaceId: "matter",
+      title: "Check the fixture", prompt: "Check the fixture and reply briefly.", scope: "Synthetic fixture only.", conversationLanguage: "en",
+      model: { providerID: "fixture", modelID: "fixture" } });
+    expect(response.status).toBe(200);
+    const { delegation } = z.object({ ok: z.literal(true), delegation: z.object({ sessionId: z.string(), status: z.literal("started") }) }).parse(await response.json());
+    for (let i = 0; turns === 0 && i < 100; i++) await Bun.sleep(50);
+    expect(turns).toBe(1);
+    const target = { workspaceId: "matter", sessionId: delegation.sessionId, sourceSessionId: source.id };
+    const followUp = { ...target, prompt: "Also check the second fixture.", requestId: "native-follow-up-once" };
+    const queued = receiptSchema.parse(await (await call("/assistant/follow-up", followUp)).json());
+    expect(queued.message.state).toBe("queued");
+    releaseFirst();
+    let history = await fixture.client.message.list({ sessionID: delegation.sessionId, limit: 100 });
+    for (let i = 0; i < 400; i++) {
+      history = await fixture.client.message.list({ sessionID: delegation.sessionId, limit: 100 });
+      if (history.data.filter(message => message.type === "assistant" && message.finish === "stop").length === 2) break;
+      await Bun.sleep(50);
+    }
+    expect(history.data.filter(message => message.type === "assistant" && message.finish === "stop")).toHaveLength(2);
+    const humans = history.data.filter(message => message.type === "user");
+    expect(humans).toHaveLength(2);
+    expect(humans.find(message => message.id === queued.message.id)?.text).toBe(followUp.prompt);
+    const replay = receiptSchema.parse(await (await call("/assistant/follow-up", followUp)).json());
+    expect(replay.message).toMatchObject({ id: queued.message.id, state: "sent" });
+    const finalHistory = await fixture.client.message.list({ sessionID: delegation.sessionId, limit: 100 });
+    expect(finalHistory.data.filter(message => message.type === "user")).toHaveLength(2);
+  } finally { releaseFirst(); await fixture.close(); provider.stop(true); }
+}, 60_000);
