@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import AssistantPlugin, { LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
+import AssistantPlugin, { ASSISTANT_REACTION_POLICY, LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
 import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ASSISTANT_MESSAGE_POLICY } from "../assistant-handoff.js";
 import { nativePluginTestRuntime, nativeTestInvocation, nativeToolBefore } from "./native-plugin-test-support.js";
 
@@ -53,6 +53,7 @@ test("native prompt and policy hooks use app credentials while delegation retain
     await runtime.hook("session", "prompt", assistant);
     expect(assistant.prompt.text).toContain("Maya");
     expect(assistant.prompt.text).toContain("Keep replies concise.");
+    expect(assistant.prompt.text).toContain(ASSISTANT_REACTION_POLICY);
     await nativeToolBefore(runtime, "legalwork_assistant_delegate", { projectId: "matter" }, "ses_today");
     await expect(nativeToolBefore(runtime, "legalwork_assistant_delegate", { projectId: "denied" }, "ses_today")).rejects.toThrow("403");
     const delegate = runtime.tools.get("legalwork_assistant_delegate");
@@ -99,6 +100,7 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     expect(JSON.stringify(turn.parts)).toContain("Maya");
     expect(JSON.stringify(turn.parts)).toContain(preferences);
     expect(JSON.stringify(turn.parts)).toContain(ASSISTANT_MESSAGE_POLICY);
+    expect(JSON.stringify(turn.parts)).toContain("Bubble reactions are a requested part");
     expect(JSON.stringify(savedParts)).toBe(savedHistory);
     const toolOutput = { output: "Project found." };
     await plugin["tool.execute.after"]({ sessionID: "today" }, toolOutput);

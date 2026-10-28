@@ -32,7 +32,8 @@ stopped or needs your answer or approval.
 
 The Assistant can acknowledge a message with an emoji on the left edge of your
 bubble. It chooses reactions for suitable greetings, thanks, requests or good
-news, before replying or starting work. Reactions are occasional and mean receipt,
+news, before replying or starting work. After several messages without a reaction,
+it is encouraged to use one on the next suitable message. Reactions are occasional and mean receipt,
 not approval or completion. They do not appear later as a progress update.
 
 Ask the Assistant to find a project, check tasks or calendar entries, or delegate
