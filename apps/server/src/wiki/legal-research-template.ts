@@ -1,5 +1,5 @@
-import { legalResearchCountries } from "@legalwork/types/legal-research";
-import { researchLawAreas, researchJurisdictionLabel, type ResearchLanguage } from "@legalwork/types/legal-research-wiki";
+import { legalResearchCountries, researchLawAreas, researchJurisdictionLabel } from "../native-shared-values.js";
+import type { ResearchLanguage } from "@legalwork/types/legal-research-wiki";
 
 /** This wiki starts empty of substantive knowledge. Control instructions are
  * deliberately separate from the generic firm/process wiki templates. */
