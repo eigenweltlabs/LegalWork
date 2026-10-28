@@ -51,7 +51,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown, signal?: 
       if (url.endsWith("/assistant")) return Response.json({ workspace: null });
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const { requestId, deadline, ...body } = z.object({ requestId: z.uuid(), deadline: z.number() }).passthrough().parse(raw);
+        expect(deadline).toBeGreaterThan(Date.now());
+        expect(requestId).toBeTruthy();
         if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
         if (execute) return Response.json(await execute(body, init?.signal));
       }

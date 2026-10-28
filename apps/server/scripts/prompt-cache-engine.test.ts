@@ -124,9 +124,11 @@ async function runFixture(injectTimestamp: boolean) {
     const skills = (await client.skill.list({ location })).data;
     skillID = skills.find(skill => skill.name === "cache-fixture")?.id ?? ""; expect(skillID).not.toBe("");
     await ready(async () => (await client!.mcp.list({ location })).data.find(server => server.name === "cachefixture")?.status.status, value => value === "connected");
-    inventory = (await client.plugin.list({ location })).data;
+    const plugins = (await client.plugin.list({ location })).data;
+    inventory = plugins;
     const failed = z.array(z.object({ state: z.object({ status: z.string() }) }).passthrough()).parse(inventory).filter(plugin => plugin.state.status !== "active");
     expect(failed, JSON.stringify(failed)).toEqual([]);
+    expect(plugins.some(plugin => plugin.id === "legalwork.cache-instrumentation")).toBe(true);
   };
   const prompt = async (text: string, context: string) => {
     if (!client) throw new Error("Native client unavailable");
@@ -156,9 +158,9 @@ async function runFixture(injectTimestamp: boolean) {
     await writeFile(discovery, JSON.stringify({ baseUrl: ui.url.origin, token: "fixture" }));
     await writeFile(join(instrumentation, "index.js"), `import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'legalwork.cache-instrumentation',async setup(ctx){await ctx.session.hook('model.request',event=>{event.headers['x-legalwork-cache-session']=event.sessionID;event.headers['x-legalwork-cache-kind']=event.kind;});}});`);
     if (injectTimestamp) { await mkdir(mutation); await writeFile(join(mutation, "index.js"), `import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'legalwork.cache-negative',async setup(ctx){await ctx.session.hook('context',event=>{event.system.push({type:'text',text:'CACHE_REGRESSION_TIME: '+new Date().toISOString()});});}});`); }
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow" } }));
-    await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ plugin: [instrumentation, ...(injectTimestamp ? [mutation] : [])],
-      mcp: { cachefixture: { type: "local", command: [process.execPath, join(import.meta.dir, "prompt-cache-mcp.ts")], enabled: true } },
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }] }));
+    await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ plugins: [instrumentation, ...(injectTimestamp ? [mutation] : [])],
+      mcp: { servers: { cachefixture: { type: "local", command: [process.execPath, join(import.meta.dir, "prompt-cache-mcp.ts")] } } },
       providers: { fixture: { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: `${provider.url.origin}/v1`, apiKey: "fixture" }, models: {
         fixture: { name: "Fixture", limit: { context: 128_000, output: 4096 }, capabilities: { tools: true } }, alternate: { name: "Alternate fixture", limit: { context: 128_000, output: 4096 }, capabilities: { tools: true } },
       } } }, providerActivation: { fixture: "allow" },

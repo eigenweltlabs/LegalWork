@@ -14,8 +14,8 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 | Message delivery is unconfirmed or paused | Inspect the linked chat before retrying. Resolve the displayed cause, then resume the queued message explicitly. A lost response does not prove the message was rejected. |
 | Older chat reports missing migration data | Keep the recovery copies and contact support. Do not delete the app database or reset permissions to bypass the recovery error. |
 | Model request fails | Read the provider's authentication, quota, rate-limit or context-size error. Check the selected model/account and retry when appropriate; reconnecting storage will not fix a provider quota. |
-| File cannot be found or accessed | Confirm the project and path. Check folder Permissions, firm role and source/provider permissions. An attachment in another workspace may not be present here. |
-| Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials in the LegalWork installation running it. |
+| File cannot be found or accessed | Confirm the workspace/worker and path. Check Permissions, remote-worker role, and source/provider permissions. An attachment in another workspace may not be present here. |
+| Connector card is visible but tools are absent | Complete sign-in, enable/connect the integration, check its status and accept any required engine reload. Verify credentials on the worker that runs it. |
 | Gmail or Outlook cannot connect or is unavailable in chat | Check [Email setup](email.md) for build availability, local-project access, browser sign-in, administrator consent and draft/send permissions. A Drive connection does not grant mailbox access. |
 | Newly saved skill is not offered | Check Integrations > Skills or the Workflows library, the intended scope and the reload prompt. Loose files outside the library are not a library installation. |
 | Connected file edited but source unchanged | Local saves affect the working copy. Use Save to the named connection and inspect any permission or conflict error. Preserve the local draft. |
@@ -24,7 +24,7 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 | Recording cannot start | Install/select a transcription model, choose an available audio source and check OS microphone/capture permissions. |
 | Dictation does not insert | Check the target cursor, shortcut readiness and Accessibility/Input Monitoring on macOS. Recover failed dictations from Recorder history. |
 | Office sidebar cannot connect | Keep LegalWork running, verify add-in/certificate/listener status in Office Add-ins, and fully restart Office after installation. |
-| A separately operated LegalWork server cannot connect | Check its URL, access token and availability. A browser client cannot start a stopped server. |
+| Remote worker cannot connect | Check the returned URL and credential, reachability, host availability and role. The browser client cannot repair a stopped remote machine by itself. |
 | Button names differ | Confirm the display language in Customization and look up the exact key/label in the bundled i18n reference. |
 | Calendar or another documented screen is missing | Check this build's [screen inventory](screens.json) and [screen map](screens.md). Newer-screen instructions are conditional; account access and platform can further restrict them. |
 | Dated task missing from Calendar | Confirm the task has a date, the chosen project, active filters, task-sharing scope and current sync status. A task and a deadline are separate records. |
@@ -36,7 +36,7 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 
 ## Reload and restart
 
-Configuration changes can require an engine reload. Use the reload prompt when offered and account for active tasks. Restarting the LegalWork server is different from switching chats or reloading the browser. A full application restart may be required after OS permission changes or an installed update. Avoid resetting configuration as the first response to an ordinary provider error.
+Configuration changes can require an engine reload. Use the reload prompt when offered and account for active tasks. Restarting a worker is different from switching chats or reloading the browser. A full application restart may be required after OS permission changes or an installed update. Avoid resetting configuration as the first response to an ordinary provider error.
 
 ## Updates
 
@@ -52,6 +52,6 @@ This report still contains file paths, commands and potentially document excerpt
 
 Advanced/Debug surfaces provide runtime health and diagnostics when exposed. Recovery can offer configuration reset, cache repair or leftover-container cleanup, but it is not a normal navigation item in this build. These actions have different effects; use the actual diagnostic surface and read its explanation before applying one. Preserve user files and configuration needed for recovery.
 
-When reporting a problem, include the app version, operating system, selected project and connection type, steps, exact error and whether it reproduces. Exclude credentials and unrelated matter content. This manual is not a record of your current runtime status.
+When reporting a problem, include the app version, operating system, selected local/remote workspace type, steps, exact error and whether it reproduces. Exclude credentials and unrelated matter content. This manual is not a record of your current runtime status.
 
 Related: [Settings](settings-privacy.md), [Feature availability](feature-availability.md), [Localization](localization.md).

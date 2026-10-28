@@ -6,7 +6,7 @@ import type { ServerConfig } from "../types.js";
 export async function connectorWorkspace(config: ServerConfig, context: Record<string, unknown>) {
   if (typeof context.directory !== "string" || !context.directory.trim()) throw new ApiError(400, "connector_workspace_required", "Run this action from a project chat.");
   const directory = await realpath(resolve(context.directory));
-  const candidates = config.workspaces.filter((item) => item.workspaceType !== "remote").sort((a, b) => b.path.length - a.path.length);
+  const candidates = [...config.workspaces].sort((a, b) => b.path.length - a.path.length);
   for (const workspace of candidates) {
     const root = await realpath(resolve(workspace.path));
     const child = relative(root, directory);

@@ -45,6 +45,6 @@ test("Stop reaches a handoff still waiting in the before hook",async()=>{
   },async session=>{cancelled=session;});
   const pending=edits.before({tool:"write",sessionID:"child",callID:"call"},{args:{filePath:"/project/report.docx"}});
   await started.promise;
-  await edits.event({event:{type:"session.error",properties:{sessionID:"child",error:{name:"MessageAbortedError"}}}});
+  await edits.finishSession("child");
   await expect(pending).rejects.toThrow();expect(cancelled).toBe("child");
 });

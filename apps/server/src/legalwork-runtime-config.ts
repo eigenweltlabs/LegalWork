@@ -286,6 +286,7 @@ export async function buildLegalworkRuntimeSettings(
     : [...runtimeConfig.permissions ?? []];
   const permission = [
     { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
+    { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
     { action: "external_directory", resource: "*", effect: "ask" },
     { action: "legalwork_jev_corpus_question", resource: "*", effect: jevSearchEnabled ? "allow" : "deny" },
     ...configuredPermission,

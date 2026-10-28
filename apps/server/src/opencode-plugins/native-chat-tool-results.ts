@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { chatToolResult } from "@legalwork/types/chat-tool-results";
+import { chatToolResult } from "../native-shared-values.js";
 
 /** Keep UI results independent of what a Code Mode script chooses to return. */
 export async function registerChatToolResults(ctx: Plugin.Context) {

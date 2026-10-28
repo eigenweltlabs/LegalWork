@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { AssistantSettingsSchema } from "@legalwork/types/main-assistant";
+import { AssistantSettingsSchema } from "../native-shared-values.js";
 import { z } from "zod";
 import { ASSISTANT_BROWSER_AGENT, assistantBrowserModel } from "../assistant-browser.js";
 import { isBrowserTool } from "./browser-network-policy.js";

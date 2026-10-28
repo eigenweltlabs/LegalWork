@@ -39,6 +39,7 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
   const token = randomBytes(32).toString("hex");
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), path = url.pathname;
+    if (path === "/assistant") return Response.json({ workspace: null });
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") {
       const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());

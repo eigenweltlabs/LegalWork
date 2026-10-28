@@ -32,6 +32,8 @@ function rejectsInput(issue: z.infer<typeof issuesSchema>[number], input: unknow
 function parameterError(tool: string, error: string) {
   const native = `The ${tool} tool was called with invalid arguments:`;
   if (error.startsWith(native)) return error.slice(native.length).trim();
+  const v2 = `Invalid arguments for tool "${tool}":`;
+  if (error.startsWith(v2)) return error.slice(v2.length).trim();
   if (error.startsWith("MCP error -32602:")) return error.slice("MCP error -32602:".length).trim();
   try {
     const parsed = rpcError.safeParse(JSON.parse(error));

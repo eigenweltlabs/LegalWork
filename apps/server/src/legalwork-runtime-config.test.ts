@@ -245,6 +245,7 @@ test("saved-output access is enabled before user rules and bundled with the runt
   const denied = (await readSettings(config)).configuration;
   expect(denied.permissions).toEqual(expect.arrayContaining([
     { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
+    { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
     { action: "*", resource: "*", effect: "deny" },
     { action: "read", resource: "*", effect: "deny" },
   ]));

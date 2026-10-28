@@ -221,6 +221,10 @@ export function toolRecoveryStop(part: Part): { messageID?: string } | null {
 
 function toolRecoveryStoppedTurns(snapshot: LegalworkSessionSnapshot) {
   const turns = new Set<string>();
+  const saved = snapshot.session.metadata?.legalworkToolStops;
+  for (const message of snapshot.messages) {
+    if (message.info.role === "assistant" && recordValue(recordValue(saved, message.info.id), "reason") === "repeated-invalid-tool-calls") turns.add(message.info.id);
+  }
   for (const [index, note] of snapshot.messages.entries()) {
     if (note.info.role !== "user") continue;
     for (const part of note.parts) {
@@ -228,15 +232,19 @@ function toolRecoveryStoppedTurns(snapshot: LegalworkSessionSnapshot) {
       if (!stop) continue;
       const failed = stop.messageID ? snapshot.messages.findIndex((message) => message.info.id === stop.messageID) : -1;
       if (stop.messageID && (failed < 0 || failed >= index)) continue;
-      const failedInfo = snapshot.messages[failed]?.info;
+      if (stop.messageID && snapshot.messages.slice(failed + 1, index).some(message => message.info.role === "user" && message.parts.some(part => part.type === "text" && !part.synthetic))) continue;
+      let explained = false;
       for (let previous = index - 1; previous >= Math.max(0, failed); previous--) {
         const info = snapshot.messages[previous].info;
-        if (info.role === "user" && !stop.messageID) break;
+        if (info.role === "user" && snapshot.messages[previous].parts.some(part => part.type === "text" && !part.synthetic)) break;
         if (info.role !== "assistant" || !isSessionAbortError(info.error)) continue;
-        if (failedInfo?.role === "assistant" && info.parentID !== failedInfo.parentID) continue;
         turns.add(info.id);
+        explained = true;
         break;
       }
+      // V2 can stop between steps; then its idle marker records the interruption
+      // without attaching an error to the last assistant message.
+      if (!explained && stop.messageID && snapshot.messages[failed]?.info.role === "assistant") turns.add(stop.messageID);
     }
   }
   return turns;
@@ -297,11 +305,11 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     // error still gets its own message. An empty assistant carcass for the
     // errored turn is dropped so the error reads as that turn's outcome.
     const error = message.info.role === "assistant" && "error" in message.info ? message.info.error : undefined;
-    if (!error) return [uiMessage];
+    if (!error && !recoveryStops.has(message.info.id)) return [uiMessage];
 
     const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
     const text = recoveryStops.has(message.info.id) ? t("chat.stopped_invalid_tool_calls") : describeOpencodeSessionError(error, "Session failed", providerId);
-    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: isSessionAbortError(error) });
+    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: recoveryStops.has(message.info.id) || isSessionAbortError(error) });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }

@@ -41,3 +41,13 @@ test("native shared MCP definitions have one file-backed source", () => {
   expect(shared.mcp).toEqual(configuration.mcp);
   expect(managedConfigurationDiff(configuration, shared)).toEqual({});
 });
+
+
+test("identical project plugins remain in each native project document", () => {
+  const configuration = decode({ plugins: ["/project/plugin", { package: "/project/configured-plugin", options: { scope: "project" } }] });
+  for (const values of [[configuration], [configuration, configuration]]) {
+    const shared = commonManagedConfiguration(values);
+    expect(shared.plugins).toBeUndefined();
+    expect(managedConfigurationDiff(configuration, shared).plugins).toEqual(configuration.plugins);
+  }
+});

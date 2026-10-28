@@ -12,6 +12,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   const histories = new Map<string, unknown[]>();
   const sessions = new Map<string, { agent?: string; parentID?: string; model?: { providerID: string; id: string }; metadata?: Record<string, unknown> }>();
   const permissions: unknown[] = [];
+  const interrupts: string[] = [];
   let models: Array<{ id: string; providerID: string; capabilities: { input: string[] } }> = [];
   const synthetics: Array<{ sessionID: string; text: string; metadata?: unknown }> = [];
   const prompts: Array<{ sessionID: string; text: string; metadata?: unknown }> = [];
@@ -43,6 +44,8 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
       if (property === "location") return { directory: setupDirectory };
       if (property === "session") return {
         get: async ({ sessionID }: { sessionID: string }) => ({ ...sessions.get(sessionID), location: { directory } }),
+        update: async ({ sessionID, metadata }: { sessionID: string; metadata?: Record<string, unknown> }) => { sessions.set(sessionID, { ...sessions.get(sessionID), metadata }); },
+        interrupt: async ({ sessionID }: { sessionID: string }) => { interrupts.push(sessionID); },
         context: async ({ sessionID }: { sessionID: string }) => histories.get(sessionID) ?? [],
         hook: (name: string, callback: Hook) => register(`session.${name}`, callback),
         synthetic: async (input: { sessionID: string; text: string; metadata?: unknown }) => {
@@ -67,6 +70,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
         return { location: { directory }, data: Object.entries(mcpStatuses).map(([name, status]) => ({ name, status })) };
       } };
       if (property === "tool") return {
+        list: async () => [...tools].map(([id, tool]) => ({ ...tool, id })),
         hook: (name: string, callback: Hook) => register(`tool.${name}`, callback),
         transform: async (callback: (value: ToolEditor) => void) => { callback(editor); return { dispose: async () => {} }; },
       };
@@ -84,7 +88,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   });
 
   return {
-    ctx, tools, histories, sessions, permissions, synthetics, prompts, mcpRequests,
+    ctx, tools, histories, sessions, permissions, interrupts, synthetics, prompts, mcpRequests,
     models: (next: typeof models) => { models = next; },
     failSynthetic: (error: unknown) => { syntheticFailure = error; },
     mcp: (statuses: Record<string, { status: string }>) => { mcpStatuses = statuses; },
@@ -146,7 +150,9 @@ export async function nativeProviderTestFetch(plugin:Plugin.Plugin,receive:(requ
   const runtime=nativePluginTestRuntime();await runtime.start(plugin);
   const send=Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>{
     const request=new Request(input,init),event={sessionID:"provider-session",agent:"legalwork",model:{providerID:"fixture",id:"fixture"},kind:"primary",request};
-    await runtime.hook("session","http.request",event);return receive(event.request);
+    await runtime.hook("session","http.request",event);
+    const received={...event,response:await receive(event.request)};
+    await runtime.hook("session","http.response",received);return received.response;
   },globalThis.fetch);
   return{runtime,send};
 }

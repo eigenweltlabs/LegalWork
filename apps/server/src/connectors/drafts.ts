@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { realpath, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { rename, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { EmailDraftInputSchema, EmailDraftAccountSchema, EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "../email-drafts/schema.js";
 import { CalendarEventDraftInputSchema, CalendarEventDraftSchema, type CalendarEventDraft } from "../calendar-event-drafts/schema.js";
@@ -17,6 +16,7 @@ import { createConnectorRequest } from "./request.js";
 import { calendarCreateInput, calendarEventInput, googleCalendarUpdateInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
 import { mailDraftInput } from "./mail.js";
 import { parseNative } from "./native.js";
+import { connectorWorkspace } from "./workspace.js";
 
 export const connectorEmailDraftInput = mailDraftInput.extend({
   html: EmailDraftInputSchema.shape.html, from: EmailDraftInputSchema.shape.from, replyTo: EmailDraftInputSchema.shape.replyTo,
@@ -66,28 +66,11 @@ export async function emailDraftTarget(config: ServerConfig, account: z.infer<ty
   return { connectorId: target.connectorId, connectionId: target.connectionId };
 }
 
-export async function connectorDraftWorkspace(config: ServerConfig, context: Record<string, unknown>) {
-  if (typeof context.directory !== "string" || !context.directory.trim()) throw new ApiError(400, "connector_draft_workspace", "Prepare this draft from a project chat.");
-  const directory = await realpath(resolve(context.directory));
-  const candidates = [...config.workspaces].sort((a, b) => b.path.length - a.path.length);
-  for (const workspace of candidates) {
-    const root = await realpath(resolve(workspace.path));
-    const child = relative(root, directory);
-    if (child !== "" && (isAbsolute(child) || child === ".." || child.startsWith(`..${sep}`))) continue;
-    for (const allowed of config.authorizedRoots) {
-      const relation = relative(await realpath(resolve(allowed)), root);
-      if (relation === "" || (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`))) return { ...workspace, path: root };
-    }
-    throw new ApiError(403, "workspace_unauthorized", "This project folder is not authorized.");
-  }
-  throw new ApiError(404, "workspace_not_found", "No project matches this chat.");
-}
-
 export async function prepareConnectorEmailDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "gmail" && id !== "outlook") throw new ApiError(400, "connector_draft_provider", "Choose an email connector.");
   const input = parseDraftInput(connectorEmailDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
-  const workspace = await connectorDraftWorkspace(config, context);
+  const workspace = await connectorWorkspace(config, context);
   const draft = await saveEmailDraft(workspace.path, workspace.id, EmailDraftInputSchema.parse({ ...input, to: input.to.join(", "), cc: input.cc.join(", "), bcc: input.bcc.join(", ") }), undefined, { connectorId: id, connectionId });
   return { draft, instruction: "This is an editable local preview. No email was sent or saved in the provider. The user can save it to the connected mailbox or send it from the card." };
 }
@@ -96,7 +79,7 @@ export async function prepareConnectorCalendarDraft(config: ServerConfig, id: st
   if (id !== "google-calendar" && id !== "outlook-calendar") throw new ApiError(400, "connector_draft_provider", "Choose a calendar connector.");
   const input = parseDraftInput(id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
-  const workspace = await connectorDraftWorkspace(config, context);
+  const workspace = await connectorWorkspace(config, context);
   const event = CalendarEventDraftInputSchema.parse(input);
   const wantsMeet = "googleMeet" in input && input.googleMeet;
   const capabilities = wantsMeet ? await googleCalendarAdapter.capabilities(await createConnectorRequest(config, id, connectionId), input) : undefined;
@@ -110,7 +93,7 @@ export async function prepareConnectorCalendarDraft(config: ServerConfig, id: st
 export async function prepareConnectorCalendarUpdate(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>) {
   const input = parseDraftInput(googleCalendarUpdateInput, args);
   const connectionId = await connectedAccount(config, "google-calendar", input.connectionId);
-  const workspace = await connectorDraftWorkspace(config, context);
+  const workspace = await connectorWorkspace(config, context);
   const request = await createConnectorRequest(config, "google-calendar", connectionId);
   const current = await googleCalendarAdapter.get(request, input);
   if (!current.etag || !current.start || !current.end || current.status === "cancelled") throw new ApiError(409, "connector_calendar_version", "This event cannot be edited. Read its current details again.");

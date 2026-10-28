@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { boundedShutdown } from "./bounded-shutdown.mjs";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
@@ -3168,7 +3169,11 @@ if (!app.requestSingleInstanceLock()) {
     meetingMonitor.dispose();
     appTray.destroy();
     powerSessions.releaseAll();
-    void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
+    void boundedShutdown(() => Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]), () => {
+      console.warn("[shutdown] Graceful shutdown exceeded 10 seconds; terminating owned workers.");
+      try { runtimeManager.forceStopOwnedChildren(); }
+      finally { app.exit(1); }
+    }).finally(() => app.quit());
   });
 
   app.on("second-instance", async (_event, argv) => {

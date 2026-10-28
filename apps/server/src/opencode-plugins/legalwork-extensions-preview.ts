@@ -290,7 +290,8 @@ async function callInAppDocxTool(
     const error = getStringProperty(payload, "error") ?? "The in-app Word editor is unavailable.";
     return JSON.stringify({
       ok: false,
-      open: false,
+      ...(error.startsWith("Unknown action") ? { open: false } : {}),
+      ...(payload && typeof payload === "object" ? payload : {}),
       error: error.startsWith("Unknown action")
         ? "No matching in-app Word document is open for this session. Try word_read_document next, then use the FILE backend only if Word is also unavailable."
         : error,

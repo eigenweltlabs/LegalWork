@@ -253,7 +253,15 @@ export function projectMessage(
 ): MessageView[] {
   // System instructions and synthetic input are model context, never assistant
   // replies. This also covers migrated reminders without metadata flags.
-  if (message.type === "synthetic" || message.type === "system") return [];
+  if (message.type === "synthetic") {
+    const stop = message.metadata?.legalworkStop;
+    if (!stop || typeof stop !== "object" || Array.isArray(stop) || stop.reason !== "repeated-invalid-tool-calls" || typeof stop.messageID !== "string") return [];
+    return [{ info: { id: message.id, sessionID, role: "user", time: message.time, model: { providerID: "", modelID: "" }, modelID: "", providerID: "", agent: "", cost: 0, tokens: zeroTokens() }, parts: [{
+      id: `${message.id}:text`, messageID: message.id, sessionID, type: "text", text: message.text,
+      synthetic: true, metadata: message.metadata,
+    }] }];
+  }
+  if (message.type === "system") return [];
   if (
     ![
       "user",

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** OpenCode 1.18.29 treats every HTTP 413 as token overflow, automatically
- * compacts, then loses the original error. A transport byte limit cannot be
+/** Provider adapters may treat HTTP 413 as token overflow and automatically
+ * compact, losing the original transport error. A transport byte limit cannot be
  * repaired that way. Fail this request once with content-free measurements;
  * the engine persists this ordinary error and leaves the images untouched. */
 export async function checkModelResponse(response: Response, requestBytes?: number) {

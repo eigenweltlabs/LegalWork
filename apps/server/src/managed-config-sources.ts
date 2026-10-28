@@ -9,14 +9,14 @@ const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.st
 const declarations = new Set(["providers", "agents", "commands"]);
 
 /** Share complete identical native declarations only. Project permission
- * grants never become global, even when only one project is registered. */
+ * grants and custom plugins stay project-scoped, even with one project. */
 export function commonManagedConfiguration(configurations: readonly NativeRuntimeConfiguration[]): NativeRuntimeConfiguration {
   const first = configurations[0];
   if (!first) return {};
   const result: Record<string, unknown> = {};
   const documents: readonly Record<string, unknown>[] = configurations;
   for (const [key, value] of Object.entries(first)) {
-    if (key === "permissions") continue;
+    if (key === "permissions" || key === "plugins") continue;
     if (declarations.has(key) && record(value)) {
       const shared = Object.fromEntries(Object.entries(value).filter(([id, entry]) => documents.every(document => record(document[key]) && same(document[key][id], entry))));
       if (Object.keys(shared).length) result[key] = shared;
