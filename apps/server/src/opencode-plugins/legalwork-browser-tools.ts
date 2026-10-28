@@ -125,7 +125,7 @@ async function receiveDownloads(capability: string, files: z.infer<typeof downlo
   return files;
 }
 
-const websiteConnections = z.object({ items: z.array(z.object({
+export const websiteConnections = z.object({ items: z.array(z.object({
   id: z.string().uuid(), label: z.string(), origin: z.string(), websites: z.array(connectedWebsiteSchema),
 })) });
 

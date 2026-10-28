@@ -1,9 +1,11 @@
 ---
 name: legal-research
-description: Use for legal research, legislation, case law, legal commentary and source-backed legal questions. Discover the user's saved website connections, use suitable databases with their existing access, and offer to stage legal findings for the Legal Research knowledge base after consent.
+description: Use for legal research, legislation, case law, legal commentary and source-backed legal questions. Discover the user's saved website connections, use suitable databases with their existing access, and offer to stage legal findings for the Legal Research knowledge base after consent. Account setup alone uses legalwork_browser_request_password directly.
 ---
 
 # Legal research
+
+For a request only to set up a website, call legalwork_browser_request_password immediately with the user-supplied website_url or a known provider (for example CourtListener). Ask for the sign-in URL if missing. The existing secure card checks saved logins. Begin the research workflow below when there is a legal question to investigate.
 
 ## Select sources
 
