@@ -95,6 +95,9 @@ test("all login entry points share discovery; research setup installs no skill a
     expect(JSON.stringify(discovered)).not.toMatch(/synthetic|fixture-user|fixture-other|private|username|password/);
     expect(discovered.items.find((item: { id: string }) => item.id === wrong.id).websites).toEqual([{ name: "Ordinary website", url: "https://other.example/path" }]);
     expect(await (await discover("second")).json()).toEqual(discovered);
+    const filtered = await (await fetch(`${base}/workspace/first/browser-connections?origin=${encodeURIComponent("https://login.lexisnexis.com")}`, { headers: hostHeaders })).json();
+    expect(filtered.items.map((item: { id: string }) => item.id)).toEqual([saved.id]);
+    expect(JSON.stringify(filtered)).not.toMatch(/synthetic|fixture-user|username|password/);
     expect((await discover("first", { Authorization: "Bearer wrong" })).status).toBe(401);
     expect((await discover("first", { Authorization: "Bearer test" })).status).toBe(200);
     const agentToken = await ensureWikiAgentToken(config);
