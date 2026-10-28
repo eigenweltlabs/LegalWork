@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ApiError } from "../errors.js";
-import type { ConnectorRequest } from "./request.js";
+import type { ConnectorRequest, StreamingConnectorRequest } from "./request.js";
 import { nativePagePath } from "./native.js";
 
 const account = { connectionId: z.string().min(1).max(500).optional() };
@@ -14,6 +14,11 @@ export const mailDraftInput = z.object({ ...account,
   body: z.string().max(200_000),
 }).strict();
 export const mailStatusInput = z.object(account).strict();
+
+export type MailAttachment = {
+  filename: string; mimeType: string | null; expectedSize: number | null;
+  response: Response; encoding: "binary" | "base64url-json";
+};
 
 type GmailPart = { mimeType?: string; filename?: string; headers?: { name: string; value: string }[]; body?: { data?: string; attachmentId?: string; size?: number }; parts?: GmailPart[] };
 const gmailPart: z.ZodType<GmailPart> = z.lazy(() => z.object({
@@ -85,10 +90,13 @@ export const gmailAdapter = {
     const text = gmailBody(message.payload, "text/plain");
     return { ...gmailSummary(message), body: text || gmailBody(message.payload, "text/html"), bodyType: text ? "text" : "html", attachments: gmailAttachments(message.payload) };
   },
-  async attachment(request: ConnectorRequest, input: z.infer<typeof mailAttachmentInput>) {
-    const data = parse(z.object({ data: z.string(), size: z.number() }), await request(`/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}/attachments/${encodeURIComponent(input.attachmentId)}`));
-    if (data.size > 5 * 1024 * 1024) throw new ApiError(413, "attachment_too_large", "This attachment exceeds the 5 MB connector limit.");
-    return { dataBase64: Buffer.from(data.data, "base64url").toString("base64"), size: data.size };
+  async attachment(request: StreamingConnectorRequest, input: z.infer<typeof mailAttachmentInput>): Promise<MailAttachment> {
+    const path = `/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}`;
+    const message = parse(gmailMessage, await request(`${path}?format=full&fields=id,payload`));
+    const attachment = gmailAttachments(message.payload).find((item) => item.id === input.attachmentId);
+    if (!attachment) throw new ApiError(404, "connector_item_not_found", "The requested attachment was not found in this email.");
+    return { filename: attachment.filename, mimeType: attachment.mimeType, expectedSize: attachment.size, encoding: "base64url-json",
+      response: await request.response(`${path}/attachments/${encodeURIComponent(input.attachmentId)}?fields=data`, { bytes: true }) };
   },
   async draft(request: ConnectorRequest, input: z.infer<typeof mailDraftInput>) {
     const headers = [`To: ${input.to.join(", ")}`];
@@ -124,12 +132,13 @@ export const outlookAdapter = {
     return { ...outlookSummary(message), body: message.body?.content ?? "", bodyType: message.body?.contentType ?? "text",
       attachments: attachments.map((entry) => ({ id: entry.id, filename: entry.name, mimeType: entry.contentType, size: entry.size })) };
   },
-  async attachment(request: ConnectorRequest, input: z.infer<typeof mailAttachmentInput>) {
-    const attachment = parse(z.object({ "@odata.type": z.string(), name: z.string(), contentType: z.string(), size: z.number(), contentBytes: z.string().optional() }),
-      await request(`/v1.0/me/messages/${encodeURIComponent(input.messageId)}/attachments/${encodeURIComponent(input.attachmentId)}`, outlookReadOptions));
-    if (attachment["@odata.type"] !== "#microsoft.graph.fileAttachment" || !attachment.contentBytes) throw new ApiError(400, "attachment_not_file", "This Outlook attachment is not a downloadable file.");
-    if (attachment.size > 5 * 1024 * 1024) throw new ApiError(413, "attachment_too_large", "This attachment exceeds the 5 MB connector limit.");
-    return { dataBase64: attachment.contentBytes, filename: attachment.name, mimeType: attachment.contentType, size: attachment.size };
+  async attachment(request: StreamingConnectorRequest, input: z.infer<typeof mailAttachmentInput>): Promise<MailAttachment> {
+    const path = `/v1.0/me/messages/${encodeURIComponent(input.messageId)}/attachments/${encodeURIComponent(input.attachmentId)}`;
+    const attachment = parse(z.object({ "@odata.type": z.string(), name: z.string(), contentType: z.string() }),
+      await request(`${path}?$select=id,name,contentType,size`, outlookReadOptions));
+    if (attachment["@odata.type"] !== "#microsoft.graph.fileAttachment") throw new ApiError(400, "attachment_not_file", "This Outlook attachment is not a downloadable file.");
+    return { filename: attachment.name, mimeType: attachment.contentType, expectedSize: null, encoding: "binary",
+      response: await request.response(`${path}/$value`, { ...outlookReadOptions, bytes: true }) };
   },
   async draft(request: ConnectorRequest, input: z.infer<typeof mailDraftInput>) {
     const recipients = (values: string[]) => values.map((address) => ({ emailAddress: { address } }));

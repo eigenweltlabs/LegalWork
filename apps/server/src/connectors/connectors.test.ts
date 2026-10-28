@@ -1,6 +1,6 @@
-import { saveConnectorWriteSetting } from "./settings.js";
+import { recordConnectorActivation, saveConnectorWriteSetting } from "./settings.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -48,6 +48,38 @@ const connection = { id: "mail-account", createdAt: "2026-10-13T10:00:00Z", need
 const localOwner = JSON.stringify(["https://broker.test", "firm", "alice"]);
 let connections = [connection];
 const stops: (() => void | Promise<void>)[] = [];
+
+const downloadedAttachment = z.object({ path: z.string(), relativePath: z.string(), filename: z.string(), mimeType: z.string().nullable(), size: z.number() });
+
+function attachmentFixture(provider: "gmail" | "outlook", bytes: Buffer, filename = "Contract.pdf") {
+  config.workspaces = [{ id: "project", path: root, name: "Project", preset: "starter", workspaceType: "local" }];
+  config.authorizedRoots = [root];
+  const previous = response;
+  response = (url, init) => {
+    if (url.hostname !== (provider === "gmail" ? "gmail.googleapis.com" : "graph.microsoft.com")) return previous(url, init);
+    if (!url.pathname.includes("/attachments/")) return Response.json({ id: "message", payload: { parts: [
+      { filename, mimeType: "application/pdf", body: { attachmentId: "attachment", size: bytes.length } },
+    ] } });
+    if (provider === "outlook" && !url.pathname.endsWith("/$value")) return Response.json({
+      "@odata.type": "#microsoft.graph.fileAttachment", name: filename, contentType: "application/pdf", size: bytes.length,
+      ...(url.searchParams.has("$select") ? {} : { contentBytes: bytes.toString("base64") }),
+    });
+    const content = provider === "gmail" ? Buffer.from(JSON.stringify({ data: bytes.toString("base64url"), ...(url.searchParams.get("fields") === "data" ? {} : { size: bytes.length }) })) : bytes;
+    let offset = 0;
+    return new Response(new ReadableStream({ pull(controller) {
+      if (offset === content.length) { controller.close(); return; }
+      const end = Math.min(offset + 16_381, content.length);
+      controller.enqueue(content.subarray(offset, end)); offset = end;
+    } }), { headers: { "Content-Type": provider === "gmail" ? "application/json" : "application/pdf" } });
+  };
+}
+
+async function downloadAttachment(provider: "gmail" | "outlook", context: Record<string, unknown> = { directory: root }) {
+  if (provider === "outlook") await recordConnectorActivation(config, provider, connection.id, true);
+  return callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), {
+    extensionId: provider, action: "get_attachment", args: { messageId: "message", attachmentId: "attachment" }, context,
+  }, { personalConnections: true });
+}
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "legalwork-connectors-"));
@@ -732,10 +764,107 @@ test("Outlook returns native message bodies and attachment identifiers", async (
   expect(result.attachments[0]).toEqual({ id: "attachment-1", filename: "Contract.pdf", mimeType: "application/pdf", size: 123 });
 });
 
-test("attachment output is bounded and Outlook reference attachments are rejected", async () => {
-  await expect(gmailAdapter.attachment(async () => ({ data: "AA", size: 6 * 1024 * 1024 }), { messageId: "message", attachmentId: "attachment" })).rejects.toMatchObject({ code: "attachment_too_large" });
-  await expect(outlookAdapter.attachment(async () => ({ "@odata.type": "#microsoft.graph.referenceAttachment", name: "Link", contentType: "text/plain", size: 1 }),
-    { messageId: "message", attachmentId: "attachment" })).rejects.toMatchObject({ code: "attachment_not_file" });
+for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
+  test(`${provider} downloads attachments above the former mail and inline limits to the active workspace`, async () => {
+    const bytes = Buffer.alloc(21 * 1024 * 1024 + 5, 137);
+    attachmentFixture(provider, bytes, "Vertrag Müller.pdf");
+    const result = await downloadAttachment(provider);
+    const file = downloadedAttachment.parse(result.result);
+    expect(file.relativePath).toMatch(new RegExp(`^attachments/email/${provider}-[^/]+/Vertrag Müller\\.pdf$`));
+    expect(file.path).toBe(join(await realpath(root), file.relativePath));
+    expect(file.filename).toBe("Vertrag Müller.pdf");
+    expect(file.mimeType).toBe("application/pdf");
+    expect(file.size).toBe(bytes.length);
+    expect(Buffer.compare(await readFile(file.path), bytes)).toBe(0);
+    expect(JSON.stringify(result).length).toBeLessThan(2000);
+    expect(JSON.stringify(result)).not.toContain("dataBase64");
+    if (process.platform !== "win32") expect((await stat(file.path)).mode & 0o777).toBe(0o600);
+    const contentRequest = requests.filter(({ url }) => url.pathname.includes("/attachments/")).at(-1);
+    expect(contentRequest?.init?.signal).toBeDefined();
+    if (provider === "gmail") expect(contentRequest?.url.searchParams.get("fields")).toBe("data");
+    else expect(contentRequest?.url.pathname.endsWith("/$value")).toBe(true);
+  });
+
+  test(`${provider} keeps same-named attachments separate and confines unsafe filenames`, async () => {
+    attachmentFixture(provider, Buffer.from("first"), "../../Contract.pdf");
+    const first = downloadedAttachment.parse((await downloadAttachment(provider)).result);
+    attachmentFixture(provider, Buffer.from("second"), "..\\..\\Contract.pdf");
+    const second = downloadedAttachment.parse((await downloadAttachment(provider)).result);
+    expect(first.filename).toBe("Contract.pdf");
+    expect(second.filename).toBe("Contract.pdf");
+    expect(first.path).not.toBe(second.path);
+    expect(await readFile(first.path, "utf8")).toBe("first");
+    expect(await readFile(second.path, "utf8")).toBe("second");
+  });
+
+  test(`${provider} downloads from a nested task directory into its project root`, async () => {
+    attachmentFixture(provider, Buffer.alloc(0));
+    const nested = join(root, "matter", "notes");
+    await mkdir(nested, { recursive: true });
+    const file = downloadedAttachment.parse((await downloadAttachment(provider, { directory: nested })).result);
+    expect(file.path).toBe(join(await realpath(root), file.relativePath));
+    expect((await stat(file.path)).size).toBe(0);
+  });
+
+  test(`${provider} requires an authorized project and rejects downloads on a read-only server`, async () => {
+    attachmentFixture(provider, Buffer.from("private attachment"));
+    await expect(downloadAttachment(provider, {})).rejects.toMatchObject({ code: "connector_workspace_required" });
+    config.authorizedRoots = [];
+    await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "workspace_unauthorized" });
+    config.authorizedRoots = [root]; config.readOnly = true;
+    await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "read_only" });
+    expect(requests).toHaveLength(0);
+  });
+
+  test(`${provider} rejects a download folder symlink outside the workspace`, async () => {
+    attachmentFixture(provider, Buffer.from("private attachment"));
+    const outside = await mkdtemp(join(tmpdir(), "mail-attachment-outside-"));
+    try {
+      await symlink(outside, join(root, "attachments"), process.platform === "win32" ? "junction" : "dir");
+      await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "attachment_path_outside_workspace" });
+      expect(await readdir(outside)).toEqual([]);
+    } finally { await rm(outside, { recursive: true, force: true }); }
+  });
+
+  test(`${provider} removes partial downloads on a broken provider stream`, async () => {
+    attachmentFixture(provider, Buffer.from("private attachment"));
+    const previous = response;
+    response = (url, init) => {
+      if (url.pathname.includes("/attachments/") && (provider === "gmail" || url.pathname.endsWith("/$value"))) {
+        let started = false;
+        return new Response(new ReadableStream({ pull(controller) {
+          if (started) { controller.error(new Error("fixture interrupted")); return; }
+          started = true; controller.enqueue(Buffer.from(provider === "gmail" ? '{"data":"cHJpdmF0' : "partial"));
+        } }));
+      }
+      return previous(url, init);
+    };
+    await expect(downloadAttachment(provider)).rejects.toThrow();
+    expect(await readdir(join(root, "attachments", "email"))).toEqual([]);
+  });
+}
+
+test("Outlook reference attachments are rejected before any content download", async () => {
+  attachmentFixture("outlook", Buffer.alloc(0));
+  const previous = response;
+  response = (url, init) => url.hostname === "graph.microsoft.com"
+    ? Response.json({ "@odata.type": "#microsoft.graph.referenceAttachment", name: "Link", contentType: "text/plain", size: 1 }) : previous(url, init);
+  await expect(downloadAttachment("outlook")).rejects.toMatchObject({ code: "attachment_not_file" });
+  expect(requests.some(({ url }) => url.pathname.endsWith("/$value"))).toBe(false);
+});
+
+test("attachment HTTP action returns a usable workspace path without file bytes", async () => {
+  attachmentFixture("gmail", Buffer.alloc(6 * 1024 * 1024, 93));
+  const server = await startServer(config);
+  stops.push(() => server.stop());
+  const result = await nativeFetch(`http://127.0.0.1:${server.port}/experimental/extensions/call`, {
+    method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", "x-legalwork-connector-token": connectorRuntimeCapability(config) },
+    body: JSON.stringify({ extensionId: "gmail", action: "get_attachment", args: { messageId: "message", attachmentId: "attachment" }, context: { directory: root } }),
+  });
+  expect(result.status).toBe(200);
+  const payload = z.object({ result: downloadedAttachment }).parse(await result.json());
+  expect((await stat(payload.result.path)).size).toBe(6 * 1024 * 1024);
+  expect(JSON.stringify(payload).length).toBeLessThan(2000);
 });
 
 test("Outlook listing accepts unsent drafts with no sender", async () => {
