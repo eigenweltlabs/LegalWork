@@ -27,6 +27,8 @@ import { assistantHandoffParts } from "../assistant-handoff-message.js";
 import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority, type AssistantSessionAccess } from "../assistant-session-access.js";
 import { withSessionExecution } from "../session-execution-gate.js";
+import { nativeDeliveryRejection } from "../native-delivery.js";
+import { randomUUID } from "node:crypto";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -287,21 +289,25 @@ export function registerMainAssistantRoutes(options: {
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
     await options.sessionAccess.authorize(session.id, session.directory, authority);
-    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority });
+    const initialMessageId = `msg_${randomUUID().replaceAll("-", "")}`;
+    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority, initialMessageId });
     try {
       const sent = await withSessionExecution(config, session.id, async () => {
         assertAssistantDispatchAuthority(await options.sessionAccess.prepare(session.id, session.directory, authority), workspace.id);
         await options.preparePrompt(workspace, session.directory);
-        return client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
-        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
+        return client.session.promptAsync({ sessionID: session.id, messageID: initialMessageId, agent: "legalwork", model,
+        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000), throwOnError: true });
       });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
       return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,
         resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
-    } catch {
+    } catch (error) {
+      const rejected = nativeDeliveryRejection(error);
+      if (rejected) return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId },
+        error: rejected.message, code: rejected.code }, rejected.status);
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
-      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed" }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
+      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed", messageId: initialMessageId }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
     }
   });
 }

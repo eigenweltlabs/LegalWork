@@ -15,7 +15,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "matter");
     await mkdir(folder);
     const sessions = new Map(); const deliveries = []; const finished = new Set(); const notices = new Map();
-    let failSend = false, failReads = false; const running = new Set(); const disposals = [];
+    let failSend = false, rejectSend = false, failReads = false; const running = new Set(); const disposals = [];
     let pendingApprovals = [], pendingQuestions = []; const attentionReplies = [];
     const engine = Bun.serve({ port: 0, fetch: nativeAssistantFixture(async request => {
       const url = new URL(request.url), path = url.pathname;
@@ -38,7 +38,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
         const session = { id, title: (await request.json()).title, directory, time: { created: Date.now(), updated: Date.now() }, version: "1", slug: id, projectID: "project" };
         sessions.set(id, session); return Response.json(session);
       }
-      if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return new Response(null, { status: failSend ? 503 : 204 }); }
+      if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return rejectSend ? Response.json({ error: { message: "Register this project first" } }, { status: 409 }) : new Response(null, { status: failSend ? 503 : 204 }); }
       if (path.endsWith("/todo")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ content: "Review draft", status: "pending", priority: "medium" }]);
       if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
       if (path.includes("/message/")) return notices.has(path.split("/").at(-1)) ? Response.json(notices.get(path.split("/").at(-1))) : new Response(null, { status: 404 });
@@ -308,6 +308,12 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const continuation = new URLSearchParams(bounded.tasks.next.arguments);
       const continued = await (await call("/assistant/tasks?" + continuation)).json();
       assert.deepEqual(continued.items.map(task => task.title), ["Review escrow"]);
+      rejectSend = true;
+      const rejectionResponse = await call("/assistant/delegate", "POST", input);
+      assert.equal(rejectionResponse.status, 409);
+      const rejection = await rejectionResponse.json();
+      assert.equal(rejection.delegation.status, "rejected"); assert.equal(rejection.error, "Register this project first"); assert.ok(rejection.delegation.messageId);
+      rejectSend = false;
       failSend = true;
       const unconfirmed = await (await call("/assistant/delegate", "POST", input)).json();
       assert.equal(unconfirmed.ok, false); assert.equal(unconfirmed.delegation.status, "delivery-unconfirmed"); assert.ok(unconfirmed.delegation.sessionId);
@@ -316,8 +322,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       failSend = false;
       running.delete(result.delegation.sessionId); finished.add(result.delegation.sessionId);
       const deadline = Date.now() + 18000;
-      while (!deliveries.some(item => item.messageID) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
-      const returned = deliveries.find(item => item.messageID);
+      while (!deliveries.some(item => item.messageID && item.parts?.[0]?.synthetic) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+      const returned = deliveries.find(item => item.messageID && item.parts?.[0]?.synthetic);
       assert.ok(returned, "The background return queue must wake the source Assistant");
       assert.equal(returned.sessionId, assistant.day.sessionId);
       assert.equal(returned.agent, "legalwork"); assert.deepEqual(returned.model, { providerID: "fixture-provider", modelID: "chosen-model" });

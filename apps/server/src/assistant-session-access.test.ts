@@ -162,7 +162,7 @@ test("real queued executor initializes restored project tools before dispatch an
     expect(restarted.list(target)[0].state).toBe("paused"); expect(delivered).toHaveLength(1);
     await restoredAccess.authorize("worker", project, authority);
     await restarted.update(target, followUp.id, "resume", authority); await restarted.tick();
-    expect(delivered).toHaveLength(2); expect(restarted.list(target)).toEqual([]);
+    expect(restarted.list(target)).toEqual([]); expect(delivered).toHaveLength(2);
     busy = true;
     await restarted.submit(target, "Check the remaining matter", authority);
     assistant.updateSettings({ ...assistant.settings(), projectAccess: { mode: "none", projectIds: [] } }, []);

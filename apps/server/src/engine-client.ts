@@ -1,6 +1,7 @@
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { ApiError, findApiError } from "./errors.js";
+import { nativeResponseError } from "./native-delivery.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { assertEngineProjectReady } from "./engine-project.js";
@@ -47,7 +48,7 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       const text = await response.text();
       let detail: unknown = text;
       try { detail = JSON.parse(text); } catch { /* Keep non-JSON diagnostics. */ }
-      throw new ApiError([400, 404, 409, 413, 422].includes(status) ? status : 502, "opencode_request_failed", "The agent engine rejected the request.", { status, detail });
+      throw nativeResponseError(status, detail);
     }, { preconnect: fetch.preconnect }),
   });
 }

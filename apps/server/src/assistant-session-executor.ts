@@ -1,3 +1,4 @@
+import { isMessageNotFoundError } from "@opencode/client";
 import { resolve } from "node:path";
 import type { AssistantEngineClient } from "./assistant-engine.js";
 import { AssistantSessionQueue, type AssistantSessionTarget } from "./assistant-session-queue.js";
@@ -7,7 +8,9 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { assertAssistantDispatchAuthority, type AssistantSessionAccess } from "./assistant-session-access.js";
 import { withSessionExecution } from "./session-execution-gate.js";
 import { QueuePreparationError } from "./session-message-queue.js";
-import { ApiError } from "./errors.js";
+import { ApiError, findApiError } from "./errors.js";
+import { nativeDeliveryRejection } from "./native-delivery.js";
+import { z } from "zod";
 
 export async function createAssistantSessionQueue(path: string, options: {
   workspace: (id: string) => Promise<WorkspaceInfo>;
@@ -47,10 +50,10 @@ export async function createAssistantSessionQueue(path: string, options: {
     },
     hasMessage: async (target, id) => {
       const { client } = await read(target);
-      const response = await client.session.message({ sessionID: target.sessionId, messageID: id }, { signal: AbortSignal.timeout(10000) });
-      if (response.response.status === 404) return false;
-      if (!response.response.ok || !response.data) throw new Error("Message delivery could not be checked.");
-      return response.data.info.id === id;
+      if ((await client.native.session.inbox.list({ sessionID: target.sessionId }, { signal: AbortSignal.timeout(10000) })).some(item => item.id === id && item.type === "user")) return true;
+      try {
+        return (await client.native.session.message.get({ sessionID: target.sessionId, messageID: id }, { signal: AbortSignal.timeout(10000) })).type === "user";
+      } catch (error) { if (isMessageNotFoundError(error) || findApiError(error)?.status === 404) return false; throw error; }
     },
     send: entry => withSessionExecution(options.config, entry.sessionId, async () => {
       const { client, model } = await (async () => {
@@ -65,11 +68,16 @@ export async function createAssistantSessionQueue(path: string, options: {
           return { client, model };
         } catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare the delegated chat."); }
       })();
-      const response = await client.session.promptAsync({ sessionID: entry.sessionId, messageID: entry.id, agent: "legalwork", model,
-        parts: [{ type: "text", text: entry.prompt, metadata: { legalworkAssistantSender: options.assistant.profile() } }],
-      }, { signal: AbortSignal.timeout(30000) });
-      if (!response.response.ok) throw new Error("Message delivery could not be confirmed.");
+      try {
+        await client.native.session.switchAgent({ sessionID: entry.sessionId, agent: "legalwork" });
+        if (model) await client.native.session.switchModel({ sessionID: entry.sessionId, model: { providerID: model.providerID, id: model.modelID } });
+      } catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare the delegated chat."); }
+      const admitted = await client.native.session.prompt({ sessionID: entry.sessionId, id: entry.id, text: entry.prompt,
+        metadata: { legalworkAssistantSender: z.record(z.string(), z.json()).parse(options.assistant.profile()) }, delivery: "queue", resume: true,
+      }, { signal: AbortSignal.timeout(30000) }).catch(error => { throw nativeDeliveryRejection(error) ?? error; });
+      if (admitted.id !== entry.id) throw new Error("Native admission returned a different message identity.");
       options.changed();
+      return { accepted: true };
     }, true),
     abort: async target => {
       const { client, session } = await read(target);

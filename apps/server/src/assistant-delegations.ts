@@ -18,6 +18,7 @@ const delegationSchema = z.object({
   scheduledTaskId: z.string().uuid().optional(),
   authority: SessionAuthoritySchema.optional(),
   authoritySessionId: z.string().optional(), // Internal children retain their delegated root's permission boundary.
+  initialMessageId: z.string().optional(),
 });
 export type TrackedDelegation = z.infer<typeof delegationSchema>;
 const destinationSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
