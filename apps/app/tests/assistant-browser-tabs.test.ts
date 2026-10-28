@@ -31,6 +31,23 @@ test("the main Assistant discovers unopened workers from other daily contexts wi
   expect(usePanelTabStore.getState().sessions).toBe(panelBefore);
 });
 
+test("Assistant worker previews disappear on completion or failure, but remain during work and approval waits", () => {
+  const tabs = [browser("worker"), { ...browser("worker"), id: "second-worker-tab" }, browser("grandchild"), browser("parent")];
+  for (const status of ["thinking", "responding", "compacting", "waiting"] satisfies import("../src/react-app/domains/session/status/session-activity-store").SessionActivityStatus[]) {
+    expect(visibleTaskBrowserTabs(tabs, "parent", true, sessions, [], { worker: status })).toEqual(tabs);
+  }
+  // Missing status during a refresh is not proof that the worker finished.
+  expect(visibleTaskBrowserTabs(tabs, "parent", true, sessions)).toEqual(tabs);
+  for (const status of ["idle", "error"] satisfies import("../src/react-app/domains/session/status/session-activity-store").SessionActivityStatus[]) {
+    expect(visibleTaskBrowserTabs(tabs, "parent", true, sessions, [], { worker: status }).map(tab => tab.taskSessionId)).toEqual(["grandchild", "parent"]);
+    expect(visibleTaskBrowserTabs([browser("older-worker")], "parent", true, {}, ["older-worker"], { "older-worker": status })).toEqual([]);
+  }
+  // A resumed worker becomes visible again. Its native tabs are never mutated.
+  expect(visibleTaskBrowserTabs(tabs, "parent", true, sessions, [], { worker: "thinking" })).toEqual(tabs);
+  expect(tabs.every(tab => tab.background && !tab.dismissed)).toBe(true);
+  expect(visibleTaskBrowserTabs([browser("parent")], "parent", false, sessions, [], { parent: "idle" })).toHaveLength(1);
+});
+
 test("opening a child browser tile keeps its actual browser and worker ownership beside the parent", () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const opened: string[] = [];

@@ -11,9 +11,11 @@ import { openBackgroundTab } from "./open-background-tab";
 import { magneticTabDock, tabThrowVelocity, type TabDock } from "./magnetic-tab-dock";
 import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
 import { emptyInteractionSessions, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
+import { useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
 import type { Client } from "@/app/types";
 
 const subscribeEmpty = () => () => {};
+const emptyStatuses: Record<string, SessionActivityStatus> = {};
 const zero = () => 0;
 const cardWidth = 220;
 const cardHeight = 143;
@@ -217,6 +219,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
   useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
   const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
+  const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
   const sessions = useQueryCacheState<InteractionSessions>(interactionSessionsKey(workspaceId), emptyInteractionSessions);
   const owners = [...new Set(browsers.flatMap(tab => tab.background && !tab.dismissed && tab.taskSessionId ? [tab.taskSessionId] : []))].sort();
   // Browser state updates repeatedly during navigation. Cache by owner IDs so
@@ -234,7 +237,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
     tabs.push({ id: entry.key, label: entry.props.tab.label,
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }
-  for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data)) {
+  for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data, statuses)) {
     tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview id={tab.id} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });

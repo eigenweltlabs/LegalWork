@@ -38,11 +38,19 @@ arrives as a complete bubble, and the dots disappear as soon as that text is
 finished, even if background work continues. They also stop when a run is
 stopped or needs your answer or approval.
 
-The Assistant can acknowledge a message with an emoji on the left edge of your
-bubble. It chooses reactions for suitable greetings, thanks, requests or good
-news, before replying or starting work. After several messages without a reaction,
-it is encouraged to use one on the next suitable message. Reactions are occasional and mean receipt,
-not approval or completion. They do not appear later as a progress update.
+The Assistant uses emoji reactions on the left edge of your bubble for brief
+acknowledgements, especially confirmations, answers to its questions and retries.
+For example, a reaction to “yes” replaces a separate “I’ll do that” message,
+including when work is delegated. Its next message carries the result or a
+necessary question. Reactions mean receipt, not approval or completion, and
+only appear before it replies or starts work.
+
+The Assistant remembers details you provide, such as your phone number, contact
+email and booking preferences, in `.legalwork/user-details.md` inside its own
+project folder. It checks these notes before asking again and can reuse relevant
+details across days and app restarts. Tell it when a detail changes, to forget it,
+or to use something only once. It passes only the details needed for the requested
+work to a worker. These notes are separate from its follow-up conditions.
 
 Ask the Assistant to find a project, check tasks or calendar entries, or delegate
 work to a project chat. Delegated research and scheduled work run in separate
@@ -74,7 +82,9 @@ including when the worker started in an earlier daily chat. Its own chat stays
 closed unless you open it. Workers do not send desktop notifications; only the
 Assistant's replies to you can notify you.
 Click the tile to open that actual browser beside the
-conversation. Background browsing does not switch your screen. Existing website
+conversation. The preview disappears when its worker finishes or stops; a browser
+you opened yourself stays open. Tiles remain while a worker is waiting for your
+answer or approval. Background browsing does not switch your screen. Existing website
 permissions and approval requirements still apply.
 
 ## Relevant updates
