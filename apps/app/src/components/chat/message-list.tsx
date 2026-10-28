@@ -722,7 +722,7 @@ const MessageComponent = React.memo(
       if (metadata && typeof metadata === "object" && "opencode" in metadata &&
           metadata.opencode && typeof metadata.opencode === "object" &&
           "stopped" in metadata.opencode && metadata.opencode.stopped === true) {
-        return <Message className="text-sm text-muted-foreground">{t("chat.stopped")}</Message>;
+        return <Message className="text-sm text-muted-foreground">{getMessagesText([message]) || t("chat.stopped")}</Message>;
       }
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }

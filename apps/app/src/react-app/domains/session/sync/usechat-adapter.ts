@@ -210,7 +210,43 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
   return [mapped];
 }
 
+/** Internal stop notes stay hidden; their structured reason explains the
+ * matching aborted turn instead of making it look like a manual Stop. */
+export function toolRecoveryStop(part: Part): { messageID?: string } | null {
+  if (part.type !== "text" || !part.synthetic) return null;
+  const stop = recordValue(part.metadata, "legalworkStop");
+  const messageID = recordValue(stop, "messageID");
+  if (recordValue(stop, "reason") === "repeated-invalid-tool-calls" && typeof messageID === "string") return { messageID };
+  // Read stop notes saved before structured reasons were introduced.
+  if (/^Stopped because identical invalid calls to \S+ continued for three assistant steps after correction guidance\./.test(part.text)) return {};
+  return null;
+}
+
+function toolRecoveryStoppedTurns(snapshot: LegalworkSessionSnapshot) {
+  const turns = new Set<string>();
+  for (const [index, note] of snapshot.messages.entries()) {
+    if (note.info.role !== "user") continue;
+    for (const part of note.parts) {
+      const stop = toolRecoveryStop(part);
+      if (!stop) continue;
+      const failed = stop.messageID ? snapshot.messages.findIndex((message) => message.info.id === stop.messageID) : -1;
+      if (stop.messageID && (failed < 0 || failed >= index)) continue;
+      const failedInfo = snapshot.messages[failed]?.info;
+      for (let previous = index - 1; previous >= Math.max(0, failed); previous--) {
+        const info = snapshot.messages[previous].info;
+        if (info.role === "user" && !stop.messageID) break;
+        if (info.role !== "assistant" || !isSessionAbortError(info.error)) continue;
+        if (failedInfo?.role === "assistant" && info.parentID !== failedInfo.parentID) continue;
+        turns.add(info.id);
+        break;
+      }
+    }
+  }
+  return turns;
+}
+
 export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMessage[] {
+  const recoveryStops = toolRecoveryStoppedTurns(snapshot);
   return snapshot.messages.flatMap((message) => {
     const created = message.info.time?.created;
     const summary = message.info.role === "assistant" && "summary" in message.info && message.info.summary === true;
@@ -267,7 +303,8 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     if (!error) return [uiMessage];
 
     const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
-    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error, "Session failed", providerId), { created, stopped: isSessionAbortError(error) });
+    const text = recoveryStops.has(message.info.id) ? t("chat.stopped_invalid_tool_calls") : describeOpencodeSessionError(error, "Session failed", providerId);
+    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: isSessionAbortError(error) });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }

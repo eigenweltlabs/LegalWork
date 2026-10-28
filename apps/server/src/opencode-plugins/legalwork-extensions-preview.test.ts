@@ -34,7 +34,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
       const url = input instanceof Request ? input.url : input.toString();
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const { requestId, deadline, ...body } = z.object({ requestId: z.uuid(), deadline: z.number() }).passthrough().parse(raw);
+        expect(deadline).toBeGreaterThan(Date.now());
+        expect(requestId).toBeTruthy();
         if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
         if (execute) return Response.json(execute(body));
       }
@@ -702,4 +705,20 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
   expect(editSchema).toContain('"enum":["create_bookmark"]');
   expect(editSchema).toContain('"enum":["insert_cross_reference"]');
   expect(editSchema).toContain('"targetSearch"');
+});
+
+test("Stop reaches the Word bridge and its cancellation code survives routing",async()=>{
+  await withBridge({});
+  const base=globalThis.fetch,started=Promise.withResolvers<void>();
+  globalThis.fetch=Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>{
+    if(String(input).endsWith("/execute")){
+      started.resolve();
+      await new Promise((_,reject)=>{init?.signal?.addEventListener("abort",()=>reject(init.signal?.reason),{once:true});});
+    }
+    return base(input,init);
+  },base);
+  const controller=new AbortController(),plugin=await LegalWorkExtensionsPreview();
+  const pending=plugin.tool.inapp_docx_read_document.execute({},{sessionID:"child",abort:controller.signal});
+  await started.promise;controller.abort();
+  const result=JSON.parse(await pending);expect(result.ok).toBe(false);expect(result.code).toBe("operation_cancelled");expect(result.open).toBeUndefined();
 });

@@ -16,7 +16,7 @@ import { useComposerStateStore } from "../surface/composer-state-store";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type Client, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
 import { consumeProviderUsageLimitStop, markEigenweltBudgetStop, updateProviderUsageLimitStop } from "@/app/lib/eigenwelt-budget";
-import { createSessionErrorUIMessage, describeOpencodeSessionError, isSessionAbortError, snapshotToUIMessages } from "./usechat-adapter";
+import { createSessionErrorUIMessage, describeOpencodeSessionError, isSessionAbortError, snapshotToUIMessages, toolRecoveryStop } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -808,8 +808,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           // errored before any assistant message existed.
           return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText, { stopped: aborted }));
         });
-        // Server-initiated stops persist their reason before aborting. Refresh
-        // so an automatic retry stop does not remain labelled as a user stop.
+        // Reconcile the aborted turn; its explanation may arrive separately.
         if (aborted) void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
       }
     }
@@ -977,6 +976,11 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       useSessionActivityStore.getState().markAssistantOutput(workspaceId, part.sessionID, part.messageID);
     }
     if (!isTrackedSession(entry, part.sessionID)) return;
+    if (toolRecoveryStop(part)) {
+      // The plugin saves its reason after aborting. Refresh again when the
+      // note is persisted, even if the abort's earlier refresh already ended.
+      void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, part.sessionID), exact: true });
+    }
     const [mapped, ...attachments] = toUIParts(part);
     if (!mapped) return;
     const pending = entry.pendingDeltas.get(part.id);

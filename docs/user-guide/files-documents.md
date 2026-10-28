@@ -20,6 +20,8 @@ Give an exact filename or attach the document when several copies exist. "This d
 
 Office-format rendering is editor-dependent. Complex Word layouts, spreadsheets and presentations should be checked in the target Office application when fidelity matters. Supporting a file extension is not a guarantee that every feature of that format is editable.
 
+Document requests for the same file run in order. **Stop** cancels requests that are still waiting; already applied changes may finish saving and remain available for review. A timed-out document request does not mean the document is closed.
+
 ## Word review
 
 For a document open in LegalWork, the assistant uses the live document tools and makes tracked suggestions in that document. Review comments and changes in the editor. Ask it to accept or reject particular changes when you intend to finalize them. Existing changes from other reviewers should be distinguished from the assistant's changes.
