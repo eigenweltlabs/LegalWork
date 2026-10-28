@@ -30,10 +30,12 @@ export function BrowserPasswordForm({ request, client, busy, onComplete, onCance
   const disabled = busy || saving;
   const save = async () => {
     if (!client || !available || disabled || submitting.current) return;
-    if (entryId) { onComplete(entryId); return; }
+    const entry = entries.find(item => item.id === entryId);
+    if (entryId && (savedId || !request.startUrl || entry?.websites?.some(site => site.url === request.startUrl))) { onComplete(entryId); return; }
     submitting.current = true; setSaving(true); setError("");
     try {
-      const { item } = await client.saveBrowserPassword({ origin: request.website, label: request.label, username, password, ...(request.startUrl ? { websiteUrl: request.startUrl } : {}) });
+      if (entryId && !entry) throw new Error("The selected saved login is unavailable.");
+      const { item } = await client.saveBrowserPassword({ ...(entry ? { id: entry.id, origin: entry.origin, label: entry.label, username: entry.username } : { origin: request.website, label: request.label, username, password }), ...(request.startUrl ? { websiteUrl: request.startUrl } : {}) });
       if (!active.current) return;
       setPassword(""); setSavedId(item.id);
       void cache.invalidateQueries({ queryKey: ["browser-passwords", client.baseUrl] });

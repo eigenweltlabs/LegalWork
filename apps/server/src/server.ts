@@ -2257,7 +2257,8 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/browser-connections", "client", async ctx => {
     requireClientScope(ctx, "collaborator");
     await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse({ items: (await browserPasswords(config).list()).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
+    const origin = new URL(ctx.request.url).searchParams.get("origin") ?? undefined;
+    return jsonResponse({ items: (await browserPasswords(config).list(origin)).map(({ id, label, origin, websites }) => ({ id, label, origin, websites })) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/workflow-plugins/options", "host", async ctx => {

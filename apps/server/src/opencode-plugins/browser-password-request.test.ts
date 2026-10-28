@@ -10,9 +10,10 @@ afterEach(() => {
   if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token;
 });
 const saved = { id: "218d2173-2e4b-4ef2-98e6-52e0367d1d7b", label: "Portal", username: "lawyer" };
-async function fixture() {
+async function fixture(expectedOrigin = "https://www.courtlistener.com") {
   const runtime = nativePluginTestRuntime("/fixture/matter"), calls: Array<{ path: string; body: unknown }> = [];
   let passwords: typeof saved[] = [], website = "https://www.example.org", form: FormDetail | undefined, cancelled = 0, connectionChanged = false;
+  let connections: Array<{ id: string; label: string; origin: string; websites: Array<{ name: string; url: string }> }> = [];
   let subscriber: ReadableStreamDefaultController<Uint8Array> | undefined;
   const emit = (event: unknown) => subscriber?.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -25,6 +26,10 @@ async function fixture() {
     }), { headers: { "content-type": "text/event-stream" } });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: "/fixture/matter" }] });
     if (path.endsWith("/sandbox/session/chat")) return Response.json({ enabled: true, networkMode: "allow" });
+    if (path.endsWith("/browser-connections")) {
+      expect(new URL(request.url).searchParams.get("origin")).toBe(expectedOrigin);
+      return Response.json({ items: connections });
+    }
     if (path.endsWith("/passwords")) {
       expect(request.headers.get("x-legalwork-browser-session")).toBe("chat");
       if (connectionChanged) return new Response(null, { status: 403 });
@@ -49,6 +54,7 @@ async function fixture() {
   const input = { browser_url: `${server.url.origin}/${"b".repeat(64)}`, label: "Portal", username: "lawyer" };
   return { runtime, tool, input, calls, get form() { return form; }, get cancelled() { return cancelled; },
     passwords: (value: typeof saved[]) => { passwords = value; }, website: (value: string) => { website = value; },
+    connections: (value: typeof connections) => { connections = value; },
     changeConnection: () => { connectionChanged = true; },
     async answer(answer: Record<string, string | boolean>) {
       if (!form) throw new Error("No pending form"); form = { ...form, state: { status: "answered", answer } };
@@ -65,6 +71,74 @@ test("an existing saved login is reused without asking again", async () => {
     f.passwords([saved]);
     expect((await f.tool.execute(f.input, nativeTestInvocation("chat"))).output).toEqual({ website: "https://www.example.org", passwords: [saved] });
     expect(f.form).toBeUndefined();
+  } finally { await f.close(); }
+});
+
+test("CourtListener setup shows the existing secure card without a browser or network lookup, then validates only saved metadata", async () => {
+  const f = await fixture();
+  try {
+    const pending = f.tool.execute({ provider: "CourtListener" }, nativeTestInvocation("chat")); await f.ready();
+    expect(f.form?.metadata).toEqual({ legalworkBrowserPassword: { website: "https://www.courtlistener.com", label: "CourtListener", username: "", startUrl: "https://www.courtlistener.com/" } });
+    expect(f.calls.every(call => call.path === "/workspaces" || call.path.startsWith("/workspace/matter/opencode/api/"))).toBe(true);
+    f.connections([{ id: saved.id, label: "CourtListener", origin: "https://www.courtlistener.com", websites: [{ name: "CourtListener", url: "https://www.courtlistener.com/" }] }]);
+    await f.answer({ password_id: saved.id });
+    const result = (await pending).output;
+    expect(result).toMatchObject({ status: "saved", password_id: saved.id, login_url: "https://www.courtlistener.com/sign-in/", start_url: "https://www.courtlistener.com/" });
+    expect(JSON.stringify(result)).not.toContain('"username"');
+    expect(f.calls.some(call => call.path.endsWith("/passwords") || call.path.includes("/sandbox/"))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test("preset setup rejects forged saved references and cancelled setup never looks up credentials", async () => {
+  const f = await fixture();
+  try {
+    const pending = f.tool.execute({ provider: "courtlistener" }, nativeTestInvocation("chat")); await f.ready();
+    await f.answer({ password_id: saved.id });
+    await expect(pending).rejects.toThrow("saved login or website destination changed");
+  } finally { await f.close(); }
+  const cancelled = await fixture();
+  try {
+    const pending = cancelled.tool.execute({ provider: "courtlistener" }, nativeTestInvocation("chat")); await cancelled.ready();
+    await cancelled.answer({ cancelled: true });
+    expect((await pending).output).toEqual({ cancelled: true });
+    expect(cancelled.calls.some(call => call.path.endsWith("/browser-connections"))).toBe(false);
+  } finally { await cancelled.close(); }
+});
+
+test("any user-supplied website shows the same card directly, with stable URLs and separate sign-in and destination domains", async () => {
+  const f = await fixture("https://login.example.net");
+  try {
+    const pending = f.tool.execute({ website_url: "https://login.example.net/sign-in?state=temporary#fragment", label: "My website", start_url: "https://portal.example.org/library?session=temporary#fragment" }, nativeTestInvocation("chat"));
+    await f.ready();
+    expect(f.form?.metadata).toEqual({ legalworkBrowserPassword: { website: "https://login.example.net", label: "My website", username: "", startUrl: "https://portal.example.org/library" } });
+    expect(f.calls.every(call => call.path === "/workspaces" || call.path.startsWith("/workspace/matter/opencode/api/"))).toBe(true);
+    f.connections([{ id: saved.id, label: "My website", origin: "https://login.example.net", websites: [{ name: "My website", url: "https://portal.example.org/library" }] }]);
+    await f.answer({ password_id: saved.id });
+    expect((await pending).output).toMatchObject({ status: "saved", password_id: saved.id, login_url: "https://login.example.net/sign-in", start_url: "https://portal.example.org/library" });
+    expect(f.calls.some(call => call.path.endsWith("/passwords") || call.path.includes("/sandbox/"))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test("direct URL setup rejects insecure addresses and embedded credentials before creating a card", async () => {
+  const f = await fixture();
+  try {
+    for (const website_url of ["not-a-url", "http://example.com", "https://user:secret@example.com", "file:///tmp"]) {
+      await expect(f.tool.execute({ website_url }, nativeTestInvocation("chat"))).rejects.toThrow();
+    }
+    expect(f.form).toBeUndefined();
+    expect(f.calls).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("unknown, ambiguous and unverified providers do not guess a password origin", async () => {
+  const f = await fixture();
+  try {
+    expect((await f.tool.execute({ provider: "Unknown service" }, nativeTestInvocation("chat"))).output).toMatchObject({ status: "provider_required", providers: [] });
+    expect((await f.tool.execute({ provider: "beck" }, nativeTestInvocation("chat"))).output).toMatchObject({ status: "provider_required" });
+    expect((await f.tool.execute({ provider: "strada-be" }, nativeTestInvocation("chat"))).output).toMatchObject({ status: "login_url_required" });
+    await expect(f.tool.execute({ provider: "courtlistener", browser_url: f.input.browser_url }, nativeTestInvocation("chat"))).rejects.toThrow();
+    expect(f.form).toBeUndefined();
+    expect(f.calls).toEqual([]);
   } finally { await f.close(); }
 });
 
