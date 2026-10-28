@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import DOMPurify from "dompurify";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +22,16 @@ Object.defineProperty(events, "localStorage", { value: storage });
 Object.defineProperty(events, "sessionStorage", { value: storage });
 const initialState = { ...useRecorderStore.getInitialState() };
 const setRenderState = (state: Partial<typeof initialState>) => Object.assign(useRecorderStore.getInitialState(), state);
+// Bun has no browser DOM. Follow the Markdown renderer tests' scoped stand-in;
+// these assertions cover the summary structure, not browser sanitization.
+const previousSanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
+beforeAll(() => Object.defineProperty(DOMPurify, "sanitize", {
+  configurable: true, value: (html: string) => html,
+}));
+afterAll(() => {
+  if (previousSanitize) Object.defineProperty(DOMPurify, "sanitize", previousSanitize);
+  else Reflect.deleteProperty(DOMPurify, "sanitize");
+});
 beforeEach(() => {
   previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -325,4 +336,17 @@ test("saved meeting summaries render separately from the verbatim transcript", (
   expect(html).toContain("Review the draft by Friday.");
   expect(html).toContain("Um, Friday would work.");
   expect(html.indexOf("Review the draft")).toBeLessThan(html.indexOf("Um, Friday"));
+});
+
+test("meeting notes render takeaways, actions and summary paragraphs as structured Markdown", () => {
+  const summary = "### Main takeaways\n\n- **Decision:** proceed with the pilot.\n\n### Action items\n\n- Chris will send the draft by Friday.\n\n### Summary\n\nThe team agreed to evaluate the pilot.\n\nResults will inform the next review.";
+  const html = render({ meta: { ...recording, status: "complete", summary }, segments: [segment("saved", "Let's proceed.", 0)] });
+  expect(html).toMatch(/<h3[^>]*>Main takeaways<\/h3>/);
+  expect(html).toMatch(/<h3[^>]*>Action items<\/h3>/);
+  expect(html).toMatch(/<h3[^>]*>Summary<\/h3>/);
+  expect(html).toContain("<strong>Decision:</strong>");
+  expect(html).toMatch(/<li[^>]*>[\s\S]*Chris will send the draft by Friday\./);
+  expect(html).toMatch(/<p[^>]*>The team agreed to evaluate the pilot\.<\/p>/);
+  expect(html).toMatch(/<p[^>]*>Results will inform the next review\.<\/p>/);
+  expect(html).not.toContain("### Main takeaways");
 });
