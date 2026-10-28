@@ -15,6 +15,7 @@ import { recordConnectorActivation, saveConnectorWriteSetting } from "./settings
 import { prepareConnectorEmailDraft, prepareConnectorCalendarDraft, prepareConnectorCalendarUpdate, deliverConnectorEmailDraft, deliverConnectorCalendarDraft, refreshConnectorCalendarDraft, reloadConnectorEmailDraft } from "./drafts.js";
 import { readDraft, saveEmailDraft, readEmailDraftMime } from "../email-drafts/store.js";
 import { callConnectorExtensionAction } from "./index.js";
+import { connectorRuntimeCapability } from "./capability.js";
 
 const nativeFetch = globalThis.fetch;
 const prior = new Map(["EIGENWELT_PLATFORM_URL", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE"].map(key => [key, process.env[key]]));
@@ -144,6 +145,88 @@ test("extension draft errors explain arguments and corrected requests create Out
     connectorTarget: { connectorId: "outlook", connectionId: "outlook-account" },
   } } });
   expect(requests.filter(request => request.url.hostname === "graph.microsoft.com")).toHaveLength(0);
+});
+
+async function draftApi() {
+  const server = await startServer(config); stops.push(() => server.stop());
+  return (account: string, headers: Record<string, string> = { "X-LegalWork-Host-Token": "host" }) => nativeFetch(`http://127.0.0.1:${server.port}/workspace/project/email-drafts`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ ...email, to: '"Client, Example" <client@example.com>', cc: email.cc.join(", "), bcc: email.bcc.join(", "), account }),
+  });
+}
+
+test("ordinary drafts bind to the sole email account without provider requests and preserve every field", async () => {
+  await writeConnectorConnections(config, owner, "gmail", []);
+  const call = await draftApi();
+  const response = await call("auto");
+  expect(response.status).toBe(200);
+  const { draft } = z.object({ draft: EmailDraftSchema }).parse(await response.json());
+  expect(draft).toMatchObject({ connectorTarget: { connectorId: "outlook", connectionId: "outlook-account" },
+    to: '"Client, Example" <client@example.com>', subject: email.subject, body: email.body, html: email.html, attachments: email.attachments });
+  expect(draft.delivery).toBeUndefined();
+  const stored = EmailDraftSchema.parse(await readDraft(root, draft.id));
+  expect(stored.connectorTarget).toEqual(draft.connectorTarget);
+  expect(requests.filter(({ url }) => !["/api/sync/events", "/api/desktop/policy", "/api/hub"].includes(url.pathname))).toEqual([]);
+});
+
+test("multiple mail accounts require a choice; explicit provider and local choices are respected", async () => {
+  const call = await draftApi();
+  const ambiguous = await call("auto");
+  expect(ambiguous.status).toBe(409);
+  expect(await ambiguous.json()).toMatchObject({ code: "email_draft_account_required", message: expect.stringContaining("Ask the user") });
+  for (const account of ["gmail", "outlook", "local"] satisfies Array<"gmail" | "outlook" | "local">) {
+    const response = await call(account);
+    expect(response.status).toBe(200);
+    const { draft } = z.object({ draft: EmailDraftSchema }).parse(await response.json());
+    expect(draft.connectorTarget?.connectorId).toBe(account === "local" ? undefined : account);
+    expect(draft.delivery).toBeUndefined();
+  }
+  expect(requests.filter(({ url }) => !["/api/sync/events", "/api/desktop/policy", "/api/hub"].includes(url.pathname))).toEqual([]);
+});
+
+test("no active email account creates a local draft; a calendar-only Outlook connection is not selected", async () => {
+  await writeConnectorConnections(config, owner, "gmail", []);
+  await recordConnectorActivation(config, "outlook", "outlook-account", false);
+  const call = await draftApi();
+  const response = await call("auto");
+  expect(response.status).toBe(200);
+  const { draft } = z.object({ draft: EmailDraftSchema }).parse(await response.json());
+  expect(draft.connectorTarget).toBeUndefined();
+  const explicit = await call("outlook");
+  expect(explicit.status).toBe(409);
+  expect(await explicit.json()).toMatchObject({ code: "connector_not_connected" });
+  expect(requests.filter(({ url }) => !["/api/sync/events", "/api/desktop/policy", "/api/hub"].includes(url.pathname))).toEqual([]);
+});
+
+test("automatic account choice preserves write restrictions and reports expired connections without fallback", async () => {
+  await writeConnectorConnections(config, owner, "gmail", []);
+  const call = await draftApi();
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: false });
+  const disabled = await call("auto");
+  expect(disabled.status).toBe(403);
+  expect(await disabled.json()).toMatchObject({ code: "connector_writes_disabled" });
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  await writeConnectorConnections(config, owner, "outlook", [{ id: "outlook-account", nangoConnectionId: "outlook-private", createdAt: null, needsReconnect: true }]);
+  const expired = await call("auto");
+  expect(expired.status).toBe(409);
+  expect(await expired.json()).toMatchObject({ code: "connector_reconnect_required" });
+  expect((await call("local")).status).toBe(200);
+  expect(requests.filter(({ url }) => !["/api/sync/events", "/api/desktop/policy", "/api/hub"].includes(url.pathname))).toEqual([]);
+});
+
+test("automatic draft binding is limited to the owner and managed engine, not shared clients", async () => {
+  await writeConnectorConnections(config, owner, "gmail", []);
+  const call = await draftApi();
+  const client = { Authorization: `Bearer ${config.token}` };
+  for (const headers of [client, { ...client, "x-legalwork-connector-token": "forged" }]) {
+    expect((await call("auto", headers)).status).toBe(403);
+    expect((await call("outlook", headers)).status).toBe(403);
+  }
+  expect((await call("local", client)).status).toBe(200);
+  const managed = await call("auto", { ...client, "x-legalwork-connector-token": connectorRuntimeCapability(config) });
+  expect(managed.status).toBe(200);
+  expect(await managed.json()).toMatchObject({ draft: { connectorTarget: { connectorId: "outlook" } } });
+  expect(requests.filter(({ url }) => !["/api/sync/events", "/api/desktop/policy", "/api/hub"].includes(url.pathname))).toEqual([]);
 });
 
 test("saving and sending reuse the rendered MIME including HTML, Cc, Bcc and attachments, and never send twice", async () => {

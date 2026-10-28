@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { EmailDraftInputSchema, EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "../email-drafts/schema.js";
+import { EmailDraftInputSchema, EmailDraftAccountSchema, EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "../email-drafts/schema.js";
 import { CalendarEventDraftInputSchema, CalendarEventDraftSchema, type CalendarEventDraft } from "../calendar-event-drafts/schema.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
@@ -10,8 +10,8 @@ import { withFileWriteLocks } from "../file-write-lock.js";
 import { draftPaths, readDraft, saveDraftFiles, saveEmailDraft, readEmailDraftMime, prepareEmailDraftReload } from "../email-drafts/store.js";
 import { eventDraftTimes, renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { savedConnectorConnections } from "./broker.js";
-import { requireConnectorConnectSlot } from "./single-connection.js";
-import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
+import { requireConnectorConnectSlot, requireSingleConnectorAccount } from "./single-connection.js";
+import { connectorIsActivated, ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
 import { requireLocalOAuthSendAccess } from "./local-oauth.js";
 import { createConnectorRequest } from "./request.js";
 import { calendarCreateInput, calendarEventInput, googleCalendarUpdateInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
@@ -43,6 +43,27 @@ async function connectedAccount(config: ServerConfig, id: string, requested?: st
   if (!selected) throw new ApiError(409, "connector_not_connected", "Connect this account in Integrations first.");
   await requireConnectorActivated(config, id, selected);
   return selected;
+}
+
+/** Bind a local preview using saved account metadata; never contact a mailbox. */
+export async function emailDraftTarget(config: ServerConfig, account: z.infer<typeof EmailDraftAccountSchema>) {
+  if (account === "local") return undefined;
+  const targets: (NonNullable<EmailDraft["connectorTarget"]> & { needsReconnect: boolean })[] = [];
+  for (const connectorId of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
+    if (account !== "auto" && account !== connectorId) continue;
+    const connections = await savedConnectorConnections(config, connectorId);
+    requireSingleConnectorAccount(connections);
+    const connection = connections[0];
+    if (!connection || !await connectorIsActivated(config, connectorId, connection.id)) continue;
+    targets.push({ connectorId, connectionId: connection.id, needsReconnect: connection.needsReconnect });
+  }
+  if (targets.length > 1) throw new ApiError(409, "email_draft_account_required", "Both Gmail and Outlook Email are connected. Ask the user which account to use, then retry with account set to gmail or outlook. No draft has been created.");
+  const target = targets[0];
+  if (!target && account !== "auto") throw new ApiError(409, "connector_not_connected", `Connect and activate ${account === "outlook" ? "Outlook Email" : "Gmail"} in Integrations, or ask whether the user wants a local draft.`);
+  if (!target) return undefined;
+  if (target.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${target.connectorId === "outlook" ? "Outlook Email" : "Gmail"} in Integrations before preparing its draft. Do not substitute a local draft unless the user requests one.`);
+  await ensureConnectorWritesAllowed(config, target.connectorId);
+  return { connectorId: target.connectorId, connectionId: target.connectionId };
 }
 
 export async function connectorDraftWorkspace(config: ServerConfig, context: Record<string, unknown>) {
