@@ -123,6 +123,7 @@ test("a later classification failure sends no partial result and retains the com
     expect(batches).toBe(2);
     expect(decisions).toBe(0);
     expect(f.store.pending()).toHaveLength(26);
+    expect(f.store.assessment(f.event.id)).toBeNull();
   } finally { await f.close(); }
 });
 
@@ -139,6 +140,7 @@ test("missing, unknown or invalid probability scores never become a partial Assi
         deliver: async () => { throw new Error("Nothing to deliver"); },
       })).rejects.toThrow();
       expect(f.store.pending()).toEqual([f.event]);
+      expect(f.store.assessment(f.event.id)).toBeNull();
       expect(decisions).toBe(0);
     }
   } finally { await f.close(); }
@@ -161,6 +163,29 @@ test("only probabilities of at least 80 percent reach the Assistant", async () =
       deliver: async () => { throw new Error("Nothing to deliver"); },
     });
     expect(decisions).toBe(1);
+    expect(f.store.pending()).toEqual([]);
+    const reopened = await AssistantProactivityStore.open(f.path);
+    try {
+      expect(reopened.assessment(f.event.id)).toEqual({ revision: 1, probability: 0.79, reason: "below_threshold" });
+      expect(reopened.assessment(boundary.id)).toEqual({ revision: 1, probability: 0.8, reason: "assistant_silent" });
+      expect(reopened.assessment(above.id)).toEqual({ revision: 1, probability: 0.81, reason: "assistant_silent" });
+      reopened.prune(Date.now() + 31 * 86400_000);
+      expect(reopened.assessment(f.event.id)).toBeNull();
+    } finally { reopened.close(); }
+  } finally { await f.close(); }
+});
+
+test("access denial is distinguishable from a model rejecting an event", async () => {
+  const f = await fixture();
+  try {
+    f.store.updateScratchpad({ text: "Alex's signature", revision: 0 });
+    await processAssistantEvents(f.store, {
+      allowed: async () => false,
+      classify: async () => { throw new Error("Must not send inaccessible data to a model"); },
+      decide: async () => { throw new Error("No decision allowed"); },
+      deliver: async () => { throw new Error("No delivery allowed"); },
+    });
+    expect(f.store.assessment(f.event.id)).toEqual({ revision: 1, probability: null, reason: "access_denied" });
     expect(f.store.pending()).toEqual([]);
   } finally { await f.close(); }
 });

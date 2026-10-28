@@ -37,7 +37,10 @@ export async function processAssistantEvents(store: AssistantProactivityStore, o
       continue;
     }
     if (await operations.allowed(event)) pending.push(event);
-    else store.settle(event.id, "ignored", scratchpad.revision);
+    else {
+      store.recordAssessment(event.id, { revision: scratchpad.revision, probability: null, reason: "access_denied" });
+      store.settle(event.id, "ignored", scratchpad.revision);
+    }
   }
   async function unchanged(events: ProactiveEvent[]) {
     for (const event of events) if (!await operations.allowed(event)) return false;
@@ -61,12 +64,21 @@ export async function processAssistantEvents(store: AssistantProactivityStore, o
       return relevanceProbability !== undefined && relevanceProbability >= 0.8 ? [{ ...event, relevanceProbability }] : [];
     });
     const matchedIds = new Set(relevant.map(event => event.id));
-    for (const event of events) if (!matchedIds.has(event.id)) store.settle(event.id, "ignored", scratchpad.revision);
+    for (const event of events) {
+      const probability = probabilities.get(event.id);
+      if (probability === undefined) throw new Error("Missing event probability.");
+      const matched = matchedIds.has(event.id);
+      store.recordAssessment(event.id, { revision: scratchpad.revision, probability, reason: matched ? "matched" : "below_threshold" });
+      if (!matched) store.settle(event.id, "ignored", scratchpad.revision);
+    }
     if (!relevant.length) return true;
     const decision = await operations.decide(scratchpad.text, relevant);
     if (!decision || !await unchanged(relevant)) return false; // User turns and changed preferences take priority.
     if (!decision.notify) {
-      for (const event of relevant) store.settle(event.id, "ignored", scratchpad.revision);
+      for (const event of relevant) {
+        store.recordAssessment(event.id, { revision: scratchpad.revision, probability: event.relevanceProbability, reason: "assistant_silent" });
+        store.settle(event.id, "ignored", scratchpad.revision);
+      }
       return true;
     }
     if (!decision.message) throw new Error("The Assistant selected notify without a message.");

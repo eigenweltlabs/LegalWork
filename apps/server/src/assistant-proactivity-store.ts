@@ -10,6 +10,11 @@ import { ASSISTANT_PROACTIVITY_INSTRUCTIONS } from "./assistant-handoff.js";
 const ScratchpadSchema = z.object({ text: z.string(), revision: z.number(), updatedAt: z.number() });
 const OfferSchema = z.object({ state: z.enum(["unoffered", "offered", "declined"]), at: z.number() });
 const DeliveryContentSchema = z.object({ message: z.string(), revision: z.number() });
+const AssessmentSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  probability: z.number().finite().min(0).max(1).nullable(),
+  reason: z.enum(["access_denied", "below_threshold", "matched", "assistant_silent"]),
+});
 
 /** Application-owned checkpoints; only an Assistant tool can write the scratchpad. */
 export class AssistantProactivityStore {
@@ -18,7 +23,8 @@ export class AssistantProactivityStore {
     await mkdir(dirname(path), { recursive: true });
     const db = await openSqlite(path);
     db.exec(`CREATE TABLE IF NOT EXISTS assistant_proactivity_state (key TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS assistant_proactivity_events (id TEXT PRIMARY KEY, data TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', revision INTEGER, delivery_id TEXT, session_id TEXT, decided_at INTEGER);`);
+      CREATE TABLE IF NOT EXISTS assistant_proactivity_events (id TEXT PRIMARY KEY, data TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', revision INTEGER, delivery_id TEXT, session_id TEXT, decided_at INTEGER);
+      CREATE TABLE IF NOT EXISTS assistant_proactivity_assessments (id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
     return new AssistantProactivityStore(db);
   }
   private read(key: string): unknown {
@@ -59,6 +65,13 @@ export class AssistantProactivityStore {
     return this.db.all("SELECT data FROM assistant_proactivity_events WHERE status = 'pending' ORDER BY rowid")
       .map(row => ProactiveEventSchema.parse(JSON.parse(String(row.data))));
   }
+  recordAssessment(id: string, assessment: z.infer<typeof AssessmentSchema>) {
+    this.db.run("INSERT INTO assistant_proactivity_assessments VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data", [id, JSON.stringify(AssessmentSchema.parse(assessment))]);
+  }
+  assessment(id: string) {
+    const row = this.db.get("SELECT data FROM assistant_proactivity_assessments WHERE id = ?", [id]);
+    return row ? AssessmentSchema.parse(JSON.parse(String(row.data))) : null;
+  }
   settle(id: string, status: "ignored" | "sent" | "failed", revision: number, now = Date.now()) {
     this.db.run("UPDATE assistant_proactivity_events SET status = ?, revision = ?, decided_at = ? WHERE id = ?", [status, revision, now, id]);
   }
@@ -90,7 +103,10 @@ export class AssistantProactivityStore {
     return this.db.all("SELECT data FROM assistant_proactivity_events WHERE status = 'sent' ORDER BY decided_at DESC LIMIT 10")
       .map(row => ProactiveEventSchema.parse(JSON.parse(String(row.data))));
   }
-  prune(now = Date.now()) { this.db.run("DELETE FROM assistant_proactivity_events WHERE decided_at < ?", [now - 30 * 86400_000]); }
+  prune(now = Date.now()) {
+    this.db.run("DELETE FROM assistant_proactivity_events WHERE decided_at < ?", [now - 30 * 86400_000]);
+    this.db.run("DELETE FROM assistant_proactivity_assessments WHERE id NOT IN (SELECT id FROM assistant_proactivity_events)");
+  }
   lease(owner: string, now = Date.now()) {
     return this.transaction(() => {
       const lease = z.object({ owner: z.string(), until: z.number() }).optional().parse(this.read("runtime-lease"));
