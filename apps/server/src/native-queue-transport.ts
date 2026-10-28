@@ -6,6 +6,7 @@ import { queuedPromptPayload } from "./session-queue-schema.js";
 import { withSessionDispatch } from "./session-execution-gate.js";
 import type { ServerConfig } from "./types.js";
 import { isCompactionCommand, runNativeCommand } from "./native-command-control.js";
+import { nativeDeliveryRejection } from "./native-delivery.js";
 
 export const queueMessageID = (entry: Pick<QueueEntry, "id" | "execution">) => entry.execution.kind === "prompt" && entry.execution.id || `msg_${entry.id.replaceAll("-", "")}`;
 
@@ -77,7 +78,8 @@ export function nativeQueueTransport(config: ServerConfig, input: {
       const execution = entry.execution;
       if (execution.kind === "prompt") {
         const id = queueMessageID(entry);
-        const admitted = await client.session.prompt({ sessionID, id, ...queuedPromptPayload(execution), delivery: "queue" });
+        const admitted = await client.session.prompt({ sessionID, id, ...queuedPromptPayload(execution), delivery: "queue" })
+          .catch(error => { throw nativeDeliveryRejection(error) ?? error; });
         if (admitted.id !== id) throw new Error("The engine did not confirm the queued message identity.");
       } else if (execution.kind === "command") {
         await runNativeCommand(client, { sessionID, name: execution.command, text: execution.args,

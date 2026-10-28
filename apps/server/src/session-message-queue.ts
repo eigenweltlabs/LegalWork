@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { sessionQueueSchema, type QueueAction, type QueueEntry, type SessionQueue } from "./session-queue-schema.js";
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
+import { isNativeDeliveryRejected } from "./native-delivery.js";
 
 export type QueueTransport = {
   confirmed?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<boolean>;
@@ -297,7 +298,7 @@ export class SessionMessageQueue {
         }
         const entry = queue.entries.find(entry => entry.id === sent.id);
         if (entry) {
-          entry.status = error instanceof QueuePreparationError ? "failed" : "uncertain";
+          entry.status = error instanceof QueuePreparationError || isNativeDeliveryRejected(error) ? "failed" : "uncertain";
           entry.error = error instanceof Error ? error.message : "Message delivery failed.";
         }
         queue.paused = true;

@@ -16,6 +16,10 @@ Folder/workspace menus provide the actions available in this context, including 
 
 Choose **New Chat** in the selected workspace. The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them.
 
+A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
+
+If a message is rejected, its draft stays available with the reason. An unconfirmed delivery can already have reached the engine; inspect the chat before resuming it. Assistant follow-ups pause after a definite rejection or three unsuccessful delivery checks. Resume them explicitly after resolving the cause.
+
 Use a conversation's action menu to rename, pin, archive or delete it. Archiving preserves the conversation; deletion is a different action. Sidebar groups organize conversations, and moving a chat into a group does not move its underlying documents. Search can locate earlier chats by title or message text. Opening a previous chat is the way to resume its context; a new chat is not an assurance that the assistant remembers every prior conversation.
 
 Tool activity shows the tools the assistant uses, with icons for actions such as reading, editing, searching and running commands. Expand an activity row to see its individual actions; one row can include several tools. When the assistant starts a subagent, its row shows progress and opens the child chat when selected. Results such as review cards, draft emails, calculations and dashboard previews appear directly in the conversation, including when you reopen it. Filed tasks and LegalMemory sources also appear with the assistant's answer.
@@ -41,3 +45,9 @@ Connect cloud storage and other services through **Settings > Integrations**. Th
 Use Command on macOS and Control elsewhere. In the chat shell: `Cmd/Ctrl+K` opens the command palette, `Cmd/Ctrl+Shift+F` searches sessions, `Cmd/Ctrl+J` toggles the terminal, and `Cmd/Ctrl+T` / `Cmd/Ctrl+Shift+T` moves between session tabs. `Cmd/Ctrl+N` creates a new chat when focus is not inside an editable field. These shortcuts are context-dependent; they are not Office shortcuts.
 
 Related: [Tasks](tasks-intake.md), [Files](files-documents.md), [Troubleshooting](troubleshooting.md).
+
+## Older chats after an update
+
+The first v2 start imports chat history into the new engine and saves verified attachment references, scheduled-message details and chat permission rules in current app storage. The original v1 copy is retained for recovery. Normal chat use then reads the current storage.
+
+An older unfinished Undo is restored only when its original state can be verified. Unsupported partial or file Undo stays blocked with a recovery message. Missing or damaged migration data also blocks execution instead of silently dropping the saved restrictions. Keep the recovery copies and contact support when this happens; deleting app data can remove chats, tasks, schedules and settings.

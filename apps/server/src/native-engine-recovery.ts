@@ -5,6 +5,7 @@ import { ApiError } from "./errors.js";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { assertEngineProjectReady } from "./engine-project.js";
 import { assertSessionHistoryRecoveryReady } from "./session-history-undo.js";
+import { assertLegacySessionPermissionsRecoveryReady } from "./session-history-permissions.js";
 import { openSqliteReadonly } from "./managed-opencode-db.js";
 import type { ServerConfig } from "./types.js";
 
@@ -60,5 +61,6 @@ export async function assertNativeEngineRecoveryProjectsReady(config: ServerConf
     await assertEngineProjectReady(config, selected.workspace);
   }
   await assertSessionHistoryRecoveryReady(config, recovered.sessions.map(session => session.id));
+  await assertLegacySessionPermissionsRecoveryReady(config, recovered.sessions.map(session => session.id));
   return recovered;
 }

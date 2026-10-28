@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
+import { publishRegisteredEngineProjects } from "../project-engine-registration.js";
 import { workspaceIdForPath } from "../workspaces.js";
 import { markdownData, markdownWithData, parseWikiPage, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
@@ -133,11 +134,14 @@ export class WikiStore {
   }
   async close(): Promise<void> { if (this.database) (await this.database).close(); this.database = undefined; this.indexes.clear(); for (const state of this.graphs.values()) state.watcher?.close(); this.graphs.clear(); this.inventoryRevisions.clear(); }
 
-  private registerWorkspace(wiki: WikiRegistration): void {
+  private registerWorkspace(wiki: WikiRegistration): boolean {
+    let changed = false;
     if (!this.config.workspaces.some((workspace) => workspace.id === wiki.workspaceId)) {
       this.config.workspaces.push({ id: wiki.workspaceId, name: wiki.name, path: wiki.root, preset: "wiki", workspaceType: "local" });
+      changed = true;
     }
-    if (!this.config.authorizedRoots.includes(wiki.root)) this.config.authorizedRoots.push(wiki.root);
+    if (!this.config.authorizedRoots.includes(wiki.root)) { this.config.authorizedRoots.push(wiki.root); changed = true; }
+    return changed;
   }
   async list(): Promise<WikiRegistration[]> {
     try {
@@ -146,7 +150,9 @@ export class WikiStore {
       if (warning) throw new Error(warning);
       const items = z.array(registrationSchema).parse(data.wikis ?? []);
       await assertWikiFoldersIndependent(items, this.config.workspaces);
-      for (const wiki of items) this.registerWorkspace(wiki);
+      let changed = false;
+      for (const wiki of items) changed = this.registerWorkspace(wiki) || changed;
+      if (changed) await publishRegisteredEngineProjects(this.config);
       return items;
     } catch (error) {
       if (missing(error)) return [];
@@ -210,6 +216,7 @@ export class WikiStore {
       }
       await this.saveRegistrations([...items, wiki]);
       this.registerWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
       return wiki;
     });
   }
@@ -233,6 +240,7 @@ export class WikiStore {
       if (!wiki) throw new ApiError(404, "wiki_not_found", "This wiki is no longer registered.");
       await this.saveRegistrations(items.filter((item) => item.id !== id));
       this.unregisterWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
     });
   }
 
@@ -255,6 +263,7 @@ export class WikiStore {
       }
       await this.saveRegistrations(items.filter(item => item.id !== id), [...deleted, { wiki, deletedAt: Date.now() }]);
       this.unregisterWorkspace(wiki);
+      await publishRegisteredEngineProjects(this.config);
     });
   }
 
@@ -269,6 +278,7 @@ export class WikiStore {
       await assertWikiFoldersIndependent([...items, entry.wiki], this.config.workspaces);
       await this.saveRegistrations([...items, entry.wiki], deleted.filter(item => item.wiki.id !== id));
       this.registerWorkspace(entry.wiki);
+      await publishRegisteredEngineProjects(this.config);
       return entry.wiki;
     });
   }
