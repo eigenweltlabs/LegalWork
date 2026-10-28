@@ -12,6 +12,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     import { join } from "node:path";
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
+    const { writeEigenweltConnection } = await import(${JSON.stringify(new URL("./eigenwelt-connection-store.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "matter");
     await mkdir(folder);
     const sessions = new Map(); const deliveries = []; const finished = new Set(); const notices = new Map();
@@ -388,6 +389,19 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(context.includes(custom.systemPromptAddition)); assert.ok(context.includes("selected-resource"));
       assert.ok(context.includes("Search the evidence with care.")); assert.ok(!context.includes("PRIVATE_FULL_SKILL_BODY"));
       assert.ok(!context.includes("workflow-example"));
+      assert.ok(context.includes('"signedIn":false'));
+      const account = { userId: "account-a", userName: "Ada Lovelace", userEmail: "ada@example.test", orgId: "firm-a", orgName: "Analytical LLP" };
+      await writeEigenweltConnection(config, { account, platformToken: "identity-private-access-token", refreshToken: "identity-private-refresh-token", platformTokenExpiresAt: Date.now() + 3600000 });
+      const signedInContext = (await (await call("/assistant/settings/context")).json()).context;
+      for (const value of [account.userName, account.userEmail, account.orgName]) assert.ok(signedInContext.includes(value));
+      assert.ok(!signedInContext.includes("identity-private-"));
+      await writeEigenweltConnection(config, { account: { ...account, userId: "account-b", userName: "Grace Hopper", userEmail: "grace@example.test", orgId: "firm-b", orgName: "Compiler LLP" } });
+      const switchedContext = (await (await call("/assistant/settings/context")).json()).context;
+      assert.ok(switchedContext.includes("Grace Hopper")); assert.ok(switchedContext.includes("grace@example.test")); assert.ok(switchedContext.includes("Compiler LLP"));
+      assert.ok(!switchedContext.includes("Ada Lovelace")); assert.ok(!switchedContext.includes("ada@example.test")); assert.ok(!switchedContext.includes("Analytical LLP"));
+      await writeEigenweltConnection(config, { account: null, platformToken: null, refreshToken: null, entitlements: null });
+      const signedOutContext = (await (await call("/assistant/settings/context")).json()).context;
+      assert.ok(signedOutContext.includes('"signedIn":false')); assert.ok(!signedOutContext.includes("Grace Hopper"));
       assert.equal(sessions.size, sessionCount, "Saving preferences must keep chat history intact");
       assert.equal((await call("/assistant/projects/matter/details")).status, 200);
       assert.equal((await call("/assistant/projects/matter/contents?kind=files")).status, 200);

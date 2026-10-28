@@ -4,6 +4,11 @@ Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
+The Assistant receives your name, email address and organization from your
+signed-in LegalWork account when available. It updates this context when you
+switch accounts or sign out. Your account profile is separate from the name
+and appearance you choose for the Assistant.
+
 To show or hide the Assistant entry, open **Customize navigation** using the
 gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**
 below **New Chat**, then choose **Done**. This only changes sidebar visibility.

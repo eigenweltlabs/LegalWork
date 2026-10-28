@@ -94,7 +94,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ context: `${settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
+    return jsonResponse({ context: `${await settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
