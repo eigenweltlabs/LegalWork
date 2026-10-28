@@ -185,11 +185,12 @@ test("Assistant preferences persist independently of appearance and keep daily h
   const current = await f.assistant.current();
   const prompt = "Write clear German replies.\n".repeat(600);
   const resource = { id: "skill-one", kind: "skill", name: "Research", description: "Find evidence", reference: "/library/research/SKILL.md", projectId: null, projectName: null } satisfies import("@legalwork/types/main-assistant").AssistantResource;
-  const saved = f.assistant.updateSettings({ systemPromptAddition: prompt, resourceIds: [resource.id, resource.id], projectAccess: { mode: "include", projectIds: ["a", "a"] } }, [resource]);
+  const saved = f.assistant.updateSettings({ browserModel: { providerID: "openai", modelID: "gpt-6.1-terra" }, systemPromptAddition: prompt, resourceIds: [resource.id, resource.id], projectAccess: { mode: "include", projectIds: ["a", "a"] } }, [resource]);
   expect(saved.resourceIds).toEqual([resource.id]);
   expect(saved.projectAccess.projectIds).toEqual(["a"]);
   const reopened = await f.factory();
   expect(reopened.settings()).toEqual(saved);
+  expect(reopened.settings().browserModel).toEqual({ providerID: "openai", modelID: "gpt-6.1-terra" });
   expect(reopened.resourceMetadata()).toEqual([resource]);
   expect((await reopened.current()).day).toEqual(current.day);
   expect(reopened.profile()).toEqual({ name: null, icon: "flower" });

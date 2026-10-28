@@ -1,6 +1,8 @@
 /** @jsxImportSource react */
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { WorkspaceProvider } from "../src/react-app/shell/workspace-provider";
 import { AssistantResourceOptions } from "../src/react-app/domains/settings/pages/assistant-resource-picker";
 import { AssistantSettingsEditor } from "../src/react-app/domains/settings/pages/assistant-view";
 import { AssistantProjectOptions } from "../src/react-app/domains/settings/pages/assistant-project-picker";
@@ -61,7 +63,12 @@ test("unavailable selections remain visible and removable instead of silently gr
 
 
 test("Assistant settings autosave without a Save or Cancel action", () => {
-  const html = renderToStaticMarkup(<AssistantSettingsEditor profile={{ name: "Johannes", icon: "bird" }} settings={settings} catalog={catalog} notifications onModels={() => {}} onSave={async () => {}} />);
+  const query = new QueryClient();
+  const html = renderToStaticMarkup(<QueryClientProvider client={query}><WorkspaceProvider client={null} baseUrl="" token="" opencodeBaseUrl="" selectedWorkspaceRoot="" workspaces={[]} onOpenSession={() => {}}><AssistantSettingsEditor profile={{ name: "Johannes", icon: "bird" }} settings={settings} catalog={catalog} notifications onModels={() => {}} onSave={async () => {}} /></WorkspaceProvider></QueryClientProvider>);
+  query.clear();
+  expect(html).toContain("Browser model");
+  expect(html).toContain("GPT-6.1 Terra");
+  expect(html).toContain("independently of your chat model");
   expect(html).not.toContain('type="submit"');
   expect(html).not.toContain("<form");
   expect(html).not.toContain(">Save<");

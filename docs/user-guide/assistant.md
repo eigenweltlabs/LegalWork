@@ -55,6 +55,23 @@ updates back to the Assistant. Ask the Assistant for a follow-up to start a new
 round of delegated work. Pending questions and approvals keep the current round
 open until the work returns a final result.
 
+## Browser work
+
+The Assistant delegates all browser work, including short website tasks, to a
+browser worker. This keeps the conversation available while the worker uses a
+separate model. The default is **GPT-6.1 Terra**, independent of the model you
+choose for the Assistant. If it is unavailable, browsing waits for you to connect
+it or select another browser model. It never silently uses the Assistant's model.
+
+Click the Assistant at the top of the chat, expand **Advanced**, and choose
+**Browser model**. You can also change it under **Settings > Assistant**. Changes
+save automatically.
+
+The worker's browser appears as a small preview tile in the Assistant chat.
+Click the tile to open that actual browser beside the
+conversation. Background browsing does not switch your screen. Existing website
+permissions and approval requirements still apply.
+
 ## Relevant updates
 
 The Assistant can send you a new message when something relevant changes, even
