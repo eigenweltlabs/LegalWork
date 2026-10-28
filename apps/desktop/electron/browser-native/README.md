@@ -28,6 +28,10 @@ Adapted source:
   pages during trusted app reloads; other host navigation still closes the pane.
 - `chromium.ts`: reserve the existing project-bound download destination; preserve
   complete locally retained downloads above the native RPC transfer limit;
+  read the complete frame accessibility tree, omit empty layout wrappers and
+  duplicate inline text, and count explicit depth by meaningful observations;
+  search the complete tree before bounding matching results to 500 lines,
+  retaining the existing 100,000-character output limit;
   expose completed owned files to the capability-preserving adapter; let the host
   serialize the inner screenshot operation, including its existing visibility check,
   element scrolling, layout metrics and actual native completion. The outer native
