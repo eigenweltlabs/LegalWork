@@ -59,6 +59,7 @@ import {
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
 import type { WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -1060,6 +1061,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     hasSnapshot: Boolean(snapshot) || renderedMessages.length > 0,
     isFetching: snapshotQuery.isFetching,
     isError: snapshotQuery.isError || Boolean(error),
+    errorStatus: snapshotQuery.error instanceof LegalworkServerError ? snapshotQuery.error.status : undefined,
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[], draftMentions = mentions): ComposerDraft =>
