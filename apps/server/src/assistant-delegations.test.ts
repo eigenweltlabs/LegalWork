@@ -100,7 +100,9 @@ test("delegations persist, wait for a real reply and an idle Assistant, and retu
     expect(sent[0].text).toContain("same user request is still outstanding, retain this contribution silently");
     expect(sent[0].text).toContain("one combined result message");
     expect(sent[0].text).toContain("Do not wait on or combine unrelated requests");
-    expect(sent[0].text).toContain("actionable blockers must still be surfaced immediately");
+    expect(sent[0].text).toContain("prevents all useful authorized progress");
+    expect(sent[0].text).toContain("continue that work in the SAME project chat");
+    expect(sent[0].text).toContain("Do not answer a pending question or approval on the user's behalf");
     expect(sent[0].text).toContain("Do not react, acknowledge again");
     expect(sent[0].text).toContain("legalwork_assistant_share_file with projectId");
     await (await AssistantDelegations.open(path, executor)).tick();

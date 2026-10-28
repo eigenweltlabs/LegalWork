@@ -19,6 +19,7 @@ import { registerPushRoutes } from "./push/routes.js";
 import { migrateMorningBriefing } from "./assistant-briefing.js";
 import { registerAssistantProactivityRoutes } from "./routes/assistant-proactivity.js";
 import { startAssistantProactivity } from "./assistant-proactivity.js";
+import { assistantLanguageContext } from "./assistant-language-context.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import type { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import type { ScheduledTask } from "./scheduled-tasks/schema.js";
@@ -101,8 +102,10 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       const { workspace, client, session } = await delegationSession(notice.workspaceId, notice.sessionId);
       await assistantSessionAccess.prepareReturn(session.id, session.directory, authority);
       await prepareWorkspacePrompt(config, workspace, session.directory);
+      const languageContext = isMainAssistant(workspace) ? await assistantLanguageContext(client.native.message,
+        [notice.sessionId, ...mainAssistant.history(workspace.id).days.map(day => day.sessionId)]) : "";
       const result = await client.session.promptAsync({ sessionID: notice.sessionId, messageID: notice.messageId, agent: "legalwork", ...(delegation.model ? { model: delegation.model } : {}),
-        parts: [{ type: "text", text: notice.text, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
+        parts: [{ type: "text", text: notice.text + languageContext, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response.ok) throw new Error("Could not confirm delivery of the delegated result.");
       announceSyncChange(config, "sessions");
     }, true),
