@@ -1,4 +1,4 @@
-import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { bootstrapRuntimeOpencodeConfig, closeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -19,7 +19,12 @@ async function fixture(run: (config: ServerConfig, root: string) => Promise<void
   delete process.env.LEGALWORK_STORAGE_STORE;
   const config: ServerConfig = { configPath: join(root, "server.json"), host: "127.0.0.1", port: 0, token: "synthetic", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   try { await bootstrapRuntimeOpencodeConfig(config); await run(config, root); }
-  finally { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); await rm(root, { recursive: true, force: true }); }
+  finally {
+    await closeRuntimeOpencodeConfig(config);
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+    await rm(root, { recursive: true, force: true });
+  }
 }
 async function seed(root: string, rows: Array<{ owner: string; id: string; value: string }>) {
   const db = await openSqlite(join(root, "runtime.sqlite"));
