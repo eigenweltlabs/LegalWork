@@ -27,7 +27,8 @@ function ScheduledTaskCard({ title, detail, prompt, taskId, canOpen }: {
 }
 
 export function isScheduledTaskTool(part: ToolUIPart | DynamicToolUIPart) {
-  return ["legalwork_schedule_create", "legalwork_schedule_update"].includes(getToolName(part));
+  return ["legalwork_schedule_create", "legalwork_schedule_update"].includes(getToolName(part))
+    || getToolName(part) === "legalwork_assistant_briefing" && Boolean(part.input && typeof part.input === "object" && "action" in part.input && part.input.action === "create");
 }
 export function parseScheduledTaskCard(output: unknown) {
   try {

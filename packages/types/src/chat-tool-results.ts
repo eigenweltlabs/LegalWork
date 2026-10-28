@@ -27,6 +27,7 @@ const schemas: Record<string, z.ZodType> = {
 };
 
 function schemaFor(tool: string, input: unknown) {
+  if (tool === "legalwork_assistant_briefing") return z.object({ action: z.literal("create") }).safeParse(input).success ? z.object({ task: ScheduledTaskSchema }) : undefined;
   if (tool !== "legalwork_extension_call") return Object.hasOwn(schemas, tool) ? schemas[tool] : undefined;
   const action = z.object({ extensionId: z.string(), action: z.string() }).safeParse(input);
   if (!action.success) return;

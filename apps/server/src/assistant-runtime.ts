@@ -15,7 +15,9 @@ import { announceSyncChange } from "./app-sync-events.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
-import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
+import { migrateMorningBriefing } from "./assistant-briefing.js";
+import { registerAssistantProactivityRoutes } from "./routes/assistant-proactivity.js";
+import { startAssistantProactivity } from "./assistant-proactivity.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import type { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import type { ScheduledTask } from "./scheduled-tasks/schema.js";
@@ -111,17 +113,19 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     () => readPushEvents(config, mainAssistant, delegations, workspace => createWorkspaceOpencodeClient(config, workspace)), options.tokenActive);
   async function register(routes: Route[], helpers: Helpers) {
     const { readJsonBodyLimited } = helpers;
-    registerMainAssistantRoutes({ ...helpers, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
+    const assistantRoutes: Parameters<typeof registerMainAssistantRoutes>[0] = { ...helpers, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
       preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), resolveWorkspace,
-      client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } });
+      client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } };
+    registerMainAssistantRoutes(assistantRoutes);
+    registerAssistantProactivityRoutes(assistantRoutes, scheduledTasks);
     registerPushRoutes(routes, push, readJsonBodyLimited);
   }
   const stopPush = push.start();
-  const stopMain = config.readOnly ? () => {} : mainAssistant.start(() => {
-    return ensureMorningBriefing(config, scheduledTasks, mainAssistant, () => hasBriefingSessionThreshold(config, options.resolveWorkspace));
-  });
+  migrateMorningBriefing(config, scheduledTasks);
+  const stopMain = config.readOnly ? () => {} : mainAssistant.start();
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
   const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
+  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace);
   return {
     register,
     scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => isMainAssistant(workspace)
@@ -133,7 +137,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return isMainAssistant(workspace) ? prepareAssistantScheduledWork(task, workspace, session, client, delegations) : { model: task.model, prompt: task.prompt };
     },
     async close() {
-      stopMain(); await stopDelegations(); await stopQueue(); await stopPush();
+      stopMain(); await stopProactivity(); await stopDelegations(); await stopQueue(); await stopPush();
     },
   };
 }

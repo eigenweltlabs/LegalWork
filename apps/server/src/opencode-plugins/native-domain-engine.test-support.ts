@@ -92,7 +92,7 @@ export async function nativeDomainEngine(options: {
       native: await client.server.info(), enginePid: engine.pid, execution: engine.execution, appProxy: `http://127.0.0.1:${server.port}/workspace/matter/opencode`,
       originRegistration: "ordinary authenticated app proxy; no manual grant",
     }, null, 2));
-    return { root, directory, location, config, client, appClient, close,
+    return { root, directory, location, config, client, appClient, close, serverURL: `http://127.0.0.1:${server.port}`,
       tools: async () => (await client.rpc.call({ location, rpcID: "legalwork.domain-fixture", method: "tools", input: {} })).output,
     };
   } catch (error) { await close(); throw error; }
