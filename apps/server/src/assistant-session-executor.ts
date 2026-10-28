@@ -20,6 +20,7 @@ export async function createAssistantSessionQueue(path: string, options: {
   access: AssistantSessionAccess;
   config: ServerConfig;
   preparePrompt: (workspace: WorkspaceInfo, directory: string) => Promise<void>;
+  watchRequest?: (sessionId: string, messageId: string) => void;
 }) {
   const requestOptions = () => ({ throwOnError: true, signal: AbortSignal.timeout(10000) });
   const read = async (target: AssistantSessionTarget) => {
@@ -51,11 +52,16 @@ export async function createAssistantSessionQueue(path: string, options: {
     },
     hasMessage: async (target, id) => {
       const { client } = await read(target);
-      if ((await client.native.session.inbox.list({ sessionID: target.sessionId }, { signal: AbortSignal.timeout(10000) })).some(item => item.id === id && item.type === "user")) return true;
+      if ((await client.native.session.inbox.list({ sessionID: target.sessionId }, { signal: AbortSignal.timeout(10000) })).some(item => item.id === id && item.type === "user")) {
+        options.watchRequest?.(target.sessionId, id);
+        return true;
+      }
       try {
         const message = await client.native.session.message.get({ sessionID: target.sessionId, messageID: id }, { signal: AbortSignal.timeout(10000) });
         if (message.id !== id) throw new Error("The engine returned a different message while checking delivery.");
-        return message.type === "user";
+        if (message.type !== "user") return false;
+        options.watchRequest?.(target.sessionId, id);
+        return true;
       } catch (error) { if (isMessageNotFoundError(error) || findApiError(error)?.status === 404) return false; throw error; }
     },
     send: entry => withSessionExecution(options.config, entry.sessionId, async () => {
@@ -75,6 +81,7 @@ export async function createAssistantSessionQueue(path: string, options: {
         await client.native.session.switchAgent({ sessionID: entry.sessionId, agent: "legalwork" });
         if (model) await client.native.session.switchModel({ sessionID: entry.sessionId, model: { providerID: model.providerID, id: model.modelID } });
       } catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "Could not prepare the delegated chat."); }
+      options.watchRequest?.(entry.sessionId, entry.id);
       const admitted = await client.native.session.prompt({ sessionID: entry.sessionId, id: entry.id, text: entry.prompt,
         metadata: { legalworkAssistantSender: z.record(z.string(), z.json()).parse(options.assistant.profile()) }, delivery: "queue", resume: true,
       }, { signal: AbortSignal.timeout(30000) }).catch(error => { throw nativeDeliveryRejection(error) ?? error; });

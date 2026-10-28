@@ -40,7 +40,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       }
       if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return rejectSend ? Response.json({ error: { message: "Register this project first" } }, { status: 409 }) : new Response(null, { status: failSend ? 503 : 204 }); }
       if (path.endsWith("/todo")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ content: "Review draft", status: "pending", priority: "medium" }]);
-      if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
+      if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([...Array.from(notices.values()).filter(message => message.info.sessionID === path.split("/")[2]), { info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
       if (path.includes("/message/")) return notices.has(path.split("/").at(-1)) ? Response.json(notices.get(path.split("/").at(-1))) : new Response(null, { status: 404 });
       if (path.startsWith("/session/")) { const item = sessions.get(path.split("/")[2]); return item ? Response.json(item) : new Response(null, { status: 404 }); }
       return Response.json({});
@@ -307,8 +307,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(overview.sessions.items.length, 1, "Never include chats from the assistant or another project");
       assert.equal(overview.sessions.items[0].status.type, "busy");
       assert.equal(overview.sessions.items[0].todos.items[0].content, "Review draft");
-      assert.equal(overview.sessions.items[0].messages.items[0].text, "Draft ready; awaiting partner review.");
-      assert.equal(overview.sessions.items[0].messages.items[0].messageId, "last-reply");
+      assert.equal(overview.sessions.items[0].messages.items.at(-1).text, "Draft ready; awaiting partner review.");
+      assert.equal(overview.sessions.items[0].messages.items.at(-1).messageId, "last-reply");
       assert.equal((await call(overviewUrl + "?sessionLimit=50")).status, 400);
       const unfinished = await (await call("/assistant/tasks?projectId=" + project.project.id + "&status=unfinished&sort=due")).json();
       assert.equal(unfinished.items[0].id, overview.tasks.items[0].id);

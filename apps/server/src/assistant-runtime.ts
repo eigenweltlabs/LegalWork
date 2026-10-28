@@ -62,13 +62,13 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   };
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
     allowed: delegation => !config.workspaces.some(workspace => workspace.id === delegation.sourceWorkspaceId && isMainAssistant(workspace)) || mainAssistant.canAccessProject(delegation.workspaceId),
-    result: async delegation => {
+    result: async (delegation, requestMessageId) => {
       const { client, session } = await delegationSession(delegation.workspaceId, delegation.sessionId);
       if (session.time.archived) return null;
       const children = await client.session.children({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) });
       for (const child of children.data ?? []) if (child.parentID === session.id && resolve(child.directory) === resolve(session.directory) && !child.time.archived)
-        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true, authoritySessionId: delegation.authoritySessionId ?? delegation.sessionId });
-      const result = await readDelegationResult(client, session.id);
+        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true, initialMessageId: undefined, authoritySessionId: delegation.authoritySessionId ?? delegation.sessionId });
+      const result = await readDelegationResult(client, session.id, requestMessageId);
       return delegation.inputOnly && result?.outcome !== "input-required" ? null : result;
     },
     destination: async delegation => {
@@ -107,7 +107,8 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   });
   const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
-    config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
+    config, access: assistantSessionAccess, watchRequest: (sessionId, messageId) => delegations.watchRequest(sessionId, messageId),
+    preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
 
   const push = await AssistantPush.open(runtimeDbPath(config),
     () => readPushEvents(config, mainAssistant, delegations, workspace => createWorkspaceOpencodeClient(config, workspace)), options.tokenActive);

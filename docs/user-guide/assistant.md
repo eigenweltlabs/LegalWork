@@ -40,6 +40,12 @@ work to a project chat. Delegated research and scheduled work run in separate
 sessions and return their results to the Assistant. Permission requests remain
 yours to answer; delegation does not grant additional project access.
 
+Once a final result returns, the Assistant stops watching that delegated chat
+and its subagents. Continuing an unrelated conversation there will not send
+updates back to the Assistant. Ask the Assistant for a follow-up to start a new
+round of delegated work. Pending questions and approvals keep the current round
+open until the work returns a final result.
+
 ## Relevant updates
 
 The Assistant can send you a new message when something relevant changes, even
