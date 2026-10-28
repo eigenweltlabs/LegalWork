@@ -31,7 +31,7 @@ Use the panel's **Permissions** list for the required scopes. Select **Save app 
 
 Open a chat in the project where you want to keep the files. Ask the assistant to find the email and download its attachments. For example: “Find the email from Müller about the contract and download its PDF attachment into this project.”
 
-Attachments are saved in your project under `attachments/email/`, with a separate folder for each download. The original filename is kept where possible; characters that cannot be used safely in filenames are replaced. Downloading another attachment with the same name keeps both files.
+Attachments are saved in your project under `.legalwork/attachments/email/`, inside the hidden `.legalwork` folder, with a separate folder for each download. Files dragged into chat use the same `.legalwork/attachments/` location. The original filename is kept where possible; characters that cannot be used safely in filenames are replaced. Downloading another attachment with the same name keeps both files.
 
 The assistant receives the saved file's path, name, type and size, and can use that path to read or open it. File contents are not inserted into the chat as encoded data. There is no LegalWork attachment-download size limit; mailbox-provider restrictions and available disk space still apply. Downloads require an authorized project folder and are unavailable on a read-only worker. They do not require **Allow write access** to the mailbox.
 

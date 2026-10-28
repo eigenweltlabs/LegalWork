@@ -770,7 +770,7 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
     attachmentFixture(provider, bytes, "Vertrag Müller.pdf");
     const result = await downloadAttachment(provider);
     const file = downloadedAttachment.parse(result.result);
-    expect(file.relativePath).toMatch(new RegExp(`^attachments/email/${provider}-[^/]+/Vertrag Müller\\.pdf$`));
+    expect(file.relativePath).toMatch(new RegExp(`^\\.legalwork/attachments/email/${provider}-[^/]+/Vertrag Müller\\.pdf$`));
     expect(file.path).toBe(join(await realpath(root), file.relativePath));
     expect(file.filename).toBe("Vertrag Müller.pdf");
     expect(file.mimeType).toBe("application/pdf");
@@ -820,7 +820,8 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
     attachmentFixture(provider, Buffer.from("private attachment"));
     const outside = await mkdtemp(join(tmpdir(), "mail-attachment-outside-"));
     try {
-      await symlink(outside, join(root, "attachments"), process.platform === "win32" ? "junction" : "dir");
+      await mkdir(join(root, ".legalwork"), { recursive: true });
+      await symlink(outside, join(root, ".legalwork", "attachments"), process.platform === "win32" ? "junction" : "dir");
       await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "attachment_path_outside_workspace" });
       expect(await readdir(outside)).toEqual([]);
     } finally { await rm(outside, { recursive: true, force: true }); }
@@ -840,7 +841,7 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
       return previous(url, init);
     };
     await expect(downloadAttachment(provider)).rejects.toThrow();
-    expect(await readdir(join(root, "attachments", "email"))).toEqual([]);
+    expect(await readdir(join(root, ".legalwork", "attachments", "email"))).toEqual([]);
   });
 }
 

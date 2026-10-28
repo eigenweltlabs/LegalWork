@@ -38,13 +38,13 @@ test("Gmail decodes padded and unpadded attachment data across every JSON and ba
 test("Gmail rejects malformed and truncated attachment data and removes partial files", async () => {
   for (const json of ["", "{}", '{"data":null}', '{"data":"YWJj', '{"data":"YWJj"', '{"data":"YWJj"} trailing', '{"data":"YWJj$"}', '{"data":"A"}', '{"data":"AB"}', '{"data":"YQ="}', '{"data":"YWJj","extra":true}', '{"data":"YWJj' + "A".repeat(5000) + '$"}']) {
     await expect(downloadMailAttachment(root, "gmail", async () => attachment(gmailResponse(json, 17)))).rejects.toMatchObject({ code: "connector_api_invalid" });
-    expect(await readdir(join(root, "attachments", "email"))).toEqual([]);
+    expect(await readdir(join(root, ".legalwork", "attachments", "email"))).toEqual([]);
   }
 });
 
 test("Gmail verifies the downloaded byte count against attachment metadata", async () => {
   await expect(downloadMailAttachment(root, "gmail", async () => attachment(gmailResponse('{"data":"YWJj"}'), 10))).rejects.toMatchObject({ code: "connector_attachment_incomplete" });
-  expect(await readdir(join(root, "attachments", "email"))).toEqual([]);
+  expect(await readdir(join(root, ".legalwork", "attachments", "email"))).toEqual([]);
 });
 
 test("attachment filenames remain portable and preserve extensions when shortened", async () => {

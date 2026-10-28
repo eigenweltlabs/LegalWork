@@ -63,7 +63,7 @@ async function* gmailAttachmentBytes(response: Response) {
 }
 
 export async function downloadMailAttachment(root: string, provider: "gmail" | "outlook", load: () => Promise<MailAttachment>) {
-  const base = await canonicalFilePath(resolve(root, "attachments", "email"));
+  const base = await canonicalFilePath(resolve(root, ".legalwork", "attachments", "email"));
   const inside = relative(root, base);
   if (isAbsolute(inside) || inside === ".." || inside.startsWith(`..${sep}`)) throw new ApiError(403, "attachment_path_outside_workspace", "The attachment folder must remain inside this project.");
   await mkdir(base, { recursive: true, mode: 0o700 });
