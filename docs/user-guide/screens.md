@@ -41,14 +41,12 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: Connectors | How do I connect an external service? | [Integrations](integrations.md), [Email](email.md) |
-| Integrations: Add > Research databases | Add or reconfigure legal database accounts after onboarding | [Research databases](integrations.md#research-databases) |
 | Integrations: File storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Integrations: Skills / Plugins | How do I install, inspect or share reusable agent capabilities? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |
 | Notifications | Which task events produce notifications or badges? | [Tasks](tasks-intake.md) |
 | Tool Permissions | What can the assistant do automatically? | [Settings](settings-privacy.md) |
 | Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
-| Integrations > Website logins | Manage the same saved websites and vault logins used across chats and onboarding | [Integrations](integrations.md) |
 | Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
 | Updates | Which version/channel is running, and how do I install an update? | [Troubleshooting](troubleshooting.md) |
