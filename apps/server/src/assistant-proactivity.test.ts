@@ -144,15 +144,23 @@ test("missing, unknown or invalid probability scores never become a partial Assi
   } finally { await f.close(); }
 });
 
-test("an uncertain probability does not wake the Assistant", async () => {
+test("only probabilities of at least 80 percent reach the Assistant", async () => {
   const f = await fixture();
   try {
     f.store.updateScratchpad({ text: "Alex's signature", revision: 0 });
+    const boundary = { ...f.event, id: "boundary" }, above = { ...f.event, id: "above" };
+    f.store.ingest("gmail", "200", [boundary, above]);
+    let decisions = 0;
     await processAssistantEvents(f.store, {
-      allowed: async () => true, classify: async () => ({ [f.event.id]: 0.5 }),
-      decide: async () => { throw new Error("Ties are not relevant"); },
+      allowed: async () => true, classify: async () => ({ [f.event.id]: 0.79, [boundary.id]: 0.8, [above.id]: 0.81 }),
+      decide: async (_, events) => {
+        decisions++;
+        expect(events).toEqual([{ ...boundary, relevanceProbability: 0.8 }, { ...above, relevanceProbability: 0.81 }]);
+        return { notify: false, message: "" };
+      },
       deliver: async () => { throw new Error("Nothing to deliver"); },
     });
+    expect(decisions).toBe(1);
     expect(f.store.pending()).toEqual([]);
   } finally { await f.close(); }
 });
