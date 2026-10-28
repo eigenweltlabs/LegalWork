@@ -35,6 +35,29 @@ async function child(command: string[], config: ServerConfig, path: string) {
   return stdout;
 }
 
+test("durable native markers sync through a writable file handle", () => fixture(async (config, path, root) => {
+  const harness = join(root, "writable-marker.ts");
+  const modulePath = fileURLToPath(new URL("./native-config-state.ts", import.meta.url));
+  await writeFile(harness, `import fs from 'node:fs';import{syncBuiltinESMExports}from'node:module';
+import{openNativeConfigState}from ${JSON.stringify(modulePath)};
+// Windows FlushFileBuffers requires GENERIC_WRITE. Write the unchanged first
+// JSON byte to enforce that contract on every host, without changing content.
+const sync=fs.fsyncSync;let markers=0;
+fs.fsyncSync=fd=>{if(fs.fstatSync(fd).isFile()){fs.writeSync(fd,Buffer.from('{'),0,1,0);markers++;}sync(fd);};
+syncBuiltinESMExports();
+const path=process.env.LEGALWORK_RUNTIME_DB;
+let state=await openNativeConfigState(path);
+state.upsert({workspaceId:'project',configJson:'{"permissions":[{"action":"edit","resource":"*","effect":"deny"}]}',updatedAt:1});
+state.beginComponent('fixture.sync');state.completeComponent('fixture.sync');state.close();
+state=await openNativeConfigState(path);
+console.log(JSON.stringify({markers,saved:JSON.parse(state.get('project').configJson),marker:JSON.parse(fs.readFileSync(path+'.native-config-state.json','utf8'))}));state.close();`);
+  const build = await Bun.build({ entrypoints: [harness], outdir: root, naming: "writable-marker.mjs", target: "node", format: "esm", external: ["bun:sqlite"] });
+  if (!build.success) throw new AggregateError(build.logs, "Marker durability fixture must build");
+  const node = fileURLToPath(new URL(`../../desktop/resources/node/${process.platform === "win32" ? "node.exe" : "node"}`, import.meta.url));
+  const result = JSON.parse(await child([node, join(root, "writable-marker.mjs")], config, path));
+  expect(result).toMatchObject({ markers: 3, saved: { permissions: [{ action: "edit", resource: "*", effect: "deny" }] }, marker: { components: { "fixture.sync": "complete" } } });
+}));
+
 test("ordinary reads cannot import retired state; explicit bootstrap preserves exact originals and unrelated tables", () => fixture(async (config, path) => {
   const source = '{\n"permission":{"external_directory":{"/case/*":"allow"}},"agent":{"review":{"permission":"deny"}}\n}';
   seed(path, { project: source });
@@ -156,7 +179,8 @@ await closeRuntimeOpencodeConfig(config);console.log(JSON.stringify({native:true
   const build = await Bun.build({ entrypoints: [harness], outdir: root, naming: "cold-store.node.mjs", target: "node", format: "esm", external: ["bun:sqlite"] });
   if (!build.success) throw new AggregateError(build.logs, "Native store Node fixture must build");
   expect(await child([process.execPath, harness], config, path)).toContain('"native":true');
-  const node = fileURLToPath(new URL("../../desktop/resources/node/node", import.meta.url));
+  // Match the executable installed by prepare-node-runtime.mjs on this host.
+  const node = fileURLToPath(new URL(`../../desktop/resources/node/${process.platform === "win32" ? "node.exe" : "node"}`, import.meta.url));
   expect(await child([node, bundle], config, path)).toContain('"node":"22.');
   await Promise.all([child([node, bundle, "fixture.node-one"], config, path), child([process.execPath, harness, "fixture.bun-one"], config, path), child([node, bundle, "fixture.node-two"], config, path), child([process.execPath, harness, "fixture.bun-two"], config, path)]);
   expect(JSON.parse(await readFile(nativeConfigStatePath(path), "utf8")).components).toEqual({ "fixture.node-one": "complete", "fixture.bun-one": "complete", "fixture.node-two": "complete", "fixture.bun-two": "complete" });

@@ -79,13 +79,20 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           LEGALWORK_OPENCODE_ARCHIVES: ${{ inputs.derivative-manifest-sha256 != '' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
         run: pnpm --filter @legalwork/desktop ${{ inputs.engine-build-mode == 'production' && 'build:electron:production' || 'build:electron' }}
-      - name: Execute real engine, history, MCP and first-party tools
+      - name: Execute real engine, storage transitions, history, MCP and first-party tools
         id: engine-tests
         timeout-minutes: 10
         run: >-
           bun test --preload ./apps/server/test-preload.ts
           apps/server/src/managed-opencode.released.test.ts
           apps/server/src/engine-client.released.test.ts
+          apps/server/src/managed-config.released.test.ts
+          apps/server/src/managed-engine-lifecycle.released.test.ts
+          apps/server/src/native-workspace-config.released.test.ts
+          apps/server/src/native-config-state.test.ts
+          apps/server/src/connectors/storage-transition.test.ts
+          apps/server/src/native-saved-approval-migration.test.ts
+          apps/server/src/native-saved-approval-migration.released.test.ts
           apps/server/src/mcp-native-complete.released.test.ts
           apps/server/src/opencode-plugins/native-office-host.integration.test.ts
           apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts
