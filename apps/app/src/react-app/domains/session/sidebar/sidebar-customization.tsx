@@ -71,10 +71,13 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <LazyMotion features={domMax}>
           {options(config.navOrder, navOrder => update({ navOrder }), t("sidebar.main_actions"))}
-          {options(config.chatSectionOrder, chatSectionOrder => update({ chatSectionOrder }), t("sidebar.chat_sections"),
+          {options(config.chatSectionOrder.filter(key => key !== "navNewChat"), chatSectionOrder => update({ chatSectionOrder: ["navNewChat", ...chatSectionOrder] }), t("sidebar.chat_sections"), <>
+            <VisibilityToggle checked={config.navNewChat} onCheckedChange={navNewChat => update({ navNewChat })}>
+              <SquarePen className="size-[18px] shrink-0" strokeWidth={1.5} /><span className="truncate">{t("projects.new_chat")}</span>
+            </VisibilityToggle>
             <VisibilityToggle checked={config.navAssistant !== false} onCheckedChange={navAssistant => update({ navAssistant })}>
               <AssistantFlowerIcon size={18} /><span className="truncate">{t("assistant.title")}</span>
-            </VisibilityToggle>)}
+            </VisibilityToggle></>)}
           {options(config.projectNavOrder, projectNavOrder => update({ projectNavOrder }), t("sidebar.project_items"))}
         </LazyMotion>
         </div>
