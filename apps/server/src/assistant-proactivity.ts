@@ -56,8 +56,8 @@ export async function processAssistantEvents(store: AssistantProactivityStore, o
     if (!await unchanged(events)) return false;
     const relevant = events.flatMap(event => {
       const relevanceProbability = probabilities.get(event.id);
-      // Equivalent to a positive binary decision; ties and negative results do not wake the Assistant.
-      return relevanceProbability !== undefined && relevanceProbability > 0.5 ? [{ ...event, relevanceProbability }] : [];
+      // Only strong matches reach the Assistant for its notification decision.
+      return relevanceProbability !== undefined && relevanceProbability >= 0.8 ? [{ ...event, relevanceProbability }] : [];
     });
     const matchedIds = new Set(relevant.map(event => event.id));
     for (const event of events) if (!matchedIds.has(event.id)) store.settle(event.id, "ignored", scratchpad.revision);
