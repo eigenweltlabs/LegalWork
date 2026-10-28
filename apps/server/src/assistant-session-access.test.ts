@@ -119,7 +119,7 @@ test("real queued executor initializes restored project tools before dispatch an
   const { config, access, path, source, project, request } = await fixture();
   let activeConfig = config, busy = true, prepared = 0, wrongReceipt = false, nativePending = false;
   let restoreInbox = () => {};
-  const delivered: string[] = [], scopes: unknown[] = [];
+  const delivered: string[] = [], scopes: unknown[] = [], watched: string[] = [];
   const engine = Bun.serve({ port: 0, async fetch(input) {
     const url = new URL(input.url);
     if (url.pathname === "/session/status") return Response.json(busy ? { worker: { type: "busy" } } : {});
@@ -132,6 +132,7 @@ test("real queued executor initializes restored project tools before dispatch an
     if (url.pathname.endsWith("/prompt_async")) {
       const message = z.object({ messageID: z.string() }).parse(await input.json());
       expect(prepared).toBeGreaterThan(0);
+      expect(watched).toContain(message.messageID);
       for (const resource of ["/workspaces", "/wikis", "/workspace/matter/skills"])
         scopes.push((await authenticateWikiAgentRequest(activeConfig, await request("worker", project, resource, undefined, activeConfig)))?.actor.scope);
       delivered.push(message.messageID);
@@ -148,12 +149,13 @@ test("real queued executor initializes restored project tools before dispatch an
       config: activeConfig, access: permissions, assistant, workspace: async id => {
         const workspace = config.workspaces.find(item => item.id === id); if (!workspace) throw new Error("Unknown project"); return workspace;
       }, client: () => client, changed: () => {}, preparePrompt: async () => { prepared++; },
+      watchRequest: (sessionId, messageId) => { expect(sessionId).toBe("worker"); watched.push(messageId); },
     });
     const authority = await access.captureSource("day", source, { scope: "collaborator" });
     await access.authorize("worker", project, authority);
     const target = { workspaceId: "matter", sessionId: "worker" };
     await (await makeQueue(access)).submit(target, "Read the register and create the requested document", authority);
-    expect(delivered).toEqual([]);
+    expect(delivered).toEqual([]); expect(watched).toEqual([]);
     activeConfig = { ...config };
     const restoredAccess = await AssistantSessionAccess.open(path, activeConfig);
     const restarted = await makeQueue(restoredAccess);
