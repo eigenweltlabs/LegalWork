@@ -14,6 +14,7 @@ test("onboarding suggests databases by country and offers custom and deferred se
   try {
     const german = render("DE");
     expect(german).toContain("beck-online"); expect(german).toContain("juris"); expect(german).not.toContain("Bloomberg Law");
+    expect(german).toContain("Libra (Wolters Kluwer)"); expect(german).toContain("app.libratech.ai");
     expect(german).toContain("Add another database"); expect(german).toContain("Set up later");
     expect(german).toContain('aria-valuenow="7"'); expect(german).toContain('aria-valuemax="7"');
     const american = render("US", 4);
