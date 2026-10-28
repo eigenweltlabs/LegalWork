@@ -13,6 +13,7 @@ import { runInNewContext } from "node:vm";
 import { AUDIO_MODEL_CATALOG, VAD_MODEL, findAudioModel } from "./audio/model-catalog.mjs";
 import { AudioModelManager } from "./audio/model-manager.mjs";
 import { RecorderService, assignSpeakers } from "./audio/recorder-service.mjs";
+import { RecorderRequestError, requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { DeferredCloudSpeakerPass } from "./audio/deferred-cloud-speakers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1451,6 +1452,47 @@ test("Smart Meeting Summary retries a failed run and rejects local or active rec
   service.loadedModel = { modelId: "whisper-tiny", language: "de" };
   const local = await record({ modelId: "whisper-tiny" });
   await assert.rejects(service.summarizeRecording(local, settings), /requires a cloud recording/);
+});
+
+test("summary retry reports a disconnected server and recovers without reopening capture", async t => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new TypeError("fetch failed"); });
+  const info = { running: true, baseUrl: "http://127.0.0.1:1234", clientToken: "fixture" };
+  const { service, record, settings } = await notesFixture(t, (input, signal) =>
+    requestRecorderServer(info, "/transcription/summary", input, signal));
+  const id = await record({ meetingNotes: { ...settings, enabled: false } });
+  const before = await service.updateSavedTranscript(id, saved => ({ ...saved, meta: { ...saved.meta,
+    status: "error", error: "Live transcription was interrupted.", speakerError: "fetch failed" } }));
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  const failed = await service.getRecording(id);
+  assert.equal(failed.meta.summaryProcessing, false);
+  assert.match(failed.meta.summaryError, /disconnected.*Settings.*reconnect/);
+  assert.doesNotMatch(failed.meta.summaryError, /model.*settings/);
+  assert.equal(service.summaryJobs.has(id), false, "a failed job cannot block the next retry");
+
+  fetchMock.mock.mockImplementation(async () => Response.json({ summary: "Saved transcript summarized." }));
+  await service.summarizeRecording(id, settings);
+  await service.summaryJobs.get(id)?.promise;
+  const retried = await service.getRecording(id);
+  assert.equal(retried.meta.summary, "Saved transcript summarized.");
+  assert.equal(retried.meta.summaryError, undefined);
+  assert.equal(retried.meta.status, "error", "summarizing does not hide the original recording failure");
+  assert.deepEqual(retried.segments, before.segments);
+  assert.equal(service.activeRecordings.size, 0);
+  assert.equal(fetchMock.mock.callCount(), 2, "one request per explicit retry");
+});
+
+test("recorder requests distinguish connection loss, access denial and cloud failure without exposing response bodies", async t => {
+  const info = { running: true, baseUrl: "http://127.0.0.1:1234", clientToken: "fixture" };
+  await assert.rejects(requestRecorderServer({ ...info, running: false }, "/transcription/settings"), /disconnected/);
+  const request = t.mock.method(globalThis, "fetch", async () => new Response("private provider error", { status: 403 }));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}), error =>
+    error instanceof RecorderRequestError && /access was denied/.test(error.message) && !error.message.includes("private"));
+  request.mock.mockImplementation(async () => new Response("private provider error", { status: 503 }));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}), /cloud request failed.*Try again/);
+  request.mock.mockImplementation(async () => { throw new TypeError("fetch failed"); });
+  const aborted = AbortSignal.abort(new DOMException("Cancelled", "AbortError"));
+  await assert.rejects(requestRecorderServer(info, "/transcription/summary", {}, aborted), /Cancelled/);
 });
 
 test("deleting a recording cancels manually requested Smart Meeting Summary", async t => {

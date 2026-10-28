@@ -195,15 +195,16 @@ export function RecordingTranscript({ recordingId, title, onTitleChange }: {
           {!liveRecording && meta?.error ? <p className="mt-2 text-sm text-warning" role="status">{meta.error}</p> : null}
           {meta?.speakerError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.speakerError}</p> : null}
           {meta?.summaryProcessing && !meta.speakerProcessing ? <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-3.5 animate-spin" />{t("recorder.meeting_notes_processing")}</p> : null}
-          {meta?.summaryError ? <p className="mt-2 text-sm text-muted-foreground" role="status">{meta.summaryError}</p> : null}
+          {meta?.summaryError ? <p className="mt-2 text-sm text-warning" role="alert">{meta.summaryError}</p> : null}
         </div>
         <div className="lw-recording-transcript-actions">
           {!liveRecording && meta?.transcriptionSource === "cloud" && !meta.summary && turns.length > 0 ?
             <Button variant="ghost" size="sm" className="px-2 text-xs" onClick={() => void summarize()}
               disabled={startingSummary || meta.summaryProcessing || meta.speakerProcessing}
-              aria-label={t("recorder.meeting_notes_manual")}
+              aria-label={t(meta.summaryError ? "recorder.meeting_notes_retry" : "recorder.meeting_notes_manual")}
               title={`${t("recorder.meeting_notes_manual")}: ${t("recorder.meeting_notes_manual_description")}`}>
-              {t((startingSummary || meta.summaryProcessing) && !meta.speakerProcessing ? "recorder.meeting_notes_manual_running" : "recorder.meeting_notes_manual")}
+              {t((startingSummary || meta.summaryProcessing) && !meta.speakerProcessing ? "recorder.meeting_notes_manual_running"
+                : meta.summaryError ? "recorder.meeting_notes_retry" : "recorder.meeting_notes_manual")}
             </Button> : null}
           <Button variant="ghost" size="icon-sm" aria-label={t("recorder.transcript_copy")} title={t("recorder.transcript_copy")} disabled={turns.length === 0} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
           <RecordingSpeakers speakers={people} disabled={saving || Boolean(liveRecording || meta?.speakerProcessing)} live={Boolean(liveRecording)} edit={edit} />

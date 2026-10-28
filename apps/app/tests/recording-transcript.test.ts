@@ -99,6 +99,20 @@ test("Summarize is disabled while processing is in progress", () => {
   }
 });
 
+test("an interrupted cloud recording exposes an enabled summary retry and its connection error", () => {
+  const detail = { meta: { ...recording, status: "error", transcriptionSource: "cloud", modelId: "gemini-transcribe-live-eu",
+    speakerProcessing: false, summaryProcessing: false, speakerError: "fetch failed",
+    summaryError: "LegalWork is disconnected. Open Settings to reconnect, then try again." },
+    segments: [segment("saved", "Saved before the interruption.", 0)] } satisfies AudioRecordingDetail;
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    const html = render(detail, surface);
+    const button = html.match(/<button[^>]*aria-label="Retry summary"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain('disabled=""');
+    expect(html).toContain('role="alert">LegalWork is disconnected.');
+  }
+});
+
 test("speaker detection and summary generation are shown as successive stages", () => {
   const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", summaryProcessing: true },
     segments: [segment("saved", "Words", 0)] } satisfies AudioRecordingDetail;

@@ -20,6 +20,8 @@ In the transcript panel, select a transcript segment to inspect it alongside pla
 
 For saved cloud transcripts, select **Summarize** to generate a meeting title, summary and speaker names supported by the transcript. This remains available when automatic **Meeting Summarisation** is off. Speaker processing finishes before summary generation. Review the result and correct names in **Speaker settings** when needed.
 
+If summary generation fails, the transcript shows the error and **Retry summary** remains available. If LegalWork says it is disconnected, open **Settings** and reconnect first, then return to the recording and select **Retry summary**. A failed or interrupted recording can still be summarized from its saved transcript. Retrying the summary does not start recording or open the microphone.
+
 ## Dictate anywhere
 
 Open **Settings > Recorder > Dictate anywhere**, select a ready transcription source, configure the shortcut and enable dictation. Put the cursor in the target application. In **Tap** mode, press once to start and again to transcribe and insert. In **Hold** mode, hold the shortcut while speaking and release to transcribe. Escape cancels. Use the shortcut shown by the app rather than assuming a universal default.
