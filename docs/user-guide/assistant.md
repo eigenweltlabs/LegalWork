@@ -64,7 +64,9 @@ reacts to your current chat bubble and does not change any email or other record
 For example, a reaction to “yes” replaces a separate “I’ll do that” message,
 including when work is delegated. Its next message carries the result or a
 necessary question. Reactions mean receipt, not approval or completion, and
-only appear before it replies or starts work.
+only appear before it replies or starts work. Reactions and the Assistant's
+coordination tools are available in the Assistant workspace, not ordinary
+project chats. Delegated workers do not react to your messages.
 
 The Assistant remembers details you provide, such as your phone number, contact
 email and booking preferences, in `.legalwork/user-details.md` inside its own

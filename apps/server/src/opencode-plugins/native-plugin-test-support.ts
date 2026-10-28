@@ -6,6 +6,7 @@ type Hook = (event: unknown) => Promise<void> | void;
 
 /** A strict fixture for exercising real Plugin.define setup and native hooks without a model. */
 export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
+  const setupDirectory = directory;
   const hooks = new Map<string, Hook[]>();
   const tools = new Map<string, Info>();
   const histories = new Map<string, unknown[]>();
@@ -39,7 +40,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   });
   const ctx = new Proxy({} as Plugin.Context, {
     get(_target, property) {
-      if (property === "location") return { directory: "/plugin/setup/location" };
+      if (property === "location") return { directory: setupDirectory };
       if (property === "session") return {
         get: async ({ sessionID }: { sessionID: string }) => ({ ...sessions.get(sessionID), location: { directory } }),
         context: async ({ sessionID }: { sessionID: string }) => histories.get(sessionID) ?? [],

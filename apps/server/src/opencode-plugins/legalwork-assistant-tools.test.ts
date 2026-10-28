@@ -6,6 +6,59 @@ import AssistantPlugin, { ASSISTANT_REACTION_POLICY, ASSISTANT_USER_DETAILS_INST
 import { ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS, ASSISTANT_MESSAGE_POLICY } from "../assistant-handoff.js";
 import { nativePluginTestRuntime, nativeTestInvocation, nativeToolBefore } from "./native-plugin-test-support.js";
 
+test("only the Assistant coordinator receives reaction tools and coordinator instructions", async () => {
+  const previousUrl = process.env.LEGALWORK_SERVER_URL, previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const runtime = nativePluginTestRuntime("/Matter");
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/assistant") return Response.json({ workspace: { id: "assistant", path: "/Assistant" } });
+    if (path === "/assistant/settings/context") return Response.json({ context: "Use the intake skill." });
+    if (path === "/assistant/tool-access") return Response.json({ ok: true });
+    return new Response(null, { status: 404 });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
+  const permission = async (sessionID: string, effect = "allow", action = "legalwork_assistant_react") => {
+    const event = { sessionID, action, effect, resources: ["*"] };
+    await runtime.hook("permission", "evaluate", event);
+    return event.effect;
+  };
+  const context = async (sessionID: string) => {
+    const event = { sessionID, agent: "legalwork", system: [], tools: {} };
+    await runtime.hook("session", "context", event);
+    return JSON.stringify(event.system);
+  };
+  try {
+    await runtime.start(AssistantPlugin);
+    expect([...runtime.tools.keys()]).toEqual([]);
+    expect(await permission("project")).toBe("deny");
+    expect(await permission("project", "allow", "legalwork_assistant_set_name")).toBe("deny");
+    expect(await permission("project", "allow", "legalwork_assistant_delegate")).toBe("deny");
+    expect(await permission("project", "allow", "legalwork_task_list")).toBe("allow");
+    expect(await context("project")).not.toContain("main LegalWork assistant");
+    expect(await context("project")).not.toContain("legalwork_assistant_react");
+    await expect(nativeToolBefore(runtime, "legalwork_assistant_react", { emoji: "❤️" }, "project")).rejects.toThrow("only available in the main Assistant");
+
+    runtime.move("/Assistant");
+    runtime.sessions.set("child", { parentID: "coordinator", agent: "general" });
+    expect(await permission("child")).toBe("deny");
+    expect(await context("child")).not.toContain("legalwork_assistant_react");
+    const prompt = { sessionID: "child", prompt: { text: "Research the agreement" } };
+    await runtime.hook("session", "prompt", prompt);
+    expect(prompt.prompt.text).not.toContain(ASSISTANT_REACTION_POLICY);
+    expect(prompt.prompt.text).toContain("Use the intake skill.");
+    await expect(nativeToolBefore(runtime, "legalwork_assistant_react", { emoji: "❤️" }, "child")).rejects.toThrow("only available in the main Assistant");
+
+    expect(await permission("coordinator")).toBe("allow");
+    expect(await permission("coordinator", "deny")).toBe("deny");
+    expect(await context("coordinator")).toContain("legalwork_assistant_react");
+    await nativeToolBefore(runtime, "legalwork_assistant_react", { emoji: "❤️" }, "coordinator");
+  } finally {
+    await runtime.close(); server.stop(true);
+    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+  }
+});
+
 test("native prompt and policy hooks use app credentials while delegation retains session scope", async () => {
   const keys = ["LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN", "LEGALWORK_WIKI_AGENT_TOKEN"];
   const previous = keys.map(key => process.env[key]);
@@ -48,7 +101,7 @@ test("native prompt and policy hooks use app credentials while delegation retain
     const project = { sessionID: "ses_project", prompt: { text: "Hello world" } };
     await runtime.hook("session", "prompt", project);
     expect(project.prompt.text).toBe("Hello world");
-    expect(calls).toEqual(["/assistant"]);
+    expect(calls).toEqual(["/assistant", "/assistant"]);
 
     runtime.move(directory);
     const assistant = { sessionID: "ses_today", prompt: { text: "Hello" } };

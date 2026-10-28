@@ -55,3 +55,40 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)(`native Code Mode reaction
     if (scenario.tools) expect(calls.map(call => call.tool)).toEqual(scenario.tools);
   } finally { await host?.close(); model.stop(true); }
 }, 60000);
+
+for (const directTools of [false, true])
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)(`ordinary project sessions never expose Assistant reactions (directTools=${directTools})`, async () => {
+  const prompts: string[] = [];
+  const requests: string[][] = [];
+  const model = Bun.serve({ port: 0, async fetch(request) {
+    const body = z.object({ messages: z.array(z.unknown()), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).default([]) }).parse(await request.json());
+    if (!body.tools.length) return nativeChatResponse(undefined, 0);
+    prompts.push(JSON.stringify(body.messages));
+    requests.push(body.tools.map(tool => tool.function.name));
+    return nativeChatResponse(!directTools && requests.length === 1
+      ? { name: "execute", input: { code: 'return await tools.legalwork_assistant_react({emoji:"❤️"});' } }
+      : undefined, requests.length);
+  } });
+  let host: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
+  try {
+    host = await nativeDomainEngine({ binary: process.env.LEGALWORK_TEST_OPENCODE_BIN!, modelURL: model.url.origin + "/v1", directTools,
+      plugins: [resolve(import.meta.dir, "legalwork-assistant-tools.ts")],
+      configuration: { agents: { legalwork: { mode: "primary" } }, permissions: [{ action: "*", resource: "*", effect: "allow" }] },
+    });
+    const session = await host.appClient.session.create({ location: host.location, agent: "legalwork", model: { providerID: "fixture", id: "fixture" } });
+    await host.appClient.session.prompt({ sessionID: session.id, text: "Hello, hello." });
+    await host.appClient.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(20000) });
+    expect(prompts.length).toBeGreaterThan(0);
+    expect(prompts[0]).not.toContain("legalwork_assistant_");
+    expect(prompts[0]).not.toContain("main LegalWork assistant");
+    expect(requests[0].some(name => name.startsWith("legalwork_assistant_"))).toBe(false);
+    if (!directTools) {
+      const history = await assistantEngineClient(host.appClient, host.directory).session.messages({ sessionID: session.id });
+      const call = history.data?.flatMap(message => message.parts).find(part => part.type === "tool" && part.tool === "execute");
+      if (call?.type !== "tool" || call.state.status !== "completed") throw new Error("Code Mode probe did not complete");
+      expect(call.state.output).toContain("Unknown tool");
+      expect(codeModeWidgetResults(call.callID, call.state.metadata, call.state.output)).toEqual([]);
+      expect(call.state.metadata?.toolCalls).toEqual([]);
+    }
+  } finally { await host?.close(); model.stop(true); }
+}, 60000);

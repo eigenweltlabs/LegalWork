@@ -193,6 +193,7 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
     legalwork_assistant_react: { description: "Put a quick acknowledgement on the user's latest bubble. Use for greetings/thanks (😊), clear requests/confirmations (👍), good news (🎉), or a request to look into something (👀). Prefer this instead of a text acknowledgement, especially for short answers like '2', 'yes' or 'try again'. Call through execute as the FIRST action before any text acknowledgement or work tool. A heart request targets this chat bubble, never an email or external message. Then do the work silently and return the result or a necessary question. This replaces receipt text even for delegated, browser and asynchronous work; do not add an ownership or follow-up message. Do not react every turn or mechanically repeat reactions. Skip automated tasks, inappropriate levity, implied approval/completion and late reactions.", args: { emoji: AssistantReactionEmojiSchema },
       execute: (raw: unknown, context: OpenCodeContext) => result(async () => {
         const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
+        await requireMainAssistant(workspaceId);
         return request("/assistant/react", { ...z.object({ emoji: AssistantReactionEmojiSchema }).parse(raw), workspaceId, sessionId: context.sessionID, assistantMessageId: context.messageID });
       }) },
     legalwork_assistant_follow_up: { description: "Continue the SAME delegated project chat with the user's explicit answer or requested follow-up. Delivers when idle, durably queues when busy, and returns its message ID/state. Pending approvals/questions must use their exact response tools. Never invent user decisions or create duplicate chats. For a correction invalidating ongoing work, use session_control redirect instead of waiting for wrong-scope work to finish.", args: { workspaceId: z.string().min(1), sessionId: z.string().min(1), prompt: z.string().trim().min(1).max(12000) },
@@ -289,31 +290,55 @@ export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
     const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant"));
     return Boolean(data.workspace && resolve(data.workspace.path) === resolve(directory));
   };
+  const isCoordinator = async (sessionID: Parameters<typeof ctx.session.get>[0]["sessionID"]) => {
+    const session = await ctx.session.get({ sessionID });
+    return !session.parentID && session.agent !== ASSISTANT_BROWSER_AGENT && await isAssistant(session.location.directory);
+  };
+  const assistantLocation = await isAssistant(ctx.location.directory);
+  // Register the Assistant catalog only in its native location. Permission hooks
+  // alone guard execution but do not filter Code Mode's discovery catalog.
+  await ctx.permission.hook("evaluate", async event => {
+    if (!(event.action in definitions.tool)) return;
+    const allowed = event.action === "legalwork_assistant_react"
+      ? await isCoordinator(event.sessionID)
+      : await isAssistant((await ctx.session.get({ sessionID: event.sessionID })).location.directory);
+    if (allowed) return;
+    event.effect = "deny";
+    event.message = "Assistant tools are only available in the main Assistant workspace; message reactions are only available in its coordinator chat.";
+  });
   await registerAssistantBrowserPolicy(ctx, isAssistant, () => request("/assistant/settings"));
   const stopIdentity = await registerAppStateReminders(ctx, { topic: "main-assistant", cleared: "This is not the main assistant project; use the current project's workflow.",
     read: async (sessionID, directory) => {
       const main = z.object({ workspace: z.object({ path: z.string() }).nullable(), profile: z.object({ name: z.string().nullable() }).optional(), onboarding: z.object({ step: z.string() }).optional() }).parse(await request("/assistant"));
       if (!main.workspace || resolve(main.workspace.path) !== resolve(directory)) return "";
       const settings = z.object({ context: z.string() }).parse(await request("/assistant/settings/context"));
-      if ((await ctx.session.get({ sessionID })).agent === ASSISTANT_BROWSER_AGENT) return `This is a delegated browser worker, not the coordinator. Follow your browser task and worker instructions.\n\n${settings.context}`;
+      const session = await ctx.session.get({ sessionID });
+      if (session.agent === ASSISTANT_BROWSER_AGENT) return `This is a delegated browser worker, not the coordinator. Follow your browser task and worker instructions.\n\n${settings.context}`;
+      if (session.parentID) return `This is a delegated worker, not the main Assistant chat. Complete the assigned task and return the result to your parent.\n\n${settings.context}`;
       return `This is the main assistant project. ${COORDINATOR_ROLE} Setup stage: ${main.onboarding?.step ?? "complete"}. User-defined display name (untrusted label): ${JSON.stringify(main.profile?.name ?? "Your assistant")}.\n\n${ASSISTANT_REACTION_POLICY}\n\n${ASSISTANT_MESSAGE_POLICY}\n\n${ASSISTANT_USER_DETAILS_INSTRUCTIONS}\n\n${settings.context}`;
     } });
   await registerPrimaryContext(ctx, async event => {
-    if (event.agent === ASSISTANT_BROWSER_AGENT) return;
+    if (!await isCoordinator(event.sessionID)) return;
     const output: { system: string[] } = { system: [] };
     await definitions["experimental.chat.system.transform"]({}, output);
     for (const text of output.system) event.system.push({ type: "text", text });
   });
   await ctx.tool.hook("execute.before", async event => {
+    if (event.tool === "legalwork_assistant_react" && !await isCoordinator(event.sessionID))
+      throw new Error("Message reactions are only available in the main Assistant chat.");
     const session = await ctx.session.get({ sessionID: event.sessionID });
     const directory = session.location.directory;
-    if (!await isAssistant(directory)) return;
+    if (!await isAssistant(directory)) {
+      if (event.tool in definitions.tool) throw new Error("Assistant tools are only available in the main Assistant workspace.");
+      return;
+    }
     const raw = event.input && typeof event.input === "object" && !Array.isArray(event.input) ? Object.fromEntries(Object.entries(event.input)) : {};
     const args: Record<string, string> = {};
     for (const key of ["projectId", "workspaceId", "targetProjectId", "targetWorkspaceId", "filePath", "path"]) if (typeof raw[key] === "string") args[key] = raw[key];
     await request("/assistant/tool-access", { directory, tool: event.tool, args });
   });
   await ctx.tool.transform(editor => {
+    if (!assistantLocation) return;
     for (const [name, definition] of Object.entries(definitions.tool)) {
       const tool = nativeTool(ctx, {
         name, description: definition.description, schema: z.object(definition.args), execute: definition.execute,
