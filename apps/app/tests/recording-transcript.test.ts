@@ -79,6 +79,18 @@ test("saved cloud transcripts offer Summarize even when automatic processing is 
   expect(render({ ...detail, segments: [] })).not.toContain("Summarize");
 });
 
+test("caption reconnection is visible in every transcript surface and clears when recovered", () => {
+  setRenderState({ recording, transcriptionReconnecting: true });
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    expect(render(undefined, surface)).toContain("Audio is still recording. Reconnecting live transcription...");
+  }
+  setRenderState({ transcriptionReconnecting: false });
+  expect(render()).not.toContain("Reconnecting live transcription");
+  setRenderState({ recording: null });
+  expect(render({ meta: { ...recording, status: "complete", error: "Some speech may be missing from the transcript." }, segments: [] }))
+    .toContain("Some speech may be missing from the transcript.");
+});
+
 test("Summarize is disabled while processing is in progress", () => {
   for (const processing of [{ summaryProcessing: true }, { speakerProcessing: true }]) {
     const html = render({ meta: { ...recording, status: "complete", transcriptionSource: "cloud", ...processing }, segments: [segment("saved", "Words", 0)] });

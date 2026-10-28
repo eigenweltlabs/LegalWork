@@ -730,6 +730,25 @@ export class RecorderService {
           error: recording?.meta.transcriptionSource === "cloud" ? message.error : `Live speaker detection is unavailable: ${message.error}. Transcription is still running.` });
         break;
       }
+      case "stream-reconnecting":
+      case "stream-reconnected": {
+        if (!recording || recording.finishing || recording.cancelled) break;
+        const interrupted = message.type === "stream-reconnecting";
+        recording.reconnectingInputs ??= new Set();
+        if (interrupted) {
+          console.warn(`[recorder] Reconnecting live transcription for ${message.streamId}: ${message.error}`);
+          recording.reconnectingInputs.add(message.streamId);
+          // A reconnect cannot promise delivery of audio already sent to the
+          // broken connection. Keep that caveat on the saved transcript.
+          recording.meta.error ??= "Live transcription was interrupted. Some speech may be missing from the transcript. Your audio is saved on this device.";
+          recording.cloudPartials?.delete(message.streamId);
+          this.broadcast({ type: "transcript-partial-clear", streamId, endMs: Number.MAX_SAFE_INTEGER,
+            ...(input ? { source: input.source } : {}) });
+        } else recording.reconnectingInputs.delete(message.streamId);
+        this.broadcast({ type: "recording-transcription-status", recordingId: streamId,
+          reconnecting: recording.reconnectingInputs.size > 0 });
+        break;
+      }
       case "stream-error": {
         if (recording) {
           recording.meta.status = "error";

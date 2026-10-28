@@ -4915,6 +4915,7 @@ export default {
   "recorder.transcription_cloud_description": "Transcribe with Gemini in the selected region. Audio is sent to Google for processing with zero data retention. Usage comes from your subscription allowance. Speaker identification is available with local transcription.",
   "recorder.transcription_cloud_access": "To use cloud transcription, sign in and ask your organisation’s admin to enable it in Models.",
   "recorder.transcription_not_ready": "Choose an installed local model or an available cloud transcription option.",
+  "recorder.transcription_reconnecting": "Audio is still recording. Reconnecting live transcription...",
   "recorder.models_subtitle":
     "Choose a model to transcribe on this device or with Gemini in the cloud.",
   "recorder.recordings_title": "Recordings",
