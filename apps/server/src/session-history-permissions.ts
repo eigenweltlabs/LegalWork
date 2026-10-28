@@ -44,8 +44,9 @@ export async function restoreLegacySessionPermissions(config: ServerConfig, work
     if (source.directory !== actual || session.time.created !== source.createdAt || (session.parentID ?? null) !== source.parentID) return hold("original_context_mismatch");
     // V1 addressed file rules relative to its Git worktree ("/" for non-Git
     // projects); V2 addresses them relative to the location. Wildcard-only
-    // resources are invariant. Never reinterpret a scoped glob without proof.
-    if (source.worktree !== actual && source.rules.some(rule => rule.resource !== "*" && ["read", "edit", "glob", "grep", "list"].some(name => permissionPatternMatches(name, rule.action)))) return hold("original_permission_resource_context_mismatch");
+    // resources are invariant. Glob/grep resources are search patterns in both
+    // versions; only path-sensitive rules need the worktree-context check.
+    if (source.worktree !== actual && source.rules.some(rule => rule.resource !== "*" && ["read", "edit", "list"].some(name => permissionPatternMatches(name, rule.action)))) return hold("original_permission_resource_context_mismatch");
     const current = await client.session.get({ sessionID: session.id });
     if (await canonicalFilePath(current.location.directory) !== actual || current.time.created !== source.createdAt || (current.parentID ?? null) !== source.parentID || current.agent !== session.agent) return hold("native_context_changed");
     if (current.permissions?.length && digest(current.permissions) !== digest(source.rules)) return hold("native_permissions_conflict");

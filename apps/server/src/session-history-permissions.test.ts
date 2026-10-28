@@ -118,3 +118,21 @@ test("scoped file resources with a different original worktree are held instead 
     expect(run.calls.some(value => value.startsWith("PATCH"))).toBe(false);
   } finally { await run.close(); }
 });
+
+test.each(["glob", "grep", "g*"])("%s search-pattern rules retain their exact scope when the original worktree differs", async name => {
+  const run = await fixture({ sourceWorktree: "/", sourceRules: [{ permission: name, pattern: "confidential*", action: "deny" }, { permission: name, pattern: "approved*", action: "allow" }] });
+  try {
+    const restored = await restoreLegacySessionPermissions(run.config, run.workspace, run.client, await run.client.session.get({ sessionID: "ses_fixture" }));
+    expect(restored.permissions).toEqual([{ action: name, resource: "confidential*", effect: "deny" }, { action: name, resource: "approved*", effect: "allow" }]);
+    await expect(assertLegacySessionPermissionsRecoveryReady(run.config, ["ses_fixture"])).resolves.toBeUndefined();
+  } finally { await run.close(); }
+});
+
+test.each(["read", "edit", "list", "*"])("%s path-sensitive rules still require verified original worktree context", async name => {
+  const run = await fixture({ sourceWorktree: "/", sourceRules: [{ permission: name, pattern: "approved/*", action: "allow" }] });
+  try {
+    await expect(restoreLegacySessionPermissions(run.config, run.workspace, run.client, await run.client.session.get({ sessionID: "ses_fixture" })))
+      .rejects.toMatchObject({ details: { reason: "original_permission_resource_context_mismatch" } });
+    expect(run.calls.some(value => value.startsWith("PATCH"))).toBe(false);
+  } finally { await run.close(); }
+});
