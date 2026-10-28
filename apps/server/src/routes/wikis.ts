@@ -43,7 +43,9 @@ type Options = {
 const sharingSchema = z.object({ access: z.enum(["org", "members"]), memberIds: z.array(z.string().min(1).max(200)).max(500) });
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200), root: z.string().trim().min(1).max(4096).optional(),
-  template: z.enum(["firm", "blank"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  template: z.enum(["firm", "blank", "legal-research"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  language: z.enum(["en", "de"]).optional(),
+  country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional(),
 }).strict();
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),

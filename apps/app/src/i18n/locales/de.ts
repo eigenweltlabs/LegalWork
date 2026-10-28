@@ -7153,6 +7153,8 @@ const de = {
   "wiki.starter": "Startstruktur",
   "wiki.firm_starter": "Kanzleiwissen",
   "wiki.blank_starter": "Minimales Wiki",
+  "wiki.research_starter": "Rechtliche Recherche",
+  "wiki.research_starter_hint": "Belegte rechtliche Erkenntnisse, geordnet nach Rechtsordnung und Rechtsgebiet. Verwendet Ihre App-Sprache und das bei der Recherche-Einrichtung gewählte Land. Erkenntnisse werden vor dem Speichern geprüft.",
   "wiki.cancel": "Abbrechen",
   "wiki.create": "Erstellen",
   "wiki.manage_all": "Alle Wikis",

@@ -6,13 +6,15 @@ A wiki is a folder of linked Markdown pages, properties and supporting files. Us
 
 ## Create or open a wiki
 
-Open **Wiki**, then create a new wiki, choose an existing folder or join a shared wiki. **New Wiki > Law firm** provides a starting structure for clients, matters, knowledge, processes, templates and sources. A blank or existing wiki keeps its own conventions.
+Open **Wiki > Add wiki > Create**, enter a name and choose **Personal** or **Team wiki**. Under **Starter structure**, select **Law firm knowledge** for clients, matters, knowledge, processes, templates and sources; **Legal Research** for legal findings organized by jurisdiction and area of law; or **Minimal wiki** for an adaptable starting point. Then choose **Create**. You can also join a shared wiki or use **Local folder options** to choose its folder. An existing wiki keeps its own conventions.
 
 Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the particular connected source if you want the assistant to read it. Creating the wiki does not automatically import all connected documents. Review the resulting structure and source references before relying on it.
 
 ## Your legal research knowledge base
 
 When you open this release with your local LegalWork server connected, LegalWork automatically creates a personal wiki named **Legal Research**, or **Rechtliche Recherche** when the app uses German. This applies to existing users and new installations, even if you have not connected a research database. Find it under **Wiki**. It starts without research findings and is not shared automatically.
+
+To create another research wiki, choose **Add wiki > Create > Starter structure > Legal Research** (or **Rechtliche Recherche** in German). Give it your preferred name and choose **Create**. This uses the same research structure and legal-only filing guidance, with your app language and the country saved during research setup. Your existing research wiki is preserved. If you have not selected a country, the wiki starts with the general research indexes; jurisdiction folders can be added as you file findings.
 
 The overview links to **By area of law**, **Jurisdictions**, **International law** and **Comparative research** (with German labels in a German wiki). The country selected during research onboarding supplies your initial jurisdiction; EU countries also get an EU law section. UK setup distinguishes England and Wales, Scotland and Northern Ireland. US setup includes federal law; state sections appear as you save relevant findings. Your country helps prepare navigation, but does not determine which law applies to a research question.
 

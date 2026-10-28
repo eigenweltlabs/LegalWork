@@ -6801,6 +6801,8 @@ export default {
   "wiki.starter": "Starter structure",
   "wiki.firm_starter": "Law firm knowledge",
   "wiki.blank_starter": "Minimal wiki",
+  "wiki.research_starter": "Legal Research",
+  "wiki.research_starter_hint": "Source-backed legal findings organized by jurisdiction and area of law. Uses your app language and the country selected during research setup. Findings are reviewed before they are saved.",
   "wiki.cancel": "Cancel",
   "wiki.create": "Create",
   "wiki.manage_all": "All wikis",
