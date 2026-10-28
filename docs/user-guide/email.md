@@ -37,6 +37,8 @@ The assistant receives the saved file's path, name, type and size, and can use t
 
 ## Drafts and sending
 
+Ask the assistant to draft an email. If exactly one email account is connected and active, the preview uses that account automatically. If both Gmail and Outlook Email are connected, the assistant asks which account to use. You can name the account in your request to choose it directly. With no active email account, the assistant prepares an ordinary local draft. Ask for a **local draft without a connected account** if that is what you want even when an account is connected. Outlook Calendar alone does not count as an email connection.
+
 The assistant can prepare a local email preview containing recipients, subject, body and supported attachments. Preparing that preview does not send it or save it in your mailbox. Review and edit it in LegalWork, then use the card's save action to put it into the connected mailbox. Sending is a separate action from the card. Inspect To, Cc, Bcc, subject, body and attachments before sending.
 
 **Allow write access** and provider consent are separate requirements. Turning the setting on does not expand an account's previously granted scopes; use **Reconnect** if it only has read permissions. Turning it off blocks LegalWork write actions but does not revoke provider-side permissions.
@@ -50,8 +52,9 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Connect is disabled | Check worker availability, the chosen connection method, Eigenwelt sign-in or saved OAuth app details. Save pending app-detail edits first. |
 | Browser sign-in expired or was cancelled | Cancel the pending attempt, reconnect and keep the LegalWork panel open until completion. |
 | Outlook account exists but mail is unavailable | Activate **Outlook Email** separately from **Outlook Calendar**, then test the connection. |
+| Assistant asks which email account to use | Reply Gmail or Outlook Email. It will then prepare a preview for that account. |
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
-| Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. A generic local draft is not automatically linked to Outlook or Gmail; request a draft using the named connection. |
+| Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. Previously created local drafts stay local; request a new draft using the named connection. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
 | Attachment cannot be downloaded | Open a chat in an authorized project and check available disk space and the returned error. If an older chat reports a missing attachment, ask the assistant to read the email again and retry. Retry an interrupted download; incomplete copies are removed. Outlook cloud links and other non-file attachment types are not supported by this download action. |
