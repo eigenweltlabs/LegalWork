@@ -21,6 +21,10 @@ apps/desktop/resources/sidecars/
 apps/desktop/resources/actaport-mcp/
 apps/desktop/server/
 
+# Browser JavaScript is compiled from the pinned TypeScript sources.
+apps/desktop/electron/browser-native/runtime/*.mjs
+!apps/desktop/electron/browser-native/runtime/ipc.mjs
+
 # SwiftPM build output (native audiotap helper)
 apps/desktop/native/audiotap/.build/
 

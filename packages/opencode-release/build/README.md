@@ -9,6 +9,14 @@ status](../../../docs/opencode-v2-capability-status.md) for actual platform gate
 
 ## Normal development and app builds
 
+The build uses `bun.lock` and `package.json` from the exact upstream checkout;
+LegalWork retains their SHA-256 pins in `recipe.json`, not duplicate file copies.
+The commit and both files are verified before dependency installation, after
+patching and before compilation. A moved tag, missing input or hash mismatch
+fails the build. A cold build needs upstream availability; a verified current
+artifact cache is reused offline without downloading source. Changed build
+policy still invalidates older cached outputs.
+
 Normal development and desktop/server/CLI build entry points call the shared
 preparer before importing the fixed generated engine selection. Developers can
 also run `pnpm engine:prepare`. Preparation builds the requested host target,

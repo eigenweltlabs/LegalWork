@@ -6,7 +6,7 @@ The published `@opencode/plugin-browser` package provides the matching native se
 contract; the complete Electron driver is currently part of the private GUI package.
 
 `node apps/desktop/scripts/build-browser-controller.mjs` strips TypeScript and writes
-the checked-in `runtime` modules. LegalWork's own IPC and panel UI replace the upstream
+the ignored `runtime` modules. LegalWork's own IPC and panel UI replace the upstream
 GUI SDK. The generator deliberately preserves upstream behavior and comments.
 Keep the upstream license with redistributed source and generated modules.
 
@@ -14,10 +14,13 @@ Host-specific adaptations and capability-preserving extensions are recorded here
 they are integrated. Tests must exercise the released RPC v4 protocol and actual
 Electron/CDP, including cancellation, session replacement, and shared-profile behavior.
 
-Run `node apps/desktop/scripts/build-browser-controller.mjs --check` to reject stale
-generated modules. Source and generated modules are both checked in; shipping does
-not require a TypeScript compiler at runtime. Runtime `ipc.mjs` replaces only the
-upstream GUI IPC constant (`MAX_ICON_URL=24576`).
+Development, packaging, desktop tests and type checks generate these modules before
+using them. Packaged apps include the generated JavaScript and need no TypeScript
+compiler at runtime. Only the source, license and hand-written `runtime/ipc.mjs`
+are tracked; the latter replaces the upstream GUI IPC constant (`MAX_ICON_URL=24576`).
+Before invoking a browser fixture directly with Electron, run
+`pnpm --filter @legalwork/desktop build:browser`. The generator's `--check` option
+can then verify that every generated module matches its source.
 
 Adapted source:
 

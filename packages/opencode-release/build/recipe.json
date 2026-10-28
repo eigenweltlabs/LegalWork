@@ -76,11 +76,11 @@
       "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0"
     },
     "lockfile": {
-      "path": "packages/opencode-release/build/inputs/bun.lock",
+      "upstreamPath": "bun.lock",
       "sha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2"
     },
     "rootPackage": {
-      "path": "packages/opencode-release/build/inputs/root-package.json",
+      "upstreamPath": "package.json",
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
