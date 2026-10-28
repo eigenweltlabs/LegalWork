@@ -2259,12 +2259,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             pluginImports={extensionsStore}
             pluginCreation={extensionsStore}
-            researchSetup={{
-              client: selectedWorkspaceEndpoint?.client ?? legalworkClient,
-              workspaceId: runtimeWorkspaceId || selectedWorkspaceId || null,
-              initialCountry: local.prefs.researchCountry,
-              onCountryChange: researchCountry => local.setPrefs(previous => ({ ...previous, researchCountry })),
-            }}
             skillImports={extensionsStore}
             skillTools={extensionsStore}
             libraryConnection={selectedWorkspaceEndpoint?.client ?? legalworkClient}

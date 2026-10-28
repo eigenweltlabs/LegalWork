@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, Plus, Search } from "lucide-react";
 import { legalResearchCountries, legalResearchProviders, researchWebsite, type ResearchProvider } from "@legalwork/types/legal-research";
@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { currentLocale, t } from "@/i18n";
 import { BrowserPasswordForm } from "../session/modals/browser-password-form";
-import { CoverBackButton, OnboardingCover, StepDots } from "./onboarding-cover";
+import { CoverBackButton, CoverSkipButton, OnboardingCover, StepDots } from "./onboarding-cover";
 
 type Database = Pick<ResearchProvider, "name" | "researchUrl" | "loginUrl"> & { providerId?: string; needsLoginUrl?: boolean };
 export type ResearchDatabasesProps = {
@@ -18,12 +18,11 @@ export type ResearchDatabasesProps = {
   onCountryChange: (country: string) => void;
   onDone: () => void;
   onBack?: () => void;
-  onInstalled?: () => void;
-  onActiveChange?: (active: boolean) => void;
+  totalSteps: number;
 };
 
 /** The existing vault card owns all credential state. This flow sees only a saved ID. */
-export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
+export function ResearchDatabasesStep(props: ResearchDatabasesProps) {
   const id = useId(), cache = useQueryClient();
   const [country, setCountry] = useState(props.initialCountry);
   const [search, setSearch] = useState("");
@@ -52,7 +51,6 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
     ? [provider.name, ...provider.aliases].some(value => value.toLocaleLowerCase().includes(query))
     : provider.countries.includes(country));
   const current = queue[index];
-  useEffect(() => { props.onActiveChange?.(Boolean(current)); }, [current, props.onActiveChange]);
   const configured = (providerId: string) => Boolean(installed.data?.items.some(entry => entry.websites?.some(site => site.providerId === providerId || site.url === legalResearchProviders.find(item => item.id === providerId)?.researchUrl)));
   const begin = (items: Database[]) => { setQueue(items); setIndex(0); setError(""); setCustom(false); setLoginAddress(""); };
   const configure = async (passwordId: string) => {
@@ -67,7 +65,6 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
       }));
       setAdded(previous => [...new Set([...previous, current.name])]);
       setSelected(previous => previous.filter(value => value !== current.providerId));
-      props.onInstalled?.();
       if (index + 1 < queue.length) { setIndex(value => value + 1); setLoginAddress(""); }
       else { setQueue([]); setDraft({ name: "", researchUrl: "", loginUrl: "" }); }
     } catch {
@@ -76,10 +73,15 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
     } finally { submitting.current = false; setSaving(false); }
   };
 
-  return <div className="space-y-6" data-testid="research-databases">
+  const footerLeft = props.onBack ? <CoverBackButton label={t("onboarding.back")} onClick={props.onBack} /> : null;
+  const footerRight = added.length
+    ? <Button size="sm" disabled={selected.length > 0} onClick={props.onDone}>{t("onboarding.continue")}</Button>
+    : <CoverSkipButton label={t("research.skip")} disabled={selected.length > 0} onClick={props.onDone} />;
+  const content = <div className="flex w-full max-w-md flex-col gap-7" data-testid="research-databases">
     <div>
-      <h1 className="text-[28px] font-medium leading-tight tracking-tight">{t(current ? "research.connect_title" : "research.title", { name: current?.name ?? "" })}</h1>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{t(current ? "research.connect_description" : "research.description")}</p>
+      <StepDots step={props.totalSteps} total={props.totalSteps} />
+      <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">{t(current ? "research.connect_title" : "research.title", { name: current?.name ?? "" })}</h1>
+      <p className="mt-3 max-w-sm text-[14px] leading-[1.6] text-dls-secondary">{t(current ? "research.connect_description" : "research.description")}</p>
     </div>
     {current ? <>
       <p className="text-xs text-muted-foreground" role="status">{t("research.progress", { current: index + 1, total: queue.length })}</p>
@@ -149,14 +151,7 @@ export function ResearchDatabasesSetup(props: ResearchDatabasesProps) {
         {selected.length ? <Button className="w-full" disabled={!installed.data} onClick={() => begin(legalResearchProviders.filter(provider => selected.includes(provider.id)).map(provider => ({ ...provider, providerId: provider.id, needsLoginUrl: !provider.loginUrl })))}>{t("research.configure_selected", { count: selected.length })}</Button> : null}
       </> : null}
       {added.length ? <div role="status" className="rounded-lg bg-muted/40 p-4 text-sm"><p className="flex items-center gap-2 font-medium"><Check className="size-4" />{t("research.saved")}</p><p className="mt-1 text-muted-foreground">{added.join(", ")}</p><p className="mt-2 text-xs leading-5 text-muted-foreground">{t("research.saved_hint")}</p></div> : null}
-      <div className="flex items-center justify-between gap-4 pt-2">
-        {props.onBack ? <CoverBackButton label={t("onboarding.back")} onClick={props.onBack} /> : <span />}
-        <Button variant={added.length ? "default" : "outline"} disabled={selected.length > 0} onClick={props.onDone}>{t(added.length ? "onboarding.continue" : "research.skip")}</Button>
-      </div>
     </>}
   </div>;
-}
-
-export function ResearchDatabasesStep(props: ResearchDatabasesProps & { totalSteps: number }) {
-  return <OnboardingCover compact><StepDots step={props.totalSteps} total={props.totalSteps} /><ResearchDatabasesSetup {...props} /></OnboardingCover>;
+  return <OnboardingCover compact footerLeft={current ? null : footerLeft} footerRight={current ? null : footerRight}>{content}</OnboardingCover>;
 }
