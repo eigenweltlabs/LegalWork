@@ -32,7 +32,7 @@ import { rawHttpRequest, type RawHttpInput, type RawHttpNetwork } from "./raw-ht
 import { rememberedProjectFolderRules, projectPermissionEffect } from "../project-permission-approvals.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number | null; capture?: "complete" };
-export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
+export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction; session?: boolean };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
   return actions.includes("deny") ? "deny" : actions.includes("ask") ? "ask" : "allow";
@@ -176,7 +176,10 @@ export class AgentSandboxService {
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
-      const rememberedFolders = rememberedProjectFolderRules({ ...runtime, permissions });
+      const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
+        ...agentRules.filter(rule => rule.session && rule.permission === "external_directory" && rule.action === "allow")
+          .map(rule => ({ action: rule.permission, resources: [rule.pattern] }))] };
+      const rememberedFolders = rememberedProjectFolderRules(folderPermissions);
       const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && externalRules.some(rule => rule.resource !== "*" && rule.effect === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
@@ -186,7 +189,7 @@ export class AgentSandboxService {
       const folderAction = externalRules.some(rule => rule.resource !== "*" && rule.effect === "ask") ? "ask" : "allow";
       for (const source of sources.slice(1)) {
         const resource = `${source}/__sandbox__`;
-        const effect = projectPermissionEffect({ ...runtime, permissions }, "external_directory", [resource], permissionAction(permissions, "external_directory", resource));
+        const effect = projectPermissionEffect(folderPermissions, "external_directory", [resource], permissionAction(permissions, "external_directory", resource));
         await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access all files in this authorized folder, including files covered by individual folder rules?", [source],
           restrictive([folderAction, effect, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
       }
@@ -336,7 +339,8 @@ export class AgentSandboxService {
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
             action: permission === "external_directory" && !settings.enabled ? "sandbox.host_access" : `sandbox.${permission}`,
             summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([root, actor, this.config.readOnly, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
+            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([root, actor, this.config.readOnly, permission, pattern, paths, network, permissions,
+              agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined);
           if (!result.allowed) {
             if (result.reason === "approval_storage_unavailable") throw new ApiError(503, "approval_storage_unavailable", "LegalWork's approval storage is unavailable. No access was granted.");
             throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");

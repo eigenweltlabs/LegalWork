@@ -1,13 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createEngineClient, getWorkspaceEngineSession } from "./engine-client.js";
 import { ApiError } from "./errors.js";
-import { canonicalFilePath } from "./file-write-lock.js";
+import { canonicalFilePath, withFileWriteLock } from "./file-write-lock.js";
+import { join } from "node:path";
+import { engineStorageDir } from "./engine-storage.js";
 import { requireOrgPolicyToolsUnmanaged } from "./org-policy.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
-import { readManagedEngineSettings } from "./managed-engine-settings.js";
-import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import type { NativePermissionRule } from "./agent-sandbox/permissions.js";
 
 export type NativeProjectApproval = {
   id: string;
@@ -90,38 +91,33 @@ async function assertProjectApprovalIntegration(config: ServerConfig, workspace:
 
 /** Never turn a temporary prompt into a wider guessed wildcard. Native v2's
  * own "always" implementation stores request.save, not request.resources. */
-export function nativeProjectApprovalResources(request: { action: string; save?: readonly string[] }) {
+export function nativeChatApprovalResources(request: { action: string; save?: readonly string[] }) {
   if (!request.action || !request.save?.length || request.save.some(resource => !resource)) {
     throw new ApiError(400, "permission_approval_not_persistable", "This request has no persistent approval scope. Use Allow once.");
   }
   return [...new Set(request.save)];
 }
 
-/** Publish only native action/resources metadata. The permission integration
- * reads it for the exact LegalWork project; the pending engine reply stays once. */
-export async function rememberNativeProjectApproval(config: ServerConfig, workspace: WorkspaceInfo, sessionID: string, requestID: string): Promise<boolean> {
+/** Persist only on the originating native chat. Replying `once` afterward
+ * settles the pending request without creating an engine project-wide grant. */
+export async function rememberNativeChatApproval(config: ServerConfig, workspace: WorkspaceInfo, sessionID: string, requestID: string): Promise<void> {
   const { client } = await assertProjectApprovalIntegration(config, workspace, sessionID);
-  const request = await client.permission.get({ sessionID, requestID });
-  const resources = nativeProjectApprovalResources(request);
-  await requireOrgPolicyToolsUnmanaged(config, [request.action]);
-  // Revalidate the pending request immediately before publishing its grant.
-  const currentRequest = await client.permission.get({ sessionID, requestID });
-  if (currentRequest.action !== request.action || JSON.stringify(currentRequest.save) !== JSON.stringify(request.save)) {
-    throw new ApiError(409, "permission_approval_changed", "This permission request changed. Review it again before remembering access.");
-  }
-  const now = Date.now();
-  await writeRuntimeOpencodeConfig(config, workspace.id, current => {
-    const records = current.projectPermissionApprovals ?? [];
-    const additions = resources.filter(resource => !records.some(record => record.action === request.action && record.resources.includes(resource)))
-      .map(resource => ({ id: `psv_${randomUUID().replaceAll("-", "")}`, action: request.action, resources: [resource], createdAt: now }));
-    return { ...current, projectPermissionApprovals: [...records, ...additions] };
+  const lock = join(engineStorageDir(config), `chat-approval-${createHash("sha256").update(sessionID).digest("hex")}.lock`);
+  await withFileWriteLock(lock, async () => {
+    const request = await client.permission.get({ sessionID, requestID });
+    const resources = nativeChatApprovalResources(request);
+    await requireOrgPolicyToolsUnmanaged(config, [request.action]);
+    const session = await getWorkspaceEngineSession(client, workspace, sessionID);
+    const current = await client.permission.get({ sessionID, requestID });
+    if (current.action !== request.action || JSON.stringify(current.save) !== JSON.stringify(request.save))
+      throw new ApiError(409, "permission_approval_changed", "This permission request changed. Review it again before remembering access.");
+    const additions = resources.filter(resource => !session.permissions?.some(rule => rule.action === request.action && rule.resource === resource && rule.effect === "allow"))
+      .map((resource): NativePermissionRule => ({ action: request.action, resource, effect: "allow" }));
+    // Existing restrictions remain after the grant, so a saved denial is
+    // never overwritten by remembering a wider request.
+    await client.session.update({ sessionID, permissions: [...additions, ...session.permissions ?? []] });
+    const saved = await client.session.get({ sessionID });
+    if (!resources.every(resource => saved.permissions?.some(rule => rule.action === request.action && rule.resource === resource && rule.effect === "allow")))
+      throw new ApiError(503, "chat_permission_not_saved", "This chat's permission could not be saved. Use Allow once or retry.");
   });
-  await writeLegalworkRuntimeConfigFile(config, workspace.id);
-  // The product permission hook reads the atomic private settings file at
-  // each evaluation. No Location reload is needed (it would cancel this ask).
-  const published = await readManagedEngineSettings(managedEngineSettingsFilePath(config), workspace.directory?.trim() || workspace.path);
-  if (!resources.every(resource => published.projectPermissionApprovals.some(record => record.action === request.action && record.resources.includes(resource)))) {
-    throw new ApiError(503, "permission_approval_not_published", "The saved project approval is not active yet. Retry before continuing.");
-  }
-  return true;
 }

@@ -53,8 +53,11 @@ export class ApprovalService {
       return { id: "auto", allowed: true };
     }
     const rememberHash = rememberKey && input.sessionID
-      ? createHash("sha256").update(JSON.stringify(["project-approval-v1", input.workspaceId, rememberKey])).digest("hex") : undefined;
-    if (rememberHash && (this.store ? this.store.has(input.workspaceId, rememberHash) : this.remembered.has(rememberHash)))
+      ? createHash("sha256").update(JSON.stringify(["chat-approval-v1", input.workspaceId, input.sessionID, rememberKey])).digest("hex") : undefined;
+    // Existing explicitly project-wide approvals retain their original scope.
+    // New approvals are written only under the chat-specific key above.
+    const legacyProjectHash = rememberHash ? createHash("sha256").update(JSON.stringify(["project-approval-v1", input.workspaceId, rememberKey])).digest("hex") : undefined;
+    if ([rememberHash, legacyProjectHash].some(key => key && (this.store ? this.store.has(input.workspaceId, key) : this.remembered.has(key))))
       return { id: "remembered", allowed: true };
     const id = shortId();
     const request: ApprovalRequest = {

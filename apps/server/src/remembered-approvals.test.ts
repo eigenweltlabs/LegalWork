@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { ApprovalService } from "./approvals.js";
 import { openRememberedApprovalStore } from "./remembered-approvals.js";
 import type { ApprovalRequest } from "./types.js";
@@ -10,7 +11,22 @@ const input = (workspaceId: string, sessionID = "first-chat"): Omit<ApprovalRequ
   workspaceId, sessionID, actor: { type: "host" }, action: "sandbox.webfetch", summary: "Send this exact request", paths: [],
 });
 
-test("project sandbox approvals survive restart and stay exact, project scoped and revocable", async () => {
+test("existing project approvals retain their scope without making new approvals project-wide", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-existing-project-approval-"));
+  const store = await openRememberedApprovalStore({ configPath: join(root, "server.json") });
+  const key = "existing-project-request";
+  store.remember("project-a", createHash("sha256").update(JSON.stringify(["project-approval-v1", "project-a", key])).digest("hex"));
+  const service = new ApprovalService({ mode: "manual", timeoutMs: 1000 }, undefined, undefined, store);
+  try {
+    for (const chat of ["original-chat", "another-chat"])
+      expect(await service.requestApproval(input("project-a", chat), undefined, true, key)).toMatchObject({ id: "remembered", allowed: true });
+    const other = service.requestApproval(input("project-b", "another-chat"), undefined, true, key);
+    service.respond(service.list()[0].id, "deny");
+    expect((await other).allowed).toBe(false);
+  } finally { service.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("chat sandbox approvals survive restart and stay exact, chat scoped and revocable", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-remembered-approval-"));
   const config = { configPath: join(root, "server.json") };
   const key = "https://example.invalid/request Authorization: private-credential body: private-document";
@@ -31,8 +47,9 @@ test("project sandbox approvals survive restart and stay exact, project scoped a
     expect(bytes.includes(Buffer.from("private-document"))).toBe(false);
     if (process.platform !== "win32") expect((await stat(join(root, "remembered-approvals.sqlite"))).mode & 0o777).toBe(0o600);
     service = new ApprovalService({ mode: "manual", timeoutMs: 1000 }, undefined, undefined, await openRememberedApprovalStore(config));
-    expect(await service.requestApproval(input("project-a", "new-chat"), undefined, true, key)).toMatchObject({ id: "remembered", allowed: true });
-    expect((await approve("project-b", "new-chat", key, "deny")).allowed).toBe(false);
+    expect(await service.requestApproval(input("project-a", "first-chat"), undefined, true, key)).toMatchObject({ id: "remembered", allowed: true });
+    expect((await approve("project-a", "new-chat", key, "deny")).allowed).toBe(false);
+    expect((await approve("project-b", "first-chat", key, "deny")).allowed).toBe(false);
     expect((await approve("project-a", "new-chat", `${key} changed`, "deny")).allowed).toBe(false);
     expect((await approve("project-a", "new-chat", "once-request", "deny")).allowed).toBe(false);
     expect((await approve("project-b", "new-chat", "other-project-request", "always")).allowed).toBe(true);
@@ -40,7 +57,7 @@ test("project sandbox approvals survive restart and stay exact, project scoped a
     service.dispose();
     service = new ApprovalService({ mode: "manual", timeoutMs: 1000 }, undefined, undefined, await openRememberedApprovalStore(config));
     expect((await approve("project-a", "new-chat", key, "deny")).allowed).toBe(false);
-    expect(await service.requestApproval(input("project-b"), undefined, true, "other-project-request")).toMatchObject({ id: "remembered", allowed: true });
+    expect(await service.requestApproval(input("project-b", "new-chat"), undefined, true, "other-project-request")).toMatchObject({ id: "remembered", allowed: true });
   } finally { service.dispose(); await rm(root, { recursive: true, force: true }); }
 });
 
