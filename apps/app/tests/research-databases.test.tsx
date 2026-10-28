@@ -36,3 +36,17 @@ test("research setup sends only the saved vault reference and provider selection
     expect(calls).toEqual([{ path: "/workspace/project/research-databases", body: payload, host: "fixture-host" }]);
   } finally { server.stop(true); }
 });
+
+test("research wiki bootstrap sends the UI language with owner authorization and preserves its purpose", async () => {
+  const calls: Array<{ path: string; body: unknown; host: string | null }> = [];
+  const result = { created: true, wiki: { id: "218d2173-2e4b-4ef2-98e6-52e0367d1d7b", name: "Rechtliche Recherche", purpose: "legal-research" } };
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    calls.push({ path: new URL(request.url).pathname, body: await request.json(), host: request.headers.get("x-legalwork-host-token") });
+    return Response.json(result);
+  } });
+  try {
+    const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "fixture-host" });
+    expect(await client.ensureLegalResearchWiki("de")).toEqual(result);
+    expect(calls).toEqual([{ path: "/wikis/legal-research/ensure", body: { language: "de" }, host: "fixture-host" }]);
+  } finally { server.stop(true); }
+});

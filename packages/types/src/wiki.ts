@@ -44,6 +44,8 @@ export type WikiSyncStatus = {
 export type WikiRegistration = {
   id: string;
   name: string;
+  /** Stable identity of an app-provisioned knowledge base, independent of its title. */
+  purpose?: "legal-research";
   root: string;
   workspaceId: string;
   allowInProjects: boolean;

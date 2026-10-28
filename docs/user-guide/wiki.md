@@ -10,6 +10,18 @@ Open **Wiki**, then create a new wiki, choose an existing folder or join a share
 
 Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the particular connected source if you want the assistant to read it. Creating the wiki does not automatically import all connected documents. Review the resulting structure and source references before relying on it.
 
+## Your legal research knowledge base
+
+When you open this release with your local LegalWork server connected, LegalWork automatically creates a personal wiki named **Legal Research**, or **Rechtliche Recherche** when the app uses German. This applies to existing users and new installations, even if you have not connected a research database. Find it under **Wiki**. It starts without research findings and is not shared automatically.
+
+This wiki is for substantive legal knowledge only: legal questions, legislation, case law, interpretation, exceptions and conflicting authorities, with their sources and limits. Browser instructions, workflows, login problems, process notes and task logs do not belong here. Website troubleshooting stays in each database skill's separate [experience log](integrations.md#learning-from-research-website-problems).
+
+After research on a connected database, the assistant identifies the legal findings it could preserve and asks, “Would you like me to prepare these legal findings for your knowledge base?” Nothing is staged until you agree. If you already asked to file those specific findings, the assistant can prepare the draft without asking again. A refusal leaves the wiki unchanged.
+
+After you agree, the assistant checks existing knowledge and stages a complete, source-backed draft in the originating project. Review the proposal and its destination, then choose **Save to wiki** to publish or **Dismiss** to leave the wiki unchanged. Saying yes authorizes preparation, not automatic publication. For research performed inside a dedicated wiki chat, continue the filing in a project so this review flow remains available.
+
+Your pages, edits, renamed wiki and access settings survive app restarts and language changes. Deleting or removing the wiki does not make LegalWork recreate it automatically. Use **Recently deleted** to restore a deleted wiki. If initial setup fails, the app offers **Retry** while you continue working. A read-only or non-owner connection cannot create the personal wiki.
+
 ## Pages, properties and links
 
 Use the file tree to create or open a page. Edit its text and the properties below the title. **Source** mode exposes the Markdown; the outline helps navigate a long page. Links such as `[[Page.md]]` connect pages, and backlinks show other pages pointing to the current one. The graph visualizes those relationships; links in properties also contribute.

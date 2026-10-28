@@ -47,6 +47,7 @@ const de = {
   "research.sign_in_address": "Anmelde-Website",
   "research.free_account": "Kostenloses Konto",
   "research.menu": "Recherche-Datenbanken",
+  "research.wiki_setup_failed": "Ihre Wissensbasis für rechtliche Recherche konnte nicht eingerichtet werden. Sie können weiterarbeiten und es erneut versuchen.",
 
   "common.loading": "Wird geladen…",
   "storage.account_settings": "Kontoeinstellungen",
