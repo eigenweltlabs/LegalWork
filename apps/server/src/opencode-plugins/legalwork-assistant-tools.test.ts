@@ -38,6 +38,10 @@ test("native prompt and policy hooks use app credentials while delegation retain
   process.env.LEGALWORK_WIKI_AGENT_TOKEN = "scoped-fixture";
   try {
     await runtime.start(AssistantPlugin);
+    for (const name of ["legalwork_assistant_react", "legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name", "legalwork_assistant_attention_present", "legalwork_assistant_attention_answer"]) {
+      expect(runtime.tools.get(name)?.options).toMatchObject({ codemode: false, permission: name });
+    }
+    expect(runtime.tools.get("legalwork_assistant_projects")?.options?.codemode).not.toBe(false);
     runtime.move(join(directory, "Matter"));
     const project = { sessionID: "ses_project", prompt: { text: "Hello world" } };
     await runtime.hook("session", "prompt", project);
@@ -132,6 +136,9 @@ test("overview and unfinished task tools carry exact scope, and live assistant i
     const context = { directory: "/Assistant", sessionID: "today", messageID: "reply" };
     await plugin.tool.legalwork_assistant_react.execute({ emoji: "👍" }, context);
     expect(writes.at(-1)).toEqual({ path: "/assistant/react", method: "POST", body: { workspaceId: "assistant", sessionId: "today", assistantMessageId: "reply", emoji: "👍" } });
+    const report = { key: "morning-briefing-2026-10-28", input: { version: 1, catalog: "legalwork-1", mode: "report", title: "Morning briefing", program: 'root = Text("Priorities")', queries: {} } };
+    await plugin.tool.legalwork_assistant_save_report.execute(report, context);
+    expect(writes.at(-1)).toEqual({ path: "/assistant/save-report", method: "POST", body: { ...report, workspaceId: "assistant", sessionId: "today", sourceSessionId: "today" } });
     await plugin.tool.legalwork_assistant_share_file.execute({ path: "briefings/today.md", title: "Morning briefing" }, context);
     expect(writes.at(-1)).toEqual({ path: "/assistant/share-file", method: "POST", body: { workspaceId: "assistant", sessionId: "today", path: "briefings/today.md", title: "Morning briefing" } });
     await plugin.tool.legalwork_assistant_share_file.execute({ projectId: "matter/id", path: "reports/review.md", title: "Provider-side review" }, context);

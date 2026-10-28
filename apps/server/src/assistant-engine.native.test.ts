@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { OpenCode } from "@opencode/client";
+import { z } from "zod";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { assistantEngineClient } from "./assistant-engine.js";
 import { nativeChatResponse, nativeDomainEngine } from "./opencode-plugins/native-domain-engine.test-support.js";
 
@@ -35,15 +38,24 @@ test("Assistant uses only native admission, retains identity and hidden context,
 });
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("released v2 runs the local Assistant reaction tool and returns its reply through the app proxy", async () => {
+test.skipIf(!binary)("released v2 exposes Assistant interactions directly and preserves reaction and file results with Code Mode enabled", async () => {
   let turns = 0;
-  const provider = Bun.serve({ port: 0, fetch() {
-    return nativeChatResponse(turns++ === 0 ? { name: "legalwork_assistant_react", input: { emoji: "👀" } } : undefined, turns);
+  let firstTools: string[] = [];
+  const actions = [
+    { name: "legalwork_assistant_react", input: { emoji: "👀" } },
+    { name: "legalwork_assistant_share_file", input: { path: "briefing.md", title: "Morning briefing" } },
+  ];
+  const provider = Bun.serve({ port: 0, async fetch(request) {
+    const body = z.object({ tools: z.array(z.object({ function: z.object({ name: z.string() }) })).default([]) }).parse(await request.json());
+    if (turns === 0) firstTools = body.tools.map(tool => tool.function.name);
+    return nativeChatResponse(actions[turns++], turns);
   } });
   const fixture = await nativeDomainEngine({ binary: binary!, plugins: [new URL("./opencode-plugins/legalwork-assistant-tools.ts", import.meta.url).pathname], modelURL: provider.url.origin + "/v1",
+    directTools: false,
     setup: async (config, root) => { config.projectsDirectory = root; config.workspaces[0].preset = "main-assistant"; },
   });
   try {
+    await writeFile(join(fixture.directory, "briefing.md"), "# Morning briefing\nCheck the agreement.");
     const client = assistantEngineClient(fixture.appClient, fixture.directory);
     const created = await client.session.create({ title: "Native Assistant smoke" }, { throwOnError: true });
     const sessionID = created.data!.id;
@@ -54,12 +66,20 @@ test.skipIf(!binary)("released v2 runs the local Assistant reaction tool and ret
       if (rows.some(row => row.parts.some(part => part.type === "text" && part.text === "Fixture checked."))) break;
       await Bun.sleep(50);
     }
+    expect(firstTools).toContain("execute");
+    for (const name of ["legalwork_assistant_react", "legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name", "legalwork_assistant_attention_present", "legalwork_assistant_attention_answer"]) expect(firstTools).toContain(name);
+    expect(firstTools).not.toContain("legalwork_assistant_projects");
     const reaction = rows.flatMap(row => row.parts).find(part => part.type === "tool" && part.tool === "legalwork_assistant_react");
     expect(reaction).toMatchObject({ type: "tool", state: { status: "completed" } });
     if (reaction?.type !== "tool" || reaction.state.status !== "completed") throw new Error("Native reaction did not complete.");
     expect(reaction.state.output).toContain('"messageId":"msg_native_assistant_smoke"');
     expect(reaction.state.output).toContain('"emoji":"👀"');
+    const shared = rows.flatMap(row => row.parts).find(part => part.type === "tool" && part.tool === "legalwork_assistant_share_file");
+    expect(shared).toMatchObject({ type: "tool", state: { status: "completed" } });
+    if (shared?.type !== "tool" || shared.state.status !== "completed") throw new Error("Native file sharing did not complete.");
+    expect(JSON.parse(shared.state.output)).toMatchObject({ ok: true, file: { path: "briefing.md", title: "Morning briefing" } });
+    expect(rows.flatMap(row => row.parts).filter(part => part.type === "tool").map(part => part.tool)).toEqual(actions.map(action => action.name));
     expect(rows.at(-1)?.parts).toMatchObject(expect.arrayContaining([expect.objectContaining({ type: "text", text: "Fixture checked." })]));
-    expect(turns).toBe(2);
+    expect(turns).toBe(3);
   } finally { await fixture.close(); provider.stop(true); }
 }, 45_000);

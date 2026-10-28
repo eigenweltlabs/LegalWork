@@ -2,6 +2,7 @@ import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domai
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
 import { snapshotQueuedDraft } from "@/react-app/domains/session/surface/use-session-message-queue";
+import { assistantOutgoingScope, moveAssistantOutgoingMessage } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
 import { readConfig } from "@/app/lib/opencode-config";
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { projectSession } from "@/app/lib/opencode-view";
@@ -1608,7 +1609,10 @@ export function SessionRoute() {
           const current = await client.mainAssistantCurrent();
           targetSessionId = current.day.sessionId;
           getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-          if (targetSessionId !== selectedSessionId) navigate(workspaceSessionRoute(current.workspace.id, targetSessionId), { replace: true });
+          if (targetSessionId !== selectedSessionId) {
+            if (options?.queue) moveAssistantOutgoingMessage(options.queue.id, assistantOutgoingScope(client.baseUrl, current.workspace.id, targetSessionId));
+            navigate(workspaceSessionRoute(current.workspace.id, targetSessionId), { replace: true });
+          }
         }
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();

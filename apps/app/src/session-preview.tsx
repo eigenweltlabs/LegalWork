@@ -172,9 +172,9 @@ if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ baseUr
   } }],
 });
 
-function snapshot(id: string, title: string, prompt?: string, response = reply): LegalworkSessionSnapshot {
+function snapshot(id: string, title: string, prompt?: string, response = reply, submittedId?: string): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
-  const userId = `${id}-user-${turn}`;
+  const userId = submittedId ?? `${id}-user-${turn}`;
   const assistantId = `${id}-assistant-${turn}`;
   return {
     session: { id, title, slug: id, projectID: workspace.id, directory: workspace.path, version: "1", time: { created: now, updated: now } },
@@ -259,6 +259,17 @@ if (assistantPreview) {
   if (prior && last) {
     last.parts.push({ id: "delegation-part", sessionID: prior.session.id, messageID: last.info.id, type: "tool", callID: "delegate-fixture", tool: "legalwork_assistant_delegate", state: { status: "completed", input: {}, time: { start: now, end: now }, title: "Review supplier terms", output: JSON.stringify({ ok: true, delegation: { workspaceId: otherWorkspace.id, sessionId: "delegated-review", title: "Review supplier terms", projectName: "Northstar Legal", scope: "Review liability and termination against our playbook. Save a draft for partner review.", status: "started" } }) } });
     saveSnapshot(prior);
+  }
+  if (previewParams.has("codemode-cards")) {
+    for (const item of snapshots.values()) {
+      for (const message of item.messages) message.parts = message.parts.map(part => {
+        if (part.type !== "tool" || part.state.status !== "completed" || !["legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name"].includes(part.tool)) return part;
+        return { ...part, tool: "execute", state: { ...part.state, input: { code: "return result;" },
+          metadata: { toolCalls: [{ tool: part.tool, status: "completed", input: part.state.input }] },
+        } };
+      });
+      saveSnapshot(item);
+    }
   }
 }
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
@@ -819,9 +830,13 @@ function SessionPreview() {
     setRevision((value) => value + 1);
     return id;
   };
-  const sendDraft = (draft: ComposerDraft, sessionId: string) => {
+  const failSend = useRef(previewParams.has("send-fail"));
+  const sendDraft = async (draft: ComposerDraft, sessionId: string, options?: { queue?: { id: string } }) => {
+    const delay = Number(previewParams.get("send-delay"));
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+    if (failSend.current) { failSend.current = false; throw new Error("Simulated interrupted send. Your draft is still available."); }
     const previous = snapshots.get(sessionId);
-    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText, previewParams.has("messenger") ? "I've checked. Your next steps are ready." : reply);
+    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText, previewParams.has("messenger") ? "I've checked. Your next steps are ready." : reply, options?.queue ? `msg_${options.queue.id.replaceAll("-", "")}` : undefined);
     next.session.directory = previous?.session.directory ?? activeWorkspace.path;
     const sentAt = Date.now();
     for (const message of next.messages) {

@@ -12,6 +12,8 @@ import { BookOpen, FilePenLine, FilePlus2, FolderSearch, Search, SquareTerminal 
 import { getToolActivityLabel } from "../src/lib/tool-activity";
 import { filedTasksOf } from "../src/components/chat/filed-tasks";
 import { collectLegalMemoryDocuments, legalMemoryOutputsOf } from "../src/lib/legalmemory-documents";
+import { assistantChatMessages, sharedAssistantFile } from "../src/components/chat/assistant-chat-presentation";
+import { parseDelegationCard } from "../src/components/chat/delegation-card";
 
 const id = "101ec043-4ef0-4df7-88b6-4690869e8830";
 const common = { id, workspaceId: "workspace", revision: id, path: "draft", updatedAt: 1 };
@@ -26,6 +28,9 @@ const cases = [
   { tool: "legalwork_project_list", kind: "project", output: { version: 1, project: { id: "workspace", name: "Matter", fields: [] }, sections: [] } },
   { tool: "wiki_suggest", kind: "wiki-suggestion", output: { suggestion: { id, workspaceId: "workspace", sessionId: "chat", title: "Knowledge", content: "# Knowledge", destination: { wikiId: "wiki", path: "Knowledge.md", baseRevision: null }, status: "pending", createdAt: 1, updatedAt: 1, revision: "r1", filePath: "draft.md" } } },
   { tool: "view_create", kind: "view", output: preview },
+  { tool: "legalwork_assistant_share_file", kind: "assistant-file", output: { ok: true, file: { path: "reports/briefing.md", title: "Morning briefing", size: 100, source: { workspaceId: "matter", workspaceRoot: "/fixture/matter", projectName: "Matter" } } } },
+  { tool: "legalwork_assistant_delegate", kind: "delegation", output: { ok: true, delegation: { workspaceId: "matter", sessionId: "child", projectName: "Matter", title: "Review agreement", scope: "Review for provider", status: "started" } } },
+  { tool: "legalwork_assistant_set_name", kind: "assistant-name", output: { ok: true, showAvatarPicker: true, onboarding: { needed: true, greetingUnread: false, step: "avatar", sessionId: "chat", name: "Maya", icon: "cat", agentNamed: true } } },
 ];
 const session: SessionInfo = { id: "chat", projectID: "project", location: { directory: "/fixture" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 2 } };
 function native(tool: string, output: unknown, input: unknown = {}): SessionMessageAssistantTool {
@@ -59,6 +64,46 @@ test("connector drafts retain their attested action input", () => {
 test("filed-task links survive Code Mode and saved history", () => {
   const parts = history(native("legalwork_task_create", { ok: true, task: { id, title: "Follow up", origin: "desktop" } }));
   expect(filedTasksOf(parts)).toEqual([{ id, title: "Follow up" }]);
+});
+
+test("shared Assistant files survive hidden activity, keep project scope and deduplicate", () => {
+  const output = { ok: true, file: { path: "Reports/briefing.view.json", title: "Morning briefing", documentType: "report", size: 100,
+    source: { workspaceId: "matter", workspaceRoot: "/fixture/matter", projectName: "Matter" } } };
+  const source = native("legalwork_assistant_share_file", [output, output]);
+  if (source.state.status !== "completed") throw new Error("Expected completed fixture");
+  source.state.metadata = { toolCalls: [{ tool: "read", status: "completed" }, ...[1, 2].map(() => ({ tool: "legalwork_assistant_share_file", status: "completed" }))] };
+  const messages = assistantChatMessages([{ id: "assistant", role: "assistant", parts: history(source) }]);
+  expect(messages[0].parts).toHaveLength(1);
+  const card = messages[0].parts[0];
+  if (card.type !== "dynamic-tool") throw new Error("Expected file card");
+  expect(sharedAssistantFile(card)).toEqual(output.file);
+});
+
+test("unconfirmed delegations keep their warning card without treating failed calls as success", () => {
+  const delegation = { workspaceId: "matter", sessionId: "child", projectName: "Matter", title: "Review", scope: "Provider side", status: "delivery-unconfirmed" };
+  const output = { ok: false, delegation, error: "Delivery could not be confirmed." };
+  const parts = history(native("legalwork_assistant_delegate", output));
+  expect(getAssistantRenderGroups(parts, false).map(group => group.kind)).toEqual(["delegation"]);
+  expect(parseDelegationCard(output)?.status).toBe("delivery-unconfirmed");
+  for (const rejected of [
+    { ok: false, error: "No chat created" },
+    { ok: false, delegation: { ...delegation, status: "started" } },
+    { ok: false, referenceData: { ok: true, delegation: { ...delegation, status: "started" } } },
+  ]) expect(getAssistantRenderGroups(history(native("legalwork_assistant_delegate", rejected)), false)[0].kind).toBe("tools");
+});
+
+test("file and name cards require a successful recorded call and validated result", () => {
+  for (const { tool, output } of cases.filter(item => item.kind === "assistant-file" || item.kind === "assistant-name")) {
+    for (const status of ["running", "error"]) {
+      const source = native(tool, output);
+      if (source.state.status !== "completed") throw new Error("Expected completed fixture");
+      source.state.metadata = { toolCalls: [{ tool, status }] };
+      expect(getAssistantRenderGroups(history(source), false)[0].kind).toBe("tools");
+    }
+    for (const invalid of [{ ...output, ok: false }, { ok: true }, null]) {
+      expect(getAssistantRenderGroups(history(native(tool, invalid)), false)[0].kind).toBe("tools");
+    }
+  }
 });
 
 test("results returned in a different order retain the right draft kind", () => {

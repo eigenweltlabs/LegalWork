@@ -38,15 +38,6 @@ export function AssistantNavigation({ profile = DEFAULT_ASSISTANT_PROFILE, activ
   </SidebarMenuItem>;
 }
 
-export function AssistantAppearanceEditor({ profile, disabled, onChange }: {
-  profile: AssistantProfile; disabled?: boolean; onChange: (profile: AssistantProfile) => void;
-}) {
-  return <fieldset disabled={disabled} className="space-y-3 border-b border-border px-2 pb-4 pt-3">
-    <legend className="pt-3 text-xs text-muted-foreground">{t("assistant.title")}</legend>
-    <AssistantAppearanceFields profile={profile} onChange={onChange} />
-  </fieldset>;
-}
-
 export function AssistantAppearanceFields({ profile, compact, onChange, onNameBlur }: { profile: AssistantProfile; compact?: boolean; onChange: (profile: AssistantProfile) => void; onNameBlur?: () => void }) {
   const id = useId();
   return <>
@@ -62,7 +53,6 @@ export function AssistantAvatarPicker({ selected, disabled, large, compact, onSe
       return <Button key={icon} type="button" disabled={disabled} variant={chosen ? "secondary" : "ghost"} aria-label={t(`assistant.icon_${icon}`)} title={t(`assistant.icon_${icon}`)} aria-pressed={chosen} onClick={() => onSelect(icon)} className={cn("relative rounded-xl p-2", compact ? ["h-14 min-w-0 border", chosen ? "border-foreground/35 bg-muted hover:bg-muted" : "border-border/70 bg-background hover:bg-muted/50"] : ["aria-pressed:ring-2 aria-pressed:ring-ring", icon === "flower" ? "col-span-3 h-12 gap-3" : large ? "h-20" : "h-16"])}>
         <AssistantAvatar icon={icon} className={icon === "flower" && !compact ? "size-7" : compact ? "size-9" : large ? "size-16" : "size-12"} />
         {compact && chosen && <Check aria-hidden="true" className="absolute right-1 top-1 size-3 text-foreground" />}
-        {icon === "flower" && !compact && <span className="text-sm">{t("assistant.icon_flower")}</span>}
       </Button>;
     })}
   </div>;

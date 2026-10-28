@@ -1,3 +1,7 @@
+import { openDesktopUrl } from "@/app/lib/desktop";
+import { parseTaskLink } from "../tasks/task-reference";
+import { useRequestOpenTask } from "../session/panel/panel-tab-destination";
+import { DashboardIcon } from "../../design-system/dashboard-icon";
 import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { ViewSaveDialog } from "./view-save-dialog";
 import { ViewSaveActions } from "./view-save-actions";
@@ -37,6 +41,12 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   const queryClient = useQueryClient();
   const requestTab = useRequestPanelTab();
   const projectFiles = useProjectFiles();
+  const openTask = useRequestOpenTask();
+  const openLink = (href: string) => {
+    const task = parseTaskLink(href);
+    if (task) openTask(task.taskId);
+    else if (href.startsWith("https://")) void openDesktopUrl(href);
+  };
   const [error, setError] = useState("");
   const wikis = useQuery({ queryKey: ["wikis", client.baseUrl], queryFn: () => client.listWikis(), enabled: view.mode === "dashboard" && view.owner.kind === "wiki" });
   const writable = !readOnly && view.mode === "dashboard" && view.owner.kind === "wiki" && wikis.data?.items.some(wiki => wiki.id === view.owner.id && wiki.writable);
@@ -84,7 +94,7 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   }, [client, openSource, projectFiles, requestTab, results.data, view.owner]);
   const datasets: WikiDataResult[] = Object.values(results.data ?? {});
   return <>
-    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
+    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} openLink={openLink} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
     {error && <details className="lw-saved-view-error"><summary>This view has an error</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
     {datasets.some(data => data.truncated) && <p className="lw-view-data-note">Showing a limited set of records. Charts and local filters use the displayed data.</p>}
     {(!viewSourceAvailable(view, client.baseUrl) || datasets.some(data => !viewSourceAvailable(data, client.baseUrl))) && <p className="lw-view-data-note">{t("views.source_connection_unavailable")}</p>}
@@ -102,7 +112,7 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
   if (!client) return <div role="status" className="lw-saved-view-loading"><Loader2 className="size-4 animate-spin" />{t("views.loading")}</div>;
   return <div className={`lw-saved-view${inline ? " lw-saved-view-inline" : ""}`}>
     {view.data && <div className="lw-saved-view-toolbar">
-      {!inline && <span>{status?.live ? t("views.live_dashboard") : status?.asOf ? t("views.snapshot_at", { date: new Date(status.asOf).toLocaleString() }) : t("views.snapshot")}</span>}
+      {!inline && <div className="lw-saved-view-identity"><DashboardIcon className="size-5" /><div><p className="lw-saved-view-name">{view.data.title}</p><span>{status?.live ? t("views.live_dashboard") : status?.asOf ? t("views.snapshot_at", { date: new Date(status.asOf).toLocaleString() }) : t("views.snapshot")}</span></div></div>}
       <div className="ml-auto flex items-center gap-1">
         {!readOnly && !view.error && <ViewSaveActions saved onSaveCopy={() => setSaving(true)} />}
         {!readOnly && <Button size="icon-xs" variant="ghost" disabled={download.isPending || Boolean(view.error)} aria-label={t("views.export_snapshot")} title={t("views.export_snapshot")} onClick={() => download.mutate()}>{download.isPending ? <Loader2 className="animate-spin" /> : <Download />}</Button>}

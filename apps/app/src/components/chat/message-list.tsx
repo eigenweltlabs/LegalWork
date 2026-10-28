@@ -1,4 +1,6 @@
 import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
+import { isLocalOutgoingMessage } from "@/react-app/domains/session/surface/assistant-outgoing-messages";
+import { assistantIsWriting } from "@/react-app/domains/session/surface/assistant-bubbles";
 import { EmailDraftToolCard } from "./email-draft-card";
 import { WikiSuggestionCard, useWikiSuggestions } from "@/react-app/domains/wiki/wiki-suggestion-card";
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
@@ -624,6 +626,7 @@ const UserMessage = React.memo(
     const { message, files } = React.useMemo(() => assistantHandoffPresentation(sourceMessage), [sourceMessage])
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, readOnly, assistantChat } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
+    const localOutgoing = isLocalOutgoingMessage(sourceMessage)
     const sender = assistantMessageSender(message)
     const assistantScheduledRun = scheduledRunOf(message)
     const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
@@ -638,7 +641,7 @@ const UserMessage = React.memo(
           <ContextMenuTrigger
             className="select-text"
             render={
-              <div className="group flex w-full flex-col items-end gap-1">
+              <div className={cn("group relative flex w-full flex-col items-end gap-1", assistantChat && "pb-5")}>
                 {sender && <div className="mb-1 flex max-w-[85%] items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground sm:max-w-[75%]">
                   <AssistantAvatar icon={sender.icon} className="size-4 text-[16px] text-blue-10" />
                   <span className="min-w-0 break-words">{t("assistant.sent_by", { name: sender.name ?? t("assistant.title") })}</span>
@@ -659,12 +662,13 @@ const UserMessage = React.memo(
                 {files.map(file => <AssistantSharedFileCard key={file.path} file={{ path: file.path, title: file.name, filename: file.name, description: t("assistant.shared_with_project") }} />)}
                 <MessageActions
                   className={cn(
-                    "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100"
+                    "flex items-center gap-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100",
+                    assistantChat && "pointer-events-none absolute right-0 -bottom-4 z-10 group-hover:pointer-events-auto focus-within:pointer-events-auto"
                   )}
                 >
                   <MessageTimestamp message={message} className="mr-1.5" />
                   <CopyMessageButton messages={[message]} />
-                  {messageText && (assistantChat || !isStreaming) ? (
+                  {messageText && !localOutgoing && (assistantChat || !isStreaming) ? (
                     <MessageAction tooltip={t("message_list.edit_message")}>
                       <Button
                         variant="ghost"
@@ -704,7 +708,7 @@ const UserMessage = React.memo(
             }
           />
           <ContextMenuContent className="w-56">
-            {messageText ? (
+            {messageText && !localOutgoing ? (
               <ContextMenuItem disabled={readOnly} onClick={() => onEditUserMessage(message.id, messageText)}>
                 <Pencil className="size-4" />
                 {t("message_list.edit_message")}
@@ -992,7 +996,7 @@ function MessageGroup({
   }
 
   return (
-      <div className="flex flex-col gap-2 group/message-group">
+      <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && "pb-5")}>
       {displayItems.map(renderItem)}
       {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
@@ -1012,7 +1016,12 @@ function MessageGroup({
         />
       </div> : null}
       {hasText && !showTyping && (assistantChat || !isLiveGroup) && (
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
+        <div className={cn(
+          "flex min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100",
+          assistantChat
+            ? "pointer-events-none absolute left-0 -bottom-4 z-10 group-hover/message-group:pointer-events-auto focus-within:pointer-events-auto"
+            : "w-full"
+        )}>
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem && !assistantChat && !isStreaming ? (
@@ -1057,10 +1066,12 @@ interface MessageListProps {
   eigenweltPlan?: EigenweltBudgetPlan
   messages: UIMessage[]
   status: ThreadStatus
+  /** Active text generation, computed before complete-bubble buffering. */
+  assistantTyping?: boolean
   retryStatus?: RetryStatus | null
 }
 
-export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: MessageListProps) {
   const { assistantChat } = useMessageList();
   const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
   const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
@@ -1071,9 +1082,8 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
-  // Provider reasoning and tool work can precede a complete text reply. Keep
-  // one stable indicator for the active turn instead of waiting for text deltas.
-  const showAssistantTyping = assistantChat && (status === "submitted" || status === "streaming") && !error
+  const showAssistantTyping = assistantChat && (status === "submitted" || status === "streaming") && !error &&
+    (assistantTyping ?? assistantIsWriting(rawMessages, null, true))
   const lastItem = items.at(-1)
 
   return (

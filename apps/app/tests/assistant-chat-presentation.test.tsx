@@ -8,7 +8,7 @@ import { assistantChatMessages, assistantProjectFileTab, assistantReactions, lin
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { MessageList } from "../src/components/chat/message-list";
-import { AssistantLinkedFileCards } from "../src/components/chat/assistant-chat-cards";
+import { AssistantSharedFileCard, AssistantLinkedFileCards } from "../src/components/chat/assistant-chat-cards";
 import { MessageListProvider } from "../src/components/chat/message-list-provider";
 import { OpenTargetProvider } from "../src/lib/target-provider";
 
@@ -39,25 +39,33 @@ test("only deliberate file cards survive, tool/file noise is hidden and source m
   expect(assistantChatMessages([user, { ...response, parts: [{ ...shared, state: "input-available", output: undefined }] }])).toEqual([user]);
 });
 
-function render(messages: UIMessage[], status: "ready" | "submitted" | "streaming" | "retrying", assistantChat = true) {
+function render(messages: UIMessage[], status: "ready" | "submitted" | "streaming" | "retrying", assistantChat = true, assistantTyping?: boolean) {
   const query = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } });
   const noop = () => {};
   try {
     return renderToStaticMarkup(<QueryClientProvider client={query}><MemoryRouter><OpenTargetProvider onOpenTarget={noop}><MessageListProvider assistantChat={assistantChat} workspaceId="fixture" sessionId="chat"
       showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
-      <MessageList showWelcome={false} messages={messages} status={status} />
+      <MessageList showWelcome={false} messages={messages} status={status} assistantTyping={assistantTyping} />
     </MessageListProvider></OpenTargetProvider></MemoryRouter></QueryClientProvider>);
   } finally { query.clear(); }
 }
 
-test("the messenger keeps reactions and file cards, shows typing during tools and omits branch/revert actions", () => {
+test("an outgoing bubble is visible before delivery, without canonical message edit actions", () => {
+  const pending = render([{ ...user, metadata: { localOutgoing: true } }], "ready");
+  expect(pending).toContain("Please check the matters");
+  expect(pending).toContain('data-user-message-bubble=""');
+  expect(pending).not.toContain('aria-label="Edit message"');
+  expect(render([user], "ready")).toContain('aria-label="Edit message"');
+});
+
+test("the messenger keeps reactions and file cards, hides typing during tools and omits branch/revert actions", () => {
   const pending = render([user, activity], "streaming");
-  expect(pending.match(/data-assistant-typing/g)).toHaveLength(1);
+  expect(pending).not.toContain('data-assistant-typing=""');
   expect(pending).toContain('data-assistant-reaction=""');
   expect(pending).not.toContain("Read files");
   expect(pending).not.toContain("Internal thoughts");
   expect(pending).not.toContain("today.md");
-  expect(render([user], "submitted")).toContain('data-assistant-typing=""');
+  expect(render([user], "submitted")).not.toContain('data-assistant-typing=""');
   expect(pending).not.toContain('aria-label="Branch in new chat"');
   expect(pending).not.toContain('aria-label="Revert"');
   expect(render([user], "ready", false)).toContain('aria-label="Branch in new chat"');
@@ -71,23 +79,25 @@ test("the messenger keeps reactions and file cards, shows typing during tools an
   expect(render([user, activity], "streaming", false)).not.toContain('data-assistant-typing=""');
 });
 
-test("typing follows the active turn and sits after the acknowledgement", () => {
+test("typing sits after the acknowledgement only while the next bubble's text is being written", () => {
   // Trusted fixture prose only; the Bun renderer has no browser DOM.
   const sanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
   Object.defineProperty(DOMPurify, "sanitize", { value: (html: string) => html, configurable: true });
   try {
     const acknowledgement: UIMessage = { id: "ack", role: "assistant", parts: [{ type: "text", text: "I will take care of it and let you know when done." }] };
     const messages = [user, acknowledgement];
-    const html = render(messages, "streaming", true);
+    expect(render(messages, "streaming", true)).not.toContain('data-assistant-typing=""');
+    // The surface buffers incomplete text, passing its typing state separately.
+    const html = render(messages, "streaming", true, true);
     expect(html.match(/data-assistant-typing/g)).toHaveLength(1);
     const afterAcknowledgement = html.slice(html.indexOf("I will take care of it"));
     expect(afterAcknowledgement).toContain('data-assistant-typing=""');
     expect(afterAcknowledgement).not.toContain('aria-label="Copy message"');
     expect(afterAcknowledgement).not.toContain("my-2");
     for (const status of ["ready", "retrying"] satisfies Array<"ready" | "retrying">) {
-      expect(render(messages, status, true)).not.toContain('data-assistant-typing=""');
+      expect(render(messages, status, true, true)).not.toContain('data-assistant-typing=""');
     }
-    expect(render(messages, "submitted", true)).toContain('data-assistant-typing=""');
+    expect(render(messages, "submitted", true)).not.toContain('data-assistant-typing=""');
     const streaming: UIMessage = { ...acknowledgement, parts: [{ type: "text", text: "The result", state: "streaming" }] };
     expect(render([user, streaming], "streaming")).toContain('data-assistant-typing=""');
   } finally {
@@ -96,14 +106,13 @@ test("typing follows the active turn and sits after the acknowledgement", () => 
   }
 });
 
-test("reasoning-only and buffered replies retain one typing bubble until completion, stop or error", () => {
+test("submitted, thinking and delegated work never create a typing bubble", () => {
   const reasoning: UIMessage = { id: "reasoning", role: "assistant", parts: [{ type: "reasoning", text: "Preparing the response", state: "streaming" }] };
   for (const messages of [[user], [user, reasoning], [user, activity]]) {
     for (const status of ["submitted", "streaming"] satisfies Array<"submitted" | "streaming">) {
       const html = render(messages, status);
-      expect(html.match(/data-assistant-typing/g)).toHaveLength(1);
+      expect(html).not.toContain('data-assistant-typing=""');
       expect(html).not.toContain("Preparing the response");
-      expect(html).toContain('role="status"');
     }
     // Finished, stopped and pending user interactions all present ready state.
     expect(render(messages, "ready")).not.toContain('data-assistant-typing=""');
@@ -112,7 +121,7 @@ test("reasoning-only and buffered replies retain one typing bubble until complet
   }
   try {
     useSessionActivityStore.getState().setError("fixture", "chat", "Response failed");
-    expect(render([user], "streaming")).not.toContain('data-assistant-typing=""');
+    expect(render([user], "streaming", true, true)).not.toContain('data-assistant-typing=""');
   } finally { useSessionActivityStore.getState().clearError("fixture", "chat"); }
 });
 
@@ -157,4 +166,19 @@ test("a project result keeps the chat link and a file card scoped to the origina
 
   const otherCard = tool("legalwork_assistant_share_file", { ok: true, file: { ...file, source: { ...file.source, workspaceId: "other" } } });
   expect(assistantChatMessages([{ ...response, parts: [projectCard, projectCard, otherCard] }])[0].parts).toEqual([projectCard, otherCard]);
+});
+
+
+test("saved reports and dashboards have a deliberate document card without internal filenames", () => {
+  const path = "Reports/11111111-1111-4111-8111-111111111111.view.json";
+  const card = tool("legalwork_assistant_share_file", { ok: true, file: { path, title: "Morning briefing", documentType: "report", size: 400 } });
+  const saved = tool("legalwork_assistant_save_report", { ok: true, path });
+  expect(assistantChatMessages([user, { ...response, parts: [saved, card] }])[1].parts).toEqual([card]);
+  const kinds: Array<"report" | "dashboard"> = ["report", "dashboard"];
+  for (const documentType of kinds) {
+    const html = renderToStaticMarkup(<OpenTargetProvider onOpenTarget={() => {}}><AssistantSharedFileCard file={{ path, title: "Morning briefing", documentType }} /></OpenTargetProvider>);
+    expect(html).toContain('aria-label="Open: Morning briefing"');
+    expect(html).not.toContain(".view.json");
+    expect(html).not.toContain('disabled=""');
+  }
 });

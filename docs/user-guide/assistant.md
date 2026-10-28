@@ -4,15 +4,36 @@ Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
+To show or hide the Assistant entry, open **Customize navigation** using the
+gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**,
+then choose **Done**. This only changes sidebar visibility. To change its name
+or avatar, click the assistant at the top of its conversation, or open
+**Settings > Assistant**.
+
 The Assistant uses one conversation tab. Subagents work in the background until
 you open the small subagent toggle at the top of the chat and choose one. Their
 tabs keep their own titles and close when the run finishes. You can reopen a
 completed subagent from the same list to inspect its result. Opening another day
 reuses the Assistant tab without replacing an open subagent.
 
-Animated dots appear while the Assistant prepares a reply, including when a
-model is thinking or using tools. Replies arrive as complete bubbles. The dots
-disappear when the reply finishes, stops, or needs your answer or approval.
+Your message appears in the chat as soon as you press **Send**, including while
+attachments are uploading. Delivery continues in the background. If sending
+fails, your draft stays available and the chat shows the delivery error.
+
+Hover over a message to see its time and copy button, or edit your own message.
+These controls appear below the message without shifting the conversation.
+You can also reach them with the keyboard.
+
+Animated dots appear only while the Assistant writes a message to you. They stay
+off during thinking, tool calls and waiting for delegated work. Each reply
+arrives as a complete bubble, and the dots disappear as soon as that text is
+finished, even if background work continues. They also stop when a run is
+stopped or needs your answer or approval.
+
+The Assistant can acknowledge a message with an emoji on the left edge of your
+bubble. It chooses reactions for suitable greetings, thanks, requests or good
+news, before replying or starting work. Reactions are occasional and mean receipt,
+not approval or completion. They do not appear later as a progress update.
 
 Ask the Assistant to find a project, check tasks or calendar entries, or delegate
 work to a project chat. Delegated research and scheduled work run in separate
@@ -53,7 +74,9 @@ checks until it runs again. Timed checks, such as revisiting a website in five
 hours, still use normal
 [scheduled tasks](scheduled-tasks.md).
 
-## Morning briefings
+## Briefings and visual reports
+
+Ask for a morning briefing, matter overview or dashboard. The Assistant can deliver a dated report, a dashboard, or a Markdown document with an embedded chart. It chooses a document when the result benefits from more space than a chat reply.
 
 After a few useful exchanges, the Assistant may suggest a morning briefing if
 you do not already have one. It proposes a time and days, then creates the
@@ -63,6 +86,18 @@ Open its saved task card or **Scheduled tasks** to change, pause or delete it.
 The briefing includes accessible recordings and transcripts, email, calendar
 and tasks. The Assistant's scratchpad helps it prioritize topics without hiding
 other important commitments.
+
+A morning briefing can combine an overview of actions by matter, priority emails with links to their original messages, and a checklist grouped by matter. Email requires an authorized connected account. The Assistant uses recorded owners and dates, preserves checked items and your notes on updates, and avoids repeating existing tasks. A daily briefing is a snapshot of the information checked when it was prepared.
+
+Select the document card, or **Open** on it, to open a tab beside the conversation. Preparing or sharing a report does not open a tab automatically. Markdown briefings remain editable and follow the editor's autosave setting. Embedded charts have an **Open in tab** button for a larger view. The report toolbar shows whether the data is a snapshot or a live dashboard and offers refresh, export and save-copy controls.
+
+Shared document cards remain available when you reopen the conversation,
+including documents shared while the Assistant was doing several actions
+together. A card for a project deliverable opens that project's original file.
+
+Scheduled morning briefings use the same layout and share one primary document card. An unchanged built-in briefing schedule receives the new instructions automatically; custom schedule instructions are preserved. To use the layout in a custom schedule, ask it to prepare a visual morning briefing with an embedded matter chart and linked priority emails and tasks.
+
+Related: [Dashboards and reports](dashboards.md), [Files](files-documents.md), [Scheduled tasks](scheduled-tasks.md).
 
 ## Settings
 
