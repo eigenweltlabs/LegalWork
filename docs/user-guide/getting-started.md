@@ -11,7 +11,7 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 5. Choose **New Chat**, select an available model, and state the task. Attach a file or mention a workspace file with `@`. For example: "Read this agreement and identify the termination provisions, citing the clauses."
 6. Review the assistant's output and any permission request. Open output file links in the document panel. A chat response is not proof that a file was saved: check the named output and any tool errors.
 
-An ordinary project does not need a separate automation approval. LegalWork uses its managed settings and shared library; OpenCode configuration or plugins found in a case folder or its parent folders are not loaded automatically. Install skills, workflows and connectors through LegalWork. Project instructions and additional allowed folders remain specific to the project.
+Opening a project does not require a separate setup approval. LegalWork loads the project's settings and available tools automatically. Firm policies, allowed folders and permissions for individual actions still apply. Install skills, workflows and connectors through LegalWork, and manage access in Settings.
 
 ## Set up meeting recording
 
