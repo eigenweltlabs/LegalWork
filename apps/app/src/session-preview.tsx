@@ -17,7 +17,7 @@ import { DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type Assistan
 // Uses the real session, composer, navigation, files, and Memory Drive views.
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { HashRouter, MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { AssistantIntroModal } from "@/react-app/shell/assistant-intro";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
@@ -312,14 +312,16 @@ if (limitParam) {
 // `?subagentApprovals` exercises the real descendant selectors and approval
 // panels. Decisions are simulated locally, like the rest of this fixture.
 const subagentApprovals = new URLSearchParams(window.location.search).has("subagentApprovals");
-if (subagentApprovals) {
+const subagentTabs = new URLSearchParams(window.location.search).has("subagentTabs");
+const PreviewRouter = subagentTabs ? HashRouter : MemoryRouter;
+if (subagentApprovals || subagentTabs) {
   for (const { id, parentID, title } of [
     { id: "visual-research", parentID: "visual-review", title: "Research contract history" },
     { id: "visual-reference", parentID: "visual-research", title: "Compare policy references" },
   ]) {
     const item = snapshot(id, title);
     saveSnapshot({ ...item, session: { ...item.session, parentID } });
-    seedPermissionState(workspace.id, id, [{
+    if (subagentApprovals) seedPermissionState(workspace.id, id, [{
       id: `approval-${id}`, sessionID: id, permission: "external_directory",
       patterns: ["/Shared/Client precedents/*"], metadata: { path: "/Shared/Client precedents", description: "Read the precedents used for this review" }, always: [],
     }]);
@@ -348,13 +350,13 @@ if (subagentApprovals) {
     }));
     return { ...message, parts: [...tools, ...message.parts] };
   }) });
-  seedQuestionState(workspace.id, "visual-reference", [{
+  if (subagentApprovals) seedQuestionState(workspace.id, "visual-reference", [{
     id: "reference-question", sessionID: "visual-reference", questions: [{
       header: "Reference version", question: "Which policy version should I use for the comparison?",
       options: [{ label: "Current policy", description: "Use the approved policy" }, { label: "Draft policy", description: "Compare against the latest draft" }],
     }],
   }]);
-  seedPermissionState(workspace.id, "visual-board", [{
+  if (subagentApprovals) seedPermissionState(workspace.id, "visual-board", [{
     id: "unrelated-approval", sessionID: "visual-board", permission: "bash", patterns: ["echo unrelated"], metadata: {}, always: [],
   }]);
   // Each workspace chat owns its reply handlers. Simulate the transport so
@@ -773,7 +775,7 @@ function SessionPreview() {
   } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || previewParams.has("sent-by") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
@@ -866,6 +868,10 @@ function SessionPreview() {
 
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {subagentTabs && <button className="ml-3" onClick={() => {
+          const item = snapshots.get("visual-drafting");
+          if (item) saveSnapshot({ ...item, status: { type: "idle" } });
+        }}>Finish sample subagent</button>}
         {dashboardExplorer && <span className="ml-3 inline-flex gap-3">
           <button onClick={() => openDashboardPreview("new")}>New dashboard preview</button>
           <button onClick={() => openDashboardPreview("edit")}>Updated preview</button>
@@ -939,6 +945,7 @@ function SessionPreview() {
             assistantGreetingUnread: onboarding?.greetingUnread,
             assistantProfile, onSaveAssistantProfile: async profile => setAssistantProfile(profile),
             assistantWorkspaceId: assistantPreview ? workspace.id : undefined,
+            assistantDay: assistantPreview ? { sessionId: welcomeId, date: assistantToday } : undefined,
             onOpenAssistant: assistantPreview ? () => { setOnboarding(state => state && { ...state, greetingUnread: false }); setSelectedSessionId(welcomeId); useSessionInboxStore.getState().open(welcomeId, workspace.id); } : undefined, assistantActive: assistantPreview && selectedSessionId === welcomeId,
             workspaceSessionGroups: activeWorkspace.id === wikiWorkspace.id ? [{ workspace: wikiWorkspace, status: "ready", sessions: [] }] : projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
@@ -998,7 +1005,7 @@ previewRoot.render(
           <ShellConfigProvider>
             <ReloadCoordinatorProvider>
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={fixtureWorkspaces.map(item => ({ ...item, displayNameResolved: item.displayName ?? item.name }))} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
-                <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
+                <PreviewRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
                   <LegalworkControlProvider>
                     <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
                       const path = folder ? `${folder}/${file.name}` : file.name;
@@ -1010,7 +1017,7 @@ previewRoot.render(
                     <PlansPreview />
                     <Toaster /><DocumentDiscardDialog />
                   </LegalworkControlProvider>
-                </MemoryRouter>
+                </PreviewRouter>
               </WorkspaceProvider>
             </ReloadCoordinatorProvider>
           </ShellConfigProvider>

@@ -98,6 +98,11 @@ import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
 import { WorkspaceChat } from "./workspace-chat";
+import { isAssistantConversation } from "./assistant-conversation";
+import { subagentTabLifecycle } from "../panel/subagent-tab-lifecycle";
+import { useSessionActivityStore } from "../status/session-activity-store";
+import { useQueryCacheState } from "../../../infra/query-cache-state";
+import { emptyInteractionSessions, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
 import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
@@ -161,6 +166,7 @@ export type SessionPageSidebarProps = {
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
   assistantWorkspaceId?: string;
+  assistantDay?: { sessionId: string; date: string };
   onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
   assistantGreetingUnread?: boolean;
@@ -402,6 +408,18 @@ export function SessionPage(props: SessionPageProps) {
   }, [assistantWorkspace, props.selectedWorkspaceId]);
   useEffect(() => setWikiPickerPane(null), [workspaceScope]);
   const workspacePanel = useSessionPanelState(workspaceScope);
+  const interactionKey = useMemo(() => interactionSessionsKey(props.selectedWorkspaceId), [props.selectedWorkspaceId]);
+  const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
+  const sessionInfo = useCallback((id: string | null | undefined) => {
+    if (!id) return undefined;
+    const info = interactionSessions[id] ?? props.sidebar.workspaceSessionGroups.flatMap(group => group.sessions).find(session => session.id === id);
+    if (info) return info;
+    const tab = workspacePanel.tabs.find(tab => tab.type === "chat" && tab.sessionId === id);
+    return tab?.type === "chat" && tab.parentID ? { id, title: tab.label, parentID: tab.parentID } : undefined;
+  }, [interactionSessions, props.sidebar.workspaceSessionGroups, workspacePanel.tabs]);
+  const isAssistantChat = useCallback((id: string | null | undefined) => assistantWorkspace
+    && isAssistantConversation(id, props.sidebar.assistantDay?.sessionId, sessionInfo(id)),
+  [assistantWorkspace, props.sidebar.assistantDay?.sessionId, sessionInfo]);
   const controlSessionIds = useMemo(() => workspacePanel.tabs.flatMap(tab => tab.type === "chat" ? [tab.sessionId] : []), [workspacePanel.tabs]);
   const [overviewHost, setOverviewHost] = useState<HTMLDivElement | null>(null);
   const [overviewVisits, setOverviewVisits] = useState<{ workspaceId: string; views: ProjectView[] }>({ workspaceId: props.selectedWorkspaceId, views: [] });
@@ -834,18 +852,23 @@ export function SessionPage(props: SessionPageProps) {
 
   // A reload may restore a wiki page focused beside the chat named in the URL.
   const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
+  const closingSubagent = useRef<string | null>(null);
   const selectedSessionTitle = useMemo(
-    () => assistantWorkspace ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, assistantWorkspace, props.sidebar.assistantProfile?.name],
+    () => isAssistantChat(props.selectedSessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(props.selectedSessionId)?.title ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, isAssistantChat, sessionInfo, props.sidebar.assistantProfile?.name],
   );
   useEffect(() => {
     if (!assistantWorkspace) return;
     for (const tab of workspacePanel.tabs) {
-      if (tab.type === "chat") usePanelTabStore.getState().updateTabLabel(workspaceScope, tab.id, selectedSessionTitle);
+      if (tab.type === "chat" && isAssistantChat(tab.sessionId)) usePanelTabStore.getState().updateTabLabel(workspaceScope, tab.id, props.sidebar.assistantProfile?.name ?? t("assistant.title"));
     }
-  }, [assistantWorkspace, workspaceScope, workspacePanel.tabs, selectedSessionTitle]);
+  }, [assistantWorkspace, workspaceScope, workspacePanel.tabs, isAssistantChat, props.sidebar.assistantProfile?.name]);
   useEffect(() => {
-    if (!props.selectedSessionId || hasMainView) return;
+    // Closing the tab updates the store before navigation updates the route props.
+    // Do not adopt that still-selected route again during this intermediate render.
+    if (closingSubagent.current && closingSubagent.current === props.selectedSessionId) return;
+    closingSubagent.current = null;
+    if (!props.selectedSessionId || hasMainView || (assistantWorkspace && !isAssistantChat(props.selectedSessionId) && !sessionInfo(props.selectedSessionId))) return;
     const store = usePanelTabStore.getState();
     const tab = store.sessions[panelStateSessionId]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId);
     const routeChat = `${panelStateSessionId}:${props.selectedSessionId}`;
@@ -855,10 +878,27 @@ export function SessionPage(props: SessionPageProps) {
       store.updateTabLabel(panelStateSessionId, tab.id, selectedSessionTitle || tab.label);
       if (!restoringTab && previousRouteChat.current !== routeChat) store.selectTab(panelStateSessionId, tab.id);
     }
-    else if (!restoringTab) store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"));
+    else if (!restoringTab) store.adoptChat(panelStateSessionId, props.selectedSessionId, selectedSessionTitle || t("session.default_title"), { parentID: sessionInfo(props.selectedSessionId)?.parentID ?? undefined });
     previousRouteChat.current = routeChat;
-  }, [panelStateSessionId, props.selectedSessionId, selectedSessionTitle, hasMainView]);
+  }, [panelStateSessionId, props.selectedSessionId, selectedSessionTitle, hasMainView, assistantWorkspace, isAssistantChat, sessionInfo]);
   usePanelNavigationHistory(!hasMainView || sidePanelOpen ? panelStateSessionId : null);
+  const subagentStatuses = useSessionActivityStore(state => state.statusesByWorkspaceId[props.selectedWorkspaceId]);
+  const runningSubagentTabs = useRef(new Map<string, Set<string>>());
+  useEffect(() => {
+    const next = subagentTabLifecycle(workspacePanel.tabs, subagentStatuses,
+      runningSubagentTabs.current.get(workspaceScope) ?? new Set<string>());
+    runningSubagentTabs.current.set(workspaceScope, next.running);
+    if (!next.completed.length) return;
+    const store = usePanelTabStore.getState();
+    if (props.selectedSessionId && next.completed.includes(props.selectedSessionId)) closingSubagent.current = props.selectedSessionId;
+    for (const id of next.completed) store.closeTab(workspaceScope, `chat:${id}`);
+    const remaining = usePanelTabStore.getState().sessions[workspaceScope];
+    if (!props.selectedSessionId || !next.completed.includes(props.selectedSessionId)
+      || remaining?.tabs.some(tab => tab.id === `chat:${props.selectedSessionId}`)) return;
+    const replacement = remaining?.tabs.find(tab => tab.type === "chat" && remaining.panes.some(pane => pane.activeTabId === tab.id));
+    const id = replacement?.type === "chat" ? replacement.sessionId : null;
+    navigate(workspaceSessionRoute(props.selectedWorkspaceId, id) + (id ? "" : "?view=workspace"), { replace: true });
+  }, [workspaceScope, workspacePanel.tabs, subagentStatuses, props.selectedWorkspaceId, props.selectedSessionId, navigate]);
   useEffect(() => { props.onSessionTabsChange?.(sessionTabs); }, [sessionTabs, props.onSessionTabsChange]);
   const sessionActionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
@@ -927,19 +967,20 @@ export function SessionPage(props: SessionPageProps) {
     Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId) && !showWorkspaceSetupEmptyState;
 
   const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
+    closingSubagent.current = null;
     const store = usePanelTabStore.getState();
     const scope = workspacePanelKey(workspaceId);
     const state = store.sessions[scope];
     const tab = state?.tabs.find(tab => tab.type === "chat" && tab.sessionId === sessionId);
     if (tab) store.selectTab(scope, tab.id);
-    else {
-      const title = workspaceId === props.sidebar.assistantWorkspaceId
+    else if (workspaceId !== props.sidebar.assistantWorkspaceId || isAssistantChat(sessionId) || sessionInfo(sessionId)) {
+      const title = workspaceId === props.sidebar.assistantWorkspaceId && isAssistantConversation(sessionId, props.sidebar.assistantDay?.sessionId, sessionInfo(sessionId))
         ? props.sidebar.assistantProfile?.name ?? t("assistant.title")
-        : sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId) || t("session.default_title");
-      store.adoptChat(scope, sessionId, title, { preserveLayout: true });
+        : sessionInfo(sessionId)?.title || t("session.default_title");
+      store.adoptChat(scope, sessionId, title, { preserveLayout: true, parentID: sessionInfo(sessionId)?.parentID ?? undefined });
     }
     if (props.selectedSessionId !== sessionId || props.selectedWorkspaceId !== workspaceId || hasMainView || props.projectPage) props.sidebar.onOpenSession(workspaceId, sessionId);
-  }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, props.projectPage]);
+  }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, props.projectPage, isAssistantChat, sessionInfo]);
 
   const openSessionWindow = useCallback((workspaceId: string, sessionId: string) => {
     if (!isElectronRuntime()) return;
@@ -1600,8 +1641,8 @@ export function SessionPage(props: SessionPageProps) {
               let destination = pane;
               for (const [index, id] of ids.entries()) {
                 const store = usePanelTabStore.getState();
-                const title = assistantWorkspace ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title");
-                store.openTab(workspaceScope, chatPanelTab(id, title), destination, index === 0 ? edge : undefined);
+                const title = isAssistantChat(id) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(id)?.title || t("session.default_title");
+                store.openTab(workspaceScope, chatPanelTab(id, title, sessionInfo(id)?.parentID ?? undefined), destination, index === 0 ? edge : undefined);
                 const opened = usePanelTabStore.getState().sessions[workspaceScope]?.panes.find(pane => pane.activeTabId === `chat:${id}`);
                 if (!opened) break;
                 destination = opened.id;
@@ -1615,8 +1656,10 @@ export function SessionPage(props: SessionPageProps) {
             }}
             renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
               {...props.surface!}
-              assistantName={props.sidebar.assistantActive ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
-              assistantHeader={props.sidebar.assistantActive ? <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? props.surface : undefined} /> : undefined}
+              assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
+              assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
+              assistantName={isAssistantChat(sessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
+              assistantHeader={isAssistantChat(sessionId) ? <AssistantIdentity workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? props.surface : undefined} /> : undefined}
               active={active}
               client={props.legalworkServerClient!}
               environmentClient={props.environmentClient}
@@ -1625,7 +1668,7 @@ export function SessionPage(props: SessionPageProps) {
               opencodeBaseUrl={reactSessionBaseUrl}
               legalworkToken={reactSessionToken}
               legalworkHostToken={props.legalworkServerHostToken}
-              onOpenInteractionSession={props.onOpenInteractionSession}
+              onOpenInteractionSession={id => openSessionTab(props.selectedWorkspaceId, id)}
               onOpenTarget={(target, options) => openTarget(target, options, sessionId)}
               realtimeVoiceSupported={active && realtimeVoiceSupported}
               realtimeVoiceActive={active && voiceSidePanelOpen}
