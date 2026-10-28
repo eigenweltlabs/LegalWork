@@ -17,3 +17,8 @@ test("initial loading and real navigation still hold the composer", () => {
   expect(deriveSessionRenderModel({ ...loaded, renderedSessionId: "previous" }).transitionState).toBe("switching");
   expect(deriveSessionRenderModel({ ...loaded, renderedSessionId: "previous", isError: true }).transitionState).toBe("recovering");
 });
+
+test("cached chat data does not bypass revoked access, deletion or a recovery hold", () => {
+  for (const errorStatus of [401, 403, 404, 409]) expect(deriveSessionRenderModel({ ...loaded, isError: true, errorStatus }).transitionState).toBe("failed");
+  expect(deriveSessionRenderModel({ ...loaded, isError: true, errorStatus: 503 }).transitionState).toBe("idle");
+});
