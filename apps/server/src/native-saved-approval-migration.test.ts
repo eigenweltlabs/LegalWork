@@ -3,8 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activateNativeSavedApprovalMigration, prepareNativeSavedApprovalMigration } from "./native-saved-approval-migration.js";
-import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { activateNativeSavedApprovalMigration, migrateStoppedNativeSavedApprovals, prepareNativeSavedApprovalMigration } from "./native-saved-approval-migration.js";
+import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, runtimeEngineConfiguration, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 async function fixture(legacy = false) {
@@ -82,4 +82,33 @@ test("changing registered project ownership after review cannot apply a stale gr
     await expect(activateNativeSavedApprovalMigration(config, prepared, { ambiguous: "reconfirm" })).rejects.toThrow("ownership changed");
     expect(db.query("SELECT COUNT(*) AS n FROM permission").get()).toEqual({ n: 1 });
   } finally { db.close(); await closeRuntimeOpencodeConfig(config); await rm(root, { recursive: true, force: true }); }
+});
+
+
+test.each([false, true])("revocation after an interrupted import survives retry/restart (native deletion completed: %s)", async deleted => {
+  const { root, path, db, config } = await fixture(); const previous = process.env.LEGALWORK_RUNTIME_DB;
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite");
+  try {
+    db.query("INSERT INTO permission VALUES(?,?,?,?,?,?)").run("psv_known", "git-known", "fixture.review", "record", 1, 2);
+    const prepared = await prepareNativeSavedApprovalMigration(config, path);
+    db.exec("CREATE TRIGGER interrupt_saved_delete BEFORE DELETE ON permission BEGIN SELECT RAISE(ABORT,'simulated interruption'); END");
+    await expect(activateNativeSavedApprovalMigration(config, prepared, { ambiguous: "reconfirm" })).rejects.toThrow("simulated interruption");
+    const imported = await readRuntimeOpencodeConfig(config, "known");
+    expect(imported.projectPermissionApprovals).toHaveLength(1);
+    expect(imported.nativeSavedApprovalImportIDs).toEqual(prepared.imports.map(item => item.id));
+    // A settings replacement revokes the grant but cannot erase app-owned
+    // import history, even before the engine rows/receipt were committed.
+    await writeRuntimeOpencodeConfig(config, "known", () => ({}));
+    expect((await readRuntimeOpencodeConfig(config, "known")).nativeSavedApprovalImportIDs).toEqual(imported.nativeSavedApprovalImportIDs);
+    db.exec("DROP TRIGGER interrupt_saved_delete");
+    if (deleted) db.exec("DELETE FROM permission");
+    await closeRuntimeOpencodeConfig(config);
+    expect((await migrateStoppedNativeSavedApprovals(config, path)).changed).toBe(true);
+    const restored = await readRuntimeOpencodeConfig(config, "known");
+    expect(restored.projectPermissionApprovals ?? []).toEqual([]);
+    expect(runtimeEngineConfiguration(restored)).not.toHaveProperty("nativeSavedApprovalImportIDs");
+    expect(db.query("SELECT COUNT(*) AS n FROM permission").get()).toEqual({ n: 0 });
+    expect(await migrateStoppedNativeSavedApprovals(config, path)).toEqual({ changed: false, imported: 0, reconfirm: 0 });
+    expect(JSON.parse(await readFile(prepared.backup, "utf8")).original.rows).toHaveLength(1);
+  } finally { db.close(); await closeRuntimeOpencodeConfig(config); if (previous === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous; await rm(root, { recursive: true, force: true }); }
 });

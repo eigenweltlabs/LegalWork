@@ -19,7 +19,7 @@ export type RuntimeConfigUpgradeResult = {
   migrated: boolean;
 };
 
-const applicationKeys = new Set(["sandbox", "sandboxEdit", "sandboxSync", "sandboxNetworkMode", "personalization", "providerActivation", "projectPermissionApprovals"]);
+const applicationKeys = new Set(["sandbox", "sandboxEdit", "sandboxSync", "sandboxNetworkMode", "personalization", "providerActivation", "projectPermissionApprovals", "nativeSavedApprovalImportIDs"]);
 const legacyKeys = new Set(["permission", "provider", "agent", "plugin", "disabled_providers", "enabled_providers", "tools", "subagent_depth"]);
 function record(value: unknown): RecordValue {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Saved configuration must be an object.");
