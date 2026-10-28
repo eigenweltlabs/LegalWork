@@ -9,3 +9,7 @@ export { isReviewWorkerSession } from "@legalwork/types/reviews";
 export { ApproveEngineProjectSchema } from "@legalwork/types/engine-project";
 
 export { codeModeWidgetResults, toolDisplayText } from "@legalwork/types/chat-tool-results";
+
+export { browserPasswordRequestSchema, websiteConnectionUrl, connectedWebsiteSchema } from "@legalwork/types/browser-password-request";
+export { legalResearchProviders, legalResearchCountries, researchDatabaseSetupSchema } from "@legalwork/types/legal-research";
+export { researchLawAreas, researchJurisdictionLabel } from "@legalwork/types/legal-research-wiki";

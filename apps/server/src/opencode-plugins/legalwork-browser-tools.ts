@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path
 import { randomUUID } from "node:crypto";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { uiBridgeRequest } from "../inapp-document-bridge.js";
-import { connectedWebsiteSchema } from "@legalwork/types/browser-password-request";
+import { connectedWebsiteSchema } from "../native-shared-values.js";
 import { serverToken, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { nativeToolAbortSignal, nativeToolSignal } from "./native-tool.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
