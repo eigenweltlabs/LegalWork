@@ -12,6 +12,7 @@ import { registerLocalProject } from "./workspaces.js";
 import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
 import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
+import { assistantProactivityStore } from "../assistant-proactivity-store.js";
 import { assertAssistantToolAccess } from "../assistant-tool-access.js";
 import { projectMatch } from "../assistant-project-search.js";
 import { searchFingerprint } from "../assistant-session-search.js";
@@ -91,7 +92,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ context: settingsContext() });
+    return jsonResponse({ context: `${settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
