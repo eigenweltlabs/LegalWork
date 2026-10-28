@@ -2,11 +2,11 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WorkspaceProvider } from "../src/react-app/shell/workspace-provider";
 import { AssistantResourceOptions } from "../src/react-app/domains/settings/pages/assistant-resource-picker";
 import { AssistantSettingsEditor } from "../src/react-app/domains/settings/pages/assistant-view";
 import { AssistantProjectOptions } from "../src/react-app/domains/settings/pages/assistant-project-picker";
 import { AssistantBehaviorFields } from "../src/react-app/domains/settings/pages/assistant-behavior-settings";
+import type { ModelOption } from "../src/app/types";
 import type { AssistantSettings, AssistantSettingsCatalog } from "@legalwork/types/main-assistant";
 
 const settings: AssistantSettings = { systemPromptAddition: "Reply in German.", resourceIds: ["skill"], projectAccess: { mode: "include", projectIds: ["allowed"] } };
@@ -62,9 +62,9 @@ test("unavailable selections remain visible and removable instead of silently gr
 });
 
 
-test("Assistant settings autosave without a Save or Cancel action", () => {
+test("Assistant settings render without workspace context and autosave without Save or Cancel", () => {
   const query = new QueryClient();
-  const html = renderToStaticMarkup(<QueryClientProvider client={query}><WorkspaceProvider client={null} baseUrl="" token="" opencodeBaseUrl="" selectedWorkspaceRoot="" workspaces={[]} onOpenSession={() => {}}><AssistantSettingsEditor profile={{ name: "Johannes", icon: "bird" }} settings={settings} catalog={catalog} notifications onModels={() => {}} onSave={async () => {}} /></WorkspaceProvider></QueryClientProvider>);
+  const html = renderToStaticMarkup(<QueryClientProvider client={query}><AssistantSettingsEditor profile={{ name: "Johannes", icon: "bird" }} settings={settings} catalog={catalog} browserModelPicker={{ options: [], open: false, onOpenChange: () => {} }} notifications onModels={() => {}} onSave={async () => {}} /></QueryClientProvider>);
   query.clear();
   expect(html).toContain("Browser model");
   expect(html).toContain("GPT-6.1 Terra");
@@ -74,6 +74,17 @@ test("Assistant settings autosave without a Save or Cancel action", () => {
   expect(html).not.toContain(">Save<");
   expect(html).not.toContain(">Cancel<");
   expect(html).toContain('aria-label="Desktop notifications"');
+});
+
+test("Assistant settings use supplied model names without workspace context", () => {
+  const option: ModelOption = {
+    providerID: "connected-provider", modelID: "browser-model", title: "Connected browser model", description: "Connected provider",
+    behaviorTitle: "Reasoning", behaviorLabel: "Default", behaviorDescription: "", behaviorValue: null, isFree: false, isConnected: true,
+  };
+  const html = renderToStaticMarkup(<AssistantSettingsEditor profile={{ name: "Assistant", icon: "bird" }}
+    settings={{ ...settings, browserModel: { providerID: option.providerID, modelID: option.modelID } }} catalog={catalog}
+    browserModelPicker={{ options: [option], open: false, onOpenChange: () => {} }} notifications onModels={() => {}} onSave={async () => {}} />);
+  expect(html).toContain("Connected browser model");
 });
 
 test("the project picker presents selected state and an empty-search state", () => {

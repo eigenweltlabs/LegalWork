@@ -10,7 +10,7 @@ import { t } from "@/i18n";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
 import { AssistantBehaviorFields } from "./assistant-behavior-settings";
-import { AssistantBrowserModelField } from "./assistant-browser-model";
+import { AssistantBrowserModelField, type AssistantBrowserModelPicker } from "./assistant-browser-model";
 import { createAssistantSettingsAutosave, getAssistantSettingsAutosave, type AssistantSettingsDraft } from "./assistant-settings-autosave";
 import { SettingsNotice } from "../settings-section";
 import {
@@ -19,8 +19,9 @@ import {
   LayoutSectionItemHeaderActions,
 } from "../settings-layout";
 
-export function AssistantSettingsView({ client, onModels }: {
+export function AssistantSettingsView({ client, onModels, browserModelPicker }: {
   client: LegalworkServerClient | null; onModels: () => void;
+  browserModelPicker: AssistantBrowserModelPicker;
 }) {
   const cache = useQueryClient();
   const profile = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
@@ -35,6 +36,7 @@ export function AssistantSettingsView({ client, onModels }: {
   if (profile.isError || settings.isError || catalog.isError) return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">{t("assistant.settings_load_failed")}</p><Button variant="outline" onClick={() => { void profile.refetch(); void settings.refetch(); void catalog.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
   return <AssistantSettingsEditor key={`${client.baseUrl}:${profile.data.workspace?.id ?? "new"}`}
     autosaveKey={client.baseUrl}
+    browserModelPicker={browserModelPicker}
     profile={profile.data.profile} settings={settings.data.settings} catalog={catalog.data} notifications={notifications} onModels={onModels}
     onSave={async draft => {
       const currentProfile = cache.getQueryData<typeof profile.data>(["main-assistant-profile", client.baseUrl]) ?? profile.data;
@@ -52,8 +54,9 @@ export function AssistantSettingsView({ client, onModels }: {
     }} />;
 }
 
-export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey }: AssistantSettingsDraft & {
+export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey, browserModelPicker }: AssistantSettingsDraft & {
   catalog: AssistantSettingsCatalog; onSave: (draft: AssistantSettingsDraft) => Promise<void>; onModels: () => void; autosaveKey?: string;
+  browserModelPicker: AssistantBrowserModelPicker;
 }) {
   const [autosave] = useState(() => {
     const options = { initialValue: { profile, settings, notifications }, onSave, onStatus: () => {} };
@@ -79,7 +82,7 @@ export function AssistantSettingsEditor({ profile, settings, catalog, notificati
         </LayoutSection>
         <AssistantBehaviorFields settings={draft.settings} catalog={catalog} onChange={value => change({ ...draft, settings: value }, value.systemPromptAddition === draft.settings.systemPromptAddition)} onInstructionsBlur={() => change(draft)} />
         <AssistantPreferences notifications={draft.notifications} onNotificationsChange={value => change({ ...draft, notifications: value })} onModels={onModels} />
-        <Surface className="p-5"><AssistantBrowserModelField value={draft.settings.browserModel} onChange={browserModel => change({ ...draft, settings: { ...draft.settings, browserModel } })} /></Surface>
+        <Surface className="p-5"><AssistantBrowserModelField picker={browserModelPicker} value={draft.settings.browserModel} onChange={browserModel => change({ ...draft, settings: { ...draft.settings, browserModel } })} /></Surface>
       </div>
   </LayoutStack>;
 }

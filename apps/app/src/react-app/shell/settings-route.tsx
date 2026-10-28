@@ -2042,7 +2042,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           </>
         );
       case "assistant":
-        return <AssistantSettingsView client={legalworkClient} onModels={() => navigateSettingsPath("ai")} />;
+        return <AssistantSettingsView client={legalworkClient} browserModelPicker={{ options: modelPicker.options, open: modelPicker.compactOpen, onOpenChange: modelPicker.setCompactOpen }} onModels={() => navigateSettingsPath("ai")} />;
       case "personalisation":
         return (
           <PersonalisationView
