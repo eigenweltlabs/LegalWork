@@ -4,7 +4,7 @@ import { EventEmitter, once } from "node:events";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { CloudTranscriber, pcm16 } from "./audio/cloud-transcriber.mjs";
 import { createDictationSpeechDetector } from "./audio/dictation-speech.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
@@ -397,6 +397,7 @@ test("a failed live connection keeps both inputs recording and preserves speaker
     service.feedPcm(meta.id, new Float32Array(16000).fill(.2).buffer, source);
     service.appendMediaChunk(meta.id, Buffer.from("audio during outage"), source);
   }
+  assert.ok(service.worker instanceof CloudTranscriber);
   assert.equal(service.worker.streams.size, 2, "one input's outage must not discard the healthy input");
   const saved = await service.stopRecording(meta.id);
   assert.equal(saved.speakerProcessing, true);
@@ -437,8 +438,11 @@ test("a 43:20 disconnect and prolonged outage stay bounded across three hours of
   const sockets = [];
   const events = [];
   let offline = false;
-  class Socket extends EventEmitter {
-    bufferedAmount = 0;
+  class Socket extends WebSocket {
+    constructor() {
+      super(null, [], {}); // Unconnected socket; no network or capture devices.
+      Object.defineProperty(this, "bufferedAmount", { value: 0 });
+    }
     samples = 0;
     commands = [];
     send(frame) {
