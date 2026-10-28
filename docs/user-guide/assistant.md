@@ -20,6 +20,9 @@ Your message appears in the chat as soon as you press **Send**, including while
 attachments are uploading. Delivery continues in the background. If sending
 fails, your draft stays available and the chat shows the delivery error.
 
+Use the microphone button beside **Send** to dictate a message. Stop dictation
+to review the text, or use its **Send** button to send it directly.
+
 Hover over a message to see its time and copy button, or edit your own message.
 These controls appear below the message without shifting the conversation.
 You can also reach them with the keyboard.
