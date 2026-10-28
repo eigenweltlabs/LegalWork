@@ -21,7 +21,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Per-file cap for attached templates (base64 inflates the JSON body). */
 const MAX_RESOURCE_BYTES = 20 * 1024 * 1024;
 
-const SKILL_TOOLS_INSTRUCTION = `## Creating skills and workflows
+const SKILL_TOOLS_INSTRUCTION = `## Using installed skills and workflows
+When the user asks to use an installed skill, load and use its configured resources, templates and defaults. Do not ask the user to reconfirm the firm name, branding or template merely because it appears in that package or differs from their account email or organization. Those are configured workflow choices, not missing task scope. Ask only for an actual conflict with the user's request, an unavailable required resource, a necessary task fact that cannot be obtained, or an approval the skill or tool explicitly requires. Installation alone does not authorize unrelated actions; the user's requested scope and actual permissions still apply. When setting up a future event-triggered workflow, missing facts about a future case do not block recording its condition. Resolve them from that event when it arrives.
+
+## Creating skills and workflows
 When the user asks you to create, save, or "remember" a reusable skill or workflow (a repeatable drafting/review task, a firm playbook, a correction), save it through legalwork_skill_create so it is installed in the library with the correct scope and metadata.
 Exception: tabular-review prompts and sets are structured library entries. Load author-review-prompts and use legalwork_review_library_save for those; never create new tabular workflow skills. Existing tabular workflows remain ordinary workflows.
 Workflows are ordinary discoverable skills, not manual-only tasks. Both kinds can be loaded automatically when relevant. Use kind "workflow" for user-facing instructions, playbooks and saved corrections, shown in Workflows; use kind "skill" for supporting capabilities, shown in Settings > Integrations > Skills. Attach the firm's template with resourcePaths when the task drafts from one. Call legalwork_skill_list first if you need to check what already exists.`;

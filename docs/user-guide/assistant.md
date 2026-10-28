@@ -83,6 +83,13 @@ that matter" and it updates its scratchpad itself. When you say you are waiting
 for an email and ask to be told, it checks now and keeps an eye out if it has not
 arrived. You do not need to repeat the request or configure an alert.
 
+You can also ask for work when a condition occurs, for example: "When a new
+client intake request arrives, create a project and use my intake workflow."
+The Assistant records the condition itself and uses the existing email checks,
+without creating a separate recurring inbox task. It uses the installed skill's
+configured templates. Details about the future client are resolved when the
+request arrives, rather than blocking setup.
+
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,
 Outlook, Google Calendar and Outlook Calendar accounts about every three minutes.
@@ -96,7 +103,15 @@ Assistant's scratchpad. Once the whole interval has been checked, the Assistant 
 results scoring at least 80% together and decides whether one short message would help
 or whether to stay quiet. Without an explicit match, it is not interrupted. Active
 conversations and outstanding questions or approvals take priority. These
-updates do not authorize sending mail, starting work or changing your records.
+updates do not authorize additional work by themselves. If you explicitly asked
+for work when a condition occurs, the Assistant can carry out that scope with
+its usual tools and permissions, including delegating a skill to the appropriate
+project. For a new matter, it starts a new project chat and brings you the result
+when that work is ready. It stays quiet while the work runs, unless it needs your
+answer or approval or encounters a blocker. It checks for existing work to avoid
+duplicates. Actual approvals remain required; an email cannot grant permission. Recurring conditions stay
+active until you cancel them, and the Assistant removes fulfilled one-time
+conditions.
 The existing desktop notification preference applies to new Assistant messages.
 
 Checks require a connected source and an available EU decision model. If a

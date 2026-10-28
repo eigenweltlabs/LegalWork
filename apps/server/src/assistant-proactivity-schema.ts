@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const ScratchpadWriteSchema = z.object({
   revision: z.number().int().nonnegative(),
-  text: z.string().trim().max(6000).describe("Replace the concise scratchpad with your current topics, exact notification conditions and end conditions. Empty clears it. Only the Assistant maintains this text; events never add topics."),
+  text: z.string().trim().max(6000).describe("Replace the concise scratchpad with current topics, exact event conditions, the user-requested response and end conditions. For explicitly authorized conditional work, retain the original human instruction and source chat reference, authorized action and skill. Future case details are not required to register the condition. Empty clears it. Only the Assistant maintains this text; events never add topics."),
 });
 export const BriefingActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("status") }),
