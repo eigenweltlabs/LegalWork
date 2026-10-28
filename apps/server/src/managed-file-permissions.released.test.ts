@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,7 @@ import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { activateNativeSavedApprovalMigration, prepareNativeSavedApprovalMigration } from "./native-saved-approval-migration.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -24,7 +26,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
   const library = join(root, "library", "opencode"), probe = join(library, "plugins", "file-probe");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", configPath: join(root, "private", "server.json"),
-    managedEngineStorageDirectory: join(root, "private"), engineConfigurationMode: "managed", engineProjectTrustRequired: true,
+    managedEngineStorageDirectory: join(root, "private"), engineConfigurationMode: "native-project", engineProjectTrustRequired: true,
     workspaces: [a, b].map((path, index) => ({ id: index ? "b" : "a", name: "Matter", path, preset: "starter", workspaceType: "local" })),
     authorizedRoots: [a, b], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
@@ -38,6 +40,8 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     if (git) {
       const child = Bun.spawn(["git", "init", "--quiet", root], { stdout: "pipe", stderr: "pipe" });
       expect(await child.exited).toBe(0);
+      const initial = Bun.spawn(["git", "-C", root, "-c", "user.name=LegalWork fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "--quiet", "-m", "Permission fixture"], { stdout: "pipe", stderr: "pipe" });
+      expect(await initial.exited).toBe(0);
     }
     await writeFile(join(a, "inside.txt"), "project-readable");
     await writeFile(join(a, ".env"), "protected-project-secret");
@@ -55,6 +59,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
       export default Plugin.define({id:'fixture.managed-files',async setup(ctx){const outcomes=new Map();
         await ctx.rpc.register(${JSON.stringify(rpc)},{async run(input){
           if(input.tool==='result')return outcomes.get(input.sessionID)||'pending';
+          if(input.tool==='start-permission'){outcomes.set(input.sessionID,'pending');void ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:input.input.action,resources:input.input.resources,save:input.input.save}).then(()=>outcomes.set(input.sessionID,'authorized'),()=>outcomes.set(input.sessionID,'rejected'));return 'started'}
           if(input.tool==='verified-output-read'){await ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:'read',resources:[input.input.path],metadata:{legalworkVerifiedToolOutput:true}});return 'verified'}
           if(input.tool==='start-upload-read'){outcomes.set(input.sessionID,'pending');void ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:'read',resources:[input.input.path],metadata:{browserUpload:true}}).then(()=>outcomes.set(input.sessionID,'authorized'),()=>outcomes.set(input.sessionID,'rejected'));return 'started'}
           const session=await ctx.session.get({sessionID:input.sessionID});
@@ -62,16 +67,16 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
           if(!tool)throw new Error('Missing file tool');
           const execute=()=>tool.execute(input.input,{sessionID:input.sessionID,agent:session.agent||'legalwork',messageID:'msg_managed_files',id:'call_managed_files',signal:new AbortController().signal,progress:async()=>{}});
           if(input.tool.startsWith('start-')){outcomes.set(input.sessionID,'pending');void execute().then(value=>outcomes.set(input.sessionID,JSON.stringify(value)),()=>outcomes.set(input.sessionID,'rejected'));return 'started'}
-          return JSON.stringify(await execute());
+          try{return JSON.stringify(await execute())}catch(error){if(input.input.path?.endsWith("inside.txt"))return JSON.stringify({fixtureError:String(error),stack:error?.stack});throw error}
         }})}});`);
-    await writeRuntimeOpencodeConfig(config, "a", () => ({ permission: { external_directory: { [join(added, "*")]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(config, "a", () => ({ permissions: [{ action: "external_directory", resource: join(added, "*"), effect: "allow" }] }));
     await writeLegalworkRuntimeConfigFile(config, "a");
     server = await startServer(config);
     const serverPort = server.port;
     const start = async () => createManagedOpencodeServer({ bin: binary, cwd: a, timeoutMs: 30_000, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "engine-config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
       OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config), OPENCODE_CONFIG: legalworkRuntimeConfigFilePath(config), OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config),
-      OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
+      OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
       LEGALWORK_SERVER_URL: `http://127.0.0.1:${serverPort}`, LEGALWORK_SERVER_TOKEN: config.token,
     } });
     engine = await start();
@@ -82,6 +87,10 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     };
     let client = connect();
     const location = { directory: a }, otherLocation = { directory: b };
+    const nativeProject = (await client.location.get({ location })).project.id;
+    const otherNativeProject = (await client.location.get({ location: otherLocation })).project.id;
+    if (git) expect(otherNativeProject).toBe(nativeProject); else expect(otherNativeProject).not.toBe(nativeProject);
+    expect(nativeProject).not.toBe("global");
     const invoke = (sessionID: string, tool: string, input: Record<string, JsonValue>, target = location) => client.rpc.call({ rpcID: rpc.id, method: "run", input: { sessionID, tool, input }, location: target }, { signal: AbortSignal.timeout(10_000) }).catch(error => { throw new Error(`${tool} ${JSON.stringify(input)} failed`, { cause: error }); });
     const waitForOutcome = async (sessionID: string, target = location) => {
       for (let attempt = 0; attempt < 200; attempt++) {
@@ -110,6 +119,25 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
       await client.permission.reply({ sessionID: session.id, requestID: request.id, decision: "reject" });
       expect(await waitForOutcome(session.id)).toBe("rejected");
     }
+    const updatingSession = await client.session.create({ location, agent: "legalwork" });
+    let settingsComplete = false, readsDuringUpdate = 0;
+    await Promise.all([
+      (async () => {
+        try {
+          for (let index = 0; index < 8; index++) {
+            await writeRuntimeOpencodeConfig(config, "a", current => ({ ...current, experimental: { ...current.experimental, todo: index % 2 === 0 } }));
+            await writeLegalworkRuntimeConfigFile(config, "a");
+          }
+        } finally { settingsComplete = true; }
+      })(),
+      (async () => {
+        while (!settingsComplete) {
+          expect((await invoke(updatingSession.id, "read", { path: join(a, "inside.txt") })).output).toContain("project-readable");
+          readsDuringUpdate++;
+        }
+      })(),
+    ]);
+    expect(readsDuringUpdate).toBeGreaterThan(0);
     const approved = await client.session.create({ location, agent: "legalwork" });
     await invoke(approved.id, "start-read", { path: external });
     const request = await pending(approved.id);
@@ -184,9 +212,14 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await mkdir(restricted); await mkdir(wildcardRestricted);
     await writeFile(join(restricted, "private.txt"), "restricted-child-content");
     await writeFile(join(wildcardRestricted, "private.txt"), "wildcard-restricted-child-content");
-    await writeRuntimeOpencodeConfig(config, "a", () => ({ permission: { external_directory: {
-      [join(shadowed, "*")]: "allow", [join(outside, "*")]: "ask", "*": "ask", [join(added, "*")]: "allow", [join(restricted, "*")]: "deny", "*/wildcard-restricted/*": "deny",
-    } } }));
+    await writeRuntimeOpencodeConfig(config, "a", () => ({ permissions: [
+      { action: "external_directory", resource: join(shadowed, "*"), effect: "allow" },
+      { action: "external_directory", resource: join(outside, "*"), effect: "ask" },
+      { action: "external_directory", resource: "*", effect: "ask" },
+      { action: "external_directory", resource: join(added, "*"), effect: "allow" },
+      { action: "external_directory", resource: join(restricted, "*"), effect: "deny" },
+      { action: "external_directory", resource: "*/wildcard-restricted/*", effect: "deny" },
+    ] }));
     await writeLegalworkRuntimeConfigFile(config, "a");
     const remembered = await client.session.create({ location, agent: "legalwork" });
     await invoke(remembered.id, "start-read", { path: external });
@@ -230,7 +263,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await rm(aliasDirectory); await symlink(changed, aliasDirectory, process.platform === "win32" ? "junction" : "dir");
     await invoke(remembered.id, "start-read", { path: join(aliasDirectory, "private.txt") });
     const changedTarget = await pending(remembered.id);
-    expect(changedTarget.resources).toEqual([join(changed, "*").replaceAll("\\", "/")]);
+    expect(changedTarget.resources).toContain(join(changed, "*").replaceAll("\\", "/"));
     await client.permission.reply({ sessionID: remembered.id, requestID: changedTarget.id, decision: "reject" });
     expect(await waitForOutcome(remembered.id)).toBe("rejected");
     const foreign = await client.session.create({ location: otherLocation, agent: "helper" });
@@ -238,7 +271,94 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     const foreignRequest = await pending(foreign.id, otherLocation);
     await client.permission.reply({ sessionID: foreign.id, requestID: foreignRequest.id, decision: "reject" });
     expect(await waitForOutcome(foreign.id, otherLocation)).toBe("rejected");
-    await writeRuntimeOpencodeConfig(config, "a", () => ({ permission: { external_directory: { [join(added, "*")]: "allow" } } }));
+    // A generic native action must use the same product-project ownership as
+    // folder approvals, including exact save scopes and the public edit API.
+    const action = "fixture.review", resource = "matter-record-17";
+    const permissionInput = { action, resources: [resource], save: [resource] };
+    for (const id of ["a", "b"]) await writeRuntimeOpencodeConfig(config, id, current => ({ ...current, permissions: [...current.permissions ?? [], { action, resource: "*", effect: "ask" }] }));
+    await writeLegalworkRuntimeConfigFile(config, "a");
+    const generic = await client.session.create({ location, agent: "legalwork" });
+    await invoke(generic.id, "start-permission", permissionInput);
+    const genericRequest = await pending(generic.id);
+    expect(genericRequest.action).toBe(action);
+    expect(genericRequest.save).toEqual([resource]);
+    const projectApi = (project: string, path: string, method = "GET", body?: unknown) => fetch(`http://127.0.0.1:${serverPort}/workspace/${project}/opencode/api${path}`, {
+      method, headers: { authorization: `Bearer ${config.token}`, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    expect((await projectApi("a", `/session/${generic.id}/permission/${genericRequest.id}/reply`, "POST", { decision: "always" })).status).toBe(204);
+    expect(await waitForOutcome(generic.id)).toBe("authorized");
+    const saved = await projectApi("a", "/permission/saved").then(response => response.json());
+    const genericSaved = saved.data.find((entry: { action: string }) => entry.action === action);
+    expect(genericSaved).toMatchObject({ action, resource, projectID: "a" });
+    expect((await projectApi("b", "/permission/saved").then(response => response.json())).data).toEqual([]);
+    expect((await projectApi("b", `/permission/saved/${genericSaved.id}`, "DELETE")).status).toBe(404);
+    expect(await client.permission.saved.list()).toEqual([]);
+    await engine.close(); engine = await start();
+    config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
+    client = connect();
+    const genericNext = await client.session.create({ location, agent: "legalwork" });
+    await invoke(genericNext.id, "start-permission", permissionInput);
+    expect(await waitForOutcome(genericNext.id)).toBe("authorized");
+    const denySession = await client.session.create({ location, agent: "legalwork", permissions: [{ action, resource, effect: "deny" }] });
+    await invoke(denySession.id, "start-permission", permissionInput);
+    expect(await waitForOutcome(denySession.id)).toBe("rejected");
+    expect(await client.permission.list({ sessionID: denySession.id })).toEqual([]);
+    const genericOther = await client.session.create({ location: otherLocation, agent: "legalwork" });
+    await invoke(genericOther.id, "start-permission", permissionInput, otherLocation);
+    const otherAsk = await pending(genericOther.id, otherLocation);
+    expect((await projectApi("b", `/session/${genericOther.id}/permission/${otherAsk.id}/reply`, "POST", { decision: "once" })).status).toBe(204);
+    expect(await waitForOutcome(genericOther.id, otherLocation)).toBe("authorized");
+    await invoke(genericOther.id, "start-permission", permissionInput, otherLocation);
+    const repeated = await pending(genericOther.id, otherLocation);
+    await client.permission.reply({ sessionID: genericOther.id, requestID: repeated.id, decision: "reject" });
+    expect(await waitForOutcome(genericOther.id, otherLocation)).toBe("rejected");
+    expect((await projectApi("b", "/permission/saved").then(response => response.json())).data).toEqual([]);
+    const editedResource = "matter-record-19";
+    expect((await projectApi("a", `/permission/saved/${genericSaved.id}`, "PATCH", { resource: editedResource })).status).toBe(200);
+    await invoke(genericNext.id, "start-permission", permissionInput);
+    const edited = await pending(genericNext.id);
+    await client.permission.reply({ sessionID: genericNext.id, requestID: edited.id, decision: "reject" });
+    expect(await waitForOutcome(genericNext.id)).toBe("rejected");
+    const editedInput = { action, resources: [editedResource], save: [editedResource] };
+    await invoke(genericNext.id, "start-permission", editedInput);
+    expect(await waitForOutcome(genericNext.id)).toBe("authorized");
+    expect((await projectApi("a", `/permission/saved/${genericSaved.id}`, "DELETE")).status).toBe(204);
+    await engine.close(); engine = await start();
+    config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
+    client = connect();
+    await invoke(genericNext.id, "start-permission", editedInput);
+    const removed = await pending(genericNext.id);
+    await client.permission.reply({ sessionID: genericNext.id, requestID: removed.id, decision: "reject" });
+    expect(await waitForOutcome(genericNext.id)).toBe("rejected");
+    expect(await client.permission.saved.list()).toEqual([]);
+    // Upgrade an actual nonempty engine Saved table before boot. A shared
+    // Git identity has no safe matter owner; a unique native root does.
+    await engine.close();
+    const existing = new Database(join(root, "engine.db"));
+    try { existing.query("INSERT INTO permission(id,project_id,action,resource,time_created,time_updated) VALUES(?,?,?,?,?,?)")
+      .run("psv_legacy_native_fixture", nativeProject, action, "legacy-only-record", 17, 19); }
+    finally { existing.close(); }
+    const oldSaved = await prepareNativeSavedApprovalMigration(config, join(root, "engine.db"));
+    expect(oldSaved.sourceRows).toBe(1);
+    expect(oldSaved.imports).toHaveLength(git ? 0 : 1);
+    expect(await activateNativeSavedApprovalMigration(config, oldSaved, { ambiguous: git ? "reconfirm" : "hold" })).toEqual({ imported: git ? 0 : 1, reconfirm: git ? 1 : 0 });
+    await writeLegalworkRuntimeConfigFile(config, "a");
+    engine = await start();
+    config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
+    client = connect();
+    const legacyInput = { action, resources: ["legacy-only-record"], save: ["legacy-only-record"] };
+    await invoke(genericNext.id, "start-permission", legacyInput);
+    if (git) {
+      const request = await pending(genericNext.id);
+      await client.permission.reply({ sessionID: genericNext.id, requestID: request.id, decision: "reject" });
+      expect(await waitForOutcome(genericNext.id)).toBe("rejected");
+    } else expect(await waitForOutcome(genericNext.id)).toBe("authorized");
+    await invoke(genericOther.id, "start-permission", legacyInput, otherLocation);
+    const legacyForeign = await pending(genericOther.id, otherLocation);
+    await client.permission.reply({ sessionID: genericOther.id, requestID: legacyForeign.id, decision: "reject" });
+    expect(await waitForOutcome(genericOther.id, otherLocation)).toBe("rejected");
+    expect(await client.permission.saved.list()).toEqual([]);
+    await writeRuntimeOpencodeConfig(config, "a", () => ({ permissions: [{ action: "external_directory", resource: join(added, "*"), effect: "allow" }] }));
     await writeLegalworkRuntimeConfigFile(config, "a");
     await invoke(next.id, "start-read", { path: external });
     const revoked = await pending(next.id);

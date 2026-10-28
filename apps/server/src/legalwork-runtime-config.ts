@@ -1,13 +1,16 @@
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
-import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
+import { permissionAction, permissionPatternMatches } from "./agent-sandbox/permissions.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { embeddedNativePluginBundle } from "./native-plugin-assets.js";
 import { resolveCapabilityLibrary } from "./capability-library.js";
 import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-engine-settings.js";
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
-import { archiveNativeProjectProjection, nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
+import { nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
 import { approvedNativePluginIdentities, approveNativePluginTargets, managedNativePluginTargets, nativePluginIdentity } from "./native-project-plugins.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
@@ -28,7 +31,7 @@ import { writeGeneratedConfigFile } from "./generated-config-file.js";
 import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { listGlobalSkills, listSkills } from "./skills.js";
-import { commonManagedConfiguration } from "./managed-config-sources.js";
+import { commonManagedConfiguration, managedConfigurationDiff } from "./managed-config-sources.js";
 import { prepareManagedGlobalLibrary } from "./managed-global-library.js";
 import { managedCoreLibraryRoot, managedCoreConfiguration, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -210,8 +213,7 @@ async function bundledPluginSpec(absolutePath: string, config?: ServerConfig): P
   return dirname(absolutePath);
 }
 
-// Tool permissions are global (one safety posture across workspaces);
-// the workspace row only contributes external_directory.
+// Application defaults precede the selected project's native rules.
 async function memberRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<RuntimeOpencodeConfig> {
   return config && workspaceId
     ? applyGlobalToolPermissions(
@@ -261,7 +263,7 @@ export async function buildLegalworkRuntimeSettings(
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
-  const storedProviders = repairRuntimeProviders(runtimeConfig.provider ?? {}).providers;
+  const storedProviders = repairRuntimeProviders(runtimeConfig.providers ?? {}).providers;
   // An account manifest is authoritative even when empty (unfunded Sync or
   // all models disabled). Never resurrect a stale per-workspace paid model.
   if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
@@ -273,64 +275,60 @@ export async function buildLegalworkRuntimeSettings(
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
-  // The firm's tool permissions apply over the member's own.
-  const { permission: configuredPermission } = config
-    ? await orgPolicyPermissions(config, { ...runtimeConfig.permission })
-    : { permission: { ...runtimeConfig.permission } };
-  // V1 asked before native file tools crossed the project's folder boundary.
-  // V2 defaults to allowing it. Restore the app's default without reordering
-  // explicit user/firm rules or dropping the fallback behind specific grants.
-  const permission: Record<string, unknown> = Object.hasOwn(configuredPermission, "external_directory")
-    ? { ...configuredPermission }
-    : { external_directory: { "*": "ask" }, ...configuredPermission };
-  const folders = permission.external_directory;
-  if (folders && typeof folders === "object" && !Array.isArray(folders)) {
-    permission.external_directory = { ...(Object.hasOwn(folders, "*") ? {} : { "*": "ask" }), ...Object.fromEntries(Object.entries(folders)) };
-  }
-  const instructionPermission = permission.legalwork_project_set_instructions === "deny" ? "deny" : "ask";
-  // Append the specific rule after wildcard rules; approvals cannot be saved
-  // for this tool, so every proposed instructions change is reviewed.
-  delete permission.legalwork_project_set_instructions;
+  const configuredPermission = config
+    ? (await orgPolicyPermissions(config, runtimeConfig.permissions ?? [])).permission
+    : [...runtimeConfig.permissions ?? []];
+  const permission = [
+    { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "ask" },
+    { action: "legalwork_jev_corpus_question", resource: "*", effect: jevSearchEnabled ? "allow" : "deny" },
+    ...configuredPermission,
+    { action: "legalwork_project_set_instructions", resource: "*", effect:
+      permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
+  ];
   // The firm's instructions too, for every agent the member works with (scheduled runs included).
   const agentPrompt = withFirmInstructions(
     personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT,
     config ? (await appliedOrgPolicy(config, "personalization.firmInstructions"))?.value : undefined,
   );
   const workspace = config?.workspaces.find((item) => item.id === workspaceId);
+  const library = workspace ? await resolveCapabilityLibrary(workspace.path, false, config ? managedCoreLibraryRoot(config) : undefined) : { skills: [], nativeSkills: [] };
+  const core = managedCoreConfiguration().config;
+  const policies = [...runtimeConfig.policies ?? []].filter(rule => !(rule.action === "provider.use" && rule.effect === "deny" && firmProviderIds.includes(rule.resource)));
+  for (const resource of disabledProviders) {
+    if (policies.slice().reverse().find(rule => rule.action === "provider.use" && permissionPatternMatches(resource, rule.resource))?.effect !== "deny")
+      policies.push({ action: "provider.use", resource, effect: "deny" });
+  }
   const result = {
-    ...runtimeConfig,
-    // Enable bounded output reads in the native explore agent, whose default
-    // denies unknown tools. User and firm rules follow and keep precedence.
-    permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
-      ...permission, legalwork_project_set_instructions: instructionPermission },
-    // A refusal remains a tool error visible to the model. The engine should
-    // continue within the user's boundaries instead of silently ending the turn.
-    experimental: { continue_loop_on_deny: true },
-    tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    skills: { paths: workspace ? (config?.engineConfigurationMode === "managed" ? await listGlobalSkills() : await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
-    provider: providerMap,
-    default_agent: runtimeConfig.default_agent,
-    agent: {
+    ...runtimeEngineConfiguration(runtimeConfig),
+    permissions: permission,
+    experimental: { ...runtimeConfig.experimental, todo: true },
+    skills: library.skills.map(skill => dirname(skill.path)),
+    providers: providerMap,
+    default_agent: runtimeConfig.default_agent ?? "legalwork",
+    agents: {
+      ...core.agents,
       ...runtimeAgentMap(runtimeConfig),
       [REVIEW_AGENT]: reviewAgentConfig(),
       [PROJECT_TASK_AGENT]: {
         description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
-        prompt: agentPrompt + "\nThis scheduled run may access its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. The recording tools legalwork_recordings_list and legalwork_recording_read also include unassigned global recordings; other projects' recordings are unavailable. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial or request broader project access during the run. Explain any missing capability. Existing chat history remains visible.",
-        permission: projectTaskPermissions(permission),
+        system: agentPrompt + "\nThis scheduled run may access its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. The recording tools legalwork_recordings_list and legalwork_recording_read also include unassigned global recordings; other projects' recordings are unavailable. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial or request broader project access during the run. Explain any missing capability. Existing chat history remains visible.",
+        permissions: projectTaskPermissions(configuredPermission),
       },
       [ALL_PROJECTS_TASK_AGENT]: {
         description: "Scheduled task with access to all authorized local projects", mode: "primary", hidden: true,
-        prompt: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
-        permission: allProjectTaskPermissions(permission),
+        system: agentPrompt + "\nThis scheduled run may access all authorized local projects. Use legalwork_schedule_projects and legalwork_schedule_project_list/read to find and read project data. Use legalwork_recordings_list and legalwork_recording_read for recordings across those projects and unassigned global recordings. Read chat transcripts directly using kind=sessions and exact chat IDs. Do not open chats or navigate the LegalWork UI to retrieve data. If direct reads are unavailable, report that limitation. Existing tool permissions and approvals still apply.",
+        permissions: allProjectTaskPermissions(configuredPermission),
       },
       legalwork: {
+        ...runtimeAgentMap(runtimeConfig).legalwork,
         description: "LegalWork default agent",
         mode: "primary",
-        temperature: 0.2,
-        prompt: agentPrompt,
+        system: agentPrompt,
       },
     },
-    plugin: (await Promise.all([
+    commands: { ...core.commands, ...runtimeConfig.commands },
+    plugins: (await Promise.all([
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),
       bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),
@@ -356,39 +354,17 @@ export async function buildLegalworkRuntimeSettings(
       ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),
       ...(config?.agentSandboxEnabled ? [bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
     ])).filter((item, index, list) => list.indexOf(item) === index),
-    ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: config
+    policies,
+    mcp: { ...runtimeConfig.mcp, servers: config
       ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
-      : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
+      : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) } },
   };
-  const { config: normalized, ...native } = nativeOpencodeConfig(result);
-  const core = config?.engineConfigurationMode === "managed" ? managedCoreConfiguration() : undefined;
-  const configuration = core ? { ...normalized, agents: { ...core.config.agents, ...normalized.agents }, commands: { ...core.config.commands, ...normalized.commands } } : normalized;
-  native.agentRequests = { ...core?.agentRequests, ...native.agentRequests };
-  const firmFilters = config ? nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...runtimeConfig.permission } })).modelFilters : {};
-  // A member selection may narrow the firm's catalog, never expand it. These
-  // legacy filters also guard explicit requests, not only catalog display.
-  for (const [id, firm] of Object.entries(firmFilters)) {
-    const member = native.modelFilters[id];
-    native.modelFilters[id] = {
-      allow: firm.allow === undefined ? member?.allow
-        : member?.allow === undefined ? firm.allow : firm.allow.filter(model => member.allow?.includes(model)),
-      deny: [...new Set([...firm.deny ?? [], ...member?.deny ?? []])],
-    };
-  }
-  const library = workspace ? await resolveCapabilityLibrary(workspace.path, config?.engineConfigurationMode === "managed", config?.engineConfigurationMode === "managed" ? managedCoreLibraryRoot(config) : undefined) : { nativeSkills: [] };
   const providerActivation = { ...runtimeConfig.providerActivation };
-  // The firm's own providers remain enabled, as before the migration.
   for (const id of firmProviderIds) delete providerActivation[id];
-  const filteredProviders = Object.fromEntries(Object.entries(configuration.providers ?? {}).map(([id, provider]) => {
-    const filter = native.modelFilters[id];
-    if (!filter || !provider.models) return [id, provider];
-    return [id, { ...provider, models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID,
-      filter.allow && !filter.allow.includes(modelID) || filter.deny?.includes(modelID) ? { ...model, disabled: true } : model])) }];
-  }));
-  return { configuration: { ...configuration, providers: filteredProviders,
-    policies: [...configuration.policies ?? [], ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))] },
-    ...native, providerActivation, skills: library.nativeSkills };
+  const configuration = Schema.decodeUnknownSync(Config.Info)({ ...result,
+    policies: [...result.policies, ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))],
+  }, { onExcessProperty: "error" });
+  return { configuration, providerActivation, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
 }
 
 export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, workspaceId?: string): Promise<Record<string, unknown>> {
@@ -398,7 +374,7 @@ export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, w
 /** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
 export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
   const own = await memberRuntimeConfig(config, workspaceId);
-  const layer = nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } })).config;
+  const layer = Schema.decodeUnknownSync(Config.Info)(await buildOrgPolicyEngineLayer(config, { permissions: own.permissions ?? [] }), { onExcessProperty: "error" });
   const targets = async (path: string) => {
     let value: unknown;
     try { value = JSON.parse(await readFile(path, "utf8")); }
@@ -454,7 +430,7 @@ export async function readEngineEigenweltProvider(config: ServerConfig): Promise
   try {
     const file = managedSettingsFileSchema.parse(JSON.parse(await readFile(managedEngineSettingsFilePath(config), "utf8")));
     return JSON.stringify(Object.fromEntries(Object.entries(file.workspaces).sort(([left], [right]) => left.localeCompare(right)).map(([id, entry]) => {
-      const configuration = nativeOpencodeConfig(entry.configuration && typeof entry.configuration === "object" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config;
+      const configuration = runtimeEngineConfiguration(entry.configuration);
       return [id, configuration.providers?.[EIGENWELT_PROVIDER_ID] ?? null];
     })));
   } catch {
@@ -479,8 +455,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const workspaces: ManagedSettingsFile["workspaces"] = {};
     const commonPlugins = new Set<string>();
     const managed = config.engineConfigurationMode === "managed";
-    if (managed) await prepareManagedCoreLibrary(config);
-    const library = managed ? await prepareManagedGlobalLibrary(config) : { plugins: [] };
+    await prepareManagedCoreLibrary(config);
+    const library = await prepareManagedGlobalLibrary(config);
     const sharedPlugins = (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : library.plugins ?? [];
     for (const directory of config.managedEnginePluginDirectories ?? []) {
       commonPlugins.add(await bundledPluginSpec(join(directory, "index.js"), config));
@@ -495,9 +471,9 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       }
     }
     const settingsPath = managedEngineSettingsFilePath(config);
-    const configurations = Object.values(workspaces).map(entry => nativeOpencodeConfig(entry.configuration && typeof entry.configuration === "object" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config);
-    const sharedConfiguration = managed ? commonManagedConfiguration(configurations) : {};
-    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 1, workspaces, sharedConfiguration }));
+    const configurations = Object.values(workspaces).map(entry => runtimeEngineConfiguration(entry.configuration));
+    const sharedConfiguration = commonManagedConfiguration(configurations);
+    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration }));
     const mandatoryPlugins = [
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
       await bundledPluginSpec(legalworkPluginPath("legalwork-product-scope"), config),
@@ -505,7 +481,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-history-image-tools"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
-      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath, managedConfiguration: managed } },
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
+      await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config),
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       ...(config.agentSandboxEnabled ? [await bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
@@ -517,12 +494,11 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // discovered project executables still require the separate review action.
     const selected = Object.values(workspaces).flatMap(entry => entry.configuration && typeof entry.configuration === "object" && "plugins" in entry.configuration && Array.isArray(entry.configuration.plugins)
       ? entry.configuration.plugins.flatMap(plugin => typeof plugin === "string" && !commonPlugins.has(plugin) ? [plugin] : []) : []);
-    if (!managed) await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
-    if (managed) for (const workspace of config.workspaces) await archiveNativeProjectProjection(config, workspace);
-    for (const workspace of managed ? [] : config.workspaces) {
+    await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
+    for (const workspace of config.workspaces) {
       const settings = workspaces[workspace.id];
       if (!settings) continue;
-      const configuration = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === "object" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;
+      const configuration = managedConfigurationDiff(runtimeEngineConfiguration(settings.configuration), sharedConfiguration);
       const projectConfiguration = { ...configuration, plugins: (configuration.plugins ?? []).filter(plugin => typeof plugin !== "string" || !commonPlugins.has(plugin)) };
       try { await writeNativeProjectProjection(config, workspace, projectConfiguration); }
       catch (error) {

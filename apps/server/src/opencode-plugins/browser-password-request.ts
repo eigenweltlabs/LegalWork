@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode/plugin";
 import { OpenCode } from "@opencode/client";
 import { z } from "zod";
-import { browserPasswordRequestSchema } from "@legalwork/types/browser-password-request";
+import { browserPasswordRequestSchema } from "../native-shared-values.js";
 import { browserUrl, requestBrowser } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { nativeTool } from "./native-tool.js";

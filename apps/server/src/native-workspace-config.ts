@@ -5,7 +5,7 @@ import { createEngineClient, workspaceEngineLocation } from "./engine-client.js"
 import { engineProjectStatus } from "./engine-project.js";
 import { findApiError } from "./errors.js";
 import { publicNativeConfig } from "./native-client-projection.js";
-import { nativeOpencodeConfig, type NativeConfig } from "./native-opencode-config.js";
+import { runtimeEngineConfiguration, type NativeRuntimeConfiguration as NativeConfig } from "./runtime-config-upgrade.js";
 import { nativeProviderDisplay } from "./native-provider-display.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import type { RuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -25,7 +25,7 @@ function overlay(target: Record<string, unknown>, source: Record<string, unknown
 }
 
 /** A settings display projection, not a replacement for native config loading
- * or its transformed runtime catalogs. Managed views also include app settings. */
+ * or its runtime catalogs. Saved app settings remain available while offline. */
 function projectDocuments(documents: ReadonlyArray<typeof Config.Info.Type>): NativeConfig {
   const result: Record<string, unknown> = {};
   for (const info of documents) overlay(result, info);
@@ -37,10 +37,9 @@ function projectDocuments(documents: ReadonlyArray<typeof Config.Info.Type>): Na
 /** Reading saved settings must not expand authored file/env references before
  * approval. The native loader alone resolves and validates authored documents. */
 export async function readNativeWorkspaceConfig(config: ServerConfig, workspace: WorkspaceInfo, owned: RuntimeOpencodeConfig, sourcePaths: string[] = []) {
-  const saved = nativeOpencodeConfig(owned).config;
-  const managed = config.engineConfigurationMode === "managed";
+  const saved = runtimeEngineConfiguration(owned);
   const project = await engineProjectStatus(config, workspace);
-  const paths = [...new Set((managed ? [] : project.approvalScope).flatMap(scope => scope.configPaths))]
+  const paths = [...new Set(project.approvalScope.flatMap(scope => scope.configPaths))]
     .filter(path => /\.jsonc?$/.test(path) && path !== project.projection.path);
   let status: "resolved" | "approval_required" | "configuration_conflict" | "unavailable" = project.state === "ready" ? "unavailable" : project.state;
   let projected = saved;
@@ -50,10 +49,9 @@ export async function readNativeWorkspaceConfig(config: ServerConfig, workspace:
       entries = await createEngineClient(config, workspace).config.get({ location: workspaceEngineLocation(workspace) });
       const decoded = Schema.decodeUnknownSync(Config.Entry.pipe(Schema.Array))(entries);
       const documents = decoded.flatMap(entry => entry.type === "document" ? [entry.info] : []);
-      // Managed domain transforms do not create native configuration documents.
-      // Show saved app settings alongside shared documents; catalogs remain the
-      // authority for transformed models, agents and connector availability.
-      projected = projectDocuments(managed ? [...documents, saved] : documents);
+      // Native documents own the configuration; runtime catalogs remain the
+      // authority for models, agents and connector availability.
+      projected = projectDocuments(documents);
       status = "resolved";
     } catch (error) {
       if (findApiError(error)?.code !== "opencode_unavailable") throw error;
@@ -63,10 +61,10 @@ export async function readNativeWorkspaceConfig(config: ServerConfig, workspace:
     { entries: entries ?? [], project });
   // Without native provenance, a saved ID alone cannot establish that its
   // effective definition belongs to the app rather than an authored override.
-  if (status !== "resolved" && !managed) for (const metadata of Object.values(providerDisplay)) metadata.editable = false;
+  if (status !== "resolved") for (const metadata of Object.values(providerDisplay)) metadata.editable = false;
   const sourceConfigs = Object.fromEntries(sourcePaths.map(path => {
     const documents = (entries ?? []).flatMap(entry => entry.type === "document" && entry.path === path && path !== project.projection.path ? [entry.info] : []);
-    return [path, { status: managed ? "not_loaded" : status === "resolved" ? documents.length ? "resolved" : "not_loaded" : status,
+    return [path, { status: status === "resolved" ? documents.length ? "resolved" : "not_loaded" : status,
       config: { ...publicNativeConfig(projectDocuments(Schema.decodeUnknownSync(Config.Info.pipe(Schema.Array))(documents))), $legalworkReadOnlyProjection: true } }];
   }));
   return {

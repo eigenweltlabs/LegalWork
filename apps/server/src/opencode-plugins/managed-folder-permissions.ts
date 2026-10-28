@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { permissionPatternMatches } from "../agent-sandbox/permissions.js";
+import { projectPermissionEffect } from "../project-permission-approvals.js";
 import type { ManagedEngineSettings } from "../managed-engine-settings.js";
 
 const strictness = { allow: 0, ask: 1, deny: 2 };
@@ -20,11 +21,30 @@ const home = (path: string) => path === "~" || path === "$HOME" ? homedir()
 export async function registerManagedFolderPermissions(ctx: Plugin.Context, read: () => Promise<ManagedEngineSettings | undefined>) {
   return ctx.permission.hook("evaluate", async event => {
     if (event.effect === "deny") return;
-    if (event.metadata?.legalworkCanonicalAsk && event.effect === "allow") event.effect = "ask";
-    if (!["external_directory", "read", "edit", "glob", "grep", "list"].includes(event.action)) return;
     const settings = await read();
-    if (!settings) { event.effect = "deny"; event.message = "This project has no LegalWork folder permissions."; return; }
+    if (!settings) { event.effect = "deny"; event.message = "This project has no LegalWork permissions."; return; }
+    const agentID = event.agent ?? (await ctx.session.get({ sessionID: event.sessionID })).agent ?? settings.configuration.default_agent;
+    const approvals = settings.projectPermissionApprovals ?? [];
+    event.effect = projectPermissionEffect({ ...settings.configuration, projectPermissionApprovals: approvals }, event.action,
+      event.resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
+    if (event.effect === "deny") return;
+    if (!["external_directory", "read", "edit", "glob", "grep", "list"].includes(event.action)) return;
     if (event.action === "external_directory") {
+      if (!event.metadata?.legalworkCanonicalResources) {
+        const canonical = await Promise.all(event.resources.map(async resource => {
+          if (!resource.replaceAll("\\", "/").endsWith("/*")) return resource;
+          const folder = dirname(home(resource));
+          return join(await canonicalFilePath(folder), "*").replaceAll("\\", "/");
+        }));
+        const resources = [...new Set([...event.resources, ...canonical])];
+        if (resources.length !== event.resources.length) {
+          await ctx.permission.assert({ action: event.action, resources, save: resources, sessionID: event.sessionID,
+            ...(event.agent ? { agent: event.agent } : {}), ...(event.source ? { source: event.source } : {}),
+            metadata: { ...event.metadata, legalworkCanonicalResources: true, legalworkCanonicalAsk: event.effect === "ask" } });
+          event.effect = "allow";
+          return;
+        }
+      }
       let required: "allow" | "ask" | "deny" = "allow";
       for (const resource of event.resources) {
         if (resource.replaceAll("\\", "/").endsWith("/*")) {
@@ -37,6 +57,8 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
           // A general tool allow does not grant another filesystem folder.
           if (rule.action === "external_directory" && permissionPatternMatches(resource, home(rule.resource))) effect = rule.effect;
         }
+        if (effect !== "deny" && approvals.some(approval => permissionPatternMatches("external_directory", approval.action)
+          && approval.resources.some(pattern => permissionPatternMatches(resource, home(pattern))))) effect = "allow";
         if (strictness[effect] > strictness[required]) required = effect;
       }
       if (strictness[required] > strictness[event.effect]) event.effect = required;

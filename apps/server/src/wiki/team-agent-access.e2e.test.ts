@@ -104,7 +104,7 @@ async function teamFlow(sandbox?: VmSandbox) {
 
   if (sandbox) {
     await writeSandboxDefault(member.config, { enabled: true, networkMode: "block" });
-    await writeRuntimeOpencodeConfig(member.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow", external_directory: { "*": "allow" } } }));
+    await writeRuntimeOpencodeConfig(member.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }] }));
     const service = new AgentSandboxService(member.config, new ApprovalService(member.config.approval), sandbox);
     const own = member.config.workspaces.find(item => item.id === wiki.workspaceId);
     if (!own) throw new Error("Wiki workspace missing");
@@ -112,7 +112,7 @@ async function teamFlow(sandbox?: VmSandbox) {
     expect(insideResult).toMatchObject({ sandbox: "virtual-machine", exitCode: 0 });
     expect(insideResult.output).toContain("Shared source");
     expect(await readFile(join(wiki.root, "Sandbox.md"), "utf8")).toBe("# Sandbox knowledge\n");
-    await writeRuntimeOpencodeConfig(member.config, project.id, () => ({ permission: { external_directory: { [`${wiki.root}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(member.config, project.id, () => ({ permissions: [{ action: "external_directory", resource: `${wiki.root}/*`, effect: "allow" }] }));
     const outsideResult = await service.run(project, { sessionID: "matter-agent", command: "cat /authorized/0/Shared.md && if printf bypass > /authorized/0/Bypass.md; then exit 9; fi; printf 'project output' > output.txt", write: true, timeoutMs: 30_000 }, { type: "host" }, AbortSignal.timeout(240_000));
     expect(outsideResult).toMatchObject({ sandbox: "virtual-machine", exitCode: 0 });
     expect(outsideResult.output).toContain("Shared source");

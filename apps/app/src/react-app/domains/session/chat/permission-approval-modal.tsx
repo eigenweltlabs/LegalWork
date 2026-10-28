@@ -391,7 +391,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               disabled={props.busy || !props.respondPermission}
             >
               <Check data-icon="inline-start" />
-              {t(projectFolder ? "session.add_folder_to_project" : "session.allow_for_session")}
+              {t(projectFolder ? "session.add_folder_to_project" : "session.allow_for_project")}
             </AlertDialogAction> : null}
           </div>
         </AlertDialogFooter>
@@ -462,7 +462,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               disabled={props.busy || !props.respondPermission || inputUnavailable}
             >
               <Check data-icon="inline-start" />
-              {t(projectFolder ? "session.add_folder_to_project" : "session.allow_for_session")}
+              {t(projectFolder ? "session.add_folder_to_project" : "session.allow_for_project")}
             </Button> : null}
           </div>
         </div>

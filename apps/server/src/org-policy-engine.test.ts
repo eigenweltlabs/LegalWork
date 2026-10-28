@@ -10,7 +10,7 @@ import { buildOrgPolicyEngineLayerFor, managedEngineSettingsFilePath, writeLegal
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
-import { appliedOrgPolicy, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
+import { appliedOrgPolicy, onOrgPolicyChange, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir, orgPolicyEngineLayerIntact } from "./org-policy-engine.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
 import { nativePluginTestRuntime } from "./opencode-plugins/native-plugin-test-support.js";
@@ -134,7 +134,7 @@ describe("the firm's tool permissions in the engine", () => {
     config.workspaces[0].path = join(root, "matter");
     await mkdir(config.workspaces[0].path);
     config.authorizedRoots = [config.workspaces[0].path];
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }] }));
     let calls = 0;
     const service = new AgentSandboxService(config, new ApprovalService({ mode: "auto", timeoutMs: 1000 }), {
       status: async () => ({ available: true }), prepare: async () => "fixture",
@@ -176,7 +176,7 @@ describe("the firm's tool permissions in the engine", () => {
     config.workspaces[0].path = join(root, "matter");
     await mkdir(config.workspaces[0].path);
     config.authorizedRoots = [config.workspaces[0].path];
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }] }));
     const prompts: string[] = [];
     let executions = 0;
     const service = new AgentSandboxService(config, new ApprovalService({ mode: "auto", timeoutMs: 1000 }, async (request) => {
@@ -223,7 +223,7 @@ describe("the firm's tool permissions in the engine", () => {
   test("enforced rules are the minimum and go to the firm's own config folder", async () => {
     const { config } = await setup({ "tools.permissions": { mode: "enforced", value: { bash: "ask", edit: "ask" } } });
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({
-      permission: { bash: "deny", edit: "allow", webfetch: "allow" },
+      permissions: [{ action: "shell", resource: "*", effect: "deny" }, { action: "edit", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }],
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
 
@@ -242,7 +242,7 @@ describe("the firm's tool permissions in the engine", () => {
 
   test("after sign-out, rules the member takes back stop applying", async () => {
     const { config } = await setup({ "tools.permissions": { mode: "enforced", value: { edit: "deny" } } });
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "edit", resource: "*", effect: "allow" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readRuntime(config)).permissions).toContainEqual({ action: "edit", resource: "*", effect: "deny" });
 
@@ -251,14 +251,14 @@ describe("the firm's tool permissions in the engine", () => {
     await releaseOrgPolicyKey(config, "tools.permissions");
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readRuntime(config)).permissions).toContainEqual({ action: "edit", resource: "*", effect: "allow" });
-    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).permissions).toEqual([]);
+    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).permissions ?? []).toEqual([]);
   });
 });
 
 describe("the guard plugin", () => {
   test("native evaluation preserves stricter rules and requires firm approval after saved grants", async () => {
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" }, blockedMcpServers: ["crm"], allowedProviders: ["eigenwelt"] };
+    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: [{ action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }, { action: "edit", resource: "*", effect: "ask" }], blockedMcpServers: ["crm"], allowedProviders: ["eigenwelt"] };
     fakeFetch((url) => (url.endsWith("/org-policy/guard") ? Response.json(guard) : new Response(null, { status: 404 })));
     const runtime = nativePluginTestRuntime();
     await runtime.start(LegalWorkOrgPolicyGuard);
@@ -279,7 +279,7 @@ describe("the guard plugin", () => {
 
     // Nothing enforced: everything goes through.
     setSystemTime(new Date(Date.now() + 20_000));
-    guard = { orgName: null, permission: {}, blockedMcpServers: [], allowedProviders: null };
+    guard = { orgName: null, permission: [], blockedMcpServers: [], allowedProviders: null };
     expect(await call("shell", "rm -rf /")).toBe("allow");
     await runtime.hook("session", "model.request", { model: { providerID: "custom" } });
   });
@@ -312,7 +312,7 @@ describe("the firm's switches for members' own providers and connectors", () => 
 
   test("connectors: the member's own leave the engine, LegalWork's stay, and Firm Hub installs are refused", async () => {
     const { config } = await setup(entries);
-    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { mine: { type: "remote", url: "https://mine.example.com" }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { servers: { mine: { type: "remote", url: "https://mine.example.com" }, "legalwork-ui": { type: "local", command: ["npx"] } } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect(Object.keys((await readRuntime(config)).mcp?.servers ?? {})).toEqual(["legalwork-ui"]);
     await expect(requireHubInstallAllowed(config, "mcp")).rejects.toMatchObject({ code: "org_policy_disallowed" });
@@ -326,7 +326,7 @@ describe("the firm's own providers", () => {
     "ai.chat.providers": {
       mode: "enforced",
       value: [
-        { id: "org-anthropic-1", name: "Kanzlei Claude", source: { type: "catalog", provider: "anthropic" }, models: ["claude-sonnet-4-5"], key: { by: "firm", secretRef: "chat:org-anthropic-1" } },
+        { id: "org-anthropic-1", name: "Kanzlei Claude", source: { type: "catalog", provider: "anthropic" }, models: "all", key: { by: "firm", secretRef: "chat:org-anthropic-1" } },
         { id: "org-openai-1", name: "OpenAI", source: { type: "catalog", provider: "openai" }, models: "all", key: { by: "oauth" } },
         { id: "org-azure-1", name: "Kanzlei Azure", source: { type: "custom", baseURL: "https://azure.example.com/v1", apiType: "responses" }, models: ["gpt-5"], key: { by: "member" } },
       ],
@@ -343,13 +343,27 @@ describe("the firm's own providers", () => {
     "ai.ocr.defaultEngine": { mode: "enforced", value: "org-ocr-1" },
   };
 
-  test("chat providers reach the engine with a key: the firm's while signed in, or the member's own", async () => {
+  test("a finite firm catalog-model list is retained and blocks unsupported configuration publication", async () => {
+    const restricted = {
+      ...entries,
+      "ai.chat.providers": {
+        ...entries["ai.chat.providers"],
+        value: entries["ai.chat.providers"].value.map(provider => provider.id === "org-anthropic-1"
+          ? { ...provider, models: ["claude-sonnet-4-5"] } : provider),
+      },
+    };
+    const { config } = await setup(restricted, { "chat:org-anthropic-1": "sk-firm" });
+    await expect(writeLegalworkRuntimeConfigFile(config, "ws_1")).rejects.toThrow("model allowlist requires native model-policy support");
+    expect(JSON.stringify((await appliedOrgPolicy(config, "ai.chat.providers"))?.value)).toBe(JSON.stringify(restricted["ai.chat.providers"].value));
+  });
+
+  test("whole-provider access reaches the engine with a key: the firm's while signed in, or the member's own", async () => {
     const { config, root } = await setup(entries, { "chat:org-anthropic-1": "sk-firm" });
     // The member added their own key for the firm's Azure endpoint; OpenAI waits for their ChatGPT sign-in.
     await mkdir(join(root, "data", "opencode"), { recursive: true });
     await writeFile(join(root, "data", "opencode", "auth.json"), JSON.stringify({ "org-azure-1": { type: "api", key: "sk-mine" } }));
     // A member's disconnect does not switch the firm's provider off.
-    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ disabled_providers: ["anthropic", "groq"] }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ policies: [{ action: "provider.use", resource: "anthropic", effect: "deny" }, { action: "provider.use", resource: "groq", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readRuntime(config)).policies?.filter(rule => rule.action === "provider.use")).toEqual([
       { action: "provider.use", resource: "groq", effect: "deny" }, { action: "provider.use", resource: "opencode", effect: "deny" },
@@ -367,7 +381,7 @@ describe("the firm's own providers", () => {
         models: { "gpt-5": { name: "gpt-5", capabilities: { tools: true } } },
       },
     });
-    expect((await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path)).modelFilters.anthropic).toEqual({ allow: ["claude-sonnet-4-5"], deny: [] });
+    expect(Reflect.has(await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path), "modelFilters")).toBe(false);
 
     // Signed out: the firm's key goes, and with it the provider; the member's own key stays.
     await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
@@ -413,7 +427,7 @@ describe("the firm's workspace settings", () => {
       "extensions.builtIn": { mode: "enforced", value: { [extensionId]: false } },
       "reviews.defaults": { mode: "enforced", value: { mode: "llm", minDecisionProbability: 0.9 } },
     });
-    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { "open-computer-use": { type: "local", command: ["open-computer-use", "mcp"] }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { servers: { "open-computer-use": { type: "local", command: ["open-computer-use", "mcp"] }, "legalwork-ui": { type: "local", command: ["npx"] } } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const runtime = await readRuntime(config);
     expect(JSON.stringify(runtime.agents)).toContain("## Firm instructions");
@@ -428,4 +442,17 @@ describe("the firm's workspace settings", () => {
     expect(await defaults.settings({ mode: "jev", jev: null, llm: null })).toEqual({ mode: "llm", jev: null, llm: null, minDecisionProbability: 0.9 });
     await expect(defaults.saveSettings({ mode: "jev", jev: null, llm: null })).rejects.toMatchObject({ code: "org_policy_managed" });
   });
+});
+
+
+test("firm policy changes notify every cancellation listener when an earlier subscriber fails", async () => {
+  const entries = { "tools.permissions": { mode: "enforced", value: { edit: "allow" } } };
+  const { config } = await setup(entries);
+  let notified = false;
+  cleanups.push(onOrgPolicyChange(config, () => { throw new Error("Approval storage unavailable"); }));
+  cleanups.push(onOrgPolicyChange(config, scopes => { if (scopes.has("engine")) notified = true; }));
+  entries["tools.permissions"].value.edit = "deny";
+  await scheduleOrgPolicySync(config, { force: true });
+  expect(notified).toBe(true);
+  expect((await appliedOrgPolicy(config, "tools.permissions"))?.value).toEqual({ edit: "deny" });
 });

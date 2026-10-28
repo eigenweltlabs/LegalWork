@@ -40,7 +40,7 @@ describe("permission approval modal helpers", () => {
     expect(main).toContain("/shortcut/*");
     expect(main).toContain("Add folder to project");
     expect(main).toContain("Remove it later in Settings &gt; Permissions");
-    expect(main).not.toContain("Allow for session");
+    expect(main).not.toContain("Allow for project");
   });
 
   test("host command consent explains full computer access and keeps it separate from folder grants", () => {
@@ -53,7 +53,7 @@ describe("permission approval modal helpers", () => {
     expect(html).toContain("Computer access for commands");
     expect(html).toContain("read and change files anywhere your computer account can access");
     expect(html).toContain("outside added folders");
-    expect(html).toContain("Allow for session");
+    expect(html).toContain("Allow for project");
     expect(html).not.toContain("Add folder to project");
   });
 
@@ -191,7 +191,7 @@ describe("permission approval modal helpers", () => {
     ]);
   });
 
-  test("keeps keyboard order on the safer one-shot approval before session approval", () => {
+  test("keeps keyboard order on the safer one-shot approval before project approval", () => {
     const html = renderToStaticMarkup(
       React.createElement(PermissionApprovalPanel, {
         permission: pendingPermission(),
@@ -203,7 +203,7 @@ describe("permission approval modal helpers", () => {
       match[0].replace(/<[^>]*>/g, "").trim(),
     );
 
-    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for session"]);
+    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for project"]);
   });
 
   test("uses readable labels for generic permission titles", () => {

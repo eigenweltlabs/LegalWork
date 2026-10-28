@@ -43,7 +43,7 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
   delete process.env.LEGALWORK_OPENCODE_BASE_URL;
   delete process.env.LEGALWORK_WORKSPACES;
   const directories = [join(root, "a"), join(root, "b")];
-  const remote = { type: "remote", url, oauth, enabled: true, timeout: 2000 };
+  const remote = { type: "remote", url, oauth: oauth === false ? false : { callback_port: oauth.callbackPort }, disabled: false, timeout: { startup: 2000, catalog: 2000, execution: 2000 } };
   for (const directory of directories) await mkdir(directory);
   let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
   const config: ServerConfig = {
@@ -122,7 +122,7 @@ for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSyn
     if (action === "remove") expect(after.notes).toBeUndefined();
     else expect(after.notes?.status).toBe("disabled");
     expect(acknowledgedBeforeRelease).toBe(false);
-    if (action === "disable") expect((await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).find(item => item.name === "notes")?.config.enabled).toBe(false);
+    if (action === "disable") expect((await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).find(item => item.name === "notes")?.config.disabled).toBe(true);
     if (action === "remove") expect(await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).toEqual([]);
   } finally {
     release.resolve();

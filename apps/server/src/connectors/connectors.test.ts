@@ -1,3 +1,5 @@
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "./store.js";
 import { saveConnectorWriteSetting } from "./settings.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -57,6 +59,8 @@ beforeEach(async () => {
   process.env.EIGENWELT_PLATFORM_URL = "https://broker.test";
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   await writeEigenweltConnection(config, { platformToken: "platform-access", platformURL: "https://broker.test",
     account: { userId: "alice", userName: "Alice", userEmail: "alice@example.com", orgId: "firm", orgName: "Firm" } });
   await writeConnectorConnections(config, localOwner, "gmail", [connection]);
@@ -840,20 +844,24 @@ test("connection creation fails before any remote request when the OAuth vault c
 });
 
 test("existing plaintext connection metadata migrates to an encrypted secret and a new local handle", async () => {
-  await writeConnectorConnections(config, localOwner, "gmail", []);
-  const db = await openSqlite(join(root, "runtime.sqlite"));
+  config = { ...config, configPath: join(root, "legacy", "server.json") };
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "legacy", "runtime.sqlite");
+  await bootstrapRuntimeOpencodeConfig(config);
+  const db = await openSqlite(join(root, "legacy", "runtime.sqlite"));
+  db.exec("CREATE TABLE connector_connections (owner TEXT NOT NULL, connector_id TEXT NOT NULL, connections_json TEXT NOT NULL, PRIMARY KEY (owner, connector_id))");
   db.run("INSERT INTO connector_connections (owner, connector_id, connections_json) VALUES (?, ?, ?)", [localOwner, "gmail", JSON.stringify([connection])]);
   db.close();
+  await prepareConnectorStorage(config);
   const migrated = await readConnectorConnections(config, localOwner, "gmail");
   expect(migrated[0].nangoConnectionId).toBe(connection.id);
   expect(migrated[0].id).not.toBe(connection.id);
   expect(await readConnectorConnections(config, localOwner, "gmail")).toEqual(migrated);
-  const check = await openSqlite(join(root, "runtime.sqlite"));
-  const row = check.get("SELECT connections_json FROM connector_connections WHERE owner = ? AND connector_id = ?", [localOwner, "gmail"]);
+  const check = await openSqlite(join(root, "legacy", "runtime.sqlite"));
+  const row = check.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'connector_connections'");
   expect(row).toBeUndefined();
   check.close();
   expect((await readFile(oauthVaultPath(config))).includes(Buffer.from(connection.id))).toBe(false);
-  expect((await readFile(join(root, "runtime.sqlite"))).includes(Buffer.from(connection.id))).toBe(false);
+  expect((await readFile(join(root, "legacy", "runtime.sqlite"))).includes(Buffer.from(connection.id))).toBe(false);
 });
 
 test("unreadable encrypted records fail closed before any connection request", async () => {
@@ -895,6 +903,7 @@ test("Nango follows the file-storage vault location override", async () => {
   process.env.LEGALWORK_STORAGE_STORE = join(root, "custom", "file-storage.json");
   try {
     expect(oauthVaultPath(config)).toBe(join(root, "custom", "storage-oauth.vault"));
+    await prepareConnectorStorage(config);
     await writeConnectorConnections(config, localOwner, "gmail", [connection]);
     expect(await readConnectorConnections(config, localOwner, "gmail")).toHaveLength(1);
     expect((await stat(oauthVaultPath(config))).isFile()).toBe(true);
@@ -905,8 +914,11 @@ test("Nango follows the file-storage vault location override", async () => {
 });
 
 test("legacy encrypted records migrate once and preserve their existing local handles", async () => {
-  await writeConnectorConnections(config, localOwner, "gmail", []);
-  const db = await openSqlite(join(root, "runtime.sqlite"));
+  config = { ...config, configPath: join(root, "legacy", "server.json") };
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "legacy", "runtime.sqlite");
+  await bootstrapRuntimeOpencodeConfig(config);
+  const db = await openSqlite(join(root, "legacy", "runtime.sqlite"));
+  db.exec("CREATE TABLE connector_connections (owner TEXT NOT NULL, connector_id TEXT NOT NULL, connections_json TEXT NOT NULL, PRIMARY KEY (owner, connector_id))");
   db.run("INSERT INTO connector_connections (owner, connector_id, connections_json) VALUES (?, ?, ?)", [localOwner, "gmail", "encrypted:v1:opaque-old-record"]);
   db.close();
   let decryptions = 0;
@@ -914,6 +926,7 @@ test("legacy encrypted records migrate once and preserve their existing local ha
     expect(value).toBe("opaque-old-record"); decryptions++;
     return JSON.stringify([{ ...connection, nangoConnectionId: "old-private-capability" }]);
   };
+  await prepareConnectorStorage(config);
   expect((await readConnectorConnections(config, localOwner, "gmail"))[0]).toEqual({ ...connection, nangoConnectionId: "old-private-capability" });
   config.decryptLegacyConnectorSecrets = () => { throw new Error("Must not unlock the old store again"); };
   expect((await readConnectorConnections(config, localOwner, "gmail"))[0].id).toBe(connection.id);
@@ -921,13 +934,16 @@ test("legacy encrypted records migrate once and preserve their existing local ha
 });
 
 test("a failed legacy unlock preserves the original record and sends no Nango request", async () => {
-  await writeConnectorConnections(config, localOwner, "gmail", []);
-  const db = await openSqlite(join(root, "runtime.sqlite"));
+  config = { ...config, configPath: join(root, "legacy", "server.json") };
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "legacy", "runtime.sqlite");
+  await bootstrapRuntimeOpencodeConfig(config);
+  const db = await openSqlite(join(root, "legacy", "runtime.sqlite"));
+  db.exec("CREATE TABLE connector_connections (owner TEXT NOT NULL, connector_id TEXT NOT NULL, connections_json TEXT NOT NULL, PRIMARY KEY (owner, connector_id))");
   db.run("INSERT INTO connector_connections (owner, connector_id, connections_json) VALUES (?, ?, ?)", [localOwner, "gmail", "encrypted:v1:recoverable"]);
   db.close();
-  await expect(listConnectorConnections(config, "gmail")).rejects.toMatchObject({ code: "connector_secure_storage_unavailable" });
+  await expect(prepareConnectorStorage(config)).rejects.toMatchObject({ code: "connector_secure_storage_unavailable" });
   expect(requests).toHaveLength(0);
-  const check = await openSqlite(join(root, "runtime.sqlite"));
+  const check = await openSqlite(join(root, "legacy", "runtime.sqlite"));
   expect(check.get("SELECT connections_json FROM connector_connections WHERE owner = ? AND connector_id = ?", [localOwner, "gmail"])?.connections_json).toBe("encrypted:v1:recoverable");
   check.close();
 });

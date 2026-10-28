@@ -122,8 +122,8 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
       providers: { openai: { settings: { baseURL: `${fixture.url.origin}/v1`, apiKey: "fixture", transport: "http" }, models: { fixture: { modelID: "fixture", limit: { context: 200000, output: 32000 }, capabilities: { tools: true } } } } },
       permissions: nativePermissions("allow"),
       agents: {
-        [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permissions: nativePermissions(projectTaskPermissions()) },
-        [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permissions: nativePermissions(allProjectTaskPermissions("allow")) },
+        [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permissions: projectTaskPermissions() },
+        [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permissions: allProjectTaskPermissions([{ action: "*", resource: "*", effect: "allow" }]) },
         legalwork: { mode: "primary", permissions: nativePermissions("allow") },
       },
     };

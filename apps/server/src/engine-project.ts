@@ -4,11 +4,12 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
-import type { NativeConfig } from "./native-opencode-config.js";
+import type { NativeRuntimeConfiguration as NativeConfig } from "./runtime-config-upgrade.js";
 import { ApiError } from "./errors.js";
 import { canonicalFilePath, withFileWriteLock } from "./file-write-lock.js";
 import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { nativeEngineProjectRegistrySchema } from "./native-engine-project-registry.js";
 import { engineStorageDir } from "./engine-storage.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { approvedNativePluginIdentities, approveNativePluginTargets, discoverProjectPluginTargets } from "./native-project-plugins.js";
@@ -63,14 +64,13 @@ async function approvalScope(directory: string) {
   }
 }
 
-async function projectionStatus(record: ProjectRecord, managed = false): Promise<EngineProjectStatus["projection"]> {
+async function projectionStatus(record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
   try { if (!(await lstat(record.directory)).isDirectory()) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; }
   catch (error) { if (missing(error)) return { diagnostic: "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation." }; throw error; }
-  if (managed) return {};
   if (!record.projection) {
-    const candidates = [...names.map(name => join(record.directory, name)), ...names.map(name => join(record.directory, ".opencode", name))];
+    const candidates = names.map(name => join(record.directory, ".opencode", name));
     const occupied = await Promise.all(candidates.map(path => lstat(path).then(() => true, error => { if (missing(error)) return false; throw error; })));
-    return occupied.every(Boolean) ? { diagnostic: "All native OpenCode config file names are already authored. Preserve those files and free one of opencode.json, opencode.jsonc, .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated selection document." } : {};
+    return occupied.every(Boolean) ? { diagnostic: "Both native OpenCode files inside .opencode are already authored. Preserve them and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings." } : {};
   }
   try {
     if (digest(await readFile(record.projection.path, "utf8")) !== record.projection.digest) {
@@ -91,26 +91,28 @@ async function ownedProjectionPaths(config: ServerConfig) {
 
 export async function engineProjectStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<EngineProjectStatus> {
   const directory = await rootFor(workspace);
-  const managed = config.engineConfigurationMode === "managed";
   // A generated document and its private ownership receipt are one logical
   // publication. Admission must not compare the new file with the old receipt.
   const { record, projection: snapshotProjection } = await withProjectLock(config, workspace, async () => {
     const record = await readRecord(config, workspace, directory);
-    return { record, projection: await projectionStatus(record, managed) };
+    return { record, projection: await projectionStatus(record) };
   });
   const scope = await approvalScope(directory);
   let projection = snapshotProjection;
   const approved = record.approval && scope.every((item, index) => record.approval?.ancestors[index] === item.directory)
     && scope.length === record.approval.ancestors.length;
-  // App registrations authorize managed capabilities. Authored folder files
-  // remain untouched and inactive; they cannot demand an executable approval.
-  const required = !managed && config.engineProjectTrustRequired === true;
+  const owned = new Set(await Promise.all((await ownedProjectionPaths(config)).map(canonicalFilePath)));
+  const authored = (await Promise.all(scope.flatMap(item => item.configPaths).map(async path => ({ path, canonical: await canonicalFilePath(path) }))))
+    .some(item => /\.jsonc?$/.test(item.path) && !owned.has(item.canonical));
+  // App-generated native settings have a private ownership receipt. Only
+  // actual authored configuration or executable directories need review.
   const identities = new Set(await approvedNativePluginIdentities(config));
   let plugins: EngineProjectStatus["plugins"] = [];
-  try { if (!managed) plugins = (await discoverProjectPluginTargets(directory, await ownedProjectionPaths(config), Boolean(approved))).map(item => ({
+  try { plugins = (await discoverProjectPluginTargets(directory, await ownedProjectionPaths(config), Boolean(approved))).map(item => ({
     target: item.target, sources: item.sources, approved: identities.has(item.identity),
   })); }
   catch (error) { if (error instanceof ApiError && error.code === "project_engine_configuration_conflict") projection = { ...projection, diagnostic: error.message }; else throw error; }
+  const required = config.engineProjectTrustRequired === true && (authored || plugins.length > 0);
   const recoveryState = config.managedEngineRecoveryState?.();
   let recovery: EngineProjectStatus["recovery"];
   if (recoveryState) {
@@ -146,15 +148,45 @@ export function nativeEngineProjectRegistryPath(config: ServerConfig) {
   return join(engineStorageDir(config), "native-project-approvals.json");
 }
 
+/** Publish exact old/new owned bytes before a watched native config changes.
+ * A concurrent native reload can accept either application version, while any
+ * authored bytes remain denied. Completion removes the temporary old digest. */
+async function publishProjectionTransition(config: ServerConfig, path: string, next: string | undefined, previous?: string) {
+  const registryPath = nativeEngineProjectRegistryPath(config);
+  await withFileWriteLock(registryPath, async () => {
+    let registry;
+    try { registry = nativeEngineProjectRegistrySchema.parse(JSON.parse(await readFile(registryPath, "utf8"))); }
+    catch (error) { if (missing(error)) return; throw error; }
+    for (const project of registry.projects) {
+      if (!project.generated || !project.generated.scopes.some(scope => dirname(path) === scope || dirname(path) === join(scope, ".opencode"))) continue;
+      const documents = project.generated.documents.filter(document => document.path !== path);
+      if (next) documents.push({ path, digest: next, ...(previous && previous !== next ? { alternateDigests: [previous] } : {}), ...(!previous ? { optional: true } : {}) });
+      project.generated.documents = documents;
+    }
+    const temporary = `${registryPath}.${randomUUID()}.tmp`;
+    try { await writeFile(temporary, JSON.stringify(registry), { mode: 0o600 }); await rename(temporary, registryPath); }
+    finally { await rm(temporary, { force: true }); }
+  });
+}
+
 export async function writeNativeEngineProjectRegistry(config: ServerConfig): Promise<void> {
+  const owned = (await Promise.all(config.workspaces.map(async workspace => (await readRecord(config, workspace, await rootFor(workspace))).projection))).filter(projection => projection !== undefined);
   const projects = await Promise.all(config.workspaces.map(async workspace => {
     const status = await engineProjectStatus(config, workspace);
-    return { directory: status.directory, approved: status.state === "ready" && (config.engineConfigurationMode === "managed" || Boolean(status.approvedAt)) };
+    return { directory: status.directory, approved: status.state === "ready" && (!status.required || Boolean(status.approvedAt)),
+      ...(config.engineProjectTrustRequired && !status.approvedAt ? { generated: {
+        scopes: status.approvalScope.map(scope => scope.directory),
+        documents: owned.filter(document => status.approvalScope.some(scope => dirname(document.path) === scope.directory || dirname(document.path) === join(scope.directory, ".opencode"))),
+      } } : {}),
+    };
   }));
-  const path = nativeEngineProjectRegistryPath(config), temporary = `${path}.${randomUUID()}.tmp`;
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  try { await writeFile(temporary, JSON.stringify({ version: 1, projects }), { mode: 0o600 }); await rename(temporary, path); }
-  finally { await rm(temporary, { force: true }); }
+  const path = nativeEngineProjectRegistryPath(config);
+  await withFileWriteLock(path, async () => {
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    try { await writeFile(temporary, JSON.stringify({ version: 1, projects }), { mode: 0o600 }); await rename(temporary, path); }
+    finally { await rm(temporary, { force: true }); }
+  });
 }
 
 export async function assertEngineProjectReady(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
@@ -213,6 +245,15 @@ export async function writeNativeProjectProjection(config: ServerConfig, workspa
   const directory = await rootFor(workspace);
   try { if (!(await lstat(directory)).isDirectory()) throw new Error("not_directory"); }
   catch { throw new ApiError(409, "project_engine_configuration_conflict", "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation."); }
+  const opencodeDirectory = join(directory, ".opencode");
+  const opencode = await lstat(opencodeDirectory).catch(error => { if (missing(error)) return undefined; throw error; });
+  if (opencode && (!opencode.isDirectory() || opencode.isSymbolicLink())) {
+    throw new ApiError(409, "project_engine_configuration_conflict", "The project's .opencode path must be an ordinary folder before LegalWork can own its generated settings.");
+  }
+  // Earlier migration builds created a visible root config. Retire only an
+  // unchanged, receipt-owned file, preserving its full private original.
+  const existing = await readRecord(config, workspace, directory);
+  if (existing.projection && dirname(existing.projection.path) === directory) await archiveNativeProjectProjection(config, workspace);
   const privateDirectory = join(runtimeStorageDir(config), "native-config-strings");
   if (privateDirectory.includes("}")) throw new ApiError(409, "native_config_reference_path", "The private LegalWork configuration path contains a closing brace, which OpenCode file references cannot represent. Choose another LegalWork data folder.");
   await mkdir(privateDirectory, { recursive: true, mode: 0o700 });
@@ -264,7 +305,7 @@ export async function writeNativeProjectProjection(config: ServerConfig, workspa
   return withProjectLock(config, workspace, async () => {
   const record = await readRecord(config, workspace, directory);
   const candidates = record.projection ? [record.projection.path] : [
-    ...names.map(name => join(directory, name)), ...names.map(name => join(directory, ".opencode", name)),
+    ...names.map(name => join(directory, ".opencode", name)),
   ];
   for (const path of candidates) {
     const written = await withFileWriteLock(path, async () => {
@@ -272,7 +313,11 @@ export async function writeNativeProjectProjection(config: ServerConfig, workspa
       try { current = await readFile(path, "utf8"); }
       catch (error) { if (!missing(error)) throw error; }
       if (current !== undefined && (record.projection?.path !== path || digest(current) !== record.projection.digest)) return false;
+      let transitioning = false;
+      try {
       if (current !== content) {
+        await publishProjectionTransition(config, path, digest(content), current === undefined ? undefined : digest(current));
+        transitioning = true;
         await mkdir(dirname(path), { recursive: true });
         const temporary = `${path}.${randomUUID()}.tmp`;
         try {
@@ -284,13 +329,18 @@ export async function writeNativeProjectProjection(config: ServerConfig, workspa
         } finally { await rm(temporary, { force: true }); }
       }
       await writeRecord(config, workspace, { ...record, projection: { path, digest: digest(content) } });
+      await publishProjectionTransition(config, path, digest(content), digest(content));
+      transitioning = false;
       return true;
+      } finally {
+        if (transitioning) await publishProjectionTransition(config, path, current === undefined ? undefined : digest(current), current === undefined ? undefined : digest(current));
+      }
     });
     if (written) return path;
   }
   throw new ApiError(409, "project_engine_configuration_conflict", record.projection
     ? "The LegalWork-generated OpenCode file contains edits. Preserve them in an authored config file, remove the generated file and retry."
-    : "All native OpenCode config file names are already authored. Keep those files intact and free one of opencode.json, opencode.jsonc, .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated selection document.",
+    : "Both native OpenCode files inside .opencode are authored. Keep them intact and reserve .opencode/opencode.json or .opencode/opencode.jsonc for LegalWork's generated project settings.",
   { directory, paths: candidates });
   });
 }

@@ -24,8 +24,8 @@ test.skipIf(!binary)("desktop and CLI share live settings and project selections
   const cli: ServerConfig = { ...desktop, managedEngineStorageDirectory: join(root, "cli-engine"), agentSandboxEnabled: false };
   const engines: Array<Awaited<ReturnType<typeof startManagedEngineLifecycle>>> = [];
   try {
-    await writeRuntimeOpencodeConfig(desktop, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", webfetch: "deny" } }));
-    await writeRuntimeOpencodeConfig(desktop, "matter", () => ({ agent: { custom: { prompt: "Shared authored agent", permission: { bash: "deny", webfetch: "ask" } } } }));
+    await writeRuntimeOpencodeConfig(desktop, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "ask" }, { action: "webfetch", resource: "*", effect: "deny" }] }));
+    await writeRuntimeOpencodeConfig(desktop, "matter", () => ({ agents: { custom: { system: "Shared authored agent", permissions: [{ action: "shell", resource: "*", effect: "deny" }, { action: "webfetch", resource: "*", effect: "ask" }] } } }));
     await writeLegalworkRuntimeConfigFile(desktop, "matter");
     const projection = (await engineProjectStatus(desktop, desktop.workspaces[0]!)).projection.path;
     if (!projection) throw new Error("Missing shared selection document");
@@ -44,8 +44,8 @@ test.skipIf(!binary)("desktop and CLI share live settings and project selections
     expect(hostPolicy.policies).not.toContainEqual({ action: "tool.use", resource: "shell:*", effect: "deny" });
     await approveEngineProject(desktop, desktop.workspaces[0]!, directory, []);
     expect((await engineProjectStatus(cli, cli.workspaces[0]!)).state).toBe("ready");
-    await writeRuntimeOpencodeConfig(cli, GLOBAL_MCP_ID, () => ({ mcp: { shared: { type: "remote", url: "http://127.0.0.1:7/mcp", enabled: false } } }));
-    expect((await readRuntimeOpencodeConfig(desktop, GLOBAL_MCP_ID)).mcp).toHaveProperty("shared");
+    await writeRuntimeOpencodeConfig(cli, GLOBAL_MCP_ID, () => ({ mcp: { servers: { shared: { type: "remote", url: "http://127.0.0.1:7/mcp", disabled: true } } } }));
+    expect((await readRuntimeOpencodeConfig(desktop, GLOBAL_MCP_ID)).mcp?.servers).toHaveProperty("shared");
     await Promise.all([writeLegalworkRuntimeConfigFile(desktop, "matter"), writeLegalworkRuntimeConfigFile(cli, "matter")]);
     for (const config of [desktop, cli]) expect((await readManagedEngineSettings(managedEngineSettingsFilePath(config), directory)).configuration).toMatchObject({ mcp: { servers: { shared: { disabled: true } } } });
     for (const [index, config] of [desktop, cli].entries()) {

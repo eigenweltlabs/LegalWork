@@ -81,6 +81,12 @@ test.skipIf(!binary)("one released engine holds unapproved recovery, keeps healt
     process.kill(original.pid, "SIGKILL"); await until(async () => !original.running()); await initial.close(); initial = undefined;
     expect(config.managedImageAffinity).toBeUndefined();
     snapshot("initial-owner-closed", { pid: original.pid, running: original.running(), affinityRemoved: config.managedImageAffinity === undefined });
+    // An empty/LegalWork-owned folder now auto-readies. Introduce genuine
+    // authored automation so this recovery check still exercises a trust hold.
+    await mkdir(join(first, ".opencode"));
+    await writeFile(join(first, ".opencode", "opencode.json"), JSON.stringify({ mcp: { servers: {
+      fixture: { type: "local", command: ["node", "-e", "process.exit(0)"] },
+    } } }));
     await approveEngineProject(config, healthy, second, []);
     lifecycle = await startManagedEngineLifecycle({ config, database, service, create });
     const recoveryAffinity = config.managedImageAffinity?.(healthy);
