@@ -55,9 +55,11 @@ function syncMarkerDirectory(path: string) {
 function replaceMarker(path: string, marker: Marker) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temporary, JSON.stringify(marker) + "\n", { flag: "wx", mode: 0o600 });
-    const file = openSync(temporary, "r");
-    try { fsyncSync(file); } finally { closeSync(file); }
+    // Flush through the writing handle: Windows FlushFileBuffers requires
+    // GENERIC_WRITE and rejects a file reopened read-only for fsync.
+    const file = openSync(temporary, "wx", 0o600);
+    try { writeFileSync(file, JSON.stringify(marker) + "\n"); fsyncSync(file); }
+    finally { closeSync(file); }
     renameSync(temporary, path);
     syncMarkerDirectory(path);
   } finally { try { unlinkSync(temporary); } catch (error) { if (!absent(error)) throw error; } }

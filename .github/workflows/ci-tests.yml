@@ -71,6 +71,38 @@ jobs:
             echo 'production_engine requires package_desktop with a fresh source build and no other focused mode.' >&2
             exit 1
           fi
+  native-storage-acceptance:
+    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
+    name: Native storage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare pinned desktop Node
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
+      - name: Verify durable storage, migration and remembered sandbox permissions
+        run: >-
+          bun test --preload ./apps/server/test-preload.ts
+          apps/server/src/native-config-state.test.ts
+          apps/server/src/connectors/storage-transition.test.ts
+          apps/server/src/agent-sandbox/project-approvals.test.ts
   signing-inputs:
     if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.native_source_acceptance
     runs-on: ubuntu-latest
