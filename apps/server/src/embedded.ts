@@ -7,6 +7,8 @@
  */
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
+import { bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { join, resolve } from "node:path";
 import { engineStorageDir } from "./engine-storage.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
@@ -92,7 +94,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   if (managedEngine) await expectedOpencodeVersion(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
   config.agentSandboxEnabled = managedEngine && options.managedEngineSandbox !== false;
   config.engineProjectTrustRequired = managedEngine;
-  config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
+  config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
@@ -107,19 +109,24 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   let stopConfigRefresh: (() => Promise<void>) | null = null;
   let stopped = false;
 
+  // Desktop startup owns this one-time transition, before provider repair or
+  // connector imports can observe the current configuration.
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
+
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
       // A disconnected cloud project must not prevent the shared server from
       // starting. Its requests retry initialization and return the real error.
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" }).catch((error: unknown) => {
+      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: !managedEngine }).catch((error: unknown) => {
         console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
   }
-  // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
-  // engine config file is built: one bad stored block takes the engine down.
+  // Validate saved providers before building engine configuration. Only retired
+  // app-owned definitions are removed; invalid user connections remain intact.
   await repairAllWorkspaceRuntimeProviders(config);
   // Desktop connectors are shared by every workspace. Fold what earlier builds
   // stored per workspace or in files into the shared row before the engine
@@ -202,7 +209,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
             OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
             OPENCODE_MODELS_URL: catalog.url,
             OPENCODE_MODELS_PATH: catalog.catalogPath,
-            OPENCODE_CONFIG_PROJECT_DISABLE: "1",
+            OPENCODE_CONFIG_PROJECT_DISABLE: "",
             OPENCODE_TEST_HOME: engineHome,
             XDG_CONFIG_HOME: join(engineHome, "config"),
             XDG_STATE_HOME: service.stateDirectory,

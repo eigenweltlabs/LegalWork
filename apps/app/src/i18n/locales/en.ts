@@ -3218,6 +3218,7 @@ export default {
   "question_modal.custom_answer_send": "Send",
   "question_modal.question_counter": "Question {current} of {total}",
   "session.allow_for_session": "Allow for session",
+  "session.allow_for_project": "Allow for project",
   "session.allow_once": "Allow once",
   "session.add_folder_to_project": "Add folder to project",
   "session.permission_folder_decision_hint": "Allow this request once, or add the folder to this project's authorized folders. Remove it later in Settings > Permissions.",

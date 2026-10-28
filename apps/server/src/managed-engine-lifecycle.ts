@@ -25,6 +25,8 @@ export async function startManagedEngineLifecycle(options: {
   let endpointLive = false, legacyPoliciesPrepared = false;
   const attempts = new Map<string, { kind: "oauth" | "command"; integrationID: string; attemptID: string; directory: string }>();
   let checking: Promise<void> | undefined;
+  let catalogReload: Promise<boolean> | undefined;
+  let catalogReloading = false;
   let events: AbortController | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   await stopManagedOpencodeService(options.service);
@@ -64,6 +66,15 @@ export async function startManagedEngineLifecycle(options: {
   const remember = (error: unknown) => {
     failure = error instanceof ApiError ? { code: error.code, message: error.message } : { code: "engine_recovery_unresolved", message: error instanceof Error ? error.message : "Native recovery is unavailable." };
   };
+  const authenticationIdle = async () => {
+    for (const [key, attempt] of attempts) {
+      const input = { integrationID: attempt.integrationID, attemptID: attempt.attemptID, location: { directory: attempt.directory } };
+      const result = attempt.kind === "oauth" ? await client().integration.oauth.status(input) : await client().integration.command.status(input);
+      if (result.data.status === "pending") return false;
+      attempts.delete(key);
+    }
+    return true;
+  };
   const scheduleIdleRetry = (delay = 250) => {
     if (retryTimer || closed || mode !== "recovery") return;
     // Readiness polling only while currently running work prevents promotion;
@@ -73,13 +84,8 @@ export async function startManagedEngineLifecycle(options: {
   };
   const refresh = (explicit = true) => {
     checking ??= (async () => {
-      if (closed || mode === "service" || serviceStartupFailed && !explicit) return;
-      for (const [key, attempt] of attempts) {
-        const input = { integrationID: attempt.integrationID, attemptID: attempt.attemptID, location: { directory: attempt.directory } };
-        const result = attempt.kind === "oauth" ? await client().integration.oauth.status(input) : await client().integration.command.status(input);
-        if (result.data.status === "pending") { scheduleIdleRetry(1000); return; }
-        attempts.delete(key);
-      }
+      if (closed || mode === "service" || mode === "promoting" || serviceStartupFailed && !explicit) return;
+      if (!await authenticationIdle()) { scheduleIdleRetry(1000); return; }
       if (admissions > 0 || Object.keys(await client().session.active()).length > 0) { failure = undefined; scheduleIdleRetry(); return; }
       const current = await inspectNativeEngineRecovery(options.database);
       // Old held notifications require service recovery. Newly admitted jobs
@@ -122,6 +128,24 @@ export async function startManagedEngineLifecycle(options: {
       }
     })();
   };
+  const reloadCatalog = () => {
+    if (catalogReload) return catalogReload;
+    if (closed || mode !== "service" || checking || admissions > 0) return Promise.resolve(false);
+    let reloaded = false;
+    checking = (async () => {
+      // Close admission before asynchronous idle checks. Existing sessions and
+      // provider sign-ins finish in the current process; none are cancelled.
+      catalogReloading = true;
+      if (!await authenticationIdle() || Object.keys(await client().session.active()).length > 0
+        || (await inspectNativeEngineRecovery(options.database)).sessions.length > 0) return;
+      await preflight();
+      if (closed) return;
+      await client().location.reload();
+      failure = undefined; reloaded = true;
+    })().catch(error => { remember(error); }).finally(() => { catalogReloading = false; checking = undefined; });
+    catalogReload = checking.then(() => reloaded).finally(() => { catalogReload = undefined; });
+    return catalogReload;
+  };
   let attemptedService = false;
   try { await preflight(); attemptedService = true; engine = await options.create("service", preflight); mode = "service"; }
   catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await options.create("recovery"); }
@@ -129,15 +153,18 @@ export async function startManagedEngineLifecycle(options: {
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
+  config.reloadManagedEngineCatalog = reloadCatalog;
   config.withManagedEngineAdmission = async (sessionID, action) => {
-    if (mode === "promoting") throw new ApiError(503, "engine_recovery_transition", "OpenCode is enabling native restart recovery. Retry this action when the engine reconnects.");
+    if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
+      ? "OpenCode is updating its model list. Retry this action when the update finishes."
+      : "OpenCode is enabling native restart recovery. Retry this action when the engine reconnects.");
     if (mode === "recovery" && heldIDs.has(sessionID)) throw new ApiError(409, "engine_recovery_held", "This interrupted chat is preserved while native recovery waits for project approval or history resolution. Other approved projects can continue working.", failure);
     admissions++;
     try { return await action(); }
     finally { admissions--; }
   };
   config.observeManagedEngineResponse = async (request, response) => {
-    if (mode === "service" || !response.ok) return;
+    if (!response.ok) return;
     const match = request.path.match(/^\/api\/integration\/([^/]+)\/connect\/(oauth|command)(?:\/([^/]+)(?:\/(complete))?)?$/);
     if (!match) return;
     const integrationID = decodeURIComponent(match[1] ?? ""), kind = match[2] === "oauth" ? "oauth" : "command";
@@ -153,10 +180,11 @@ export async function startManagedEngineLifecycle(options: {
   return {
     get engine() { return engine; },
     refresh,
+    reloadCatalog,
     async close() {
       closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }

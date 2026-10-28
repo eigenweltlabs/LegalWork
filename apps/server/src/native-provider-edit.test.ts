@@ -7,6 +7,17 @@ import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
+test("native model-only provider edits preserve capability restrictions and array variants", () => {
+  const saved = { openai: { models: { fixture: {
+    capabilities: { temperature: false, reasoning: { supported: true, effort: ["low", "high"] } },
+    variants: [{ id: "high", settings: { reasoningEffort: "high" } }],
+  } } } };
+  const original = JSON.stringify(saved);
+  expect(mergePrivateProviderEdits(saved, { openai: { models: { fixture: { name: "Renamed" } } } }))
+    .toEqual({ openai: { models: { fixture: { ...saved.openai.models.fixture, name: "Renamed" } } } });
+  expect(JSON.stringify(saved)).toBe(original);
+});
+
 test("specific provider edits preserve omitted transport values while explicit removal and model inventory changes still work", () => {
   const saved = { fixture: { package: "@opencode/ai/providers/openai-compatible", name: "Before",
     settings: { baseURL: "https://private-endpoint.example/v1", apiKey: "synthetic-private-key" }, headers: { "x-auth": "synthetic-header" }, body: { custom_auth: "synthetic-body" },
@@ -47,25 +58,25 @@ test.each([false, true])("offline settings retain private values and distinguish
     const response = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/config`, { headers: { Authorization: `Bearer ${config.token}` } });
     expect(response.status).toBe(200);
     const view = await response.json();
-    expect(view.authoredConfig).toEqual({ status: "unavailable", paths: managed ? [] : [source] });
+    expect(view.authoredConfig).toEqual({ status: "unavailable", paths: [source] });
     expect(view.opencode.$legalworkReadOnlyProjection).toBe(true);
-    expect(view.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: managed });
+    expect(view.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: false });
     expect(view.providerDisplay).not.toHaveProperty("authored");
     expect(view.opencode.providers).not.toHaveProperty("authored");
     for (const value of [marker, header, authored, endpoint]) expect(JSON.stringify(view)).not.toContain(value);
     if (managed) {
       const diagnostics = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/runtime-config`, { headers: { Authorization: `Bearer ${config.token}` } });
       expect(diagnostics.status).toBe(200);
-      expect(await diagnostics.json()).toMatchObject({ sources: { projectOpencode: { status: "not_loaded" } } });
+      expect(await diagnostics.json()).toMatchObject({ sources: { projectOpencode: { status: "unavailable" } } });
       const native = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/api/config"
-        ? Response.json([{ type: "document", info: { providers: { shared: { name: "Shared provider", settings: { apiKey: marker } } } } }])
+        ? Response.json([{ type: "document", info: { providers: { shared: { name: "Shared provider", settings: { apiKey: marker } }, fixture: { name: "Fixture", settings: { baseURL: endpoint, apiKey: marker } } } } }])
         : new Response("Unexpected native route", { status: 500 }) });
       try {
         config.opencodeBaseUrl = native.url.origin;
         const connected = await fetch(`http://127.0.0.1:${server.port}/workspace/matter/config`, { headers: { Authorization: `Bearer ${config.token}` } });
         expect(connected.status).toBe(200);
         const current = await connected.json();
-        expect(current.authoredConfig).toEqual({ status: "resolved", paths: [] });
+        expect(current.authoredConfig).toEqual({ status: "resolved", paths: [source] });
         expect(current.opencode.providers).toMatchObject({ shared: { name: "Shared provider" }, fixture: { name: "Fixture" } });
         expect(current.providerDisplay.fixture).toEqual({ hasCustomEndpoint: true, editable: true });
         expect(current.providerDisplay.shared.editable).toBe(false);

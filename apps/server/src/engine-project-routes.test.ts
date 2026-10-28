@@ -22,7 +22,7 @@ test("recovery controls reject retired credentials and expose only the selected 
       error: { code: "private_failure", message: "secret-other-project private credentials" } }),
   };
   const retiredViewerToken = "owt_retired_viewer";
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { read: "ask" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "read", resource: "*", effect: "ask" }] }));
   const projection = await writeNativeProjectProjection(config, config.workspaces[0]!, {
     permissions: [{ action: "read", resource: "*", effect: "ask" }],
   });

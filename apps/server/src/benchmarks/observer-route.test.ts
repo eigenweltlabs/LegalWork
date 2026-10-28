@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../server.js";
@@ -34,6 +34,7 @@ test("observer relay requires host authority and fixes native plugin, method and
     const viewer = "owt_retired_viewer";
     expect((await fetch(base + path, { headers: { authorization: `Bearer ${viewer}` } })).status).toBe(401);
     expect(calls).toEqual([]);
+    await writeFile(join(directory, "opencode.json"), JSON.stringify({ mcp: { servers: { fixture: { type: "local", command: ["fixture-project-program"], disabled: true } } } }));
     config.engineProjectTrustRequired = true;
     expect((await fetch(base + path, { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(409);
     expect(calls).toEqual([]);

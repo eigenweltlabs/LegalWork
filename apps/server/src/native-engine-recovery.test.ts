@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { approveEngineProject } from "./engine-project.js";
@@ -23,6 +23,7 @@ test("native recovery preflight inspects all claims, background jobs and queued 
   db.prepare("INSERT INTO kv VALUES(?,?)").run("job.background/notification", JSON.stringify({ recovery: { kind: "subagent", parentSessionID: "parent", childSessionID: "child" } }));
   db.prepare("INSERT INTO session_inbox VALUES(?,?,?)").run("parent", "move", JSON.stringify({ location: { directory: destination } }));
   db.close();
+  await Promise.all([directory, destination].map(folder => writeFile(join(folder, "opencode.json"), JSON.stringify({ mcp: { servers: { fixture: { type: "local", command: ["fixture-project-program"], disabled: true } } } }))));
   const original = await readFile(path);
   try {
     expect(await inspectNativeEngineRecovery(path)).toEqual({ sessions: [{ id: "parent", directory }, { id: "child", directory }], directories: [directory, destination] });

@@ -2,6 +2,8 @@
 
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
+import { bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { join, resolve } from "node:path";
 import { resolveServerOpencodeExecutable } from "./server-opencode-executable.js";
 import { engineStorageDir } from "./engine-storage.js";
@@ -46,21 +48,26 @@ const config = await resolveServerConfig(args);
 const managedEngine = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
 config.agentSandboxEnabled = managedEngine && process.env.LEGALWORK_MANAGED_OPENCODE_SANDBOX !== "0";
 config.engineProjectTrustRequired = managedEngine;
-config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
+config.engineConfigurationMode = "native-project";
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
 let stopConfigRefresh: (() => Promise<void>) | null = null;
 
+// Complete private storage upgrades before any provider or connector producer
+// reads settings. Ordinary reads never fall back to the retired storage.
+await bootstrapRuntimeOpencodeConfig(config);
+await prepareConnectorStorage(config);
+
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: !managedEngine });
   }
 }
-// Drop retired / unparsable provider blocks from the runtime DB BEFORE the
-// engine config file is built: one bad stored block takes the engine down.
+// Validate saved providers before building engine configuration. Only retired
+// app-owned definitions are removed; invalid user connections remain intact.
 await repairAllWorkspaceRuntimeProviders(config);
 // Connectors are shared by every workspace; fold what earlier builds stored
 // per workspace or in files into the shared row before the engine config
@@ -117,7 +124,7 @@ const server = await startServer(config, { onListening: async (port) => {
           LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
           LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_CONFIG_PROJECT_DISABLE: "1",
+          OPENCODE_CONFIG_PROJECT_DISABLE: "",
           OPENCODE_TEST_HOME: engineHome,
           XDG_CONFIG_HOME: join(engineHome, "config"),
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),

@@ -3348,6 +3348,7 @@ const de = {
   "question_modal.custom_answer_send": "Senden",
   "question_modal.question_counter": "Frage {current} von {total}",
   "session.allow_for_session": "Für diese Session erlauben",
+  "session.allow_for_project": "Für dieses Projekt erlauben",
   "session.allow_once": "Einmal erlauben",
   "session.add_folder_to_project": "Ordner zum Projekt hinzufügen",
   "session.permission_folder_decision_hint": "Diese Anfrage einmal erlauben oder den Ordner für dieses Projekt freigeben. Unter Einstellungen > Permissions können Sie die Freigabe später entfernen.",

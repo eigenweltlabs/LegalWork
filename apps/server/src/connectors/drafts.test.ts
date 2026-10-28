@@ -1,3 +1,5 @@
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "./store.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,6 +36,8 @@ beforeEach(async () => {
     workspaces: [{ id: "project", path: root, name: "Fixture project", preset: "starter", workspaceType: "local" }, { id: "other", path: root, name: "Other", preset: "starter", workspaceType: "local" }], authorizedRoots: [root], readOnly: false,
     startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   await writeFile(join(root, "attachment.txt"), "Synthetic attachment");
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   await writeEigenweltConnection(config, { platformToken: "fixture-platform-token", platformURL: "https://draft-broker.test", account: { userId: "user", userName: "Fixture", userEmail: null, orgId: "firm", orgName: "Fixture" } });
   for (const id of ["gmail", "outlook", "google-calendar"]) await writeConnectorConnections(config, owner, id, [{ id: `${id}-account`, nangoConnectionId: `${id}-private`, createdAt: null, needsReconnect: false }]);
   for (const id of ["gmail", "outlook", "google-calendar", "outlook-calendar"]) await saveConnectorWriteSetting(config, id, { writeAccess: true });

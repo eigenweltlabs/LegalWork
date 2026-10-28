@@ -7,5 +7,6 @@ export { LegalMemoryPermissionsSchema, LegalMemoryPermissionSchema, LegalMemoryP
 export { ScheduledTaskMessageSchema } from "@legalwork/types/scheduled-tasks";
 export { isReviewWorkerSession } from "@legalwork/types/reviews";
 export { ApproveEngineProjectSchema } from "@legalwork/types/engine-project";
+export { browserPasswordRequestSchema } from "@legalwork/types/browser-password-request";
 
 export { codeModeWidgetResults, toolDisplayText } from "@legalwork/types/chat-tool-results";

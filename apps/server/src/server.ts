@@ -55,7 +55,10 @@ import { canonicalFilePath } from "./file-write-lock.js";
 import { scopedNativeEvents } from "./native-proxy-events.js";
 import { nativeProxyPath, assertNativeProxyRoute, nativeProxySessionID, assertNativeProxyDirectory, nativeProxyFilePath, pathWithin } from "./native-proxy-policy.js";
 import { publicNativeConfigSnapshot } from "./native-client-projection.js";
-import { mergePrivateProviderEdits } from "./native-provider-edit.js";
+import { mergePrivateProviderEdits, mergeNativeFields } from "./native-provider-edit.js";
+import { mergeNativeToolPermissionRules, nativeToolPermissionUpdatesSchema, type NativePermissionRule } from "./native-permission-edit.js";
+import { permissionPatternMatches } from "./agent-sandbox/permissions.js";
+import { projectPermissionEffect, rememberedProjectFolderRules } from "./project-permission-approvals.js";
 import OpenAI from "openai";
 import type { RealtimeFunctionTool } from "openai/resources/realtime/realtime";
 import type { ApprovalRequest, Capabilities, ServerConfig, ServerRuntimeOptions, WorkspaceInfo, WorkspaceMetadata, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
@@ -63,7 +66,7 @@ import { announceSyncChange, onSyncChange, syncEventStream } from "./app-sync-ev
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
-import { rememberNativeFolderApproval } from "./native-folder-approval.js";
+import { rememberNativeProjectApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -169,11 +172,15 @@ import { registerBrowserRoutes } from "./routes/browser.js";
 import { registerMcpOAuthRoutes } from "./routes/mcp-oauth.js";
 import { assertEngineProjectReady, engineProjectStatus } from "./engine-project.js";
 import { assertSessionHistoryReady } from "./session-history-undo.js";
+import { restoreLegacySessionPermissions } from "./session-history-permissions.js";
+import { readCurrentHistory } from "./current-history-state.js";
 import { assertManagedCommandIntegration, interruptEngineSession } from "./native-command-control.js";
 import { isInternalSession } from "./native-shared-values.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
 import {
   applyGlobalToolPermissions,
+  bootstrapRuntimeOpencodeConfig,
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   isPersonality,
@@ -198,16 +205,20 @@ import {
 import {
   buildLegalworkRuntimeConfigObject,
   buildOrgPolicyEngineLayerFor,
-  managedEngineSettingsFilePath,
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
-import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
-import { nativeProvider } from "./native-opencode-config.js";
+import { runtimeEngineConfiguration, upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
+import { backupRuntimeConfigSource } from "./runtime-config-source-backup.js";
+import { Config } from "@opencode/schema/config";
+import { connectorCommandFields } from "./native-mcp-config.js";
+import { openRememberedApprovalStore } from "./remembered-approvals.js";
+import { Schema } from "effect";
 import { modelCatalogFor, modelCatalogResponse, modelCatalogSettingsSchema } from "./model-catalog.js";
+import { nativeModelCatalogInventory } from "./native-model-catalog-rpc.js";
 import {
   EigenweltSignInTimeoutError,
   eigenweltHasPremiumModels,
@@ -426,13 +437,13 @@ function legacyRuntimeConfigFromLegalworkConfig(legalwork: Record<string, unknow
 
   return {
     keys,
-    config: {
+    config: upgradeRuntimeConfigRecord({
       ...(plugin.length ? { plugin } : {}),
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
       ...(provider ? { provider } : {}),
       ...(agent ? { agent } : {}),
-    },
+    }, { scope: "workspace" }).configuration,
   };
 }
 
@@ -472,14 +483,14 @@ function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>):
 
   return {
     keys,
-    config: {
+    config: upgradeRuntimeConfigRecord({
       ...(defaultAgent ? { default_agent: defaultAgent } : {}),
       ...(plugin?.length ? { plugin } : {}),
       ...(Object.keys(mcp).length ? { mcp } : {}),
       ...(disabledProviders?.length ? { disabled_providers: disabledProviders } : {}),
       ...(provider && Object.keys(provider).length ? { provider } : {}),
       ...(agent && Object.keys(agent).length ? { agent } : {}),
-    },
+    }, { scope: "workspace" }).configuration,
   };
 }
 
@@ -490,18 +501,10 @@ async function removeUserRuntimeConfigFromOpencode(workspaceRoot: string, keys: 
 }
 
 function runtimeConfigKeys(input: object): string[] {
-  const config: Record<string, unknown> = Object.fromEntries(Object.entries(input));
+  const config = Object.fromEntries(Object.entries(input));
   const keys: string[] = [];
   if (config.default_agent) keys.push("default_agent");
-  if (Array.isArray(config.plugin) && config.plugin.length) keys.push("plugin");
-  if (Array.isArray(config.disabled_providers) && config.disabled_providers.length) keys.push("disabled_providers");
-  if (isRecord(config.mcp) && Object.keys(config.mcp).length) keys.push("mcp");
-  const permission = isRecord(config.permission) ? config.permission : null;
-  if (permission && isRecord(permission.external_directory) && Object.keys(permission.external_directory).length) {
-    keys.push("permission");
-  }
-  if (isRecord(config.provider) && Object.keys(config.provider).length) keys.push("provider");
-  if (isRecord(config.agent) && Object.keys(config.agent).length) keys.push("agent");
+  if (isRecord(config.mcp) && isRecord(config.mcp.servers) && Object.keys(config.mcp.servers).length) keys.push("mcp");
   for (const field of ["plugins", "permissions", "policies", "skills"]) {
     const value = config[field];
     if (Array.isArray(value) && value.length) keys.push(field);
@@ -517,44 +520,18 @@ function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
   return Object.keys(config).filter((key) => key !== "$schema").sort();
 }
 
-function mergeLegacyRuntimeConfig(
-  current: RuntimeOpencodeConfig,
-  legacy: RuntimeOpencodeConfig,
-): RuntimeOpencodeConfig {
-  const currentPermission = isRecord(current.permission) ? current.permission : {};
-  const legacyPermission = isRecord(legacy.permission) ? legacy.permission : {};
-  const currentExternalDirectory = isRecord(currentPermission.external_directory) ? currentPermission.external_directory : {};
-  const legacyExternalDirectory = isRecord(legacyPermission.external_directory) ? legacyPermission.external_directory : {};
+function mergeImportedRuntimeConfig(current: RuntimeOpencodeConfig, imported: RuntimeOpencodeConfig): RuntimeOpencodeConfig {
+  const plugins = [...current.plugins ?? [], ...imported.plugins ?? []];
+  const permissions = [...imported.permissions ?? [], ...current.permissions ?? []];
+  const policies = [...imported.policies ?? [], ...current.policies ?? []];
   return {
-    default_agent: current.default_agent ?? legacy.default_agent,
-    plugin: [
-      ...(Array.isArray(current.plugin) ? current.plugin.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.plugin) ? legacy.plugin.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    disabled_providers: [
-      ...(Array.isArray(current.disabled_providers) ? current.disabled_providers.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.disabled_providers) ? legacy.disabled_providers.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    mcp: {
-      ...(isRecord(legacy.mcp) ? legacy.mcp : {}),
-      ...(isRecord(current.mcp) ? current.mcp : {}),
-    },
-    permission: {
-      ...legacyPermission,
-      ...currentPermission,
-      external_directory: {
-        ...legacyExternalDirectory,
-        ...currentExternalDirectory,
-      },
-    },
-    provider: {
-      ...(isRecord(legacy.provider) ? legacy.provider : {}),
-      ...(isRecord(current.provider) ? current.provider : {}),
-    },
-    agent: {
-      ...(isRecord(legacy.agent) ? legacy.agent : {}),
-      ...(isRecord(current.agent) ? current.agent : {}),
-    },
+    ...imported, ...current,
+    default_agent: current.default_agent ?? imported.default_agent,
+    plugins: plugins.filter((item, index) => plugins.findIndex(other => JSON.stringify(other) === JSON.stringify(item)) === index),
+    permissions: permissions.filter((item, index) => !permissions.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
+    policies: policies.filter((item, index) => !policies.slice(index + 1).some(other => JSON.stringify(other) === JSON.stringify(item))),
+    mcp: { ...imported.mcp, ...current.mcp, servers: { ...imported.mcp?.servers, ...current.mcp?.servers } },
+    providers: { ...imported.providers, ...current.providers }, agents: { ...imported.agents, ...current.agents },
   };
 }
 
@@ -846,12 +823,17 @@ function startOriginalImageCleanup(config: ServerConfig) {
 }
 
 export async function startServer(config: ServerConfig, runtimeOptions: ServerRuntimeOptions = {}): Promise<StartedServer> {
+  // Also cover callers embedding the HTTP server directly. These preflights
+  // validate completed stores without reopening their retired sources.
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
+  await readCurrentHistory(config);
   const retiredCount = config.workspaces.filter(isRetiredRemoteWorkspace).length;
   if (retiredCount) {
     config.workspaceWarnings = [...(config.workspaceWarnings ?? []), `${retiredCount} saved remote agent workspace(s) are no longer supported. Their original connection settings remain in the saved configuration.`];
     config.workspaces = config.workspaces.filter(workspace => !isRetiredRemoteWorkspace(workspace));
   }
-  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"));
+  const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"), await openRememberedApprovalStore(config));
   const rawHttpTransport = runtimeOptions.rawHttpNodeExecutable ? createNodeRawHttpTransport(runtimeOptions.rawHttpNodeExecutable) : undefined;
   const toolImageRaster = createToolImageRaster(runtimeOptions.toolImageRasterRuntime ?? resolveNodeToolImageRasterRuntime);
   const agentSandbox = new AgentSandboxService(config, approvals, undefined, rawHttpTransport?.send);
@@ -1009,9 +991,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const configured = entries.flatMap(entry => entry.type === "document" ? [...(entry.info.permissions ?? []), ...(entry.info.agents?.[agentName]?.permissions ?? [])] : []);
       const domainRules = (rules: typeof agent.permissions) => rules.map(rule => ({ permission: rule.action === "shell" ? "bash" : rule.action, pattern: rule.resource, action: rule.effect }));
       const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
-      const persisted = [runtime.permission, (await readGlobalToolPermissions(config)), runtime.agent?.[agentName]?.permission];
+      const persisted = [...await readGlobalToolPermissions(config), ...runtime.permissions ?? [], ...runtime.agents?.[agentName]?.permissions ?? []];
       return managedPermissionRules(explicitFileApprovals(domainRules(agent.permissions), [
-        ...configured.map(rule => ({ [rule.action === "shell" ? "bash" : rule.action]: { [rule.resource]: rule.effect } })), ...persisted,
+        ...configured, ...persisted,
       ]), domainRules(session.permissions ?? []));
     },
   });
@@ -1419,6 +1401,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     if (isInternalSession(session)) throw new ApiError(404, "session_not_found", "This chat is unavailable.");
     if (!await allowed(session.location.directory)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
     sessionDirectory = session.location.directory;
+    if (method === "PATCH" && /^\/session\/[^/]+$/.test(path)) await restoreLegacySessionPermissions(input.config, workspace, client, session);
     if (method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path)) {
       await assertSessionHistoryReady(input.config, workspace, client, sessionID);
     }
@@ -1452,18 +1435,38 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
       try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical)); return true; } catch { return false; }
     }) });
   }
-  if (path.startsWith("/worktree") || path.startsWith("/permission/saved") || path === "/experimental/session/stats") {
+  if (path.startsWith("/permission/saved")) {
+    if (path === "/permission/saved" && method === "GET") return jsonResponse({ data: await listNativeProjectApprovals(input.config, workspace) });
+    const id = path.match(/^\/permission\/saved\/([^/]+)$/)?.[1];
+    if (!id) throw new ApiError(404, "permission_not_found", "Saved permission not found in this project.");
+    if (method === "DELETE") {
+      await removeNativeProjectApproval(input.config, workspace, id);
+      return new Response(null, { status: 204 });
+    }
+    if (method === "PATCH") {
+      const updates = z.object({ action: z.string().min(1).optional(), resource: z.string().min(1).optional() }).strict().parse(await input.request.json());
+      return jsonResponse({ data: await updateNativeProjectApproval(input.config, workspace, id, updates) });
+    }
+    throw new ApiError(400, "project_permission_edit_required", "Saved approval changes must use this project's settings.");
+  }
+  if (path.startsWith("/worktree") || path === "/experimental/session/stats") {
     const location = await client.location.get({ location: { directory } });
     target.searchParams.set(path === "/experimental/session/stats" ? "project" : "projectID", location.project.id);
-    const permissionID = path.match(/^\/permission\/saved\/([^/]+)$/)?.[1];
-    if (permissionID && !(await client.permission.saved.list({ projectID: location.project.id })).some(permission => permission.id === permissionID)) throw new ApiError(404, "permission_not_found", "Saved permission not found.");
   }
   const file = nativeProxyFilePath(path, target, directory);
   if (file) {
-    const configured = mergeOpencodeConfigs(await readOpencodeConfig(input.config, workspace), await readRuntimeOpencodeConfig(input.config, workspace.id));
-    const folders = readAuthorizedFoldersFromOpencodeConfig(configured, root).folders;
+    const runtime = await readRuntimeOpencodeConfig(input.config, workspace.id);
+    const configured = mergeOpencodeConfigs(await readOpencodeConfig(input.config, workspace), runtime);
+    const folders = readAuthorizedFoldersFromOpencodeConfig(configured, root, runtime.projectPermissionApprovals).folders;
     let permitted = await allowed(file);
-    for (const folder of folders) if (!permitted && await pathWithin(folder, file)) permitted = true;
+    if (!permitted) {
+      for (const folder of folders) if (await pathWithin(folder, file)) { permitted = true; break; }
+      if (permitted) {
+        const canonical = await canonicalFilePath(file);
+        const resources = [...new Set([file, canonical].map(resource => path === "/fs/list" ? join(resource, "*") : resource))];
+        permitted = projectPermissionEffect({ ...runtimeEngineConfiguration(configured), projectPermissionApprovals: runtime.projectPermissionApprovals }, "external_directory", resources, "allow") === "allow";
+      }
+    }
     assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file)));
     if (!permitted) throw new ApiError(403, "file_access_denied", "This file is outside the project's authorized folders. Open it through LegalWork file access.");
     if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
@@ -1471,10 +1474,11 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   const protectedExecution = input.config.agentSandboxEnabled || wikis.length > 0;
   if (protectedExecution) assertSandboxProxyAllowed(method, `/api${path}`);
   let body = method === "GET" || method === "HEAD" ? undefined : await input.request.arrayBuffer().then(value => value.byteLength ? value : undefined);
-  const folderReply = path.match(/^\/session\/[^/]+\/permission\/([^/]+)\/reply$/);
-  if (input.config.engineConfigurationMode === "managed" && method === "POST" && sessionID && folderReply && body) {
+  const permissionReply = path.match(/^\/session\/[^/]+\/permission\/([^/]+)\/reply$/);
+  if (method === "POST" && sessionID && permissionReply && body) {
     const reply = z.object({ decision: z.enum(["once", "always", "reject"]), message: z.string().optional() }).parse(JSON.parse(Buffer.from(body).toString()));
-    if (reply.decision === "always" && await rememberNativeFolderApproval(input.config, workspace, sessionID, folderReply[1])) {
+    if (reply.decision === "always") {
+      if (!await rememberNativeProjectApproval(input.config, workspace, sessionID, permissionReply[1])) throw new ApiError(503, "project_permissions_unavailable", "Project-scoped remembered access is unavailable. Use Allow once.");
       body = new TextEncoder().encode(JSON.stringify({ ...reply, decision: "once" })).buffer;
     }
   }
@@ -1531,16 +1535,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     const session = isRecord(result) && isRecord(result.data) ? result.data : null;
     if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, directory, scope: actor.scope });
   }
-  // Native explicit model definitions are applied after model transforms and
-  // can reintroduce an excluded catalog entry. Execution is guarded inside the
-  // engine; this view must present the same saved member/firm selection.
-  const selection = method === "GET" && (path === "/model" || path === "/model/default") && response.ok && input.config.engineProjectTrustRequired
-    ? await readManagedEngineSettings(managedEngineSettingsFilePath(input.config), directory) : undefined;
-  return sanitizeProxyResponse(await projectNativeClientRead(method, path, response, selection ? model => {
-    const filter = selection.modelFilters[model.providerID];
-    return selection.providerActivation[model.providerID] !== "deny"
-      && (!filter || (!filter.allow || filter.allow.includes(model.id)) && !filter.deny?.includes(model.id));
-  } : undefined));
+  return sanitizeProxyResponse(await projectNativeClientRead(method, path, response));
 }
 
 /**
@@ -1767,7 +1762,7 @@ export type AuthorizedFoldersUpdateResponse = {
 
 type AuthorizedFoldersConfig = {
   folders: string[];
-  hiddenEntries: Record<string, unknown>;
+  hiddenRules: NativePermissionRule[];
 };
 
 function normalizeAuthorizedFolderPath(input: string | null | undefined): string {
@@ -1805,26 +1800,24 @@ function hasOwnKey(object: Record<string, unknown>, key: string): boolean {
 function readAuthorizedFoldersFromOpencodeConfig(
   opencodeConfig: Record<string, unknown>,
   workspaceRoot: string,
+  projectPermissionApprovals?: RuntimeOpencodeConfig["projectPermissionApprovals"],
 ): AuthorizedFoldersConfig {
   const workspaceRootFolder = normalizeAuthorizedFolderPath(workspaceRoot);
-  const permission = ensurePlainObject(opencodeConfig.permission);
-  const externalDirectory = ensurePlainObject(permission.external_directory);
-  const folders: string[] = [];
-  const hiddenEntries: Record<string, unknown> = {};
+  const configuration = runtimeEngineConfiguration(opencodeConfig);
+  const rules = [...configuration.permissions ?? [], ...rememberedProjectFolderRules({ ...configuration, projectPermissionApprovals })];
+  const folders: string[] = [], hiddenRules: NativePermissionRule[] = [];
   const seen = new Set<string>();
-
-  for (const [key, value] of Object.entries(externalDirectory)) {
-    const folder = externalDirectoryKeyToAuthorizedFolder(key, value);
-    if (!folder) {
-      hiddenEntries[key] = value;
-      continue;
+  for (const rule of rules) {
+    if (rule.action !== "external_directory") continue;
+    const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+    if (!folder) { hiddenRules.push(rule); continue; }
+    if (projectPermissionEffect({ ...configuration, projectPermissionApprovals }, "external_directory", [rule.resource], "allow") !== "allow") {
+      hiddenRules.push(rule); continue;
     }
     if (folder === workspaceRootFolder || seen.has(folder)) continue;
-    seen.add(folder);
-    folders.push(folder);
+    seen.add(folder); folders.push(folder);
   }
-
-  return { folders, hiddenEntries };
+  return { folders, hiddenRules };
 }
 
 function parseAuthorizedFoldersPayload(input: unknown, workspaceRoot: string): string[] {
@@ -1849,21 +1842,32 @@ function parseAuthorizedFoldersPayload(input: unknown, workspaceRoot: string): s
   return folders;
 }
 
-function mergeAuthorizedFoldersIntoExternalDirectory(
-  folders: string[],
-  hiddenEntries: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  const next: Record<string, unknown> = { ...hiddenEntries };
-  for (const folder of folders) {
-    next[authorizedFolderToExternalDirectoryKey(folder)] = "allow";
+function mergeAuthorizedFoldersIntoExternalDirectory(folders: string[], rules: ReadonlyArray<NativePermissionRule>, workspaceRoot: string): NativePermissionRule[] {
+  const desired = new Set(folders), root = normalizeAuthorizedFolderPath(workspaceRoot);
+  const result = rules.filter(rule => {
+    if (rule.action !== "external_directory") return true;
+    const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+    return folder === null || folder === root || desired.has(folder);
+  });
+  for (const folder of [...folders].reverse()) {
+    const resource = authorizedFolderToExternalDirectoryKey(folder);
+    if (result.some(rule => rule.action === "external_directory" && rule.resource === resource && rule.effect === "allow")) continue;
+    let parent = -1;
+    for (let index = 0; index < result.length; index++) {
+      const rule = result[index];
+      if (["*", "external_directory"].includes(rule.action) && permissionPatternMatches(resource, rule.resource)) parent = index;
+    }
+    // A grant follows its parent default while later child restrictions keep
+    // their original position. Unknown rules are never flattened into a map.
+    result.splice(parent + 1, 0, { action: "external_directory", resource, effect: "allow" });
   }
-  return Object.keys(next).length ? next : undefined;
+  return result;
 }
 
 function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: AuthorizedFoldersConfig): AuthorizedFoldersResponse {
   return {
     folders: config.folders,
-    hiddenCount: Object.keys(config.hiddenEntries).length,
+    hiddenCount: config.hiddenRules.length,
     workspaceRoot: normalizeAuthorizedFolderPath(workspace.path),
   };
 }
@@ -1954,19 +1958,16 @@ function createRoutes(
     const persisted = mergeOpencodeConfigs(await readOpencodeConfig(config, workspace), await readRuntimeOpencodeConfig(config, workspace.id));
     // Authored definitions determine editability and secret endpoint binding.
     // A runtime model catalog is not evidence that LegalWork owns its config.
-    return Object.fromEntries(Object.entries({ ...ensurePlainObject(persisted.provider), ...ensurePlainObject(persisted.providers) })
-      .map(([id, provider]) => [id, nativeProvider(provider)]));
+    return { ...runtimeEngineConfiguration(persisted).providers };
   };
   const refreshCustomModels = createCustomProviderModelRefresh({
     config,
     readProviders: readCustomProviders,
-    readCatalogModels: async (workspace, providerId) => {
-      const catalogModels = await modelCatalogFor(config).providerModels(providerId);
-      const client = createWorkspaceOpencodeClient(config, workspace);
-      const models = (await client.model.list({ location: workspaceEngineLocation(workspace) })).data;
-      const knownModels = new Set(models.filter(model => model.providerID === providerId).map(model => model.id));
-      return Object.fromEntries(Object.entries(catalogModels).filter(([id]) => !knownModels.has(id)));
+    readCatalogInventory: async (workspace, providerId, refresh) => {
+      if (refresh) await modelCatalogFor(config).providerModels(providerId);
+      return nativeModelCatalogInventory(createWorkspaceOpencodeClient(config, workspace), workspaceEngineLocation(workspace), providerId);
     },
+    reloadCatalog: async () => config.reloadManagedEngineCatalog ? config.reloadManagedEngineCatalog() : false,
     isBusy: (workspace) => workspaceEngineBusy(config, workspace),
     reload: async (workspace) => {
       await writeLegalworkRuntimeConfigFile(config, workspace.id);
@@ -2186,7 +2187,7 @@ function createRoutes(
     let apiKey = body.apiKey;
     let baseURL = body.baseURL;
     const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
-    const owned = { ...ensurePlainObject(runtime.provider), ...ensurePlainObject(runtime.providers) };
+    const owned = { ...runtime.providers };
     const ownedProvider = typeof body.providerId === "string" && Object.hasOwn(owned, body.providerId)
       && !(await orgChatEngineIds(config)).includes(body.providerId);
     if (typeof body.providerId === "string" && (typeof baseURL !== "string" || !baseURL.trim())) {
@@ -2221,8 +2222,8 @@ function createRoutes(
       await readLegalworkConfig(workspace.path),
       await readLegalworkWorkspaceConfig(config, workspace.id),
     );
-    // Tool permissions come from the global row; the workspace row only
-    // contributes external_directory (see applyGlobalToolPermissions).
+    // Host defaults and explicit project rules retain native order. Folder
+    // grants remain in this LegalWork project's row.
     const owned = await readRuntimeOpencodeConfig(config, workspace.id);
     const projection = await readNativeWorkspaceConfig(config, workspace,
       applyGlobalToolPermissions(
@@ -2554,11 +2555,12 @@ function createRoutes(
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(config, workspace),
-      await readRuntimeOpencodeConfig(config, workspace.id),
+      runtime,
     );
-    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path);
+    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path, runtime.projectPermissionApprovals);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
   });
 
@@ -2578,22 +2580,27 @@ function createRoutes(
       paths: [configPath],
     });
 
-    const persistedOpencode = await readOpencodeConfig(config, workspace);
-    const runtimeOpencode = await readRuntimeOpencodeConfig(config, workspace.id);
-    const existingOpencode = mergeOpencodeConfigs(persistedOpencode, runtimeOpencode);
-    const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspace.path);
-    const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
-      folders,
-      existingFoldersConfig.hiddenEntries,
-    );
-
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
-      ...current,
-      permission: {
-        ...(ensurePlainObject(current.permission)),
-        external_directory: nextExternalDirectory ?? {},
-      },
-    }));
+    const updatedRuntime = await writeRuntimeOpencodeConfig(config, workspace.id, current => {
+      const remembered = new Set(rememberedProjectFolderRules(current).flatMap(rule => {
+        const folder = externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect);
+        return folder ? [folder] : [];
+      }));
+      // Keeping a remembered folder does not turn its private approval into a
+      // second native config rule. Manual native grants retain their ownership.
+      const configured = folders.filter(folder => !remembered.has(folder) || (current.permissions ?? []).some(rule => rule.action === "external_directory" && externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect) === folder));
+      const root = normalizeAuthorizedFolderPath(workspace.path), desired = new Set(folders);
+      return { ...current,
+        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspace.path),
+        projectPermissionApprovals: current.projectPermissionApprovals?.flatMap(approval => {
+          if (!permissionPatternMatches("external_directory", approval.action)) return [approval];
+          const resources = approval.resources.filter(resource => {
+            const folder = externalDirectoryKeyToAuthorizedFolder(resource, "allow");
+            return folder === null || folder === root || desired.has(folder);
+          });
+          return resources.length ? [{ ...approval, resources }] : [];
+        }),
+      };
+    });
 
     const updatedAt = Date.now();
     await recordAudit(workspace.path, {
@@ -2608,13 +2615,11 @@ function createRoutes(
 
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
-    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig({
-      permission: { external_directory: nextExternalDirectory ?? {} },
-    }, workspace.path);
+    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspace.path, updatedRuntime.projectPermissionApprovals);
 
     const response: AuthorizedFoldersUpdateResponse = {
       folders: updatedFoldersConfig.folders,
-      hiddenCount: Object.keys(updatedFoldersConfig.hiddenEntries).length,
+      hiddenCount: updatedFoldersConfig.hiddenRules.length,
       updatedAt,
     };
     return jsonResponse(response);
@@ -2635,23 +2640,27 @@ function createRoutes(
 
     const legalwork = await readLegalworkConfigForStatus(workspace.path);
     const legacy = legacyRuntimeConfigFromLegalworkConfig(legalwork.data);
-    const user = userRuntimeConfigFromOpencodeConfig(await readOpencodeConfig(config, workspace));
+    const authored = await readJsoncFile(opencodeConfigPath(workspace.path), {} as Record<string, unknown>, { allowInvalid: true });
+    const user = userRuntimeConfigFromOpencodeConfig(authored.data);
     if (!legacy.keys.length && !user.keys.length) {
       return jsonResponse({ migrated: false, keys: [], legacyKeys: [], userOpencodeKeys: [], updatedAt: null, legacyError: legalwork.error });
     }
 
+    // Preserve the exact originals before the explicit import edits either file.
+    if (legacy.keys.length && !legalwork.error) await backupRuntimeConfigSource(config, workspace.id, legalworkConfigPath(workspace.path));
+    if (user.keys.length) await backupRuntimeConfigSource(config, workspace.id, opencodeConfigPath(workspace.path));
     // Connectors are shared by every workspace, so migrated MCP entries land
     // in the shared row; everything else stays with this workspace.
     const { mcp: legacyMcp, ...legacyRest } = legacy.config;
     const { mcp: userMcp, ...userRest } = user.config;
     await writeRuntimeOpencodeConfig(config, workspace.id, (current) => (
-      mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacyRest), userRest)
+      mergeImportedRuntimeConfig(mergeImportedRuntimeConfig(current, legacyRest), userRest)
     ));
-    const migratedMcp = { ...(legacyMcp ?? {}), ...(userMcp ?? {}) };
+    const migratedMcp = { ...legacyMcp?.servers, ...userMcp?.servers };
     if (Object.keys(migratedMcp).length) {
       await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({
         ...current,
-        mcp: { ...runtimeMcpMap(current), ...migratedMcp },
+        mcp: { ...current.mcp, servers: { ...current.mcp?.servers, ...migratedMcp } },
       }));
     }
     if (legacy.keys.length && !legalwork.error) {
@@ -4250,8 +4259,12 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const opencode = body.opencode as Record<string, unknown> | undefined;
-    const legalwork = body.legalwork as Record<string, unknown> | undefined;
+    if (body.opencode !== undefined && !isRecord(body.opencode) || body.legalwork !== undefined && !isRecord(body.legalwork)) throw new ApiError(400, "invalid_payload", "opencode and legalwork changes must be objects.");
+    const opencode = isRecord(body.opencode) ? body.opencode : undefined;
+    const legalwork = isRecord(body.legalwork) ? body.legalwork : undefined;
+    const toolPermissionUpdates = legalwork?.toolPermissionRules === undefined ? undefined : nativeToolPermissionUpdatesSchema.safeParse(legalwork.toolPermissionRules);
+    if (toolPermissionUpdates && !toolPermissionUpdates.success) throw new ApiError(400, "invalid_tool_permission_rules", "Use ordered native rules matching each tool action. Folder grants belong to the selected project.");
+    if (toolPermissionUpdates?.success) await requireOrgPolicyToolsUnmanaged(config, Object.keys(toolPermissionUpdates.data).flatMap(action => [action, ...(action === "shell" ? ["bash"] : [])]));
 
     if (opencode?.$legalworkReadOnlyProjection === true) {
       throw new ApiError(400, "read_only_configuration_projection", "Save specific settings changes instead of submitting the connection display view.");
@@ -4269,20 +4282,23 @@ function createRoutes(
     });
 
     if (opencode) {
-      const configPath = legalworkConfigPath(workspace.path);
-      const nextOpencode = ensurePlainObject(opencode);
-      const { permission, provider, providers, agent, ...topLevelUpdates } = nextOpencode;
-      const logicalUpdates: Record<string, unknown> = { ...topLevelUpdates };
-
-      const providerUpdate = { ...ensurePlainObject(provider), ...ensurePlainObject(providers) };
-      // Removing a provider is always possible; adding one the firm may not allow.
-      if (Object.values(providerUpdate).some((entry) => entry !== null)) {
-        await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
-      }
+      const { providers, agents, ...topLevelUpdates } = opencode;
+      if (providers !== undefined && !isRecord(providers) || agents !== undefined && !isRecord(agents)) throw new ApiError(400, "invalid_native_configuration", "Provider and agent edits must be native definition maps.");
+      const providerUpdate = ensurePlainObject(providers), agentUpdate = ensurePlainObject(agents);
+      const validate = (value: unknown) => {
+        try { return Schema.decodeUnknownSync(Config.Info)(isRecord(value) ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) : value, { onExcessProperty: "error" }); }
+        catch { throw new ApiError(400, "invalid_native_configuration", "Save native OpenCode V2 settings. Legacy settings are accepted only by the explicit upgrade."); }
+      };
+      const nativeUpdates = validate(topLevelUpdates);
+      const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+      const nextProviders = Object.keys(providerUpdate).length ? mergePrivateProviderEdits(currentRuntime.providers, providerUpdate) : currentRuntime.providers;
+      const nextAgents = Object.keys(agentUpdate).length ? mergeNativeFields(currentRuntime.agents, agentUpdate) : currentRuntime.agents;
+      // Validate the complete edit before changing refresh metadata or any row.
+      validate({ ...runtimeEngineConfiguration(currentRuntime), ...nativeUpdates, providers: nextProviders, agents: nextAgents });
+      if (Object.values(providerUpdate).some(entry => entry !== null)) await requireOrgPolicyAllows(config, "ai.chat.allowCustom");
+      if (nativeUpdates.permissions) await requireOrgPolicyToolsUnmanaged(config, nativeUpdates.permissions.flatMap(rule => [rule.action, ...(rule.action === "shell" ? ["bash"] : [])]));
       if (Object.keys(providerUpdate).length) {
-        // Mark disconnections before deleting config: the engine may still
-        // return its old provider until the client finishes reloading it.
-        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+        await writeLegalworkWorkspaceConfig(config, workspace.id, current => {
           const settings = readModelRefreshSettings(current.customProviderModelRefresh);
           for (const [id, provider] of Object.entries(providerUpdate)) {
             if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
@@ -4290,72 +4306,24 @@ function createRoutes(
           }
           return { ...current, customProviderModelRefresh: settings };
         });
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        // A `null` value in the patch removes that provider (see
-        // mergeRuntimeProviderPatch) so a client can fully disconnect it.
-        logicalUpdates.providers = mergePrivateProviderEdits(
-          { ...ensurePlainObject(currentRuntime.provider), ...ensurePlainObject(currentRuntime.providers) },
-          providerUpdate,
-        );
-        // A native replacement/removal must not resurrect an older v1 definition.
-        logicalUpdates.provider = Object.fromEntries(Object.entries(ensurePlainObject(currentRuntime.provider))
-          .filter(([id]) => !Object.hasOwn(providerUpdate, id)));
       }
-
-      const agentUpdate = ensurePlainObject(agent);
-      if (Object.keys(agentUpdate).length) {
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        logicalUpdates.agent = mergeRuntimeProviderPatch(
-          ensurePlainObject(currentRuntime.agent),
-          agentUpdate,
-        );
-      }
-
-      const permissionUpdate = ensurePlainObject(permission);
-      await requireOrgPolicyToolsUnmanaged(config, Object.keys(permissionUpdate));
-      if (Object.keys(permissionUpdate).length) {
-        const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
-
-        // Tool permissions are GLOBAL — one safety posture for every
-        // workspace — so they merge into the reserved global row. A `null`
-        // value in the patch removes that key (JSON cannot carry
-        // `undefined`); unmentioned keys are preserved as-is.
-        if (Object.keys(toolPermissionUpdate).length) {
-          const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
-          const nextGlobal = mergeRuntimeProviderPatch(
-            ensurePlainObject(globalRuntime.permission),
-            toolPermissionUpdate,
-          );
-          await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
-            ...current,
-            permission: Object.keys(nextGlobal).length
-              ? (nextGlobal as RuntimeOpencodeConfig["permission"])
-              : undefined,
-          }));
-        }
-
-        // external_directory stays workspace-scoped: it is owned by the
-        // authorized-folders routes and describes this workspace's folders.
-        if (externalDirectoryUpdate !== undefined) {
-          const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-          const nextPermission = mergeRuntimeProviderPatch(
-            ensurePlainObject(existingRuntime.permission),
-            { external_directory: externalDirectoryUpdate },
-          );
-          logicalUpdates.permission = Object.keys(nextPermission).length ? nextPermission : undefined;
-        }
-      }
-
-      if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {
-        await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
-          ...current,
-          ...logicalUpdates,
-        }));
-      }
+      // Native opencode.permissions belongs wholly to this project. The global
+      // Tool Permissions UI uses the separate typed command below.
+      await writeRuntimeOpencodeConfig(config, workspace.id, current => ({ ...current, ...nativeUpdates,
+        ...(Object.keys(providerUpdate).length ? { providers: validate({ providers: mergePrivateProviderEdits(current.providers, providerUpdate) }).providers } : {}),
+        ...(Object.keys(agentUpdate).length ? { agents: validate({ agents: mergeNativeFields(current.agents, agentUpdate) }).agents } : {}),
+      }));
     }
+    if (toolPermissionUpdates?.success) {
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current,
+        permissions: mergeNativeToolPermissionRules(current.permissions ?? [], toolPermissionUpdates.data),
+      }));
+    }
+
     if (legalwork) {
-      await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
-        const next = { ...current, ...legalwork };
+      const { toolPermissionRules, ...workspaceUpdates } = legalwork;
+      if (Object.keys(workspaceUpdates).length) await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+        const next = { ...current, ...workspaceUpdates };
         if (isRecord(legalwork.customProviderModelRefresh)) {
           const settings = readModelRefreshSettings(current.customProviderModelRefresh);
           for (const [id, entry] of Object.entries(legalwork.customProviderModelRefresh)) {
@@ -4377,8 +4345,8 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    if (opencode) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(legalworkConfigPath(workspace.path)));
+    for (const target of toolPermissionUpdates?.success ? config.workspaces : opencode ? [workspace] : []) {
+      emitReloadEvent(ctx.reloadEvents, target, "config", buildConfigTrigger(legalworkConfigPath(target.path)));
     }
 
     return jsonResponse({ updatedAt: Date.now() });
@@ -4862,10 +4830,10 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
-    const configPayload = body.config as Record<string, unknown> | undefined;
-    if (!configPayload) {
+    if (!isRecord(body.config)) {
       throw new ApiError(400, "invalid_payload", "MCP config is required");
     }
+    const configPayload = connectorCommandFields(body.config);
     await requireConnectorAllowed(config, name);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -5487,13 +5455,14 @@ async function fetchRuntimeControl(path: string, init?: { method?: string; body?
 }
 
 async function readOpencodeConfig(config: ServerConfig, workspace: WorkspaceInfo): Promise<Record<string, unknown>> {
-  const path = opencodeConfigPath(workspace.path);
-  // The generated selection document materializes the runtime DB. It is not
-  // authored input: re-importing it duplicates settings and attempts to decode
-  // private file references before OpenCode expands them (including enums).
-  if ((await engineProjectStatus(config, workspace)).projection.path === path) return {};
-  const { data } = await readJsoncFile(path, {} as Record<string, unknown>, { allowInvalid: true });
-  return data;
+  if (config.engineConfigurationMode === "managed" || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return {};
+  if ((await engineProjectStatus(config, workspace)).state !== "ready") return {};
+  const entries = await createEngineClient(config, workspace).config.get({ location: workspaceEngineLocation(workspace) });
+  const documents = entries.flatMap(entry => entry.type === "document" ? [entry.info] : []);
+  let result: Record<string, unknown> = {};
+  for (const document of documents) result = mergeNativeFields(result, document);
+  result.policies = [...documents].reverse().flatMap(document => document.policies ?? []);
+  return runtimeEngineConfiguration(result);
 }
 
 async function readLegalworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {

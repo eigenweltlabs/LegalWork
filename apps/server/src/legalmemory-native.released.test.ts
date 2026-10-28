@@ -90,7 +90,7 @@ test.skipIf(!binary)("released native LegalMemory preserves full original bytes,
   } });
   const settingsPath = join(root, "settings.json"), directory = join(root, "project"), other = join(root, "other");
   const serverUrl = `${provider.url.origin}/mcp`;
-  await writeFile(settingsPath, JSON.stringify({ version: 1, workspaces: { project: { directory, configuration: {}, providerActivation: {}, modelFilters: {}, agentRequests: {}, skills: [] } } }), { mode: 0o600 });
+  await writeFile(settingsPath, JSON.stringify({ version: 2, sharedConfiguration: {}, workspaces: { project: { directory, configuration: {}, providerActivation: {}, projectPermissionApprovals: [] } } }), { mode: 0o600 });
   const build = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-legalmemory.ts", import.meta.url))], outdir: join(root, "plugin"), naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
   if (!build.success) throw new AggregateError(build.logs, "LegalMemory fixture must build");
   // Separate fixture RPC invokes the real native registered MCP tool path with
