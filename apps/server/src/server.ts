@@ -2555,9 +2555,9 @@ function createRoutes(
       });
     }
 
-    // Publish the complete removal once, just like creation. Native watchers
-    // remove the definitions in loaded projects; closed projects need no warmup.
-    await syncRuntimeMcpToOpencodeEngine(config, workspace, undefined, true).catch(() => undefined);
+    // Publication above removes the definition everywhere. Native file watchers
+    // update loaded projects; unopened projects read the saved configuration.
+    // No project engine needs to start or reconnect for a library removal.
     for (const target of globalRemoval ? config.workspaces : [workspace]) {
       for (const reason of ["skills", "agents", "commands", "mcp"] satisfies Array<"skills" | "agents" | "commands" | "mcp">) emitReloadEvent(ctx.reloadEvents, target, reason);
     }
