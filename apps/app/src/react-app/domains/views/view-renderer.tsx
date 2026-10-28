@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { ViewSaveDialog } from "./view-save-dialog";
 import { ViewSaveActions } from "./view-save-actions";
 import { savedViewKey } from "./view-save-locations";
@@ -91,9 +92,10 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   </>;
 }
 export function SavedView({ client, reference, inline = false, onTitle, openSource, readOnly }: { client: LegalworkServerClient | null; reference: ViewReference; inline?: boolean; readOnly?: boolean; onTitle?: (title: string) => void; openSource?: (path: string) => void }) {
+  const metadataInterval = useMetadataPolling(client?.baseUrl, 15000);
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error(t("views.connection_unavailable")); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: 15_000 });
+  const view = useQuery({ queryKey: ["ui-view", client?.baseUrl, reference.owner.kind, reference.owner.id, reference.viewId], queryFn: () => { if (!client) throw new Error(t("views.connection_unavailable")); return client.readView(reference.owner, reference.viewId); }, enabled: Boolean(client), refetchInterval: metadataInterval });
   const download = useMutation({ mutationFn: async () => { if (client && view.data) await downloadViewFile(client, view.data); } });
   const status = view.data ? viewDataStatus(view.data) : null;
   useEffect(() => { if (view.data) onTitle?.(view.data.title); }, [view.data?.title, onTitle]);
