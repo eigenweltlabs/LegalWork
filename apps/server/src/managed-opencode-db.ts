@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { SessionV1 } from "@opencode/schema/session-v1";
 import { Schema } from "effect";
-import { findExistingOpencodeDbPath } from "./opencode-db.js";
+import { findExistingOpencodeDbIn, findExistingOpencodeDbPath } from "./opencode-db.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { ensureLegacyHistoryBackup, readLegacyHistoryBackup } from "./history-v1-backup.js";
 
@@ -280,18 +280,21 @@ async function prepareManagedOpencodeEngineDbFiles(config: ServerConfig): Promis
 
     if (existsSync(join(storageDir, "history-import-state.json"))) throw new Error("The migrated engine history database is missing. Restore its private recovery copy before starting.");
 
-    if (process.env.LEGALWORK_DEV_MODE === "1") return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
-
     // A separate v2 file makes rollback safe: the old released app can still
-    // open its untouched v1 history. Never migrate the user's standalone DB.
+    // open its untouched v1 history. Development only adopts its own explicit
+    // profile directory, never the user's standalone or production history.
     const legacyPath = join(storageDir, LEGACY_MANAGED_ENGINE_DB_FILENAME);
-    const sharedPath = existsSync(legacyPath) ? legacyPath : findExistingOpencodeDbPath();
+    const development = process.env.LEGALWORK_DEV_MODE === "1";
+    const devDataDirectory = process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR?.trim();
+    const sharedPath = existsSync(legacyPath) ? legacyPath
+      : development ? (devDataDirectory ? findExistingOpencodeDbIn(devDataDirectory) : null)
+      : findExistingOpencodeDbPath();
     if (!sharedPath) {
       return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
     }
 
     const compatibility = await classifySharedOpencodeDb(sharedPath);
-    if (existsSync(legacyPath) && compatibility !== "compatible") throw new Error(`The existing LegalWork history cannot be migrated safely (${compatibility}): ${legacyPath}`);
+    if ((existsSync(legacyPath) || development) && compatibility !== "compatible") throw new Error(`The existing LegalWork history cannot be migrated safely (${compatibility}): ${sharedPath}`);
     const backup = compatibility === "compatible" ? await ensureLegacyHistoryBackup(config, sharedPath, async destination => {
       const db = await openSqliteReadonly(sharedPath);
       try { db.run("VACUUM INTO ?", [destination]); } finally { db.close(); }

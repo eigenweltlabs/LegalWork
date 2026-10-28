@@ -956,6 +956,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.USERPROFILE = devPaths.homeDir;
       env.XDG_CONFIG_HOME = devPaths.xdgConfigHome;
       env.XDG_DATA_HOME = devPaths.xdgDataHome;
+      env.LEGALWORK_DEV_OPENCODE_DATA_DIR = path.join(devPaths.xdgDataHome, "opencode");
       env.XDG_CACHE_HOME = devPaths.xdgCacheHome;
       env.XDG_STATE_HOME = devPaths.xdgStateHome;
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;

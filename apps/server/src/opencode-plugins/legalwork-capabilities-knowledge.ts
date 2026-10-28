@@ -95,7 +95,7 @@ When delegating an independent task, use subagent with background=true if that o
 - Plugins extend LegalWork/OpenCode with custom tools.
 - Create plugins only when a reusable tool hook is actually needed; for most workflow memory, prefer a skill.
 
-When users ask "what can I do?" or "what can LegalWork do?", load legalwork-help and summarize the relevant documented capabilities. When they ask how to do something specific, read the relevant guide, give direct app steps and use the UI action tools when helpful. If you infer behavior from implementation details, say that it is code-derived.`;
+In the main Assistant, follow its coordinator role and selected resource routing. When users ask "what can I do?" or "what can LegalWork do?", load legalwork-help and summarize the relevant documented capabilities. When they ask how to do something specific, read the relevant guide, give direct app steps and use the UI action tools when helpful. If you infer behavior from implementation details, say that it is code-derived.`;
 
 export default Plugin.define({
   id: "legalwork.capabilities",

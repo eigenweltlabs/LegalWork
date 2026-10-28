@@ -9,6 +9,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 
 | Question | Read |
 | --- | --- |
+| Personal Assistant, daily chats, custom instructions or cloud setup | [assistant.md](references/assistant.md) |
 | Gmail or Outlook email | [email.md](references/email.md) |
 | What is a workflow, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |

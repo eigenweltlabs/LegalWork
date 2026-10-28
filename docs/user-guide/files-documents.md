@@ -6,6 +6,8 @@ Use **Memory Drive** to browse workspace files and configured storage roots. Ope
 
 Give an exact filename or attach the document when several copies exist. "This document" should mean the document actually open beside the chat. Check that the assistant is working on that version. Save pending edits before switching to a conflicting copy or accepting a discard prompt.
 
+File cards in chat show the filename without its folder path. Select a card to open the referenced file.
+
 ## Supported work
 
 | File type | What to use |

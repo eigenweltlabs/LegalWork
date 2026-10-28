@@ -7,6 +7,17 @@ import { safeStringify } from "@/app/utils";
 
 export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
+/** App-state reminders belong to model history, not a JSON widget's payload. */
+export function widgetOutput(output: string): string {
+  const start = output.indexOf('\n\n<system-reminder topic="');
+  if (start < 0) return output;
+  const payload = output.slice(0, start);
+  const reminders = output.slice(start);
+  if (!/^(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/.test(reminders)) return output;
+  try { JSON.parse(payload); return payload; }
+  catch { return output; }
+}
+
 export function parseDynamicToolUIParts(part: ToolPart): DynamicToolUIPart[] {
   const mapped = parseDynamicToolUIPart(part);
   if (!mapped) return [];
@@ -96,7 +107,7 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
       toolCallId: part.callID,
       state: "output-available",
       input: part.state.input,
-      output: preview ?? part.state.output,
+      output: preview ?? widgetOutput(part.state.output),
       callProviderMetadata,
     };
   }

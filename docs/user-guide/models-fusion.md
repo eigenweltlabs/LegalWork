@@ -6,6 +6,8 @@ Open in LegalWork: [AI Providers](legalwork://app/settings/ai), [Tabular Review 
 
 Open **Settings > AI Providers**, choose the connection action, then follow the provider's supported sign-in or API-key flow. The provider catalog includes hosted services and OpenAI-compatible custom endpoints. For a local service such as Ollama, install and start that service, make the intended model available, and configure its endpoint/model through the local provider flow.
 
+For ChatGPT, choose **Add provider > Continue with ChatGPT**, complete sign-in in your browser, and keep LegalWork open until its connection dialog closes. This also applies when an OpenAI API key or firm connection is already listed. After sign-in, open the chat's model picker to choose an available OpenAI model. The connection is available across local projects; project-specific model restrictions still apply.
+
 Select a connected model using the chat's model picker. Search by model or provider. Disabling a provider in the picker hides its models from selection; disconnecting its credentials is a separate settings action. A model listed by a provider may still be unavailable to your account, region or quota. Use the actual provider error to diagnose this.
 
 Keys can originate from a settings connection, environment variables or managed configuration. The AI Providers page identifies their source. An environment-managed connection may not be removable through the ordinary disconnect button; change it at the source instead. Store service secrets under **Settings > Secrets** when the relevant integration needs environment variables. Never paste a secret into a prompt as a setup shortcut.

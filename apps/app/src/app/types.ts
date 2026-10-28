@@ -179,6 +179,7 @@ export const SETTINGS_TAB_VALUES = [
   "ai",
   "tabular-review",
   "account",
+  "assistant",
   "personalisation",
   "notifications",
   "benchmark",

@@ -1,3 +1,4 @@
+import { createAssistantRuntime } from "./assistant-runtime.js";
 import { createNodeRawHttpTransport } from "./agent-sandbox/raw-http-node.js";
 import { isRpcError } from "@opencode/client";
 import { createToolImageRaster } from "./tool-image-raster.js";
@@ -905,12 +906,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, resolveWorkspace: id => resolveWorkspace(config, id),
+    changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
 
     return workspace;
   };
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
+    resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
       if (config.readOnly) return false;
       const workspace = await scheduledWorkspace(task);
@@ -925,6 +929,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     send: async (task, sessionId) => {
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
+      const work = await assistantRuntime.scheduledWork(task, workspace, sessionId);
       const agent = task.projectAccess === "all" ? ALL_PROJECTS_TASK_AGENT : PROJECT_TASK_AGENT;
       await withSessionDispatch(config, sessionId, async () => {
       const session = await getWorkspaceEngineSession(client, workspace, sessionId);
@@ -944,8 +949,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const queue = registeredMessageQueue(config);
       if (!queue) throw new ApiError(503, "queue_unavailable", "The message queue is not ready.");
       const action = dispatchQueueAction({ kind: "prompt", id: `msg_schedule_${task.id}_${task.nextRunAt}`, agent,
-        ...(task.model ? { model: { providerID: task.model.providerID, id: task.model.modelID } } : {}),
-        text: `[Scheduled task: ${task.title}]\n\n${task.prompt}`,
+        ...(work.model ? { model: { providerID: work.model.providerID, id: work.model.modelID } } : {}),
+        text: `[Scheduled task: ${task.title}]\n\n${work.prompt}`,
         metadata: { legalworkScheduledTask: { taskId: task.id, workspaceId: workspace.id, title: task.title } } });
       const state = await queue.act(workspace.id, sessionId, { ...action, resumeStopped: false });
       const entry = state.entries.find(entry => entry.id === action.id);
@@ -953,6 +958,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     },
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
     const session = await getWorkspaceEngineSession(createDirectoryOpencodeClient(config, workspace, directory), workspace, sessionID);
@@ -1273,6 +1279,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       approvals.dispose();
       officeConnection.dispose();
       stopMessageQueue(config);
+      await assistantRuntime.close();
       await corpus.stop();
       reviews.stop();
       preparation.stop();
@@ -1944,6 +1951,7 @@ function createRoutes(
     },
   });
   registerScheduledTaskRoutes({ routes, config, store: scheduledTasks, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, resolveWorkspaceMetadata,
+    getStatuses: async workspace => Object.fromEntries(Object.keys(await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) })).map(id => [id, { type: "busy" }])) ,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
     getSession: async (workspace, id) => {
@@ -2028,7 +2036,6 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine,
     onProjectDetailsSaved: (workspaceId, before, after) => noteProjectDetailsSaved(config, workspaceId, before, after),
     onProjectRenamed: (workspaceId, name) => noteProjectRenamed(config, workspaceId, name),
     onProjectRemoved: (workspaceId) => noteProjectRemoved(config, workspaceId),
