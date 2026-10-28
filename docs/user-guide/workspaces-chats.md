@@ -14,7 +14,9 @@ Folder/workspace menus provide the actions available in this context, including 
 
 ## Conversations
 
-Choose **New Chat** in the selected workspace. The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them.
+In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
+
+The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them.
 
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
