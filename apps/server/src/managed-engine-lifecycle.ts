@@ -4,6 +4,8 @@ import { ApiError } from "./errors.js";
 import { inspectNativeEngineRecovery, assertNativeEngineRecoveryProjectsReady } from "./native-engine-recovery.js";
 import { stopManagedOpencodeService, type ManagedOpencodeServiceOptions } from "./managed-opencode-service.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
+import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { migrateStoppedNativeSavedApprovals } from "./native-saved-approval-migration.js";
 import { createManagedImageAffinity } from "./managed-image-affinity.js";
 import { assertRegisteredLegacySessionPermissionsReady, restoreRegisteredLegacySessionPermissions } from "./session-history-permissions.js";
 import type { ServerConfig } from "./types.js";
@@ -29,7 +31,18 @@ export async function startManagedEngineLifecycle(options: {
   let catalogReloading = false;
   let events: AbortController | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  const prepareStoppedApprovals = async () => {
+    if (endpointLive) throw new Error("Saved approval migration requires a stopped managed engine.");
+    const migrated = await migrateStoppedNativeSavedApprovals(config, options.database);
+    const workspace = config.workspaces[0];
+    if (migrated.changed && workspace) await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  };
+  const createStopped = (target: "service" | "recovery", check?: () => Promise<void>) => options.create(target, async () => {
+    await prepareStoppedApprovals();
+    await check?.();
+  });
   await stopManagedOpencodeService(options.service);
+  await prepareStoppedApprovals();
   const held = (await inspectNativeEngineRecovery(options.database)).sessions;
   const heldIDs = new Set(held.map(session => session.id));
   const prepareLegacyPolicies = async () => {
@@ -99,11 +112,11 @@ export async function startManagedEngineLifecycle(options: {
       imageAffinity.disconnect();
       endpointLive = false;
       await engine.close();
-      try { engine = await options.create("service", preflight); await publish(); mode = "service"; serviceStartupFailed = false; failure = undefined; }
+      try { engine = await createStopped("service", preflight); await publish(); mode = "service"; serviceStartupFailed = false; failure = undefined; }
       catch (error) {
         remember(error); serviceStartupFailed = true;
         if (closed) return;
-        engine = await options.create("recovery"); await publish(); mode = "recovery"; monitor();
+        engine = await createStopped("recovery"); await publish(); mode = "recovery"; monitor();
       }
     })().catch(error => { remember(error); }).finally(() => { checking = undefined; });
     return checking;
@@ -147,8 +160,8 @@ export async function startManagedEngineLifecycle(options: {
     return catalogReload;
   };
   let attemptedService = false;
-  try { await preflight(); attemptedService = true; engine = await options.create("service", preflight); mode = "service"; }
-  catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await options.create("recovery"); }
+  try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
+  catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await createStopped("recovery"); }
   await publish();
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });

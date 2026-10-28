@@ -20,6 +20,8 @@ export type RuntimeOpencodeConfig = { -readonly [Key in keyof NativeRuntimeConfi
   sandboxNetworkMode?: "allow" | "block" | "approve";
   /** App-owned switches, independent of user-authored policy statements. */
   providerActivation?: Record<string, "allow" | "deny">;
+  /** Immutable app-private receipts prevent legacy grants replaying after revocation. */
+  nativeSavedApprovalImportIDs?: string[];
   projectPermissionApprovals?: Array<{ id: string; action: string; resources: string[]; createdAt: number; updatedAt?: number }>;
   personalization?: PersonalizationSettings;
 };
@@ -87,6 +89,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const personalization = isRecord(application.personalization)
     ? normalizePersonalizationSettings(application.personalization)
     : undefined;
+  const nativeSavedApprovalImportIDs = application.nativeSavedApprovalImportIDs === undefined ? undefined
+    : z.array(z.string().min(1)).parse(application.nativeSavedApprovalImportIDs);
   const projectPermissionApprovals = application.projectPermissionApprovals === undefined ? undefined
     : z.array(z.object({ id: z.string(), action: z.string(), resources: z.array(z.string()), createdAt: z.number().finite(), updatedAt: z.number().finite().optional() }).strict()).parse(application.projectPermissionApprovals);
   return {
@@ -100,6 +104,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(Object.keys(providerActivation).length ? { providerActivation } : {}),
     ...(personalization ? { personalization } : {}),
     ...(projectPermissionApprovals ? { projectPermissionApprovals } : {}),
+    ...(nativeSavedApprovalImportIDs ? { nativeSavedApprovalImportIDs } : {}),
   };
 }
 
@@ -319,7 +324,13 @@ export async function writeRuntimeOpencodeConfig(
   // order: ordered permission rules can change meaning when reordered.
   const previous = JSON.stringify(current);
   const previousPermissions = permissionFingerprint(current);
-  const next = normalizeRuntimeOpencodeConfig(updater(current));
+  // Preserve import history even when a settings editor replaces all ordinary
+  // project settings. Revoking a grant must not revive its old engine record.
+  const importIDs = [...current.nativeSavedApprovalImportIDs ?? []];
+  const updated = updater(current);
+  const next = normalizeRuntimeOpencodeConfig({ ...updated,
+    ...(importIDs.length || updated.nativeSavedApprovalImportIDs?.length ? { nativeSavedApprovalImportIDs: [...new Set([...importIDs, ...updated.nativeSavedApprovalImportIDs ?? []])] } : {}),
+  });
   const configJson = JSON.stringify(next);
   if (configJson === previous && db.has(workspaceId)) return next;
   const now = Date.now();
