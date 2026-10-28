@@ -1,5 +1,13 @@
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
-const LegalWorkStorageTools = (context = {}) => nativePluginTools(LegalWorkStorageToolsDefinition, context);
+const LegalWorkStorageTools = (context = {}) => nativePluginTools({ ...LegalWorkStorageToolsDefinition,
+  setup: ctx => LegalWorkStorageToolsDefinition.setup(new Proxy(ctx, { get(target, property, receiver) {
+    if (property === "model") return { list: async () => ({ data: [
+      { providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } },
+      { providerID: "fixture", id: "text", capabilities: { input: ["text"] } },
+    ] }) };
+    return Reflect.get(target, property, receiver);
+  } })),
+}, context);
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import LegalWorkStorageToolsDefinition from "./opencode-plugins/legalwork-storage-tools.js";
@@ -126,7 +134,7 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
   dav.files.set("first/source.pdf", Buffer.from(await pdf.save()));
   const id = await connect(storageInputSchema.parse({ name: "Source reading", readOnly: true, config: { kind: "webdav", endpoint: `${dav.endpoint}/first` } }));
   const plugin = await LegalWorkStorageTools();
-  await plugin["chat.params"]({ sessionID: "source-reading", agent: "build", message: { agent: "build" }, model: { capabilities: { input: { pdf: false } } } });
+  await plugin.runtime.hook("session", "model.request", { sessionID: "source-reading", agent: "build", kind: "primary", model: { providerID: "fixture", id: "text" } });
   const read = (path: string, args: Record<string, unknown> = {}) => plugin.tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary, sessionID: "source-reading" }).then(parseToolJson);
   try {
     const first = await read("source.docx", { max_chars: 24 });
@@ -142,12 +150,12 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
     expect(pdfFirst.text + pdfRest.text).toContain("[Page 1]\nClient consent");
     expect(pdfFirst.next_offset).toBe(24);
     expect(pdfRest).not.toHaveProperty("next_offset");
-    await plugin["chat.params"]({ sessionID: "source-reading", agent: "build", message: { agent: "build" }, model: { capabilities: { input: { pdf: true } } } });
-    const visual = await plugin.tool.storage_read_file.execute({ connection_id: id, path: "source.pdf" }, { directory: temporary, sessionID: "source-reading" });
-    if (typeof visual === "string") throw new Error("PDF-capable models must receive the PDF attachment");
-    expect(visual.attachments?.[0]?.mime).toBe("application/pdf");
-    expect(visual.attachments?.[0]?.url).toBe(`data:application/pdf;base64,${dav.files.get("first/source.pdf")!.toString("base64")}`);
-    expect(parseToolJson(visual)).toMatchObject({ extraction: "pdf", path: "source.pdf", writable: false });
+    await plugin.runtime.hook("session", "model.request", { sessionID: "source-reading", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
+    const visual = await plugin.tool.storage_read_file.executeResult({ connection_id: id, path: "source.pdf" }, { directory: temporary, sessionID: "source-reading" });
+    const attachment = typeof visual.content === "string" ? undefined : visual.content?.find(part => part.type === "file");
+    expect(attachment?.mime).toBe("application/pdf");
+    expect(attachment?.uri).toBe(`data:application/pdf;base64,${dav.files.get("first/source.pdf")!.toString("base64")}`);
+    expect(visual.output).toMatchObject({ extraction: "pdf", path: "source.pdf", writable: false });
     expect((await read("deck.pptx")).text).toContain("Board approval");
     expect((await read("sheet.xlsx")).text).toContain("Budget\t45000");
     expect(await read("broken.docx")).toMatchObject({ ok: false, code: "storage_document_read_failed" });

@@ -88,7 +88,7 @@ export async function collectTechnicalSupportBundle({ app, runtimeManager, serve
     }
   } catch (error) { logsError = error instanceof Error ? error.message : String(error); }
   let runtime;
-  try { runtime = runtimeManager.collectRuntimeDiagnostics(); }
+  try { runtime = await runtimeManager.collectRuntimeDiagnostics(); }
   catch (error) { runtime = { error: error instanceof Error ? error.message : String(error) }; }
   const sidecarVersionsPath = process.resourcesPath ? path.join(process.resourcesPath, "sidecars", "versions.json") : null;
   const desktop = {

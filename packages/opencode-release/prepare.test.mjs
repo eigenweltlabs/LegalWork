@@ -133,6 +133,7 @@ async function desktopFixture(root, preparation) {
   await mkdir(path.join(desktop, "electron"), { recursive: true });
   await copyFile(new URL("../../apps/desktop/scripts/prepare-sidecar.mjs", import.meta.url), path.join(desktop, "scripts/prepare-sidecar.mjs"));
   await copyFile(new URL("../../apps/desktop/scripts/electron-dev.mjs", import.meta.url), path.join(desktop, "scripts/electron-dev.mjs"));
+  for (const name of ["prepare-node-runtime.mjs", "prepare-opencode-sdk.mjs"]) await write(root, `apps/desktop/scripts/${name}`, "// Resource preparation is independent of the engine-selection fixture.\n");
   await write(root, "apps/desktop/electron/opencode-release.mjs", "export const downloadOpencodeBinary=()=>{}; export const opencodeReleaseTarget=()=> 'darwin-arm64';");
   await write(root, "constants.json", JSON.stringify({ opencodeVersion: "2.1.4" }));
   await write(root, "packages/opencode-release/prepare.mjs", preparation);

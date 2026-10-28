@@ -1,30 +1,42 @@
 import { z } from "zod";
+import type { Plugin } from "@opencode/plugin";
+import type { Result } from "@opencode/plugin/promise/tool";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { resolve } from "node:path";
+import { nativeToolContext } from "./native-tool.js";
 import { pdfReadOptions, pdfTextResult, PDF_MAX_BYTES } from "../pdf-read-schema.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 type Attachment = { type: "file"; mime: string; url: string; filename?: string };
-type Result = { title: string; output: string; metadata: Record<string, unknown>; attachments?: Attachment[] };
+type PdfResult = { title: string; output: string; metadata: Record<string, unknown>; attachments?: Attachment[] };
 export class PdfToolResult { constructor(readonly result: Result) {} }
 
-const readArgs = pdfReadOptions.extend({
-  filePath: z.string(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(0).optional(),
-});
-const modelInput = z.object({ sessionID: z.string(), agent: z.string(), message: z.object({ agent: z.string() }),
-  model: z.object({ capabilities: z.object({ input: z.object({ pdf: z.boolean() }) }) }) });
-const attachment = z.object({ type: z.literal("file"), mime: z.literal("application/pdf"), url: z.string(), filename: z.string().optional() }).passthrough();
+export function nativePdfResult(result: PdfResult): Result {
+  return { output: JSON.parse(result.output), content: [{ type: "text", text: result.output },
+    ...(result.attachments ?? []).map(file => ({ type: file.type, uri: file.url, mime: file.mime, name: file.filename }))],
+    metadata: { ...result.metadata, title: result.title } };
+}
 
-export function pdfReading(directory?: string) {
+const readArgs = pdfReadOptions.extend({
+  path: z.string(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(0).optional(),
+});
+const nativeMediaLimit = z.object({
+  _tag: z.literal("Tool.Error"),
+  error: z.object({ _tag: z.literal("ReadTool.MediaIngestLimitError"), resource: z.string(), maximumBytes: z.literal(20 * 1024 * 1024) }),
+});
+
+export function pdfReading() {
   const models = new Map<string, boolean>();
-  const running = new Map<string, { sessionID: string; controller: AbortController }>();
   const description = " Read PDFs with this tool; no PDF skill or shell is needed. PDF-capable models receive the PDF directly. Other models receive embedded text, using OCR only on pages without text. Set ocr=true only when OCR is explicitly requested or needed for visual additions. pages selects 1-based PDF pages for text/OCR; PDF-capable models still receive the original PDF. For PDF text, offset is a 0-based character offset and limit is a character count (default 16000, maximum 80000); follow next_offset. Other files retain their normal line offsets and limits. Never repeat an unchanged failed read; report the error or change the indicated settings.";
 
-  const read = async (file: Attachment, options: z.infer<typeof pdfReadOptions> & { offset?: number; limit?: number }, context: OpenCodeContext): Promise<Result> => {
+  const read = async (file: Attachment, options: z.infer<typeof pdfReadOptions> & { offset?: number; limit?: number }, context: OpenCodeContext): Promise<PdfResult> => {
     const supportsPdf = context.sessionID ? models.get(context.sessionID) : undefined;
     if (supportsPdf === undefined) throw new Error("PDF reading could not determine the current model's PDF capability. Select a model and retry.");
     const prefix = "data:application/pdf;base64,";
     if (!file.url.startsWith(prefix) || file.url.length - prefix.length > Math.ceil(PDF_MAX_BYTES / 3) * 4)
       throw new Error("PDF reading requires a local PDF attachment of at most 64 MiB.");
-    const original: Result = { title: file.filename ?? "PDF", output: JSON.stringify({ extraction: "pdf", message: "PDF supplied directly. Read its text and page images.", ...(options.pages ? { requested_pages: options.pages } : {}) }), metadata: { extraction: "pdf", truncated: false }, attachments: [file] };
+    const original: PdfResult = { title: file.filename ?? "PDF", output: JSON.stringify({ extraction: "pdf", message: "PDF supplied directly. Read its text and page images.", ...(options.pages ? { requested_pages: options.pages } : {}) }), metadata: { extraction: "pdf", truncated: false }, attachments: [file] };
     if (supportsPdf && !options.ocr) return original;
     let result: z.infer<typeof pdfTextResult>;
     try {
@@ -60,40 +72,64 @@ export function pdfReading(directory?: string) {
 
   return {
     read,
-    "chat.params": async (raw: unknown) => {
-      const input = modelInput.parse(raw);
-      // Title, summary and compaction requests reuse the user's session/message
-      // with a different agent. They must not replace its tool-using model.
-      if (input.agent !== input.message.agent) return;
-      if (models.size >= 1000 && !models.has(input.sessionID)) models.delete(models.keys().next().value!);
-      models.set(input.sessionID, input.model.capabilities.input.pdf);
-    },
-    "tool.definition": async ({ toolID }: { toolID: string }, output: { description: string; jsonSchema?: unknown }) => {
-      if (toolID !== "read") return;
-      output.description += description;
-      // The native decoder keeps its original parameters and permission checks.
-      // Extra arguments remain on tool.execute.after's original input object.
-      output.jsonSchema = z.toJSONSchema(readArgs);
-    },
-    "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string; args: unknown }, output: Result) => {
-      if (input.tool !== "read") return;
-      const file = output.attachments?.find(item => item.mime === "application/pdf");
-      if (!file) return;
-      const args = readArgs.parse(input.args);
-      const controller = new AbortController();
-      const key = `${input.sessionID}:${input.callID}`;
-      running.set(key, { sessionID: input.sessionID, controller });
-      try {
-        const result = await read(attachment.parse(file), args, { sessionID: input.sessionID, directory, abort: controller.signal });
-        output.output = result.output;
-        output.metadata = { ...output.metadata, ...result.metadata };
-        output.attachments = result.attachments ?? [];
-      } finally { running.delete(key); }
-    },
-    event: async ({ event }: { event: { type: string; properties?: unknown } }) => {
-      const status = z.object({ sessionID: z.string(), status: z.object({ type: z.string() }) }).safeParse(event.properties);
-      if (event.type !== "session.status" || !status.success || status.data.status.type !== "idle") return;
-      for (const { sessionID, controller } of running.values()) if (sessionID === status.data.sessionID) controller.abort();
+    async register(ctx: Plugin.Context) {
+      await ctx.session.hook("model.request", async event => {
+        // Auxiliary title/compaction requests must not replace the active tool model.
+        if (event.kind !== "primary") return;
+        const session = await ctx.session.get({ sessionID: event.sessionID });
+        const catalog = await ctx.model.list({ location: session.location });
+        const model = catalog.data.find(model => model.providerID === event.model.providerID && model.id === event.model.id);
+        if (!model) throw new Error("PDF reading could not determine the current model's PDF capability. Select a model and retry.");
+        models.set(event.sessionID, model.capabilities.input.includes("pdf"));
+      });
+      await ctx.tool.transform(editor => {
+        const original = editor.list().find(tool => tool.name === "read");
+        if (!original) return;
+        editor.update(original.id, tool => {
+          const execute = tool.execute;
+          tool.description += description;
+          tool.input = z.toJSONSchema(readArgs);
+          // Native text/directory results and PDF extraction envelopes are both retained truthfully.
+          tool.output = z.toJSONSchema(z.json());
+          tool.execute = async (input, call) => {
+            const args = readArgs.parse(input);
+            // The native reader still authorizes the path and handles all ordinary files.
+            let result: Result;
+            try { result = await execute(input, call); }
+            catch (error) {
+              call.signal.throwIfAborted();
+              const limit = nativeMediaLimit.safeParse(error);
+              if (!limit.success) throw error;
+              // Only this native error occurs after native directory/read authorization.
+              // Keep LegalWork's existing 64 MiB PDF reader instead of inheriting v2's 20 MiB media cap.
+              const context = await nativeToolContext(ctx, call);
+              const resource = limit.data.error.resource;
+              const path = resolve(context.directory!, resource), target = await realpath(path);
+              await ctx.permission.assert({ sessionID: call.sessionID, agent: call.agent,
+                source: { type: "tool", messageID: call.messageID, id: call.id }, action: "read", resources: [resource, target] });
+              if (await realpath(path) !== target) throw new Error("The PDF path changed during authorization. Retry the read.");
+              const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+              try {
+                const stat = await handle.stat();
+                if (!stat.isFile() || stat.size > PDF_MAX_BYTES) throw error;
+                const bytes = await handle.readFile({ signal: call.signal });
+                call.signal.throwIfAborted();
+                if (bytes.length > PDF_MAX_BYTES || !bytes.subarray(0, 1024).includes(Buffer.from("%PDF-"))) throw error;
+                const pdf = await read({ type: "file", mime: "application/pdf", url: `data:application/pdf;base64,${bytes.toString("base64")}`, filename: resource }, args, context);
+                call.signal.throwIfAborted();
+                return nativePdfResult(pdf);
+              } finally { await handle.close(); }
+            }
+            call.signal.throwIfAborted();
+            const file = typeof result.content === "string" ? undefined : result.content?.find(item => item.type === "file" && item.mime === "application/pdf");
+            if (!file || file.type !== "file") return result;
+            const context = await nativeToolContext(ctx, call);
+            const pdf = await read({ type: "file", mime: file.mime, url: file.uri, filename: file.name }, args, context);
+            call.signal.throwIfAborted();
+            return { ...nativePdfResult(pdf), metadata: { ...result.metadata, ...pdf.metadata, title: pdf.title } };
+          };
+        });
+      });
     },
   };
 }
