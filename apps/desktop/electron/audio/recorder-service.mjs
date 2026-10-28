@@ -27,6 +27,7 @@ import { findAudioModel } from "./model-catalog.mjs";
 import { macOsAtLeast } from "./mac-version.mjs";
 import { editTranscriptSpeakers, resolveSummarySpeakerNames } from "./transcript-edit.mjs";
 import { CloudTranscriber, isCloudTranscriptionModel } from "./cloud-transcriber.mjs";
+import { RecorderRequestError } from "./recorder-server-request.mjs";
 import { mergeSpeakerTurns } from "./cloud-speakers.mjs";
 import { mergeSpeakerWords, splitCloudTranscript } from "./cloud-transcript.mjs";
 
@@ -1174,10 +1175,13 @@ export class RecorderService {
         } };
       });
       this.broadcast({ type: "recording-updated", meta: updated.meta });
-    } catch {
+    } catch (error) {
       if (signal.aborted) return;
       const updated = await this.updateSavedTranscript(recordingId, saved => ({ ...saved, meta: { ...saved.meta,
-        summaryProcessing: false, summaryError: "Meeting notes could not be generated. Check your notes model and settings. Your transcript is saved." },
+        summaryProcessing: false, summaryError: error instanceof RecorderRequestError ? error.message
+          : error instanceof Error && error.name === "TimeoutError"
+            ? "Meeting notes took too long to generate. Try again. Your transcript is saved."
+            : "Meeting notes could not be generated. Try again or check your notes model and settings. Your transcript is saved." },
       })).catch(() => null);
       if (updated) this.broadcast({ type: "recording-updated", meta: updated.meta });
     }

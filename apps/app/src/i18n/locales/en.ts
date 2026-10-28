@@ -4338,6 +4338,7 @@ export default {
   "recorder.meeting_notes_model": "Notes model",
   "recorder.meeting_notes_model_auto": "Default: OpenAI Luna (same region)",
   "recorder.meeting_notes_manual": "Summarize",
+  "recorder.meeting_notes_retry": "Retry summary",
   "recorder.meeting_notes_manual_running": "Summarizing…",
   "recorder.meeting_notes_manual_description": "Create a meeting title, summary and speaker names using your cloud notes model. Automatic post-processing stays unchanged.",
   "recorder.meeting_notes_start_failed": "Could not start the meeting summary",

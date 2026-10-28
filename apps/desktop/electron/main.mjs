@@ -33,6 +33,7 @@ import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
+import { requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
@@ -780,17 +781,7 @@ function recorderService() {
 }
 
 async function recorderServerRequest(route, body, signal = AbortSignal.timeout(10_000)) {
-  const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
-  const response = await fetch(`${info.baseUrl}${route}`, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: `Bearer ${info.ownerToken || info.clientToken}`,
-      ...(info.hostToken ? { "X-LegalWork-Host-Token": info.hostToken } : {}),
-      ...(body ? { "Content-Type": "application/json" } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal, redirect: "error",
-  });
-  if (!response.ok) throw new Error("Cloud transcription is unavailable. Sign in and check your organisation’s model settings.");
-  return response.json();
+  return requestRecorderServer(await runtimeManager.legalworkServerInfo(), route, body, signal);
 }
 
 const callOverlay = new CallOverlay({

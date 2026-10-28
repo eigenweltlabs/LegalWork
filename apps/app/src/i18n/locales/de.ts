@@ -4582,6 +4582,7 @@ const de = {
   "recorder.meeting_notes_model": "Modell für Notizen",
   "recorder.meeting_notes_model_auto": "Standard: OpenAI Luna (gleiche Region)",
   "recorder.meeting_notes_manual": "Zusammenfassen",
+  "recorder.meeting_notes_retry": "Zusammenfassung erneut versuchen",
   "recorder.meeting_notes_manual_running": "Wird zusammengefasst…",
   "recorder.meeting_notes_manual_description": "Besprechungstitel, Zusammenfassung und Sprechernamen mit Ihrem Cloud-Modell erstellen. Die Einstellung für automatische Nachbearbeitung bleibt unverändert.",
   "recorder.meeting_notes_start_failed": "Die Zusammenfassung konnte nicht gestartet werden",
