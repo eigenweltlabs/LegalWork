@@ -50,6 +50,7 @@
     "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
+    "./browser-password-request": "./src/browser-password-request.ts",
     "./session-history": "./src/session-history.ts",
     "./legalmemory": "./src/legalmemory.ts",
     "./session-visibility": "./src/session-visibility.ts",

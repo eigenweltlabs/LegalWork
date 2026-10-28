@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 import { createNativeBrowserHost } from "./browser-native-host.mjs";
 import { createBrowserCaptureQueue } from "./browser-capture-queue.mjs";
+import { createBrowserPasswordActions } from "./browser-passwords.mjs";
 import { installBrowserDownloads } from "./browser-downloads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -91,7 +92,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture }) {
+function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, loadBrowserPasswords }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -248,17 +249,25 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     };
   }
 
+  function passwordActions(tab) {
+    return tab.nativePage && !tab.nativeContext.remote && loadBrowserPasswords
+      ? createBrowserPasswordActions(tab.nativePage, loadBrowserPasswords) : undefined;
+  }
+
   async function browserConnection(tab, context) {
     if (!tab || (tab.nativeSessionId || tab.taskSessionId) !== context.sessionId || tab.workspaceId !== context.workspaceId || tab.nativeContext?.connectionId !== context.connectionId)
       throw new Error("This browser tab does not belong to the calling project and chat.");
     await authorizeBrowserAutomation(context);
     tab.connection ??= await automationBroker.grant(tab.view.webContents, () => tab.downloads, context, () => {
       tab.taskActive = true; tab.dismissed = false; sendBrowserState();
-    }, () => prepareBrowserCapture(tab));
+    }, () => prepareBrowserCapture(tab), passwordActions(tab));
     const browser_url = tab.nativePage ? await nativeHost.extensionConnection(window(), tab.nativeContext, tab.tabId, tab.connection.browser_url) : tab.connection.browser_url;
+    const snapshot = tab.nativePage
+      ? (await tab.nativePage.execute({ action: { type: "snapshot", tabID: tab.tabId }, files: [] }, new AbortController().signal)).value
+      : await automationBroker.snapshot(tab.view.webContents);
     return { provider: "builtin", ...tab.connection, browser_url, tab_id: tab.tabId, url: tab.view.webContents.getURL(),
       download_directory: tab.nativeContext?.remote ? null : tab.downloadDirectory ? path.join(tab.downloadDirectory, "Downloads") : null,
-      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot: await automationBroker.snapshot(tab.view.webContents) };
+      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot };
   }
 
   function adoptNativePage(page, context, downloadDirectory) {
@@ -328,7 +337,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     return {
       id: tabId,
       background: tab.background,
-      taskSessionId: tab.taskActive ? tab.taskSessionId : undefined,
+      taskSessionId: tab.taskSessionId || undefined,
       workspaceId: tab.workspaceId,
       dismissed: tab.dismissed,
       type: "browser",
@@ -874,7 +883,11 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     });
     ipcMain.handle("legalwork:browser:attachSession", async (_event, context) => {
       if (!nativeHost) throw new Error("Native browser integration is unavailable.");
-      await nativeHost.attach(window(), context); return { attached: true };
+      await nativeHost.attach(window(), context);
+      for (const tab of browserTabs.values()) {
+        if (tab.taskSessionId === context.sessionId && tab.workspaceId === context.workspaceId && tab.nativeContext?.connectionId === context.connectionId) tab.taskActive = true;
+      }
+      return { attached: true };
     });
     ipcMain.handle("legalwork:browser:connection", (_event, tabID, context) => browserConnection(getBrowserTab(tabID), context));
     ipcMain.handle("legalwork:browser:show", (event, bounds, tabId) => {
@@ -951,7 +964,9 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       for (const tab of [...browserTabs.values()]) {
         if (tab.taskSessionId !== sessionId) continue;
         tab.taskActive = false;
-        if (tab.background) closeBrowserTab(tab.tabId);
+        // Keep undismissed tabs and their chat ownership for follow-up turns.
+        // An explicit dismissal during active work still closes at turn end.
+        if (tab.background && tab.dismissed) closeBrowserTab(tab.tabId);
       }
       sendBrowserState();
     });
@@ -961,7 +976,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       await tab.initialLoad;
       if (getBrowserTab(tabId) !== tab || tab.view.webContents.isDestroyed()) return null;
       if (tab.nativePage && !tab.connection) tab.connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads,
-        tab.nativeContext, () => { tab.taskActive = true; tab.dismissed = false; sendBrowserState(); }, () => prepareBrowserCapture(tab));
+        tab.nativeContext, () => { tab.taskActive = true; tab.dismissed = false; sendBrowserState(); }, () => prepareBrowserCapture(tab), passwordActions(tab));
       return automationBroker.preview(tab.view.webContents, () => {
         // Preserve the existing hidden preview host, but prepare only after this
         // page's preceding native screenshot has physically finished.

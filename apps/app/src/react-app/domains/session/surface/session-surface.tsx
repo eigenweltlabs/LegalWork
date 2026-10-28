@@ -1,4 +1,5 @@
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
+import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
 import { NativeFormPanel } from "../modals/native-form-panel";
 import { sendSessionPrompt } from "@/app/lib/system-reminder";
 import { readSessionStatuses } from "@/app/lib/opencode-read";
@@ -1911,6 +1912,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useControlAction(sessionLatestMessageControlAction);
 
 
+  const inlinePasswordQuestion = props.activeQuestion?.form && browserPasswordRequest(props.activeQuestion.form.metadata) ? props.activeQuestion : null;
+  const composerQuestion = inlinePasswordQuestion ? null : props.activeQuestion;
+
   return (
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
@@ -2042,6 +2046,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 </OpenTargetProvider>
               </DevProfiler>
             )}
+            {inlinePasswordQuestion?.form ? <div data-inline-browser-password-request>
+              <NativeFormPanel key={inlinePasswordQuestion.id} form={inlinePasswordQuestion.form} client={props.client}
+                sourceSession={inlinePasswordQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession}
+                busy={props.questionReplyBusy ?? false} onReply={answers => props.respondQuestion?.(inlinePasswordQuestion.id, answers)} />
+            </div> : null}
           </div>
         </div>
         {props.realtimeVoiceActive && props.realtimeVoiceSupported ? (
@@ -2160,10 +2169,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
-          compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
+          compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
-            subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission ? (
-              <div className={props.activePermission || props.activeQuestion ? "max-h-[50vh] overflow-y-auto" : undefined}>
+            subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission ? (
+              <div className={props.activePermission || composerQuestion ? "max-h-[50vh] overflow-y-auto" : undefined}>
                 {subscriptionEndedAccessoryVisible ? (
                   <SubscriptionEndedMessage client={props.client} workspaceId={props.workspaceId} onChoosePlan={props.onChooseAiPlan} />
                 ) : null}
@@ -2175,17 +2184,17 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onPickModel={props.onModelClick}
                   />
                 ) : null}
-                {props.activeQuestion ? (
-                  props.activeQuestion.form ? <NativeFormPanel key={props.activeQuestion.id} form={props.activeQuestion.form} sourceSession={props.activeQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(props.activeQuestion)props.respondQuestion?.(props.activeQuestion.id,answers);}}/> : (
+                {composerQuestion ? (
+                  composerQuestion.form ? <NativeFormPanel key={composerQuestion.id} form={composerQuestion.form} client={props.client} sourceSession={composerQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(composerQuestion)props.respondQuestion?.(composerQuestion.id,answers);}}/> : (
                   <QuestionPanel
-                    key={props.activeQuestion.id}
-                    questions={props.activeQuestion.questions}
-                    sourceSession={props.activeQuestion.sourceSession}
+                    key={composerQuestion.id}
+                    questions={composerQuestion.questions}
+                    sourceSession={composerQuestion.sourceSession}
                     onOpenSession={props.onOpenInteractionSession}
                     busy={props.questionReplyBusy ?? false}
                     onReply={(answers) => {
-                      if (props.activeQuestion) {
-                        props.respondQuestion?.(props.activeQuestion.id, answers);
+                      if (composerQuestion) {
+                        props.respondQuestion?.(composerQuestion.id, answers);
                       }
                     }}
                   />

@@ -1344,7 +1344,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     Object.assign(process.env, env);
     const directory = path.dirname(locateEmbeddedServerPath());
     const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
-    return { vault: new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) })), lock: vaultLock };
+    const { BrowserPasswordStore } = await import(pathToFileURL(path.join(directory, "browser-passwords.js")).href);
+    const vault = new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) }));
+    return { vault, lock: vaultLock, browserPasswords: new BrowserPasswordStore(vault) };
   }
 
   async function startLegalworkServer(options) {

@@ -83,6 +83,7 @@
     "smb3-client": "0.2.0",
     "smol-toml": "1.8.0",
     "ssh2-sftp-client": "^12.1.1",
+    "tldts": "7.0.30",
     "undici-transport": "npm:undici@8.12.3",
     "webdav": "^5.10.0",
     "yaml": "^2.6.1",
