@@ -1,4 +1,5 @@
 import { OpenCode } from "@opencode/client";
+import { join } from "node:path";
 import { z } from "zod";
 import { ApiError } from "./errors.js";
 import { inspectNativeEngineRecovery, assertNativeEngineRecoveryProjectsReady } from "./native-engine-recovery.js";
@@ -9,16 +10,22 @@ import { migrateStoppedNativeSavedApprovals } from "./native-saved-approval-migr
 import { createManagedImageAffinity } from "./managed-image-affinity.js";
 import { assertRegisteredLegacySessionPermissionsReady, restoreRegisteredLegacySessionPermissions } from "./session-history-permissions.js";
 import type { ServerConfig } from "./types.js";
+import { engineStorageDir } from "./engine-storage.js";
+import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
 export async function startManagedEngineLifecycle(options: {
   config: ServerConfig;
   database: string;
+  legacyMcpAuthPath?: string;
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
 }) {
   const { config } = options;
+  const legacyMcpSource = options.legacyMcpAuthPath;
+  const mcpReceipt = join(engineStorageDir(config), "credential-migration", "mcp-v1.json");
+  let mcpImportPending = legacyMcpSource !== undefined && await legacyMcpCredentialImportPending(legacyMcpSource, mcpReceipt);
   const imageAffinity = await createManagedImageAffinity(config, options.database);
   let engine: ManagedOpencodeServer;
   let mode: "service" | "recovery" | "promoting" = "recovery";
@@ -51,6 +58,11 @@ export async function startManagedEngineLifecycle(options: {
     legacyPoliciesPrepared = true;
   };
   const preflight = async () => {
+    if (mcpImportPending && legacyMcpSource) {
+      if (!endpointLive) throw new ApiError(409, "mcp_credential_import_pending", "Saved connector logins must be imported before interrupted work resumes.");
+      await migrateLegacyMcpCredentials(client(), legacyMcpSource, mcpReceipt);
+      mcpImportPending = false;
+    }
     if (endpointLive) await prepareLegacyPolicies();
     else if (!legacyPoliciesPrepared) await assertRegisteredLegacySessionPermissionsReady(config);
     await assertNativeEngineRecoveryProjectsReady(config, options.database);
@@ -59,6 +71,10 @@ export async function startManagedEngineLifecycle(options: {
     try {
       if (closed) throw new Error("Managed engine lifecycle closed during image history binding.");
       await imageAffinity.connect(engine);
+      if (mcpImportPending && legacyMcpSource) {
+        await migrateLegacyMcpCredentials(client(), legacyMcpSource, mcpReceipt);
+        mcpImportPending = false;
+      }
       if (closed) throw new Error("Managed engine lifecycle closed during image history binding.");
     } catch (error) {
       imageAffinity.disconnect();

@@ -20,6 +20,7 @@ export type RuntimeOpencodeConfig = { -readonly [Key in keyof NativeRuntimeConfi
   sandboxNetworkMode?: "allow" | "block" | "approve";
   /** App-owned switches, independent of user-authored policy statements. */
   providerActivation?: Record<string, "allow" | "deny">;
+  providerModelSelection?: Record<string, string[]>;
   /** Immutable app-private receipts prevent legacy grants replaying after revocation. */
   nativeSavedApprovalImportIDs?: string[];
   projectPermissionApprovals?: Array<{ id: string; action: string; resources: string[]; createdAt: number; updatedAt?: number }>;
@@ -102,6 +103,7 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(application.sandboxNetworkMode !== undefined ? { sandboxNetworkMode:
       application.sandboxNetworkMode === "allow" || application.sandboxNetworkMode === "approve" ? application.sandboxNetworkMode : "block" } : {}),
     ...(Object.keys(providerActivation).length ? { providerActivation } : {}),
+    ...(application.providerModelSelection === undefined ? {} : { providerModelSelection: z.record(z.string(), z.array(z.string())).parse(application.providerModelSelection) }),
     ...(personalization ? { personalization } : {}),
     ...(projectPermissionApprovals ? { projectPermissionApprovals } : {}),
     ...(nativeSavedApprovalImportIDs ? { nativeSavedApprovalImportIDs } : {}),

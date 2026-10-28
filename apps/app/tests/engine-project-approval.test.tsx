@@ -17,6 +17,15 @@ const reviewed: EngineProjectStatus = {
   ], projection: {},
 };
 
+test("an unavailable project shows its repair message and refresh without asking for automation approval", () => {
+  const status: EngineProjectStatus = { ...reviewed, state: "configuration_conflict", required: false,
+    projection: { diagnostic: "Reconnect this project's folder, then refresh." }, recovery: { mode: "service", heldSessionIds: [], waitingForOtherProjects: false } };
+  const html = renderToStaticMarkup(<EngineProjectRecoveryNotice status={status} onRetry={() => {}} />);
+  expect(html).toContain("Reconnect this project&#x27;s folder");
+  expect(html).toContain("Refresh");
+  expect(html).not.toContain("Allow project automation");
+});
+
 test("retired project automation approval is never rendered, including an older server status", () => {
   const client = createLegalworkServerClient({ baseUrl: "http://fixture.invalid" });
   const cache = new QueryClient();

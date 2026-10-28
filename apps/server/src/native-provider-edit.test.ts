@@ -2,10 +2,18 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergePrivateProviderEdits } from "./native-provider-edit.js";
+import { mergePrivateProviderEdits, mergeProviderModelSelection } from "./native-provider-edit.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+
+test("provider edits replace model selections while secret-only changes retain them", () => {
+  const saved = { custom: ["old"], untouched: ["keep"] };
+  expect(mergeProviderModelSelection(saved, { custom: { models: { next: {}, removed: null } } })).toEqual({ custom: ["next"], untouched: ["keep"] });
+  expect(mergeProviderModelSelection(saved, { custom: { settings: { apiKey: "synthetic" } } })).toEqual(saved);
+  expect(mergeProviderModelSelection(saved, { custom: null })).toEqual({ untouched: ["keep"] });
+  expect(mergeProviderModelSelection(saved, { custom: { models: {} } })).toEqual({ custom: [], untouched: ["keep"] });
+});
 
 test("native model-only provider edits preserve capability restrictions and array variants", () => {
   const saved = { openai: { models: { fixture: {

@@ -97,7 +97,9 @@ test("legacy explicit model exclusions become native disabled models and allowli
   const imported = upgradeRuntimeConfigRecord({ provider: { fixture: { blacklist: ["blocked"], models: { kept: { tool_call: true }, blocked: { tool_call: true } } } } });
   expect(imported.configuration.providers?.fixture.models?.blocked.disabled).toBe(true);
   expect(imported.configuration.providers?.fixture.models?.kept.disabled).toBeUndefined();
-  expect(() => upgradeRuntimeConfigRecord({ provider: { fixture: { whitelist: ["kept"] } } })).toThrow("model allowlist");
+  expect(upgradeRuntimeConfigRecord({ provider: { fixture: { whitelist: ["kept"] } } }).application.providerModelSelection).toEqual({ fixture: ["kept"] });
+  expect(upgradeRuntimeConfigRecord({ provider: { fixture: { whitelist: [] } } }).application.providerModelSelection).toEqual({ fixture: [] });
+  expect(() => upgradeRuntimeConfigRecord({ provider: { fixture: { whitelist: "kept" } } })).toThrow("string list");
 });
 
 test("only the retired LegalWork browser plugin is replaced during the one-time import", () => {

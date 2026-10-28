@@ -8,7 +8,7 @@ export function registerEngineProjectRoutes(options: {
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-  onApproved?: (workspace: WorkspaceInfo) => Promise<void>;
+  onRetry?: (workspace: WorkspaceInfo) => Promise<void>;
 }) {
   addRoute(options.routes, "GET", "/workspace/:id/engine-project", "client", async ctx => {
     const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
@@ -20,6 +20,7 @@ export function registerEngineProjectRoutes(options: {
     options.requireClientScope(ctx, "collaborator");
     options.ensureWritable(options.config);
     const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
+    await options.onRetry?.(workspace);
     await options.config.retryManagedEngineRecovery?.();
     const response = options.jsonResponse(await engineProjectStatus(options.config, workspace));
     response.headers.set("Cache-Control", "no-store");

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { link, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
@@ -24,6 +24,14 @@ const names = ["opencode.json", "opencode.jsonc"];
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const rootFor = (workspace: WorkspaceInfo) => canonicalFilePath(workspace.directory?.trim() || workspace.path);
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
+const projectionFailures = new WeakMap<ServerConfig, Map<string, string>>();
+function projectFileFailure(error: unknown, directory: string): string | undefined {
+  if (!(error instanceof Error) || !("code" in error) || !["EACCES", "EPERM", "EROFS", "ENOENT", "ENOTDIR", "EIO", "ENODEV", "ESTALE"].includes(String(error.code))) return;
+  if (!("path" in error) || typeof error.path !== "string") return;
+  const path = relative(directory, error.path);
+  if (isAbsolute(path) || path === ".." || path.startsWith("../") || path.startsWith("..\\")) return;
+  return "LegalWork cannot access or update this project's settings. Reconnect the project folder and allow access to its .opencode folder, then refresh. Other projects remain available.";
+}
 
 async function readRecord(config: ServerConfig, workspace: WorkspaceInfo, directory: string): Promise<ProjectRecord> {
   const parsed = recordSchema.safeParse((await readLegalworkWorkspaceConfig(config, workspace.id))[key]);
@@ -54,12 +62,18 @@ async function projectionStatus(record: ProjectRecord): Promise<EngineProjectSta
 }
 
 export async function engineProjectStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<EngineProjectStatus> {
-  const directory = await rootFor(workspace);
+  const requested = resolve(workspace.directory?.trim() || workspace.path);
+  const directory = await rootFor(workspace).catch(error => { if (projectFileFailure(error, requested)) return requested; throw error; });
   // A generated document and its private ownership receipt are one logical
   // publication. Admission must not compare the new file with the old receipt.
   const projection = await withProjectLock(config, workspace, async () => {
     const record = await readRecord(config, workspace, directory);
-    return projectionStatus(record);
+    const diagnostic = projectionFailures.get(config)?.get(workspace.id);
+    return diagnostic ? { diagnostic } : projectionStatus(record);
+  }).catch(error => {
+    const diagnostic = projectFileFailure(error, directory);
+    if (!diagnostic) throw error;
+    return { diagnostic };
   });
   const scope: EngineProjectStatus["approvalScope"] = [];
   const required = false;
@@ -168,6 +182,23 @@ export async function archiveNativeProjectProjection(config: ServerConfig, works
 /** A native document contains only selection structure and private string
  * references. Definitions and secrets remain in the single private library. */
 export async function writeNativeProjectProjection(config: ServerConfig, workspace: WorkspaceInfo, configuration: NativeConfig): Promise<string> {
+  const requested = resolve(workspace.directory?.trim() || workspace.path);
+  const directory = await rootFor(workspace).catch(error => { if (projectFileFailure(error, requested)) return requested; throw error; });
+  try {
+    const path = await writeProjectProjection(config, workspace, configuration);
+    projectionFailures.get(config)?.delete(workspace.id);
+    return path;
+  } catch (error) {
+    const diagnostic = projectFileFailure(error, directory);
+    if (!diagnostic) throw error;
+    let failures = projectionFailures.get(config);
+    if (!failures) { failures = new Map(); projectionFailures.set(config, failures); }
+    failures.set(workspace.id, diagnostic);
+    throw new ApiError(409, "project_engine_configuration_conflict", diagnostic);
+  }
+}
+
+async function writeProjectProjection(config: ServerConfig, workspace: WorkspaceInfo, configuration: NativeConfig): Promise<string> {
   const directory = await rootFor(workspace);
   try { if (!(await lstat(directory)).isDirectory()) throw new Error("not_directory"); }
   catch { throw new ApiError(409, "project_engine_configuration_conflict", "This project folder is unavailable. Reconnect its existing folder before starting OpenCode automation."); }

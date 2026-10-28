@@ -2,14 +2,14 @@ import { permissionAction } from "./agent-sandbox/permissions.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
-import { engineProjectStatus } from "./engine-project.js";
+import { engineProjectStatus, nativeEngineProjectRegistryPath } from "./engine-project.js";
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 import {
   buildLegalworkRuntimeSettings,
@@ -82,6 +82,24 @@ async function readSettings(config: ServerConfig, workspaceID = "ws_1") {
   if (!workspace) throw new Error(`Missing test workspace ${workspaceID}`);
   return readManagedEngineSettings(managedEngineSettingsFilePath(config), workspace.path);
 }
+
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unwritable project does not prevent other projects starting and recovers after access is restored", async () => {
+  const { root, config } = await setup();
+  await addWorkspace(config);
+  const blocked = join(root, ".opencode");
+  await mkdir(blocked);
+  await chmod(blocked, 0o500);
+  try {
+    await writeLegalworkRuntimeConfigFile(config, "ws_other");
+    expect((await engineProjectStatus(config, config.workspaces[0]!)).state).toBe("configuration_conflict");
+    expect((await engineProjectStatus(config, config.workspaces[1]!)).state).toBe("ready");
+    const registry = JSON.parse(await readFile(nativeEngineProjectRegistryPath(config), "utf8"));
+    expect(registry.projects).toContainEqual({ directory: root, approved: false });
+    expect(registry.projects).toContainEqual({ directory: config.workspaces[1]!.path, approved: true });
+  } finally { await chmod(blocked, 0o700); }
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect((await engineProjectStatus(config, config.workspaces[0]!)).state).toBe("ready");
+});
 
 async function readConfigurationFile(path: string) {
   return Schema.decodeUnknownSync(Config.Info)(JSON.parse(await readFile(path, "utf8")), { onExcessProperty: "error" });
