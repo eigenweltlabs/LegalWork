@@ -214,14 +214,16 @@ export class MainAssistant {
     return { days, nextBefore: rows.length > limit ? days[days.length - 1].date : null };
   }
 
-  start(afterDay?: () => Promise<unknown>) {
+  start(afterDay?: () => Promise<unknown>, enabled = async () => true) {
     let stopped = false;
     // Check at midnight, and at least every minute to catch wake and clock changes.
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        if (this.config.workspaces.some(isMainAssistant)) await this.current();
-        if (!stopped) await afterDay?.();
+        if (await enabled()) {
+          if (this.config.workspaces.some(isMainAssistant)) await this.current();
+          if (!stopped) await afterDay?.();
+        }
       } catch (error) { console.warn("[main-assistant]", error instanceof Error ? error.message : String(error)); }
       if (stopped) return;
       const now = this.now();

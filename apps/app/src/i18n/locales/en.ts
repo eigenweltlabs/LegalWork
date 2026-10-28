@@ -5,6 +5,17 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "assistant.upgrade_eyebrow": "A little companion. A lot of help.",
+  "assistant.upgrade_title": "All your work. One helpful assistant.",
+  "assistant.upgrade_description": "Organise your day with an assistant that knows your projects and helps keep things moving.",
+  "assistant.upgrade_organise": "Bring your projects, tasks and deadlines together.",
+  "assistant.upgrade_follow_up": "Stay on top of important emails and follow-ups.",
+  "assistant.upgrade_personal": "Pick a name and a little personality of your own.",
+  "assistant.upgrade_action": "Explore AI plans",
+  "assistant.upgrade_included": "Included with Plus and Pro. Not included with Sync.",
+  "assistant.upgrade_plans_title": "Give your assistant a home",
+  "assistant.upgrade_plans_description": "Choose an AI plan. Your personal assistant is included with both Plus and Pro.",
+
   "assistant.settings_load_failed": "Assistant preferences could not be loaded.",
   "assistant.instructions": "Additional instructions",
   "assistant.instructions_hint": "Tell your Assistant how you want it to work. Saved changes apply on its next turn.",
@@ -4904,7 +4915,7 @@ export default {
   "ai_plans.upgrade": "Upgrade to {plan}",
   "ai_plans.everything_in_plus": "Everything in Plus and:",
   "ai_plans.feature_usage": "{amount} of AI usage included per seat each month",
-  "ai_plans.feature_models": "Premium models: GPT-6.1 Sol, Claude Opus 5.5 and Gemini 3.8 Flash",
+  "ai_plans.feature_models": "Premium models: GPT-6.1 Sol, Claude Opus 5.5 and Gemini 4 Argon",
   "ai_plans.feature_ai_tasks": "Chat, drafting, review and redlining",
   "ai_plans.feature_model_controls": "As admin, decide which models your team can use",
   "ai_plans.feature_hub": "Team collaboration: share workflows, integrations, settings and tasks",

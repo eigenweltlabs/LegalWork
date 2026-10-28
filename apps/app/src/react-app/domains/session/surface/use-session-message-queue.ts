@@ -81,7 +81,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     };
   }, [client.baseUrl, workspaceId, sessionId]);
   return {
-    ready: query.isSuccess, error: query.error,
+    ready: query.isSuccess, error: query.error, state: query.data,
     reserve: (draft: ComposerDraft, editor?: ComposerSessionState) => {
       const signature = JSON.stringify([draft, editor]);
       if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };

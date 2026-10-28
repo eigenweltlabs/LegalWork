@@ -1,3 +1,4 @@
+import { assistantSubscriptionAvailable, requireAssistantSubscription } from "./assistant-subscription.js";
 import { resolve } from "node:path";
 import { ApiError } from "./errors.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -39,6 +40,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const createWorkspaceOpencodeClient = createAssistantEngineClient;
   const restartReloadWatchers = options.changed;
   const prepareWorkspacePrompt = async (_config: ServerConfig, workspace: WorkspaceInfo, _directory: string) => {
+    await requireAssistantSubscription(config);
     await createWorkspaceOpencodeClient(config, workspace).native.model.list({ location: { directory: workspace.path } });
   };
   const assistantSessionAccess = await AssistantSessionAccess.open(runtimeDbPath(config), config);
@@ -80,7 +82,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return { workspaceId: source.id, sessionId: delegation.sourceSessionId };
     },
     idle: async destination => {
-      if (config.readOnly) return false;
+      if (config.readOnly || !await assistantSubscriptionAvailable(config)) return false;
       const { client, session } = await delegationSession(destination.workspaceId, destination.sessionId);
       if (session.time.archived) return false;
       const statuses = unwrapOpencodeResult(await client.session.status({}, { signal: AbortSignal.timeout(10000) }), "/session/status");
@@ -123,15 +125,19 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   }
   const stopPush = push.start();
   migrateMorningBriefing(config, scheduledTasks);
-  const stopMain = config.readOnly ? () => {} : mainAssistant.start();
+  const stopMain = config.readOnly ? () => {} : mainAssistant.start(undefined, () => assistantSubscriptionAvailable(config));
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
   const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
   const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
   return {
     register,
-    scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => isMainAssistant(workspace)
-      ? createAssistantScheduledSession(task, mainAssistant, createWorkspaceOpencodeClient(config, workspace)) : null,
+    scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => {
+      if (!isMainAssistant(workspace)) return null;
+      await requireAssistantSubscription(config);
+      return createAssistantScheduledSession(task, mainAssistant, createWorkspaceOpencodeClient(config, workspace));
+    },
     scheduledWork: async (task: ScheduledTask, workspace: WorkspaceInfo, sessionId: string) => {
+      if (isMainAssistant(workspace)) await requireAssistantSubscription(config);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { throwOnError: true }), "/session");
       await assistantSessionAccess.authorize(sessionId, session.directory, { scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });

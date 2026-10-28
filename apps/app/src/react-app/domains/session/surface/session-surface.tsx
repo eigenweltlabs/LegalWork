@@ -13,7 +13,7 @@ import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { AssistantHistory } from "./assistant-history";
 import { assistantBubbleMessages, assistantIsWriting } from "./assistant-bubbles";
-import { addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
+import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
@@ -967,14 +967,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
   const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
   const displayedMessages = useMemo(() => props.assistantDate
-    ? mergeAssistantOutgoingMessages(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), outgoingMessages, outgoingScope)
-    : renderedMessages, [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope]);
+    ? mergeAssistantOutgoingMessages(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), outgoingMessages, outgoingScope, sharedQueue.state)
+    : renderedMessages, [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
   useEffect(() => {
     const confirmed = new Set(renderedMessages.map(message => message.id));
     for (const entry of outgoingMessages) {
-      if (entry.scope === outgoingScope && confirmed.has(entry.message.id)) removeAssistantOutgoingMessage(entry.queueId);
+      if (entry.scope === outgoingScope && (confirmed.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, sharedQueue.state))) removeAssistantOutgoingMessage(entry.queueId);
     }
-  }, [renderedMessages, outgoingMessages, outgoingScope]);
+  }, [renderedMessages, outgoingMessages, outgoingScope, sharedQueue.state]);
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -1169,8 +1169,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (props.assistantDate) {
         const localDraft = buildDraft(text, attachments);
         outgoingId = sharedQueue.reserve(localDraft, editor);
-        addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
-        sessionScroll.scrollToBottom("auto");
+        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope))) {
+          addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
+          sessionScroll.scrollToBottom("auto");
+        }
       }
       const prepared = await prepareProjectAttachments(text, attachments);
       await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);

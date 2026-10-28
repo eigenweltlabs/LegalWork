@@ -15,6 +15,17 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "assistant.upgrade_eyebrow": "Ein kleiner Begleiter. Eine große Hilfe.",
+  "assistant.upgrade_title": "Deine ganze Arbeit. Ein hilfreicher Assistent.",
+  "assistant.upgrade_description": "Organisiere deinen Tag mit einem Assistenten, der deine Projekte kennt und dir hilft, voranzukommen.",
+  "assistant.upgrade_organise": "Projekte, Aufgaben und Fristen an einem Ort.",
+  "assistant.upgrade_follow_up": "Wichtige E-Mails und nächste Schritte im Blick.",
+  "assistant.upgrade_personal": "Wähle einen Namen und eine eigene Persönlichkeit.",
+  "assistant.upgrade_action": "KI-Pläne ansehen",
+  "assistant.upgrade_included": "In Plus und Pro enthalten. Nicht in Sync enthalten.",
+  "assistant.upgrade_plans_title": "Ein Zuhause für deinen Assistenten",
+  "assistant.upgrade_plans_description": "Wähle einen KI-Plan. Dein persönlicher Assistent ist in Plus und Pro enthalten.",
+
   "assistant.settings_load_failed": "Die Assistant-Einstellungen konnten nicht geladen werden.",
   "assistant.instructions": "Zusätzliche Anweisungen",
   "assistant.instructions_hint": "Legen Sie fest, wie Ihr Assistant arbeiten soll. Gespeicherte Änderungen gelten ab seinem nächsten Schritt.",
@@ -5155,7 +5166,7 @@ const de = {
   "ai_plans.upgrade": "Zu {plan} wechseln",
   "ai_plans.everything_in_plus": "Alles aus Plus und:",
   "ai_plans.feature_usage": "{amount} KI-Nutzung pro Platz und Monat inklusive",
-  "ai_plans.feature_models": "Premium-Modelle: GPT-6.1 Sol, Claude Opus 5.5 und Gemini 3.8 Flash",
+  "ai_plans.feature_models": "Premium-Modelle: GPT-6.1 Sol, Claude Opus 5.5 und Gemini 4 Argon",
   "ai_plans.feature_ai_tasks": "Chat, Entwürfe, Prüfung und Redlining",
   "ai_plans.feature_model_controls": "Als Admin festlegen, welche Modelle Ihr Team nutzen darf",
   "ai_plans.feature_hub": "Zusammenarbeit im Team: Workflows, Integrationen, Einstellungen und Aufgaben teilen",

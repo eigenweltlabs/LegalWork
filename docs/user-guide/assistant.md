@@ -1,5 +1,20 @@
 # Personal Assistant
 
+The Assistant is included with an active **Plus** or **Pro** plan, including
+trials. Sync and using your own model do not include it. No separate add-on
+is needed.
+
+Without an eligible plan, click **Assistant** in the sidebar, then **Explore AI
+plans**. Choose **Plus** or **Pro**, complete the upgrade, and return to LegalWork.
+The app checks your subscription and opens the Assistant once access is active.
+If you already subscribe, use **Sign in** on the plan screen with that account.
+**Maybe later** closes the introduction without changing your subscription.
+
+If your plan ends or you sign out, Assistant messages, delegation, scheduled
+Assistant work and proactive checks pause. Your saved conversations stay
+available, and you can still stop delegated work. Reconnect an eligible account
+to continue; ordinary project chats with your own model remain available.
+
 Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
@@ -21,8 +36,10 @@ tabs keep their own titles and close when the run finishes. You can reopen a
 completed subagent from the same list to inspect its result. Opening another day
 reuses the Assistant tab without replacing an open subagent.
 
-Your message appears in the chat as soon as you press **Send**, including while
-attachments are uploading. Delivery continues in the background. If sending
+When the Assistant is idle, your message appears in the chat as soon as you press
+**Send**, including while attachments are uploading. Delivery continues in the
+background. While it is busy, new messages stay in the editable queue above the
+composer until their turn starts; they do not also appear as sent bubbles. If sending
 fails, your draft stays available and the chat shows the delivery error.
 
 Use the microphone button beside **Send** to dictate a message. Stop dictation
