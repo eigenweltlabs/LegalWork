@@ -44,10 +44,10 @@ export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectVi
 export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
   return { id: `project-view:${view}`, type: "project-view", view, label };
 }
-export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string };
+export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string; parentID?: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
-export function chatPanelTab(sessionId: string, label: string): ChatPanelTab {
-  return { id: `chat:${sessionId}`, type: "chat", sessionId, label };
+export function chatPanelTab(sessionId: string, label: string, parentID?: string): ChatPanelTab {
+  return { id: `chat:${sessionId}`, type: "chat", sessionId, label, ...(parentID ? { parentID } : {}) };
 }
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -137,7 +137,7 @@ function restoredTab(value: unknown): PanelTab | null {
   if (typeof value.label === "string") {
     if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
     if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
-    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
+    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label, typeof value.parentID === "string" ? value.parentID : undefined);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
   }
@@ -154,7 +154,7 @@ export type PanelTabStore = {
   readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
   setAssistantWorkspace: (workspaceId: string) => void;
-  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
+  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout?: boolean; parentID?: string }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
@@ -194,7 +194,7 @@ function updateSession(state: PanelTabStore, sessionId: string, session: Session
 
 function singleAssistantChat(session: SessionPanelState, replacement?: ChatPanelTab): SessionPanelState {
   if (!session.assistant) return session;
-  const chats = session.tabs.filter(tab => tab.type === "chat");
+  const chats = session.tabs.filter(tab => tab.type === "chat" && !tab.parentID);
   const focused = session.panes.find(pane => pane.id === session.focusedPaneId)?.activeTabId;
   const current = chats.find(tab => tab.id === focused) ?? chats[0];
   if (!current || (chats.length === 1 && !replacement)) return session;
@@ -272,7 +272,11 @@ export function samePanelTab(scope: string, tab: PanelTab, other: PanelTab) {
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
 function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge, retry?: () => void): SessionPanelState {
-  if (session.assistant && tab.type === "chat" && session.tabs.some(entry => entry.type === "chat" && entry.id !== tab.id)) {
+  if (tab.type === "chat" && !tab.parentID) {
+    const existing = session.tabs.find(entry => entry.type === "chat" && entry.id === tab.id);
+    if (existing?.type === "chat" && existing.parentID) tab = { ...tab, parentID: existing.parentID };
+  }
+  if (session.assistant && tab.type === "chat" && !tab.parentID && session.tabs.some(entry => entry.type === "chat" && !entry.parentID && entry.id !== tab.id)) {
     session = normalizeSession(singleAssistantChat(session, tab));
     // Day changes and history navigation replace the conversation in place.
     // Even a dropped historical session must not create another chat group.
@@ -387,7 +391,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   }
 
   if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label;
-  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId;
+  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId && left.parentID === right.parentID;
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
     return left.label === right.label && left.taskId === right.taskId;
@@ -494,7 +498,7 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
           if (!session.tabs.length) session = normalizeSession({ ...legacy, assistant: session.assistant || legacy.assistant, tabs: resolved });
           else for (const tab of resolved) session = dockTab(scope, session, tab);
         }
-        const chat = chatPanelTab(sessionId, label);
+        const chat = chatPanelTab(sessionId, label, options?.parentID);
         // Opening a recent chat in another project must keep that project's
         // geometry. Reuse its chat group (or focused group) instead of splitting.
         const chatPane = session.panes.find(pane => pane.tabIds.some(id => session.tabs.some(tab => tab.id === id && tab.type === "chat")));

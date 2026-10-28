@@ -7,7 +7,7 @@ import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { projectSession } from "@/app/lib/opencode-view";
 import { sendSessionPrompt } from "@/app/lib/system-reminder";
 import { sendSessionCommand } from "@/app/lib/system-reminder";
-import { createSessionView } from "@/app/lib/opencode-read";
+import { createSessionView, readSession } from "@/app/lib/opencode-read";
 import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
 import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
@@ -155,8 +155,10 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
+import { isAssistantConversation } from "@/react-app/domains/session/chat/assistant-conversation";
 import { useHostApprovalSync } from "./use-host-approval-sync";
-import { seedInteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
+import { emptyInteractionSessions, interactionSessionsKey, seedInteractionSessions, type InteractionSessions } from "@/react-app/domains/session/sync/interaction-state";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -570,7 +572,23 @@ export function SessionRoute() {
     queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
-  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && Boolean(selectedSessionId);
+  const interactionKey = useMemo(() => interactionSessionsKey(selectedWorkspaceId), [selectedWorkspaceId]);
+  const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
+  const selectedSessionInfo = selectedSessionId ? interactionSessions[selectedSessionId]
+    ?? sessionsByWorkspaceId[selectedWorkspaceId]?.find(session => session.id === selectedSessionId) : undefined;
+  // Resolve unfamiliar links before treating them as a daily Assistant chat.
+  useQuery({
+    queryKey: ["assistant-session-info", baseUrl, selectedWorkspaceId, selectedSessionId],
+    enabled: Boolean(opencodeClient && selectedWorkspace?.preset === "main-assistant" && selectedSessionId && !selectedSessionInfo && selectedSessionId !== assistant.data?.day.sessionId),
+    queryFn: async () => {
+      if (!opencodeClient || !selectedSessionId) throw new Error("Session unavailable");
+      const info = await readSession(opencodeClient, selectedSessionId);
+      seedInteractionSessions(selectedWorkspaceId, [{ id: info.id, parentID: info.parentID ?? undefined, title: info.title }]);
+      return info;
+    },
+  });
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage
+    && isAssistantConversation(selectedSessionId, assistant.data?.day.sessionId, selectedSessionInfo);
   // Home already knows today's Assistant. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
   useEffect(() => {
@@ -1584,7 +1602,8 @@ export function SessionRoute() {
         const sendModel = options?.modelSelection?.model ?? local.prefs.defaultModel;
         const sendVariant = options?.modelSelection ? options.modelSelection.variant : modelVariantValue;
         let targetSessionId = sessionId.trim() || selectedSessionId;
-        if (selectedWorkspace?.preset === "main-assistant") {
+        const targetInfo = targetSessionId ? getReactQueryClient().getQueryData<InteractionSessions>(interactionSessionsKey(selectedWorkspaceId))?.[targetSessionId] : undefined;
+        if (selectedWorkspace?.preset === "main-assistant" && isAssistantConversation(targetSessionId, assistant.data?.day.sessionId, targetInfo)) {
           if (assistantOnboarding.data?.needed && assistantOnboarding.data.step === "name") await client.viewAssistantGreeting();
           const current = await client.mainAssistantCurrent();
           targetSessionId = current.day.sessionId;
@@ -1790,7 +1809,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantActive, assistant.data?.day.date, assistantOnboarding.data, answerAssistantOnboarding,
+    assistantActive, assistant.data?.day.date, assistant.data?.day.sessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2898,6 +2917,7 @@ export function SessionRoute() {
         assistantGreetingUnread: assistantOnboarding.data?.greetingUnread,
         assistantProfile: assistant.data?.profile,
         assistantWorkspaceId: assistant.data?.workspace.id,
+        assistantDay: assistant.data?.day,
         onSaveAssistantProfile: saveAssistantProfile,
         assistantDisabled: !client || assistant.isPending,
         onShowChats: () => navigate("/home"),

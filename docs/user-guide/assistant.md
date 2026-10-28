@@ -4,6 +4,12 @@ Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
+The Assistant uses one conversation tab. Subagents work in the background until
+you open the small subagent toggle at the top of the chat and choose one. Their
+tabs keep their own titles and close when the run finishes. You can reopen a
+completed subagent from the same list to inspect its result. Opening another day
+reuses the Assistant tab without replacing an open subagent.
+
 Animated dots appear while the Assistant prepares a reply, including when a
 model is thinking or using tools. Replies arrive as complete bubbles. The dots
 disappear when the reply finishes, stops, or needs your answer or approval.
