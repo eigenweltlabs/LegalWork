@@ -41,6 +41,7 @@ export async function createAssistantSessionQueue(path: string, options: {
       const { data: statuses } = await client.session.status({}, requestOptions());
       if (!statuses) throw new Error("Chat status is unavailable.");
       if (statuses[session.id] && statuses[session.id].type !== "idle") return { busy: true, pending: false, interrupted: false };
+      if ((await client.native.session.inbox.list({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) })).length) return { busy: false, pending: true, interrupted: false };
       const [attention, messages] = await Promise.all([
         readAssistantAttention(client, { ...target, projectName: workspace.name, sessionTitle: session.title }),
         client.session.messages({ sessionID: session.id, limit: 1 }, requestOptions()),
@@ -52,7 +53,9 @@ export async function createAssistantSessionQueue(path: string, options: {
       const { client } = await read(target);
       if ((await client.native.session.inbox.list({ sessionID: target.sessionId }, { signal: AbortSignal.timeout(10000) })).some(item => item.id === id && item.type === "user")) return true;
       try {
-        return (await client.native.session.message.get({ sessionID: target.sessionId, messageID: id }, { signal: AbortSignal.timeout(10000) })).type === "user";
+        const message = await client.native.session.message.get({ sessionID: target.sessionId, messageID: id }, { signal: AbortSignal.timeout(10000) });
+        if (message.id !== id) throw new Error("The engine returned a different message while checking delivery.");
+        return message.type === "user";
       } catch (error) { if (isMessageNotFoundError(error) || findApiError(error)?.status === 404) return false; throw error; }
     },
     send: entry => withSessionExecution(options.config, entry.sessionId, async () => {

@@ -117,7 +117,8 @@ test("a revoke during asynchronous preparation cannot be restored by stale backg
 
 test("real queued executor initializes restored project tools before dispatch and pauses revoked access until authenticated resume", async () => {
   const { config, access, path, source, project, request } = await fixture();
-  let activeConfig = config, busy = true, prepared = 0;
+  let activeConfig = config, busy = true, prepared = 0, wrongReceipt = false, nativePending = false;
+  let restoreInbox = () => {};
   const delivered: string[] = [], scopes: unknown[] = [];
   const engine = Bun.serve({ port: 0, async fetch(input) {
     const url = new URL(input.url);
@@ -125,6 +126,7 @@ test("real queued executor initializes restored project tools before dispatch an
     if (url.pathname === "/permission" || url.pathname === "/question" || url.pathname.endsWith("/message")) return Response.json([]);
     if (url.pathname.includes("/message/")) {
       const id = url.pathname.split("/").at(-1)!;
+      if (wrongReceipt) return Response.json({ info: { id: "msg_another_message", role: "user", time: { created: 1 } }, parts: [] });
       return delivered.includes(id) ? Response.json({ info: { id } }) : new Response(null, { status: 404 });
     }
     if (url.pathname.endsWith("/prompt_async")) {
@@ -140,6 +142,8 @@ test("real queued executor initializes restored project tools before dispatch an
   try {
     const assistant = await MainAssistant.open(config, path, () => { throw new Error("Queue must not create another chat"); }, () => {});
     const client = createAssistantTestClient({ baseUrl: engine.url.origin, directory: project });
+    const inbox = spyOn(client.native.session.inbox, "list").mockImplementation(async () => nativePending ? [{ type: "user", id: "msg_native_pending", sessionID: "worker", time: { created: 1 }, payload: { text: "Already admitted" }, delivery: "queue" }] : []);
+    restoreInbox = () => inbox.mockRestore();
     const makeQueue = (permissions: AssistantSessionAccess) => createAssistantSessionQueue(path, {
       config: activeConfig, access: permissions, assistant, workspace: async id => {
         const workspace = config.workspaces.find(item => item.id === id); if (!workspace) throw new Error("Unknown project"); return workspace;
@@ -153,7 +157,9 @@ test("real queued executor initializes restored project tools before dispatch an
     activeConfig = { ...config };
     const restoredAccess = await AssistantSessionAccess.open(path, activeConfig);
     const restarted = await makeQueue(restoredAccess);
-    busy = false; await restarted.tick();
+    busy = false; nativePending = true; await restarted.tick();
+    expect(delivered).toEqual([]); expect(prepared).toBe(0);
+    nativePending = false; await restarted.tick();
     expect(delivered).toHaveLength(1); expect(scopes).toEqual(["collaborator", "collaborator", "collaborator"]);
     busy = true;
     const followUp = await restarted.submit(target, "Apply the clarification", authority);
@@ -161,6 +167,11 @@ test("real queued executor initializes restored project tools before dispatch an
     busy = false; await restarted.tick();
     expect(restarted.list(target)[0].state).toBe("paused"); expect(delivered).toHaveLength(1);
     await restoredAccess.authorize("worker", project, authority);
+    wrongReceipt = true;
+    await restarted.update(target, followUp.id, "resume", authority); await restarted.tick();
+    expect(delivered).toHaveLength(1);
+    expect(restarted.list(target)[0].error).toBe("The engine returned a different message while checking delivery.");
+    wrongReceipt = false;
     await restarted.update(target, followUp.id, "resume", authority); await restarted.tick();
     expect(restarted.list(target)).toEqual([]); expect(delivered).toHaveLength(2);
     busy = true;
@@ -168,5 +179,5 @@ test("real queued executor initializes restored project tools before dispatch an
     assistant.updateSettings({ ...assistant.settings(), projectAccess: { mode: "none", projectIds: [] } }, []);
     busy = false; await restarted.tick();
     expect(restarted.list(target)[0].state).toBe("paused"); expect(delivered).toHaveLength(2);
-  } finally { await engine.stop(true); }
+  } finally { restoreInbox(); await engine.stop(true); }
 });
