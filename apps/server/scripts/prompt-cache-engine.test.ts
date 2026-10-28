@@ -6,7 +6,7 @@ import { z } from "zod";
 import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { buildSessionPromptRequest, nativePrompt } from "../../app/src/app/lib/system-reminder";
 import { writeLegalworkRuntimeConfigFile, legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, managedEngineSettingsFilePath } from "../src/legalwork-runtime-config";
-import { approveEngineProject, engineProjectStatus, writeNativeEngineProjectRegistry } from "../src/engine-project";
+import { engineProjectStatus, writeNativeEngineProjectRegistry } from "../src/engine-project";
 import { orgPolicyEngineDir } from "../src/org-policy-engine";
 import { createManagedOpencodeServer } from "../src/managed-opencode";
 import { assertCachePrefix, CacheRequestSchema, type CacheRequest } from "../src/prompt-cache.test-support";
@@ -164,8 +164,7 @@ async function runFixture(injectTimestamp: boolean) {
       } } }, providerActivation: { fixture: "allow" },
     }));
     await writeLegalworkRuntimeConfigFile(config, workspace.id);
-    const review = await engineProjectStatus(config, workspace);
-    await approveEngineProject(config, workspace, review.directory, review.plugins.filter(plugin => !plugin.approved).map(plugin => plugin.target));
+    expect((await engineProjectStatus(config, workspace)).state).toBe("ready");
     server = await startServer(config);
     await startEngine();
     if (!client) throw new Error("Native client unavailable");

@@ -45,22 +45,25 @@ checkpoints below retain their original failures and do not override that regist
 - **Configuration boundary, approved:** use native connection/execution APIs and
   typed LegalWork managed-setting APIs. Remove the automatic standalone file-editing
   fallback. Standalone OpenCode-only connections own their settings externally.
-- **One engine, confirmed:** one released server for all local projects, matching
-  the current LegalWork and upstream desktop architecture. On 2026-10-27 the user
-  approved shared LegalWork-managed configuration with automatic native project and
-  ancestor configuration discovery disabled. Normal UI skills, workflows and plugin
-  imports use the shared library. Preserve actual project provider controls through
-  supported native APIs, and retain project instructions, folder permissions and
-  case context through their existing services. This replaces the earlier native
-  project-discovery choice; no additional engine patch is authorized or required
-  for disabling discovery.
-- **Project admission, revised 2026-10-27:** registered, available managed projects
-  do not require a folder-trust prompt. Admission must still reject unknown engine
-  locations and protect internal moves and restart recovery. User-authored files
-  remain intact and inactive as engine configuration in managed mode. Retire only
-  verified unchanged LegalWork-generated selection files, preserving a private copy.
-  Existing native-project fixtures describe the separate explicit native mode;
-  managed-mode acceptance requires its own discovery, capability and isolation tests.
+- **One engine, revised 2026-10-28 (LW-287):** one released server for all local
+  projects, following upstream's native configuration loader. The user selected
+  native project files instead of a new private-configuration engine patch.
+  Shared capabilities and secret strings stay in LegalWork's private library;
+  generated selections live in `.opencode/opencode.json` or `.jsonc`. Preserve
+  authored files and detect edits to generated files before overwriting them.
+  This supersedes the 27 October shared-only reconstruction/discovery-disabled
+  design. Normal UI skills and workflows still use the shared library.
+- **Project admission, confirmed 2026-10-28:** remove the project-automation
+  approval UI, approval endpoint and separate custom-plugin approval registry
+  from the normal load path. Registered, available projects load their native
+  configuration directly. Unknown engine locations and actual configuration
+  conflicts remain blocked. Firm restrictions, chat approvals, project folder
+  grants and sandbox policy remain enforced independently.
+- **Permission preservation:** retain chat rules in their original chats and
+  project/sandbox grants in their projects. Migrate identifiable old native
+  saved approvals only while the engine is stopped; privately archive ambiguous
+  records and ask again when that access is needed. Durable import receipts
+  prevent a restart or interrupted migration from restoring a revoked grant.
 - **Commands, approved:** preserve configured commands, routing executable expansion
   through normal permissions and sandboxes. Keep complete command output and the
   upstream absence of a default command execution deadline; Stop/revocation remain.

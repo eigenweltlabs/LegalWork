@@ -88,3 +88,5 @@ Workspace files and local processing remain on the selected worker, but provider
 Official builds can send content-free usage telemetry when enabled. **Settings > Privacy** controls the analytics preference; development builds do not send it. Where offered, online model-catalog updates control refreshing provider/model metadata, not downloading a local transcription model. These settings are separate from network access needed for a provider or connector. App-hiding controls live under Recorder > Meetings. They affect visibility, not provider data handling.
 
 Related: [Localization](localization.md), [Audio](audio.md), [Troubleshooting](troubleshooting.md).
+
+Opening a project does not require a separate project-automation approval. Chat permissions, added-folder access, command approvals and sandbox settings still apply to the agent's operations.

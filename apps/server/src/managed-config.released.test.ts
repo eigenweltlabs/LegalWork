@@ -14,7 +14,7 @@ import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, 
 import type { ServerConfig } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and holds untrusted automation", async () => {
+test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", async () => {
   const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/managed-config-")), previous = { ...process.env };
   let server: Awaited<ReturnType<typeof startServer>> | undefined, engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   const a = join(root, "a"), b = join(root, "b"), outside = join(root, "outside"), library = join(root, "library", "opencode");
@@ -29,7 +29,7 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     const markers = [join(root,"parent-plugin-started"),join(root,"case-plugin-started"),join(root,"parent-mcp-started"),join(root,"case-mcp-started")];
     for (const [directory,index] of [[root,0],[a,1]] satisfies Array<[string,number]>) {
       const plugin = join(directory,"untrusted-plugin"); await mkdir(plugin);
-      await writeFile(join(plugin,"index.js"), `import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(markers[index])},'executed');export default{id:'fixture.untrusted',setup(){}};`);
+      await writeFile(join(plugin,"index.js"), `import{writeFileSync}from'node:fs';import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'fixture.project-${index}',setup(){writeFileSync(${JSON.stringify(markers[index])},'executed')}});`);
 
     }
     const model = Schema.decodeUnknownSync(Config.Info)({ providers: { fixture: { models: { shared: { name: "Shared reasoning model", capabilities: { tools: true, reasoning: { supported: true, effort: ["low","high"] } }, variants: [{ id: "deep", settings: { reasoningEffort: "high" } }], limit: { context: 128000, output: 8192 } } } } } }).providers!.fixture!.models!.shared!;
@@ -61,7 +61,7 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
       expect((await client.agent.list({location})).data.map(agent=>agent.id)).toEqual(expect.arrayContaining(["global-helper", "document-extractor", "fusion-candidate", "docx-redliner"]));
       expect((await client.command.list({location})).data.map(command=>command.name)).toEqual(expect.arrayContaining(["shared", "edit-docx", "open", "annotate", "fill-form", "sign"]));
       expect((await client.rpc.call({location,rpcID:"fixture.probe",method:"tools",input:{}})).output).toContain("shared_tool");
-      const session=await client.session.create({location,title:"Fresh unapproved matter",agent:"legalwork"});
+      const session=await client.session.create({location,title:"Fresh registered project",agent:"legalwork"});
       expect(session.id).toBeDefined();
     }
     const appResponse=await fetch(`http://127.0.0.1:${server.port}/workspace/a/config`,{headers:{authorization:`Bearer ${config.token}`}});
@@ -70,14 +70,16 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await expect(client.session.prompt({sessionID:unknown.id,text:"must be rejected",resume:false})).rejects.toThrow();
     for (const [directory,index] of [[root,0],[a,1]] satisfies Array<[string,number]>) {
       const plugin = join(directory,"untrusted-plugin");
-      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{untrusted:{type:'local',command:[process.execPath,'-e',`require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed')`]}}}}));
+      await writeFile(join(directory,"opencode.json"), JSON.stringify({ plugins:[plugin],mcp:{servers:{[`fixture-${index}`]:{type:'local',command:[process.execPath,'-e',`require('node:fs').writeFileSync(${JSON.stringify(markers[index+2])},'executed')`]}}}}));
     }
     await writeLegalworkRuntimeConfigFile(config,"a");
-    expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("approval_required");
+    expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("ready");
     await client.location.reload();
     await client.mcp.list({location:locationA});
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
-    expect(markers.map(path=>existsSync(path))).toEqual([false,false,false,false]);
+    const deadline = Date.now() + 5000;
+    while (markers.some(path => !existsSync(path)) && Date.now() < deadline) await Bun.sleep(10);
+    expect(markers.map(path=>existsSync(path))).toEqual([true,true,true,true]);
   } finally {
     await engine?.close();await server?.stop();await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env,previous);

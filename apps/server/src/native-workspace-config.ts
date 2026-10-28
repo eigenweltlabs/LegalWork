@@ -1,3 +1,6 @@
+import { stat } from "node:fs/promises";
+import { dirname } from "node:path";
+import { opencodeConfigPaths } from "./workspace-files.js";
 import { Config } from "@opencode/schema/config";
 import type { ConfigEntry } from "@opencode/client";
 import { Schema } from "effect";
@@ -34,13 +37,28 @@ function projectDocuments(documents: ReadonlyArray<typeof Config.Info.Type>): Na
   return Schema.decodeUnknownSync(Config.Info)(result);
 }
 
-/** Reading saved settings must not expand authored file/env references before
- * approval. The native loader alone resolves and validates authored documents. */
+/** Discover names for offline diagnostics without parsing or expanding files.
+ * Native OpenCode remains responsible for loading their actual contents. */
+async function projectConfigPaths(directory: string, generated: string | undefined) {
+  const paths: string[] = [];
+  for (let current = directory; ; current = dirname(current)) {
+    for (const path of opencodeConfigPaths(current)) {
+      if (path === generated) continue;
+      const info = await stat(path).catch(error => {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (info?.isFile()) paths.push(path);
+    }
+    if (dirname(current) === current) return paths;
+  }
+}
+
+/** The native loader alone resolves and validates authored documents. */
 export async function readNativeWorkspaceConfig(config: ServerConfig, workspace: WorkspaceInfo, owned: RuntimeOpencodeConfig, sourcePaths: string[] = []) {
   const saved = runtimeEngineConfiguration(owned);
   const project = await engineProjectStatus(config, workspace);
-  const paths = [...new Set(project.approvalScope.flatMap(scope => scope.configPaths))]
-    .filter(path => /\.jsonc?$/.test(path) && path !== project.projection.path);
+  const paths = await projectConfigPaths(project.directory, project.projection.path);
   let status: "resolved" | "approval_required" | "configuration_conflict" | "unavailable" = project.state === "ready" ? "unavailable" : project.state;
   let projected = saved;
   let entries: ConfigEntry[] | undefined;

@@ -11,7 +11,7 @@ import { resolveCapabilityLibrary } from "./capability-library.js";
 import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-engine-settings.js";
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
-import { approvedNativePluginIdentities, approveNativePluginTargets, managedNativePluginTargets, nativePluginIdentity } from "./native-project-plugins.js";
+import { nativePluginIdentity } from "./native-project-plugins.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -386,16 +386,18 @@ export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspa
     return value.plugins.flatMap(plugin => typeof plugin === "string" ? plugin.startsWith("-") ? [] : [plugin]
       : plugin && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? [plugin.package] : []);
   };
-  // Both the writer and the guard's repair path must preserve this complete
-  // pre-import policy. Repairing only firm tool rules would remove the plugin
-  // approvals and deactivate mandatory integrations on the next config load.
-  const [common, mandatory, approved] = await Promise.all([
+  // Native project loading needs no separate approval. A firm can still
+  // prohibit custom plugins; mandatory LegalWork integrations stay available.
+  const restrictPlugins = config.engineConfigurationMode === "managed"
+    || (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false;
+  const [common, mandatory] = await Promise.all([
     targets(legalworkRuntimeConfigFilePath(config)), targets(mandatoryRuntimeConfigFilePath(config)),
-    config.engineConfigurationMode === "managed" || (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : approvedNativePluginIdentities(config),
   ]);
   return { ...layer, policies: [
-    { action: "integration.use", resource: "plugin:*", effect: "deny" },
-    ...[...new Set([...common, ...mandatory, ...approved].map(nativePluginIdentity))].map(target => ({ action: "integration.use", resource: `plugin:${target}`, effect: "allow" })),
+    ...(restrictPlugins ? [
+      { action: "integration.use", resource: "plugin:*", effect: "deny" },
+      ...[...new Set([...common, ...mandatory].map(nativePluginIdentity))].map(target => ({ action: "integration.use", resource: `plugin:${target}`, effect: "allow" })),
+    ] : []),
     ...(config.agentSandboxEnabled ? nativeHostExecutionActions.map(action => ({ action: "tool.use", resource: `${action}:*`, effect: "deny" })) : []),
     ...layer.policies ?? [],
   ] };
@@ -490,11 +492,6 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       // an accurate human-facing status without changing its authorization.
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-legalmemory"), config), options: { settingsPath } },
     ];
-    // Existing explicit library selections are already person-managed. Newly
-    // discovered project executables still require the separate review action.
-    const selected = Object.values(workspaces).flatMap(entry => entry.configuration && typeof entry.configuration === "object" && "plugins" in entry.configuration && Array.isArray(entry.configuration.plugins)
-      ? entry.configuration.plugins.flatMap(plugin => typeof plugin === "string" && !commonPlugins.has(plugin) ? [plugin] : []) : []);
-    await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
     for (const workspace of config.workspaces) {
       const settings = workspaces[workspace.id];
       if (!settings) continue;
@@ -503,7 +500,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       try { await writeNativeProjectProjection(config, workspace, projectConfiguration); }
       catch (error) {
         // A project conflict holds only that project's agent. Its authored files
-        // and the server remain available for the actionable approval screen.
+        // and the server remain available for configuration repair.
         if (!(error instanceof Error && "code" in error && error.code === "project_engine_configuration_conflict")) throw error;
       }
     }

@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { approveEngineProject } from "./engine-project.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
 import { assertNativeEngineRecoveryProjectsReady, inspectNativeEngineRecovery } from "./native-engine-recovery.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -27,10 +27,11 @@ test("native recovery preflight inspects all claims, background jobs and queued 
   const original = await readFile(path);
   try {
     expect(await inspectNativeEngineRecovery(path)).toEqual({ sessions: [{ id: "parent", directory }, { id: "child", directory }], directories: [directory, destination] });
-    await expect(assertNativeEngineRecoveryProjectsReady(config, path)).rejects.toMatchObject({ code: "project_automation_approval_required" });
-    await approveEngineProject(config, workspace, directory, []);
-    await expect(assertNativeEngineRecoveryProjectsReady(config, path)).rejects.toMatchObject({ code: "project_automation_approval_required" });
-    await approveEngineProject(config, other, destination, []);
+    const projection = await writeNativeProjectProjection(config, other, {});
+    const generated = await readFile(projection, "utf8");
+    await writeFile(projection, "// Changed outside LegalWork\n{}\n");
+    await expect(assertNativeEngineRecoveryProjectsReady(config, path)).rejects.toMatchObject({ code: "project_engine_configuration_conflict" });
+    await writeFile(projection, generated);
     expect((await assertNativeEngineRecoveryProjectsReady(config, path)).sessions.map(item => item.id)).toEqual(["parent", "child"]);
     config.workspaces = [workspace];
     await expect(assertNativeEngineRecoveryProjectsReady(config, path)).rejects.toMatchObject({ code: "engine_recovery_approval_required" });

@@ -36,7 +36,7 @@ test("retiring an unchanged generated project file preserves complete bytes and 
   expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "ready", required: false, projection: {}, plugins: [] });
 }));
 
-test("native admission preserves edited and authored configuration while requiring its review", () => fixture(async (config, directory, root) => {
+test("native admission preserves edited and authored configuration while reporting a configuration conflict", () => fixture(async (config, directory, root) => {
   const workspace = config.workspaces[0]!;
   const file = await writeNativeProjectProjection(config, workspace, Schema.decodeUnknownSync(Config.Info)({}));
   const authored = "// My edits must remain\n{not valid native JSON\n";
@@ -44,7 +44,7 @@ test("native admission preserves edited and authored configuration while requiri
   await writeFile(join(root, "opencode.json"), "not valid parent JSON either");
   await archiveNativeProjectProjection(config, workspace);
   expect(await readFile(file, "utf8")).toBe(authored);
-  expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "configuration_conflict", required: true });
+  expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "configuration_conflict", required: false });
   await writeNativeEngineProjectRegistry(config);
   expect(JSON.parse(await readFile(nativeEngineProjectRegistryPath(config), "utf8"))).toMatchObject({ version: 1, projects: [{ directory, approved: false }] });
   expect(await readFile(file, "utf8")).toBe(authored);
