@@ -80,7 +80,7 @@ import {
 import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
 import { buildOrgPolicyEngineLayer, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { appliedOrgPolicy } from "./org-policy.js";
-import { orgChatEngineIds } from "./org-policy-ai.js";
+import { orgChatEngineIds, orgChatProviderTemplates } from "./org-policy-ai.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
@@ -482,7 +482,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
-      await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config),
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config) } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       ...(config.agentSandboxEnabled ? [await bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
