@@ -3350,8 +3350,6 @@ const de = {
   "session.allow_for_session": "Für diesen Chat erlauben",
   "session.allow_once": "Einmal erlauben",
   "session.permission_folder_decision_hint": "Diese Anfrage einmal erlauben oder den Zugriff auf diesen Ordner nur für diesen Chat merken. Andere Chats erhalten keinen Zugriff.",
-  "session.permission_title_host_access": "Computerzugriff für Befehle",
-  "session.permission_message_host_access": "Die Sandbox ist ausgeschaltet. Diese Befehle können überall Dateien lesen und ändern, wo Ihr Computerkonto Zugriff hat, auch außerhalb freigegebener Ordner. Aktivieren Sie Sandboxing, um Ordnergrenzen durchzusetzen.",
   "session.cmd_agent_active": "Aktiv",
   "session.cmd_agent_default_detail": "Den Standard-Agenten der Engine verwenden",
   "session.cmd_agents_detail": "Wählen, welcher Agent Ihre Prompts ausführt",

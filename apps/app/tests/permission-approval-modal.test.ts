@@ -43,20 +43,6 @@ describe("permission approval modal helpers", () => {
     expect(main).not.toContain("Allow for project");
   });
 
-  test("host command consent explains full computer access and keeps it separate from folder grants", () => {
-    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
-      permission: pendingPermission({ permission: "host_access", protocol: "host", host: {
-        id: "host-access", workspaceId: "matter", sessionID: "session-1", action: "sandbox.host_access", summary: "Unprotected commands", paths: [],
-        createdAt: 1, actor: { type: "host" }, canRemember: true,
-      } }), respondPermission: () => {},
-    }));
-    expect(html).toContain("Computer access for commands");
-    expect(html).toContain("read and change files anywhere your computer account can access");
-    expect(html).toContain("outside added folders");
-    expect(html).toContain("Allow for this chat");
-    expect(html).not.toContain("Add folder to project");
-  });
-
   test("shows actual MCP call arguments before approving an engine event with empty metadata", () => {
     const request = permissionWithReceivedAt({
       id: "mcp-request", sessionID: "child-session", action: "legalmemory_search", resources: ["*"],
