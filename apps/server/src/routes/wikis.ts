@@ -105,6 +105,15 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+  addRoute(routes, "POST", "/wikis/legal-research/ensure", "host-token", async ctx => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const input = z.object({ language: z.enum(["en", "de"]) }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success) throw new ApiError(400, "invalid_wiki_language", "Choose English or German for the research wiki.");
+    const result = await store.ensureLegalResearch(input.data.language);
+    if (result.created && result.wiki) { options.onWorkspacesChanged?.(); change(result.wiki.id); }
+    return jsonResponse(result);
+  });
   addRoute(routes, "GET", "/wikis/deleted", "client", async ctx => {
     requireClientScope(ctx, "owner");
     return jsonResponse({ items: await store.deleted() });

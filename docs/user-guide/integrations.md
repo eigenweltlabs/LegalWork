@@ -40,6 +40,8 @@ The log is saved on this LegalWork server and available across your projects. Re
 
 Notes are for website navigation and search mechanics. The assistant must leave out passwords, usernames, session links, client details and research results. A saved note cannot authorize a new login domain, bypass MFA or CAPTCHA, or change subscription access.
 
+Substantive legal findings belong in your separate **Legal Research** or **Rechtliche Recherche** wiki. After connected research, the assistant asks before preparing a contribution. If you agree, it stages an editable draft; you decide whether to **Save to wiki**. See [your legal research knowledge base](wiki.md#your-legal-research-knowledge-base).
+
 ## LegalMemory and firm knowledge
 
 LegalMemory is a separate Eigenwelt knowledge index. Connect the firm's instance using its connector when available. Search its live records for matters, documents and other firm knowledge; inspect the returned source evidence. Connecting ordinary file storage does not automatically create a LegalMemory index.

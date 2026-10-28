@@ -37,6 +37,7 @@ export default {
   "research.sign_in_address": "Sign-in website",
   "research.free_account": "Free account",
   "research.menu": "Research databases",
+  "research.wiki_setup_failed": "Your legal research knowledge base could not be prepared. You can continue working and retry.",
 
   "common.loading": "Loading…",
   "storage.account_settings": "Account settings",

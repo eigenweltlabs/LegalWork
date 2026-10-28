@@ -14,6 +14,7 @@ import { ApiError } from "../errors.js";
 import { workspaceIdForPath } from "../workspaces.js";
 import { markdownData, markdownWithData, parseWikiPage, resolveWikiLinks } from "./markdown.js";
 import { createWikiStarterFiles } from "./templates.js";
+import { legalResearchWikiFiles } from "./legal-research-template.js";
 import { WikiGraphIndex } from "./graph.js";
 import { patchWikiProperties, type WikiPropertiesPatch } from "./properties.js";
 import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-safety.js";
@@ -29,6 +30,7 @@ export const wikiTeamSyncSchema = z.object({ kind: z.literal("team"), wikiId: z.
 export const wikiSyncSchema = z.union([wikiTeamSyncSchema, legacySyncSchema]);
 const registrationSchema = z.object({
   id: z.string().uuid(), name: z.string().min(1).max(200), root: z.string().min(1),
+  purpose: z.literal("legal-research").optional(),
   workspaceId: z.string().min(1), allowInProjects: z.boolean(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(), sync: wikiSyncSchema.nullable(),
 });
 const deletedWikiSchema = z.object({ wiki: registrationSchema, deletedAt: z.number() });
@@ -126,6 +128,7 @@ export class WikiStore {
         CREATE TABLE IF NOT EXISTS wiki_history_view_links (historyId TEXT PRIMARY KEY,snapshot TEXT NOT NULL,metadata TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS wiki_history_changes (historyId TEXT PRIMARY KEY,added INTEGER,removed INTEGER);
         CREATE TABLE IF NOT EXISTS wiki_folders (root TEXT PRIMARY KEY,id TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_defaults (purpose TEXT PRIMARY KEY,id TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS wiki_history_path ON wiki_history(wiki,path,createdAt DESC);`);
       return db;
     })();
@@ -180,6 +183,32 @@ export class WikiStore {
     } finally { await rm(temporary, { force: true }); }
   }
   async create(input: WikiCreateInput): Promise<WikiRegistration> {
+    return this.createWithFiles(input);
+  }
+  /** Release migration, also used for first-run installs. A durable marker
+   * preserves renames, local edits and deliberate removal across restarts. */
+  async ensureLegalResearch(language: "en" | "de"): Promise<{ wiki: WikiRegistration | null; created: boolean }> {
+    if (this.config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
+    return serial(`${this.path}:legal-research`, async () => {
+      const items = await this.list(), deleted = await this.deleted(), db = await this.db();
+      const marker = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_defaults WHERE purpose='legal-research'")[0]);
+      if (marker) return { wiki: items.find(wiki => wiki.id === marker.id) ?? null, created: false };
+      // Recover a completed registration if a process stopped before recording
+      // the marker. Never adopt an unrelated wiki merely because its title matches.
+      const existing = items.find(wiki => wiki.purpose === "legal-research");
+      const removed = deleted.find(item => item.wiki.purpose === "legal-research");
+      const initialized = existing ?? removed?.wiki;
+      if (initialized) {
+        db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [initialized.id]);
+        return { wiki: existing ?? null, created: false };
+      }
+      const seed = legalResearchWikiFiles(language);
+      const wiki = await this.createWithFiles({ name: seed.name }, { purpose: "legal-research", files: seed.files });
+      db.run("INSERT INTO wiki_defaults(purpose,id) VALUES('legal-research',?)", [wiki.id]);
+      return { wiki, created: true };
+    });
+  }
+  private async createWithFiles(input: WikiCreateInput, seed?: { purpose: "legal-research"; files: Record<string, string> }): Promise<WikiRegistration> {
     return serial(this.path, async () => {
       const name = input.name.trim();
       if (!name || name.length > 200) throw new ApiError(400, "invalid_wiki_name", "Give the wiki a name of at most 200 characters.");
@@ -202,8 +231,8 @@ export class WikiStore {
       const knownFolder = z.object({ id: z.string().uuid() }).optional().parse(db.all("SELECT id FROM wiki_folders WHERE root=?", [canonicalRoot])[0]);
       const id = knownFolder?.id ?? newId;
       db.run("INSERT OR REPLACE INTO wiki_folders(root,id) VALUES(?,?)", [canonicalRoot, id]);
-      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null };
-      for (const [path, content] of Object.entries(input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name))) {
+      const wiki: WikiRegistration = { id, name, root: canonicalRoot, workspaceId: workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null, ...(seed ? { purpose: seed.purpose } : {}) };
+      for (const [path, content] of Object.entries(seed ? seed.files : input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name))) {
         const target = await this.safePath(wiki, path, true);
         try { await writeFile(target, path === "Wiki.md" ? markdownWithData(content, { name }) : content, { flag: "wx" }); }
         catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }

@@ -1,0 +1,129 @@
+import { expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ServerConfig } from "../types.js";
+import { WikiStore } from "./store.js";
+import { startServer } from "../server.js";
+import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
+import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
+import WikiTools from "../opencode-plugins/legalwork-wiki-tools.js";
+import { legalResearchCaptureGuidance } from "../legal-research-guidance.js";
+import { researchDatabaseSkill } from "../legal-research.js";
+import { openSqlite } from "../runtime-db.js";
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "research-wiki-")), project = join(root, "project");
+  await mkdir(project);
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "config", "server.json"),
+    approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [], workspaces: [{ id: "project", name: "Project", path: project, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [project], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false };
+  return { root, project, config };
+}
+
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s default research wiki is personal, idempotent and preserves edits, renames and removal", async language => {
+  const { root, config } = await fixture();
+  let store = new WikiStore(config);
+  try {
+    const name = language === "de" ? "Rechtliche Recherche" : "Legal Research";
+    const unrelated = await store.create({ name, template: "blank" });
+    const results = await Promise.all(Array.from({ length: 4 }, () => store.ensureLegalResearch(language)));
+    expect(results.filter(result => result.created)).toHaveLength(1);
+    expect(new Set(results.map(result => result.wiki?.id)).size).toBe(1);
+    const wiki = results[0].wiki!;
+    expect(wiki).toMatchObject({ name, purpose: "legal-research", sync: null, allowInProjects: true });
+    expect(wiki.id).not.toBe(unrelated.id);
+    expect((await readdir(wiki.root)).sort()).toEqual(["AGENTS.md", "Wiki.md"]);
+    expect(await readFile(join(wiki.root, "Wiki.md"), "utf8")).toContain(`# ${name}`);
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("LEGAL KNOWLEDGE ONLY");
+    await store.update(wiki.id, { name: "My case law", allowInProjects: false });
+    await store.write(wiki.id, "Finding.md", "# User-authored legal finding\n\nPreserve this source-backed analysis.", "");
+    const home = await store.read(wiki.id, "Wiki.md");
+    await store.write(wiki.id, "Wiki.md", "# My own introduction", home.revision);
+    await store.close(); store = new WikiStore(config);
+    expect(await store.ensureLegalResearch(language === "de" ? "en" : "de")).toMatchObject({ created: false, wiki: { id: wiki.id, name: "My case law", allowInProjects: false } });
+    expect((await store.read(wiki.id, "Wiki.md")).content).toBe("# My own introduction");
+    expect((await store.read(wiki.id, "Finding.md")).content).toContain("Preserve this");
+    await store.archive(wiki.id);
+    expect(await store.ensureLegalResearch(language)).toEqual({ wiki: null, created: false });
+    await store.restoreWiki(wiki.id);
+    expect((await store.ensureLegalResearch(language)).wiki?.id).toBe(wiki.id);
+    await store.forget(wiki.id);
+    await store.close(); store = new WikiStore(config);
+    expect(await store.ensureLegalResearch(language)).toEqual({ wiki: null, created: false });
+    expect((await store.list()).map(item => item.id)).toEqual([unrelated.id]);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("research wiki migration respects read-only mode and recovers the registration/marker boundary", async () => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  try {
+    config.readOnly = true;
+    await expect(store.ensureLegalResearch("en")).rejects.toMatchObject({ code: "read_only" });
+    expect(await store.list()).toEqual([]);
+    config.readOnly = false;
+    const first = await store.ensureLegalResearch("en");
+    const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { db.run("DELETE FROM wiki_defaults"); } finally { db.close(); }
+    expect(await store.ensureLegalResearch("de")).toMatchObject({ created: false, wiki: { id: first.wiki!.id, name: "Legal Research" } });
+    expect(await store.list()).toHaveLength(1);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("default wiki is owner-provisioned and requested legal findings stage until the human saves", async () => {
+  const { root, config, project } = await fixture();
+  const previous = Object.fromEntries(["LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN", "LEGALWORK_WIKI_AGENT_TOKEN"].map(key => [key, process.env[key]]));
+  const agentToken = await ensureWikiAgentToken(config);
+  await grantWikiAgentSession(config, { sessionId: "research", directory: project, scope: "owner" });
+  const server = await startServer(config), store = new WikiStore(config);
+  const url = `http://127.0.0.1:${server.port}`;
+  const headers = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
+  const ensure = (body: unknown, owner = true) => fetch(`${url}/wikis/legal-research/ensure`, { method: "POST", headers: owner ? headers : { Authorization: "Bearer client", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    expect((await ensure({ language: "en" }, false)).status).toBe(401);
+    expect((await ensure({ language: "fr" })).status).toBe(400);
+    expect(await store.list()).toEqual([]);
+    const result = await ensure({ language: "de" });
+    expect(result.status).toBe(200);
+    const { wiki } = await result.json();
+    expect(wiki.name).toBe("Rechtliche Recherche");
+    config.readOnly = true;
+    expect((await ensure({ language: "en" })).status).toBe(403);
+    config.readOnly = false;
+    process.env.LEGALWORK_SERVER_URL = url;
+    process.env.LEGALWORK_SERVER_TOKEN = config.token;
+    process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+    const plugin = await nativePluginTools(WikiTools, { directory: project, sessionID: "research" });
+    try {
+      const prompt: { system: Array<{ type: "text"; text: string }> } = { system: [] };
+      await plugin.runtime.hook("session", "context", prompt);
+      expect(prompt.system.some(part => part.text.includes(legalResearchCaptureGuidance))).toBe(true);
+      expect(researchDatabaseSkill).toContain(legalResearchCaptureGuidance);
+      expect(legalResearchCaptureGuidance).toContain("Wait for an affirmative reply");
+      expect(legalResearchCaptureGuidance).toContain("Silence and refusal are not consent");
+      const listed = JSON.parse(await plugin.tool.wiki_list.execute({}));
+      expect(listed.wikis).toContainEqual({ id: wiki.id, name: wiki.name, purpose: "legal-research", writable: true, shared: false });
+      const guidance = JSON.parse(await plugin.tool.wiki_guidance.execute({ wiki_id: wiki.id }));
+      expect(guidance).toMatchObject({ purpose: "legal-research", access_mode: "suggestion" });
+      expect(JSON.stringify(guidance.guidance)).toContain("Do not add process pages");
+      expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(["AGENTS.md", "Wiki.md"]);
+      // Simulate the explicit consent to stage. This tests the real tool/API
+      // boundary, not a model's ability to interpret an affirmative reply.
+      const staged = JSON.parse(await plugin.tool.wiki_suggest.execute({ title: "Synthetic legal finding", content: "---\ntype: legal-research\njurisdiction: fixture\n---\n# Synthetic legal finding\n\nA test-only legal synthesis with its supporting authority and limits.", destination: { wikiId: wiki.id, path: "Finding.md", baseRevision: null } }));
+      expect(staged).toMatchObject({ staged: true, published: false });
+      await expect(store.read(wiki.id, "Finding.md")).rejects.toMatchObject({ status: 404 });
+      expect(await readFile(join(project, staged.suggestion.filePath), "utf8")).toContain("test-only legal synthesis");
+      const agentHeaders = { Authorization: "Bearer client", "Content-Type": "application/json", "x-legalwork-wiki-agent-token": agentToken, "x-legalwork-wiki-agent-session": "research", "x-legalwork-wiki-agent-directory": encodeURIComponent(project) };
+      expect((await fetch(`${url}/wikis/legal-research/ensure`, { method: "POST", headers: agentHeaders, body: JSON.stringify({ language: "en" }) })).status).toBe(403);
+      const savePath = `${url}/workspace/project/wiki-suggestions/${staged.suggestion.id}/save`;
+      const body = JSON.stringify({ revision: staged.suggestion.revision });
+      expect((await fetch(savePath, { method: "POST", headers: agentHeaders, body })).status).toBe(403);
+      expect((await fetch(savePath, { method: "POST", headers, body })).status).toBe(200);
+      expect((await store.read(wiki.id, "Finding.md")).content).toContain("test-only legal synthesis");
+    } finally { await plugin.close(); }
+  } finally {
+    await store.close(); await server.stop();
+    for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -37,7 +37,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { ConnectorStatus, ConnectorConnect, ConnectorFlow, ConnectorOAuthClient, ConnectorOAuthClientInput } from "@legalwork/types/connectors";
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
-import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
+import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
@@ -1727,6 +1727,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     requestWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "POST", body: {}, timeoutMs: 900_000 }),
     revokeWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "DELETE" }),
     listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
+    ensureLegalResearchWiki: (language: "en" | "de") => requestJson<{ wiki: WikiRegistration | null; created: boolean }>(baseUrl, "/wikis/legal-research/ensure", { token, hostToken, method: "POST", body: { language } }),
     wikiTeam: () => requestJson<WikiTeamOverview>(baseUrl, "/wikis/team", { token, hostToken, timeoutMs: 30_000 }),
     joinWiki: (input: { wikiId: string; root?: string }) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis/join", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
     shareWiki: (id: string, input: WikiSharingInput) => requestJson<{ wiki: WikiVault }>(baseUrl, `/wikis/${encodeURIComponent(id)}/share`, { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
