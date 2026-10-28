@@ -66,7 +66,7 @@ import { announceSyncChange, onSyncChange, syncEventStream } from "./app-sync-ev
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
-import { rememberNativeProjectApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
+import { rememberNativeChatApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -995,7 +995,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const persisted = [...await readGlobalToolPermissions(config), ...runtime.permissions ?? [], ...runtime.agents?.[agentName]?.permissions ?? []];
       return managedPermissionRules(explicitFileApprovals(domainRules(agent.permissions), [
         ...configured, ...persisted,
-      ]), domainRules(session.permissions ?? []));
+      ]), domainRules(session.permissions ?? []).map(rule => ({ ...rule, session: true })));
     },
   });
   const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string, metadataOnly = false, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
@@ -1479,7 +1479,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "POST" && sessionID && permissionReply && body) {
     const reply = z.object({ decision: z.enum(["once", "always", "reject"]), message: z.string().optional() }).parse(JSON.parse(Buffer.from(body).toString()));
     if (reply.decision === "always") {
-      if (!await rememberNativeProjectApproval(input.config, workspace, sessionID, permissionReply[1])) throw new ApiError(503, "project_permissions_unavailable", "Project-scoped remembered access is unavailable. Use Allow once.");
+      await rememberNativeChatApproval(input.config, workspace, sessionID, permissionReply[1]);
       body = new TextEncoder().encode(JSON.stringify({ ...reply, decision: "once" })).buffer;
     }
   }

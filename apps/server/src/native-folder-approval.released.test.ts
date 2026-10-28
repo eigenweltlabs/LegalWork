@@ -4,16 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
-import { nativeProjectApprovalResources, rememberNativeProjectApproval } from "./native-folder-approval.js";
+import { nativeChatApprovalResources, rememberNativeChatApproval } from "./native-folder-approval.js";
 import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
 test("remembering uses exactly the native persistent scope and never guesses from requested resources", () => {
-  expect(nativeProjectApprovalResources({ action: "shell", save: ["git status", "git status", "git diff *"] })).toEqual(["git status", "git diff *"]);
-  expect(() => nativeProjectApprovalResources({ action: "shell" })).toThrow("Use Allow once");
-  expect(() => nativeProjectApprovalResources({ action: "shell", save: [""] })).toThrow("Use Allow once");
+  expect(nativeChatApprovalResources({ action: "shell", save: ["git status", "git status", "git diff *"] })).toEqual(["git status", "git diff *"]);
+  expect(() => nativeChatApprovalResources({ action: "shell" })).toThrow("Use Allow once");
+  expect(() => nativeChatApprovalResources({ action: "shell", save: [""] })).toThrow("Use Allow once");
 });
 
 test.skipIf(!binary)("a standalone native engine without the project permission hook cannot remember a broader grant", async () => {
@@ -37,7 +37,7 @@ test.skipIf(!binary)("a standalone native engine without the project permission 
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
     const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
     const session = await client.session.create({ location: { directory } });
-    await expect(rememberNativeProjectApproval(config, workspace, session.id, "per_absent")).rejects.toMatchObject({
+    await expect(rememberNativeChatApproval(config, workspace, session.id, "per_absent")).rejects.toMatchObject({
       status: 409, code: "project_permission_integration_unavailable",
     });
     expect((await readRuntimeOpencodeConfig(config, workspace.id)).projectPermissionApprovals ?? []).toEqual([]);

@@ -7,7 +7,7 @@ import { OpenCode, type JsonValue } from "@opencode/client";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
-import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { activateNativeSavedApprovalMigration, prepareNativeSavedApprovalMigration } from "./native-saved-approval-migration.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
@@ -204,7 +204,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await client.permission.reply({ sessionID: alias.id, requestID: escaped.id, decision: "reject" });
     expect(await waitForOutcome(alias.id)).toBe("rejected");
     // Exercise the actual app reply route. Native Git-project-wide "always"
-    // must become an exact LegalWork-project grant, effective on the next tool.
+    // must become a chat-specific grant, effective on the next tool.
     const shadowed = join(root, "shadowed");
     await mkdir(shadowed); await writeFile(join(shadowed, "private.txt"), "unrelated-shadowed-content");
     const restricted = join(outside, "restricted");
@@ -239,7 +239,11 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await expect(invoke(remembered.id, "read", { path: join(wildcardRestricted, "private.txt") })).rejects.toThrow();
     expect((await invoke(remembered.id, "read", { path: join(added, "linked.txt") })).output).toContain("private-outside-content");
     const next = await client.session.create({ location, agent: "helper" });
-    expect((await invoke(next.id, "read", { path: external })).output).toContain("private-outside-content");
+    await invoke(next.id, "start-read", { path: external });
+    const siblingAsk = await pending(next.id);
+    await client.permission.reply({ sessionID: next.id, requestID: siblingAsk.id, decision: "reject" });
+    expect(await waitForOutcome(next.id)).toBe("rejected");
+    expect((await readRuntimeOpencodeConfig(config, "a")).projectPermissionApprovals ?? []).toEqual([]);
     await engine.close();
     engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
@@ -271,8 +275,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     const foreignRequest = await pending(foreign.id, otherLocation);
     await client.permission.reply({ sessionID: foreign.id, requestID: foreignRequest.id, decision: "reject" });
     expect(await waitForOutcome(foreign.id, otherLocation)).toBe("rejected");
-    // A generic native action must use the same product-project ownership as
-    // folder approvals, including exact save scopes and the public edit API.
+    // Generic native actions use the same chat ownership as folder approvals.
     const action = "fixture.review", resource = "matter-record-17";
     const permissionInput = { action, resources: [resource], save: [resource] };
     for (const id of ["a", "b"]) await writeRuntimeOpencodeConfig(config, id, current => ({ ...current, permissions: [...current.permissions ?? [], { action, resource: "*", effect: "ask" }] }));
@@ -287,18 +290,22 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     });
     expect((await projectApi("a", `/session/${generic.id}/permission/${genericRequest.id}/reply`, "POST", { decision: "always" })).status).toBe(204);
     expect(await waitForOutcome(generic.id)).toBe("authorized");
-    const saved = await projectApi("a", "/permission/saved").then(response => response.json());
-    const genericSaved = saved.data.find((entry: { action: string }) => entry.action === action);
-    expect(genericSaved).toMatchObject({ action, resource, projectID: "a" });
+    expect((await projectApi("a", "/permission/saved").then(response => response.json())).data).toEqual([]);
+    expect((await client.session.get({ sessionID: generic.id })).permissions).toContainEqual({ action, resource, effect: "allow" });
+    const genericSaved = { id: "psv_existing_project", action, resource, projectID: "a" };
     expect((await projectApi("b", "/permission/saved").then(response => response.json())).data).toEqual([]);
     expect((await projectApi("b", `/permission/saved/${genericSaved.id}`, "DELETE")).status).toBe(404);
     expect(await client.permission.saved.list()).toEqual([]);
     await engine.close(); engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
     client = connect();
+    await invoke(generic.id, "start-permission", permissionInput);
+    expect(await waitForOutcome(generic.id)).toBe("authorized");
     const genericNext = await client.session.create({ location, agent: "legalwork" });
     await invoke(genericNext.id, "start-permission", permissionInput);
-    expect(await waitForOutcome(genericNext.id)).toBe("authorized");
+    const genericNextAsk = await pending(genericNext.id);
+    await client.permission.reply({ sessionID: genericNext.id, requestID: genericNextAsk.id, decision: "reject" });
+    expect(await waitForOutcome(genericNext.id)).toBe("rejected");
     const denySession = await client.session.create({ location, agent: "legalwork", permissions: [{ action, resource, effect: "deny" }] });
     await invoke(denySession.id, "start-permission", permissionInput);
     expect(await waitForOutcome(denySession.id)).toBe("rejected");
@@ -313,6 +320,13 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await client.permission.reply({ sessionID: genericOther.id, requestID: repeated.id, decision: "reject" });
     expect(await waitForOutcome(genericOther.id, otherLocation)).toBe("rejected");
     expect((await projectApi("b", "/permission/saved").then(response => response.json())).data).toEqual([]);
+    // Previously saved project approvals retain their scope and edit controls.
+    await writeRuntimeOpencodeConfig(config, "a", current => ({ ...current, projectPermissionApprovals: [
+      ...current.projectPermissionApprovals ?? [], { id: genericSaved.id, action, resources: [resource], createdAt: 1 },
+    ] }));
+    await writeLegalworkRuntimeConfigFile(config, "a");
+    await invoke(genericNext.id, "start-permission", permissionInput);
+    expect(await waitForOutcome(genericNext.id)).toBe("authorized");
     const editedResource = "matter-record-19";
     expect((await projectApi("a", `/permission/saved/${genericSaved.id}`, "PATCH", { resource: editedResource })).status).toBe(200);
     await invoke(genericNext.id, "start-permission", permissionInput);

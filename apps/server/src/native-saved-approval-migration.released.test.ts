@@ -8,7 +8,7 @@ import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath,
 import { startServer } from "./server.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
-import { rememberNativeProjectApproval, removeNativeProjectApproval } from "./native-folder-approval.js";
+import { rememberNativeChatApproval, removeNativeProjectApproval } from "./native-folder-approval.js";
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import type { ServerConfig } from "./types.js";
@@ -75,7 +75,7 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
     const foreign = await client.session.create({ location: { directory: folders[1] }, agent: "legalwork" });
     const refused = await request(foreign.id, "known-record"); expect(refused.effect).toBe("ask"); await client.permission.reply({ sessionID: foreign.id, requestID: refused.id, decision: "reject" });
     const unknownAgain = await request(known.id, "unknown-record"); expect(unknownAgain.effect).toBe("ask");
-    await rememberNativeProjectApproval(config, config.workspaces[0], known.id, unknownAgain.id);
+    await rememberNativeChatApproval(config, config.workspaces[0], known.id, unknownAgain.id);
     await client.permission.reply({ sessionID: known.id, requestID: unknownAgain.id, decision: "once" });
     expect((await request(known.id, "unknown-record")).effect).toBe("allow");
     const settings = await readRuntimeOpencodeConfig(config, "0"), imported = settings.projectPermissionApprovals?.find(item => item.resources.includes("known-record"));

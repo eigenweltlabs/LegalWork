@@ -729,7 +729,7 @@ test("project commands skip implicit file prompts while unprotected commands req
   expect(f.prompts).toHaveLength(0);
 });
 
-test("unprotected command consent is explicit, denyable, project-scoped and revocable", async () => {
+test("unprotected command consent is explicit, denyable, chat-scoped and revocable", async () => {
   const f = await fixture([{ action: "*", resource: "*", effect: "allow" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
   const run = (sessionID: string, command = "echo consent-proof") => f.service.run(f.workspace,
@@ -746,7 +746,10 @@ test("unprotected command consent is explicit, denyable, project-scoped and revo
   f.service.approvals.respond(approval.id, "always");
   expect((await first).output).toContain("consent-proof");
   expect((await run("approved", "echo second-command")).output).toContain("second-command");
-  expect((await run("other")).output).toContain("consent-proof");
+  const other = run("other").catch(error => error);
+  const [otherApproval] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(otherApproval.id, "deny");
+  expect(await other).toBeInstanceOf(Error);
   expect(f.service.approvals.list()).toEqual([]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
   const revoked = run("approved").catch(error => error);
@@ -905,7 +908,7 @@ test("a new read-only project boundary cannot commit an older writable mount", a
   } finally { await store.close(); }
 });
 
-test("remembered network approval repeats only for an identical request in the same project", async () => {
+test("remembered network approval repeats only for an identical request in the same chat", async () => {
   const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const input = webInput("https://example.com/document");
@@ -920,18 +923,16 @@ test("remembered network approval repeats only for an identical request in the s
   expect(f.service.approvals.list()).toEqual([]);
   expect(net.sent).toHaveLength(2);
 
-  await run({ ...input, sessionID: "child" }, ["child", input.sessionID]);
-  expect(net.sent).toHaveLength(3);
-  for (const request of [{ ...input, url: "https://example.com/other-document" }]) {
+  for (const request of [{ ...input, sessionID: "child" }, { ...input, url: "https://example.com/other-document" }]) {
     const result = run(request, [request.sessionID, input.sessionID]).catch(error => error);
     const [changed] = await waitForWebApproval(f.service);
     f.service.approvals.respond(changed.id, "deny");
     expect(await result).toBeInstanceOf(Error);
   }
-  expect(net.sent).toHaveLength(3);
+  expect(net.sent).toHaveLength(2);
   await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
   await expect(run()).rejects.toThrow("blocked by your permissions");
-  expect(net.sent).toHaveLength(3);
+  expect(net.sent).toHaveLength(2);
 });
 
 test("unchanged config writes retain remembered network approval but permission changes revoke it", async () => {
@@ -991,6 +992,19 @@ test("corrupt execution settings block commands and web before runtime, DNS or p
   } finally { db.close(); }
 });
 
+
+test("chat folder approvals mount only for that chat and keep narrower denials effective", async () => {
+  const f = await fixture([]);
+  const external = await mkdtemp(join(tmpdir(), "sandbox-chat-folder-")); roots.push(external);
+  const rules: AgentPermissionRule[] = [{ permission: "external_directory", pattern: `${external}/*`, action: "allow", session: true }];
+  await f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "approved-chat" }, { type: "host" }, new AbortController().signal, rules);
+  expect(f.executions[0].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path), await realpath(external)]);
+  await f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "another-chat" }, { type: "host" }, new AbortController().signal, []);
+  expect(f.executions[1].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path)]);
+  await expect(f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000, sessionID: "approved-chat" }, { type: "host" }, new AbortController().signal,
+    [...rules, { permission: "external_directory", pattern: `${external}/private/*`, action: "deny", session: true }])).rejects.toThrow("blocked by your permissions");
+  expect(f.executions).toHaveLength(2);
+});
 
 test("native remembered folder approvals feed project sandbox mounts and are revocable without native config copies", async () => {
   const f = await fixture([]);

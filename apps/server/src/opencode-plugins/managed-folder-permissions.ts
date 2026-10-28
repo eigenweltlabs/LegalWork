@@ -23,8 +23,10 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
     if (event.effect === "deny") return;
     const settings = await read();
     if (!settings) { event.effect = "deny"; event.message = "This project has no LegalWork permissions."; return; }
-    const agentID = event.agent ?? (await ctx.session.get({ sessionID: event.sessionID })).agent ?? settings.configuration.default_agent;
-    const approvals = settings.projectPermissionApprovals ?? [];
+    const session = await ctx.session.get({ sessionID: event.sessionID });
+    const agentID = event.agent ?? session.agent ?? settings.configuration.default_agent;
+    const approvals = [...settings.projectPermissionApprovals ?? [], ...session.permissions?.filter(rule => rule.effect === "allow")
+      .map(rule => ({ action: rule.action, resources: [rule.resource] })) ?? []];
     event.effect = projectPermissionEffect({ ...settings.configuration, projectPermissionApprovals: approvals }, event.action,
       event.resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
     if (event.effect === "deny") return;

@@ -29,7 +29,7 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
-  test("folder approval explains project scope and shows the native resolved destination", () => {
+  test("folder approval explains chat scope and shows the native resolved destination", () => {
     const permission = permissionWithReceivedAt({
       id: "folder", sessionID: "session-1", action: "external_directory", resources: ["/shortcut/*"], save: ["/shortcut/*"],
       message: "This folder resolves to /actual/private. Remembering approval includes that destination.",
@@ -38,8 +38,8 @@ describe("permission approval modal helpers", () => {
     const main = html.split("<details")[0];
     expect(main).toContain("/actual/private");
     expect(main).toContain("/shortcut/*");
-    expect(main).toContain("Add folder to project");
-    expect(main).toContain("Remove it later in Settings &gt; Permissions");
+    expect(main).toContain("Allow for this chat");
+    expect(main).toContain("Other chats do not receive access");
     expect(main).not.toContain("Allow for project");
   });
 
@@ -53,7 +53,7 @@ describe("permission approval modal helpers", () => {
     expect(html).toContain("Computer access for commands");
     expect(html).toContain("read and change files anywhere your computer account can access");
     expect(html).toContain("outside added folders");
-    expect(html).toContain("Allow for project");
+    expect(html).toContain("Allow for this chat");
     expect(html).not.toContain("Add folder to project");
   });
 
@@ -203,7 +203,7 @@ describe("permission approval modal helpers", () => {
       match[0].replace(/<[^>]*>/g, "").trim(),
     );
 
-    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for project"]);
+    expect(buttonLabels).toEqual(["Deny", "Allow once", "Allow for this chat"]);
   });
 
   test("uses readable labels for generic permission titles", () => {

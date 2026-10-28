@@ -11,7 +11,7 @@ import type { RawHttpInput, RawHttpNetwork } from "./raw-http.js";
 import { AgentSandboxService } from "./service.js";
 import { writeSandboxDefault } from "./settings.js";
 
-test("sandbox requests remember the exact operation for a project across chats, restart and native settings migration", async () => {
+test("sandbox requests remember the exact operation for one chat across restart and native settings migration", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-project-approval-"));
   const projects: WorkspaceInfo[] = ["a", "b"].map(name => ({ id: `ws_${name}`, name, path: join(root, name), preset: "starter", workspaceType: "local" }));
   await Promise.all(projects.map(project => mkdir(project.path)));
@@ -48,18 +48,18 @@ test("sandbox requests remember the exact operation for a project across chats, 
     expect(approval.canRemember).toBe(true);
     service.approvals.respond(approval.id, "always");
     await first;
-    await run(projects[0], { ...input, sessionID: "second-chat" });
+    await run();
     expect(connected).toBe(2);
     await service.stop();
     service.approvals.dispose();
     await closeRuntimeOpencodeConfig(config);
     service = await create();
-    await run(projects[0], { ...input, sessionID: "third-chat" });
+    await run();
     expect(connected).toBe(3);
     await writeRuntimeOpencodeConfig(config, projects[0].id, current => ({ ...current, agents: { reviewer: { description: "Unrelated agent edit" } } }));
     await run();
     expect(connected).toBe(4);
-    for (const [project, request] of [[projects[1], input], [projects[0], { ...input, bodyBase64: Buffer.from("changed document").toString("base64") }]] satisfies Array<[WorkspaceInfo, typeof input]>) {
+    for (const [project, request] of [[projects[1], input], [projects[0], { ...input, sessionID: "other-chat" }], [projects[0], { ...input, bodyBase64: Buffer.from("changed document").toString("base64") }]] satisfies Array<[WorkspaceInfo, typeof input]>) {
       const denied = run(project, request).catch(error => error);
       const next = await pending();
       service.approvals.respond(next.id, "deny");
