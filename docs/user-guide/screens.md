@@ -19,7 +19,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Scheduled | Run a prompt at a chosen time or repeatedly | [Scheduled tasks](scheduled-tasks.md) |
 | Workflows | Maintain reusable instructions and templates and review prompt sets | [Workflows](skills-workflows.md) |
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
-| Project Dashboards | Open saved dashboards and reports | [Dashboards](dashboards.md) |
+| Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
 | Wiki | Maintain reusable firm knowledge with pages, links, properties and a graph | [Wiki](wiki.md) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
@@ -36,7 +36,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Tabular Review | Which inference mode, models and probability threshold apply to new reviews? | [Tabular Review](reviews.md) |
 | Recorder: Models | Which transcription source, language and downloaded model should I use? | [Recorder settings](recorder-settings.md) |
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |
-| Recorder: Meetings | How do meeting detection, recording and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
+| Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: Connectors | How do I connect an external service? | [Integrations](integrations.md), [Email](email.md) |
 | Integrations: File storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |

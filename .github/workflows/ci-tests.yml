@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - codex/projects-akte-workspace
+      - codex/opencode-v2-migration
   workflow_dispatch:
     inputs:
       mac_signing_acceptance:
@@ -24,7 +25,7 @@ on:
         type: boolean
         default: false
       windows_archive_acceptance:
-        description: Verify normal Windows x64 and ARM64 engine archive installation only, with exact producer reuse
+        description: Verify Windows x64 and ARM64 archives, protected engine tools and packaged startup with exact producer reuse
         type: boolean
         default: false
       native_source_acceptance:
@@ -126,6 +127,21 @@ jobs:
     uses: ./.github/workflows/ci-windows-opencode-install.yml
     with:
       manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+  windows-protected-runtime:
+    needs: [windows-archive-inputs, engine-build-inputs]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.engine-build-inputs.result == 'success'
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: win32-x64,win32-arm64
+      run_tests: false
+  windows-desktop-acceptance:
+    needs: [windows-archive-inputs, opencode-derivative, windows-protected-runtime]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success' && needs.windows-protected-runtime.result == 'success'
+    uses: ./.github/workflows/ci-desktop-packaging.yml
+    with:
+      windows-only: true
+      derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+      engine-build-mode: development
   mac-signing-acceptance:
     needs: [signing-inputs, engine-build-inputs]
     if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance
@@ -232,6 +248,8 @@ jobs:
         run: pnpm test:drafts
       - name: Test Windows Outlook handoff
         run: node --test apps/desktop/electron/mail-draft.test.mjs
+      - name: Test detailed support exports on Windows
+        run: node --test apps/desktop/electron/technical-support-bundle.test.mjs
       - name: Test packaged server archive imports on Windows
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 
@@ -278,13 +296,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare checksum-pinned Node for worker tests
-        run: node apps/desktop/scripts/prepare-node-runtime.mjs
-
       - name: Verify bundled user documentation and translations
         run: |
           node --test scripts/gen-core-skills.test.mjs
           pnpm docs:check
+
+      - name: Prepare checksum-pinned Node for worker tests
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
 
       - name: Typecheck app
         if: runner.os == 'Linux'
@@ -292,6 +310,10 @@ jobs:
 
       - name: Build server and native plugins
         run: pnpm --filter legalwork-server build
+
+      - name: Check packaged OpenCode plugins are self-contained
+        if: runner.os == 'Linux'
+        run: node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
@@ -317,10 +339,10 @@ jobs:
           node --test apps/desktop/electron/opencode-release.test.mjs
           bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
 
-      - name: Verify scheduling and file search with the shipped engine
+      - name: Verify scheduling, file search and PDF reads with the shipped engine
         run: |
           pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts apps/server/src/opencode-plugins/pdf-reading.integration.test.ts
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build

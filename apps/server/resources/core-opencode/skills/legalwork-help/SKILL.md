@@ -12,8 +12,8 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Gmail or Outlook email | [email.md](references/email.md) |
 | What is a workflow, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
-| Transcription models, dictation shortcut, microphone or meeting detection | [recorder-settings.md](references/recorder-settings.md) |
-| Record, import or edit a transcript; Voice Mode | [audio.md](references/audio.md) |
+| Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
+| Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter details, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
 | Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
@@ -24,7 +24,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Cloud drives or network storage | [connected-storage.md](references/connected-storage.md) |
 | Connectors, plugins, browser or Computer Use | [integrations.md](references/integrations.md) |
 | Wiki | [wiki.md](references/wiki.md) |
-| Saved dashboards or reports | [dashboards.md](references/dashboards.md) |
+| Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
 | Browser passwords, inline sign-in card, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |

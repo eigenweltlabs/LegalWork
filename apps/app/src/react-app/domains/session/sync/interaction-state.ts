@@ -100,6 +100,7 @@ function v2PermissionWithReceivedAt(permission: PermissionRequest, receivedAt: n
     patterns: permission.resources,
     metadata,
     always: permission.save ?? [],
+    ...(permission.message ? { message: permission.message } : {}),
     ...(permission.source ? { tool: { messageID: permission.source.messageID, callID: permission.source.id } } : {}),
     receivedAt,
     protocol: "v2",

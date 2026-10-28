@@ -75,6 +75,7 @@ import {
 } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
+  parseDynamicToolUIParts,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -116,6 +117,7 @@ type SyncOptions = {
   workspaceId: string;
   baseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   onSessionUpdated?: (update: {
     sessionId: string;
     info: Record<string, unknown>;
@@ -178,7 +180,7 @@ export const todoKey = (workspaceId: string, sessionId: string) =>
   ["react-session-todos", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
-  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}`;
+  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.legalworkHostToken ?? ""}`;
 }
 
 function getErrorStatus(error: unknown) {
@@ -661,17 +663,13 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
 
 function toUIParts(part: Part): UIMessage["parts"] {
   if (part.type === "file") return toFileUIParts(part);
+  if (part.type === "tool" && part.tool !== STRUCTURED_OUTPUT_TOOL) {
+    const mapped = parseDynamicToolUIParts(part);
+    return part.state.status === "completed" && part.state.attachments
+      ? [...mapped, ...part.state.attachments.flatMap(toFileUIParts)] : mapped;
+  }
   const mapped = toUIPart(part);
   if (!mapped) return [];
-  if (part.type === "tool" && part.tool === STRUCTURED_OUTPUT_TOOL)
-    return [mapped];
-  if (
-    part.type === "tool" &&
-    part.state.status === "completed" &&
-    part.state.attachments
-  ) {
-    return [mapped, ...part.state.attachments.flatMap(toFileUIParts)];
-  }
   return [mapped];
 }
 
@@ -870,6 +868,7 @@ async function stopUsageLimitRetry(
   );
   const client = createClient(entry.input.baseUrl, undefined, {
     token: entry.input.legalworkToken,
+    hostToken: entry.input.legalworkHostToken,
     mode: "legalwork",
   });
   let ownsStop = false;
@@ -922,6 +921,7 @@ async function stopUsageLimitRetry(
       const server = createLegalworkServerClient({
         baseUrl: mount.baseUrl,
         token: entry.input.legalworkToken,
+        hostToken: entry.input.legalworkHostToken,
       });
       await server.recordSessionUsageLimit(
         mount.workspaceId,
@@ -1625,6 +1625,7 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
 function startSync(input: SyncOptions) {
   const client = createClient(input.baseUrl, undefined, {
     token: input.legalworkToken,
+    hostToken: input.legalworkHostToken,
     mode: "legalwork",
   });
   const controller = new AbortController();

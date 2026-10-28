@@ -7,6 +7,8 @@ import { isInternalSession } from "./native-shared-values.js";
 import { pathWithin } from "./native-proxy-policy.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
+import { readManagedEngineSettings } from "./managed-engine-settings.js";
+import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const recoveryByServer = new WeakMap<ServerConfig, McpRecovery>();
@@ -48,16 +50,14 @@ export async function recoverWorkspaceMcp(config: ServerConfig, workspace: Works
       engine: resolveWorkspaceOpencodeConnection(config, workspace).baseUrl ?? "",
       directory, statuses, readStatuses,
       connectors: async () => {
-        const [entries, stored] = await Promise.all([
-          client.config.get({ location: { directory } }),
+        const [definitions, stored] = await Promise.all([
+          config.engineConfigurationMode === "managed"
+            ? readManagedEngineSettings(managedEngineSettingsFilePath(config), directory).then(settings => settings.configuration.mcp?.servers ?? {})
+            : client.config.get({ location: { directory } }).then(entries => Object.fromEntries(entries.flatMap(entry => entry.type === "document" ? Object.entries(entry.info.mcp?.servers ?? {}) : []))),
           listMcp(config, workspace.id, directory),
         ]);
-        const effective = new Map<string, Record<string, unknown>>();
-        for (const entry of entries) if (entry.type === "document") {
-          for (const [name, server] of Object.entries(entry.info.mcp?.servers ?? {})) effective.set(name, server);
-        }
-        const allowed = await allowedMemberConnectors(config, Object.fromEntries(effective));
-        return Object.entries(allowed).map(([name, definition]) => ({ name, config: definition,
+        const allowed = await allowedMemberConnectors(config, definitions);
+        return Object.entries(allowed).map(([name, definition]) => ({ name, config: { ...definition, enabled: definition.disabled !== true && Reflect.get(definition, "enabled") !== false },
           disabledByTools: stored.find(item => item.name === name)?.disabledByTools }));
       },
       // Fetch cancellation does not cancel the engine's handshake. Keep the

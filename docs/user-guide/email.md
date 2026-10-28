@@ -27,6 +27,14 @@ Choose **Use your own OAuth app** under **Connection method**. This does not req
 
 Use the panel's **Permissions** list for the required scopes. Select **Save app details**, then connect and complete provider consent. Changing app details requires reconnecting the account. Details and tokens are encrypted in the local OAuth vault. Use **Connection details & privacy** to inspect the method and saved application configuration; enter secrets in that form rather than chat.
 
+## Download attachments
+
+Open a chat in the project where you want to keep the files. Ask the assistant to find the email and download its attachments. For example: “Find the email from Müller about the contract and download its PDF attachment into this project.”
+
+Attachments are saved in your project under `.legalwork/attachments/email/`, inside the hidden `.legalwork` folder, with a separate folder for each download. Files dragged into chat use the same `.legalwork/attachments/` location. The original filename is kept where possible; characters that cannot be used safely in filenames are replaced. Downloading another attachment with the same name keeps both files.
+
+The assistant receives the saved file's path, name, type and size, and can use that path to read or open it. File contents are not inserted into the chat as encoded data. There is no LegalWork attachment-download size limit; mailbox-provider restrictions and available disk space still apply. Downloads require an authorized project folder and are unavailable on a read-only worker. They do not require **Allow write access** to the mailbox.
+
 ## Drafts and sending
 
 The assistant can prepare a local email preview containing recipients, subject, body and supported attachments. Preparing that preview does not send it or save it in your mailbox. Review and edit it in LegalWork, then use the card's save action to put it into the connected mailbox. Sending is a separate action from the card. Inspect To, Cc, Bcc, subject, body and attachments before sending.
@@ -45,7 +53,7 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
-| Attachment cannot be downloaded | Check the returned error. The mail connector's attachment-download limit is 5 MB; Outlook non-file attachment types are not supported by that download action. |
+| Attachment cannot be downloaded | Open a chat in an authorized project and check available disk space and the returned error. If an older chat reports a missing attachment, ask the assistant to read the email again and retry. Retry an interrupted download; incomplete copies are removed. Outlook cloud links and other non-file attachment types are not supported by this download action. |
 | Remove access | Select **Disconnect**. For Outlook this disconnects the shared Email and Calendar account. Review provider-side app permissions separately if you also want to revoke consent. |
 
 Disconnecting does not delete mailbox messages, previously downloaded attachments or chat history. Mail read into an assistant task is included in that task's model context. With **Connect with Eigenwelt**, Nango manages sign-in and token renewal; LegalWork retrieves mail content directly from the provider. With your own OAuth app, LegalWork authenticates directly using that app.

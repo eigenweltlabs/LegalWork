@@ -64,21 +64,20 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   delete process.env.OPENCODE_DB;
   const cloud = join(root, "Cloud project"), local = join(root, "Local project");
   await mkdir(join(cloud, ".opencode"), { recursive: true }); await mkdir(local);
-  const stamp = join(cloud, ".opencode", ".legalwork-core");
-  await writeFile(stamp, "previous-bundle");
   const sdk = join(root, "sdk"); await mkdir(sdk);
   await writeFile(join(sdk, "package.json"), JSON.stringify({ opencode: { version: "2.1.4", runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] } }));
   const { bin, candidateBuild } = await verifiedTestEngine(root, engine);
-  const read = fs.readFile;
+  const inspect = fs.stat;
   let unavailable = true;
-  // Preserve readFile's encoding-dependent overloads while injecting this OS failure.
-  const readCloudFile = async (path: Parameters<typeof read>[0], options: Parameters<typeof read>[1]) => {
-    if (path === stamp && unavailable) throw Object.assign(new Error("Unknown system error -81, read"), {
+  // Simulate the provider refusing access to the actual case folder. Managed
+  // engines no longer need to read a bundled-core stamp inside every case.
+  const inspectCloudFolder = async (path: Parameters<typeof inspect>[0], options: Parameters<typeof inspect>[1]) => {
+    if (path === cloud && unavailable) throw Object.assign(new Error("Unknown system error -81, stat"), {
       code: process.platform === "darwin" ? "Unknown system error -81" : "ENEEDAUTH", errno: -81,
     });
-    return read(path, options);
+    return inspect(path, options);
   };
-  const spy = spyOn(fs, "readFile").mockImplementation(readCloudFile as typeof read);
+  const spy = spyOn(fs, "stat").mockImplementation(inspectCloudFolder as typeof inspect);
   cleanup.push(async () => { spy.mockRestore(); });
   const server = await startEmbeddedServer({
     host: "127.0.0.1", port: 0, workspaces: position === "only" ? [cloud] : position === "first" ? [cloud, local] : [local, cloud],

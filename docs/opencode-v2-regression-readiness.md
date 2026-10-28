@@ -1,11 +1,23 @@
 # Regression fixture migration evidence
 
-Final acceptance remains open for the final actual-model check and latest-source
-app/package/startup execution on all six OS/CPU configurations. The latest full
-Linux unit job passes; the Mac unit result remains required. See the
+Final engineering acceptance is complete for the user-frozen OpenCode 2.1.4/dev
+snapshot. Actual app/package/startup passes are closed on all six configurations:
+both Macs, both Linux architectures and both Windows architectures. Both unsigned
+Windows installers and their actual engine-to-VM tool integrations pass in
+[run40517342408](https://github.com/eigenweltlabs/legalwork/actions/runs/40517342408).
+The test-only Windows correction creates Documents inside the owned isolated
+profile; all original startup assertions and the 90-second gate remain. No
+production code or registry change was needed. Original failures stay preserved.
+The final actual-model task completed with the independently
+replayed original8/9 score and full traces; its three citation-capitalization
+mismatches, unsupported memo assertions, absent permission-denial interaction and
+incomplete native request-role attribution remain explicit qualifications. All six native engine hosts, all six protected
+runtimes, and the full Linux and Mac unit jobs pass. See the
 [current capability checkpoint](opencode-v2-capability-status.md) for exact
 build identities and current results. Earlier checkpoints below retain their
-original failures and qualifications. The user explicitly separated inherited
+original failures and qualifications. Three later dev commits were excluded by
+the user's explicit choice to finish the tested snapshot. No release, tag or
+release asset is published; existing authorized CI artifacts are retained. The user explicitly separated inherited
 browser problems from migration completion, requiring no regression from v1.
 The user accepted the
 working Node development-server route; repairing the older compiled Mac

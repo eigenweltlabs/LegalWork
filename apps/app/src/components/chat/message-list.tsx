@@ -69,7 +69,7 @@ import { useMessageList, useSessionErrorMessage } from "@/components/chat/messag
 import { ToolRun } from "./tool-run"
 import { ArtifactList } from "@/components/chat/artifact"
 import { filedTasksOf } from "@/components/chat/filed-tasks"
-import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
+import { collectLegalMemoryDocuments, legalMemoryOutputsOf } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
 import { SessionWelcome } from "@/components/chat/session-welcome"
@@ -725,7 +725,7 @@ const MessageComponent = React.memo(
       if (metadata && typeof metadata === "object" && "opencode" in metadata &&
           metadata.opencode && typeof metadata.opencode === "object" &&
           "stopped" in metadata.opencode && metadata.opencode.stopped === true) {
-        return <Message className="text-sm text-muted-foreground">{t("chat.stopped")}</Message>;
+        return <Message className="text-sm text-muted-foreground">{getMessagesText([message]) || t("chat.stopped")}</Message>;
       }
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }
@@ -923,11 +923,7 @@ function MessageGroup({
   const legalMemoryDocuments = React.useMemo(
     () =>
       collectLegalMemoryDocuments(
-        items.flatMap((item) =>
-          item.message.parts
-            .filter((part) => isLegalMemoryToolPart(part as never) && "output" in part)
-            .map((part) => (part as { output?: unknown }).output),
-        ),
+        legalMemoryOutputsOf(items.flatMap(item => item.message.parts)),
       ),
     [items],
   )
