@@ -80,7 +80,8 @@ describe("describeOpencodeSessionError", () => {
   test("renders request-size errors without the gateway HTML body", () => {
     const error = { name: "APIError", data: { message: "Request Entity Too Large", statusCode: 413, responseBody: "<html><body>413 Request Entity Too Large nginx/1.27.5</body></html>" } };
     const text = describeOpencodeSessionError(error);
-    expect(text).toContain("Compact the conversation");
+    expect(text).toContain("fewer attachments");
+    expect(text).not.toContain("Compact");
     expect(text).not.toContain("<html>");
     expect(text).not.toContain("nginx");
     expect(describeOpencodeSessionError(new Error("413 Request Entity Too Large"))).toBe(text);

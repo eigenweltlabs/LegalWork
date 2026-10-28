@@ -1179,6 +1179,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // A WeakSet rather than a property on the child, so the entries die with the
   // process objects and the Electron-main typecheck accepts it.
   const intentionallyStoppedChildren = new WeakSet();
+  const stoppingChildren = new Set();
 
   function spawnManagedChild(state, program, args, options = {}) {
     const child = spawn(program, args, {
@@ -1266,8 +1267,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // Mark this as a deliberate shutdown so the managed-child exit/error handler
     // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
     if (child) intentionallyStoppedChildren.add(child);
-    if (!child || child.exitCode != null || child.killed) return;
+    if (!child || child.exitCode != null || child.signalCode != null) return;
 
+    stoppingChildren.add(child);
+    child.once("exit", () => stoppingChildren.delete(child));
     if (options.requestShutdown) {
       try {
         const shutdownRequested = await options.requestShutdown();
@@ -1279,10 +1282,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       }
     }
 
-    if (child.exitCode == null && !child.killed) {
+    if (child.exitCode == null && child.signalCode == null) {
       child.kill("SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 500));
-      if (child.exitCode == null && !child.killed) {
+      if (child.exitCode == null && child.signalCode == null) {
         child.kill("SIGKILL");
       }
     }
@@ -2219,6 +2222,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
     prepareOpencodeConfig: async () => prepareOpencodeConfig({ ...loadUserEnvFile(), ...process.env }),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
+    forceStopOwnedChildren: () => {
+      const managed = inProcessServer?.managedOpencodeStatus?.();
+      if (managed?.running) killProcessId(managed.pid, "SIGKILL");
+      const children = new Set([...stoppingChildren, ...[engineState, legalworkServerState, orchestratorState].map(state => state.child)]);
+      for (const child of children) {
+        if (child && child.exitCode == null && child.signalCode == null) {
+          intentionallyStoppedChildren.add(child);
+          child.kill("SIGKILL");
+        }
+      }
+    },
     runtimeStatus,
     collectRuntimeDiagnostics,
     engineInfo,

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
+import { randomUUID } from "node:crypto";
 
 // ── UI control bridge discovery ──
 
@@ -43,25 +44,41 @@ async function discoverUiBridge(): Promise<UiBridge | null> {
   return null;
 }
 
-export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<unknown> {
+export async function cancelUiBridgeRequests(sessionId: string) {
+  const bridge = await discoverUiBridge();
+  if (!bridge) return;
+  await fetch(`${bridge.baseUrl}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${bridge.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }), signal: AbortSignal.timeout(2000) }).catch(() => {});
+}
+
+export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
   const bridge = await discoverUiBridge();
   if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
+  const timeout = options.timeoutMs ?? BRIDGE_TIMEOUT_MS;
+  const signal = AbortSignal.any([AbortSignal.timeout(timeout), ...(options.signal ? [options.signal] : [])]);
+  const requestId = path === "/execute" ? randomUUID() : undefined;
+  const body = requestId && options.body && typeof options.body === "object" ? { ...options.body, requestId, deadline: Date.now() + timeout } : options.body;
+  const cancel = () => {
+    if (requestId) void fetch(`${bridge.baseUrl}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${bridge.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ requestId }), signal: AbortSignal.timeout(2000) }).catch(() => {});
+  };
+  signal.addEventListener("abort", cancel, { once: true });
   try {
     const response = await fetch(`${bridge.baseUrl}${path}`, {
       method: options.method || "GET",
-      signal: AbortSignal.timeout(options.timeoutMs ?? BRIDGE_TIMEOUT_MS),
+      signal,
       headers: {
         Authorization: `Bearer ${bridge.token}`,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
       },
-      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const text = await response.text();
     try { return JSON.parse(text); } catch { return { ok: false, error: text || `HTTP ${response.status}` }; }
   } catch (error) {
     cachedBridge = null;
     cachedBridgeAt = 0;
-    return { ok: false, error: `UI bridge unreachable: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, ...(signal.aborted ? { code: options.signal?.aborted ? "operation_cancelled" : "operation_timeout" } : {}), error: `UI bridge unreachable: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    signal.removeEventListener("abort", cancel);
   }
 }
 

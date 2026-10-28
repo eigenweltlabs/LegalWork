@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { checkModelResponse } from "./model-request-errors.js";
 
 // LiteLLM carries Gemini thought signatures in tool IDs. Replaying those IDs
 // after switching to OpenAI exceeds its 64-character limit. Rewrite only the
@@ -67,17 +68,20 @@ export const LegalWorkOpenAIToolCallIds = async () => {
     const base = globalThis.fetch;
     const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
       const path = requestPath(input);
-      if (!/\/(?:responses|chat\/completions)\/?$/.test(path)) return base(input, init);
+      if (!/\/(?:responses|chat\/completions|messages)\/?$/.test(path)) return base(input, init);
       const body = typeof init?.body === "string" ? init.body
         : init?.body == null && input instanceof Request && input.method === "POST" ? await input.clone().text() : null;
-      if (body === null) return base(input, init);
-      const normalized = normalizeBody(body, path);
-      if (normalized === null) return base(input, init);
-      // Preserve Request-carried headers/auth and the caller's abort signal.
-      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-      headers.delete("content-length");
-      if (input instanceof Request) return base(new Request(input, { ...init, headers, body: normalized }));
-      return base(input, { ...init, headers, body: normalized });
+      const normalized = body === null ? null : normalizeBody(body, path);
+      let response: Response;
+      if (normalized === null) response = await base(input, init);
+      else {
+        // Preserve Request-carried headers/auth and the caller's abort signal.
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        headers.delete("content-length");
+        response = input instanceof Request ? await base(new Request(input, { ...init, headers, body: normalized }))
+          : await base(input, { ...init, headers, body: normalized });
+      }
+      return checkModelResponse(response, typeof (normalized ?? body) === "string" ? Buffer.byteLength(normalized ?? body ?? "") : undefined);
     };
     globalThis.fetch = Object.assign(patched, base);
   }

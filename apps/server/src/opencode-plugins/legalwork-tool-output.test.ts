@@ -62,6 +62,15 @@ test("a child recovers exact content beyond the long-line and 64 KiB boundaries"
   expect(approvals).toEqual(["legalwork_tool_output_read", "read", "legalwork_tool_output_read", "read"]);
 });
 
+test("legacy empty search fields read a bounded page and report a capped limit", async () => {
+  await writeFile(outputPath, "x".repeat(10000));
+  const result = await read({ query: "", limit: 24000 });
+  expect(result.text).toHaveLength(4096);
+  expect(result.nextOffset).toBe(4096);
+  expect(result.limit).toBe(4096);
+  expect(result.requestedLimit).toBe(24000);
+});
+
 test("successive UTF-8 byte pages reconstruct a single long line exactly", async () => {
   const content = "a".repeat(4096) + "\uFEFF" + "abcdé🙂東京".repeat(5000);
   await writeFile(outputPath, content);
@@ -138,7 +147,21 @@ test("page sizes and offsets are bounded and newline-heavy output stays one JSON
   const result = await read({ limit: 4096 });
   expect(result.text).toBe("\u0000\n".repeat(2048));
   expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(50 * 1024);
-  await expect(read({ limit: 100000 })).rejects.toThrow();
+  expect(await read({ limit: 100000 })).toMatchObject({ limit: 4096, requestedLimit: 100000, nextOffset: 4096 });
   await expect(read({ offset: -1 })).rejects.toThrow();
   await expect(read({ offset: 100000 })).rejects.toThrow("beyond");
+});
+
+test("the new search tool exposes only search inputs and checks search plus read permissions",async()=>{
+  await writeFile(outputPath,"prefix verification_marker suffix");
+  const tools=(await plugin()).tool;
+  expect(Object.keys(tools.legalwork_tool_output_read.args)).toEqual(["outputPath","offset"]);
+  expect(Object.keys(tools.legalwork_tool_output_search.args)).toEqual(["outputPath","offset","query"]);
+  const invoke=(query:string,deny?:string)=>tools.legalwork_tool_output_search.execute({outputPath,query},{directory,sessionID:current,ask:async({permission})=>{
+    approvals.push(permission);if(permission===deny)throw new Error("Permission denied");
+  }});
+  expect(JSON.parse(await invoke("verification_marker")).found).toBe(true);
+  expect(approvals).toEqual(["legalwork_tool_output_search","legalwork_tool_output_read","read"]);
+  await expect(invoke("verification_marker","legalwork_tool_output_search")).rejects.toThrow("Permission denied");
+  await expect(invoke("")).rejects.toThrow();
 });

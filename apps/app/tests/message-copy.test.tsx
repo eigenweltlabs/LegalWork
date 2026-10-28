@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MessageList } from "../src/components/chat/message-list";
 import { MessageListProvider } from "../src/components/chat/message-list-provider";
 import type { ThreadStatus } from "../src/lib/messages";
+import { createSessionErrorUIMessage } from "../src/react-app/domains/session/sync/usechat-adapter";
 
 function textMessage(id: string, role: UIMessage["role"], text: string): UIMessage {
   return { id, role, parts: [{ type: "text", text }] };
@@ -47,6 +48,14 @@ describe("message copying", () => {
     configurable: true,
   }));
   afterAll(() => { Reflect.deleteProperty(DOMPurify, "sanitize"); });
+
+  test("renders an automatic stop's explanation instead of replacing it with Stopped", () => {
+    const reason = "LegalWork stopped this run after repeated invalid input.";
+    const html = renderMessages([createSessionErrorUIMessage("turn", reason, { stopped: true })], "ready");
+    expect(html).toContain(reason);
+    expect(html).not.toContain(">Stopped<");
+    expect(renderMessages([createSessionErrorUIMessage("manual", "Stopped", { stopped: true })], "ready")).toContain(">Stopped<");
+  });
 
   test.each(["streaming", "retrying"] satisfies ThreadStatus[])("keeps earlier answers copyable while a later turn is %s", (status) => {
     const html = renderMessages([

@@ -101,6 +101,7 @@ test("saved-output access is enabled before user rules and bundled with the runt
   const rules = Object.keys(Object(denied.permission));
   expect(rules.indexOf("legalwork_tool_output_read")).toBeLessThan(rules.indexOf("*"));
   expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-output");
+  expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-recovery");
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", legalwork_tool_output_read: "deny" } }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
   const explicit = await readConfigFile(config);
