@@ -24,7 +24,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Cloud drives or network storage | [connected-storage.md](references/connected-storage.md) |
 | Research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
 | Connectors, plugins, browser or Computer Use | [integrations.md](references/integrations.md) |
-| Wiki, Legal Research / Rechtliche Recherche, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
+| Wiki, Legal Research / Rechtliche Recherche, jurisdiction/area browsing, proposed folders, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |

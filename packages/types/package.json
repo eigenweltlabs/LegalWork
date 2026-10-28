@@ -67,7 +67,8 @@
     "./views": "./src/views.ts",
     "./chat-tool-results": "./src/chat-tool-results.ts",
     "./line-diff": "./src/line-diff.ts",
-    "./legal-research": "./src/legal-research.ts"
+    "./legal-research": "./src/legal-research.ts",
+    "./legal-research-wiki": "./src/legal-research-wiki.ts"
   },
   "files": [
     "src",

@@ -536,7 +536,7 @@ export function SessionRoute() {
     enabled: Boolean(client),
   });
   const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
-  useResearchWiki(client, Boolean(hostToken), refreshRouteState);
+  useResearchWiki(client, Boolean(hostToken), refreshRouteState, local.prefs.researchCountry || undefined);
   const rememberedWikiWorkspaceId = readLastWikiWorkspaceId(baseUrl);
   const preferredWiki = wikis.data?.items.find(wiki => wiki.workspaceId === rememberedWikiWorkspaceId) ?? wikis.data?.items[0];
   // The manager is a destination, not a placeholder while restoring a wiki.

@@ -3,6 +3,7 @@ import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
+import { legalResearchCountries } from "@legalwork/types/legal-research";
 import { ViewSaveInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
@@ -108,10 +109,11 @@ export function registerWikiRoutes(options: Options): WikiStore {
   addRoute(routes, "POST", "/wikis/legal-research/ensure", "host-token", async ctx => {
     requireClientScope(ctx, "owner");
     ensureWritable(config);
-    const input = z.object({ language: z.enum(["en", "de"]) }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    const input = z.object({ language: z.enum(["en", "de"]), country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
     if (!input.success) throw new ApiError(400, "invalid_wiki_language", "Choose English or German for the research wiki.");
-    const result = await store.ensureLegalResearch(input.data.language);
-    if (result.created && result.wiki) { options.onWorkspacesChanged?.(); change(result.wiki.id); }
+    const result = await store.ensureLegalResearch(input.data.language, input.data.country);
+    if (result.created) options.onWorkspacesChanged?.();
+    if ((result.created || result.updated) && result.wiki) change(result.wiki.id);
     return jsonResponse(result);
   });
   addRoute(routes, "GET", "/wikis/deleted", "client", async ctx => {

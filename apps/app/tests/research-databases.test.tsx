@@ -46,7 +46,7 @@ test("research wiki bootstrap sends the UI language with owner authorization and
   } });
   try {
     const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture", hostToken: "fixture-host" });
-    expect(await client.ensureLegalResearchWiki("de")).toEqual(result);
-    expect(calls).toEqual([{ path: "/wikis/legal-research/ensure", body: { language: "de" }, host: "fixture-host" }]);
+    expect(await client.ensureLegalResearchWiki("de", "DE")).toEqual(result);
+    expect(calls).toEqual([{ path: "/wikis/legal-research/ensure", body: { language: "de", country: "DE" }, host: "fixture-host" }]);
   } finally { server.stop(true); }
 });

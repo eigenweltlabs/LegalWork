@@ -1,3 +1,4 @@
+import { ResearchClassification } from "./wiki-research-index";
 import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { WikiContentPreview } from "./wiki-content-preview";
 import { WikiDiff, WikiContentStats } from "./wiki-diff";
@@ -124,7 +125,8 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
   const pending = draft.status === "pending";
   const pages = snapshot.data?.pages ?? [];
   const location = suggestionLocation(draft.destination.path);
-  const validDestination = Boolean(snapshot.data && (!location.folder || snapshot.data.folders?.includes(location.folder)) && suggestionPagePath(location.folder, location.name) === draft.destination.path);
+  const validDestination = Boolean(snapshot.data && (!location.folder || snapshot.data.folders?.includes(location.folder) || draft.destination.createFolders && snapshot.data.wiki.purpose === "legal-research") && suggestionPagePath(location.folder, location.name) === draft.destination.path);
+  const createsFolders = Boolean(snapshot.data && location.folder && !snapshot.data.folders?.includes(location.folder) && draft.destination.createFolders);
   const targetPage = pages.find(page => page.path === draft.destination.path);
   const needsReview = Boolean(targetPage && targetPage.revision !== draft.destination.baseRevision);
   const openPage = (path: string) => open(wikiPanelTab(client.baseUrl, draft.destination.wikiId, { kind: "page", path }, pages.find(page => page.path === path)?.title ?? path), { besideChat: true });
@@ -148,6 +150,8 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
       <div className="mx-auto w-full max-w-[880px] px-[clamp(32px,4vw,56px)] pt-6">
         <div className="flex min-w-0 items-center gap-1"><span className="shrink-0 text-xs text-muted-foreground">Save in</span><WikiSuggestionDestinationPicker client={client} wikis={available} value={draft.destination} disabled={!pending || busy} onChange={destination => { setExisting(null); change({ destination }); }} /></div>
         {pending && <p className="mt-2 text-xs text-muted-foreground" role="status">{snapshot.isLoading ? "Checking destination…" : snapshot.error ? "Could not check this wiki. Choose the location again." : !validDestination ? "Choose an existing folder in this wiki." : needsReview ? <>A page with this name already exists. <button className="underline underline-offset-2" onClick={() => void inspectDestination()}>Review before replacing</button>, or choose a different name.</> : targetPage ? "Updates the existing page when you save." : "Creates a new page when you save."}</p>}
+        {pending && createsFolders && <p className="mt-2 rounded-md border p-3 text-xs" role="status">{t("research.new_folders_on_save", { path: location.folder.split("/").join(" / ") })}</p>}
+        <ResearchClassification content={draft.content} />
         {error && <div role="alert" className="mt-3 text-sm text-destructive">{error} {!conflict && <button className="underline" onClick={() => { if (!dirty()) void query.refetch(); else void persist().catch(handleError); }}>Retry</button>}</div>}
         {conflict && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">The draft changed while you were editing</p><p className="mt-1 text-xs text-muted-foreground">Your edits are still below. Review the latest version before continuing.</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{conflict.content}</pre><div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => resolveConflict(false)}>Use latest draft</Button>{conflict.status === "pending" && <Button size="sm" variant="outline" onClick={() => resolveConflict(true)}>Keep my edited draft</Button>}</div></div>}
         {existing && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">Current wiki page</p><WikiDiff before={existing.content} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /><Button className="mt-3" size="sm" variant="outline" onClick={() => { change({ destination: { ...draft.destination, baseRevision: existing.revision } }); setExisting(null); }}>Use this page as the destination</Button></div>}

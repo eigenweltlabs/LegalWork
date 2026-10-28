@@ -4,6 +4,8 @@ export const WikiSuggestionDestinationSchema = z.object({
   wikiId: z.string().min(1).max(200),
   path: z.string().min(1).max(4096),
   baseRevision: z.string().max(500).nullable(),
+  /** Research wiki parents are proposed in the draft and created only by human Save. */
+  createFolders: z.boolean().optional(),
 });
 export const WikiSuggestionInputSchema = z.object({
   title: z.string().trim().min(1).max(200),

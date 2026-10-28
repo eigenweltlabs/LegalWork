@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
@@ -10,6 +10,8 @@ import { nativePluginTools } from "../opencode-plugins/native-plugin-test-suppor
 import WikiTools from "../opencode-plugins/legalwork-wiki-tools.js";
 import { legalResearchCaptureGuidance } from "../legal-research-guidance.js";
 import { researchDatabaseSkill } from "../legal-research.js";
+import { legalResearchWikiFiles } from "./legal-research-template.js";
+import { researchIndexGroups } from "@legalwork/types/legal-research-wiki";
 import { openSqlite } from "../runtime-db.js";
 
 async function fixture() {
@@ -33,7 +35,7 @@ test.each(["en", "de"] satisfies Array<"en" | "de">)("%s default research wiki i
     const wiki = results[0].wiki!;
     expect(wiki).toMatchObject({ name, purpose: "legal-research", sync: null, allowInProjects: true });
     expect(wiki.id).not.toBe(unrelated.id);
-    expect((await readdir(wiki.root)).sort()).toEqual(["AGENTS.md", "Wiki.md"]);
+    expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(Object.keys(legalResearchWikiFiles(language).files).sort());
     expect(await readFile(join(wiki.root, "Wiki.md"), "utf8")).toContain(`# ${name}`);
     expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("LEGAL KNOWLEDGE ONLY");
     await store.update(wiki.id, { name: "My case law", allowInProjects: false });
@@ -106,12 +108,13 @@ test("default wiki is owner-provisioned and requested legal findings stage until
       const guidance = JSON.parse(await plugin.tool.wiki_guidance.execute({ wiki_id: wiki.id }));
       expect(guidance).toMatchObject({ purpose: "legal-research", access_mode: "suggestion" });
       expect(JSON.stringify(guidance.guidance)).toContain("Do not add process pages");
-      expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(["AGENTS.md", "Wiki.md"]);
+      expect((await store.snapshot(wiki.id)).pages.map(page => page.path).sort()).toEqual(Object.keys(legalResearchWikiFiles("de").files).sort());
       // Simulate the explicit consent to stage. This tests the real tool/API
       // boundary, not a model's ability to interpret an affirmative reply.
-      const staged = JSON.parse(await plugin.tool.wiki_suggest.execute({ title: "Synthetic legal finding", content: "---\ntype: legal-research\njurisdiction: fixture\n---\n# Synthetic legal finding\n\nA test-only legal synthesis with its supporting authority and limits.", destination: { wikiId: wiki.id, path: "Finding.md", baseRevision: null } }));
+      const staged = JSON.parse(await plugin.tool.wiki_suggest.execute({ title: "Synthetic legal finding", content: "---\ntype: legal-research\njurisdiction: fixture\n---\n# Synthetic legal finding\n\nA test-only legal synthesis with its supporting authority and limits.", destination: { wikiId: wiki.id, path: "Rechtsordnungen/Deutschland/Vertragsrecht/Finding.md", baseRevision: null, createFolders: true } }));
       expect(staged).toMatchObject({ staged: true, published: false });
-      await expect(store.read(wiki.id, "Finding.md")).rejects.toMatchObject({ status: 404 });
+      await expect(store.read(wiki.id, "Rechtsordnungen/Deutschland/Vertragsrecht/Finding.md")).rejects.toMatchObject({ status: 404 });
+      expect((await store.snapshot(wiki.id)).folders).not.toContain("Rechtsordnungen/Deutschland/Vertragsrecht");
       expect(await readFile(join(project, staged.suggestion.filePath), "utf8")).toContain("test-only legal synthesis");
       const agentHeaders = { Authorization: "Bearer client", "Content-Type": "application/json", "x-legalwork-wiki-agent-token": agentToken, "x-legalwork-wiki-agent-session": "research", "x-legalwork-wiki-agent-directory": encodeURIComponent(project) };
       expect((await fetch(`${url}/wikis/legal-research/ensure`, { method: "POST", headers: agentHeaders, body: JSON.stringify({ language: "en" }) })).status).toBe(403);
@@ -119,11 +122,95 @@ test("default wiki is owner-provisioned and requested legal findings stage until
       const body = JSON.stringify({ revision: staged.suggestion.revision });
       expect((await fetch(savePath, { method: "POST", headers: agentHeaders, body })).status).toBe(403);
       expect((await fetch(savePath, { method: "POST", headers, body })).status).toBe(200);
-      expect((await store.read(wiki.id, "Finding.md")).content).toContain("test-only legal synthesis");
+      expect((await store.read(wiki.id, "Rechtsordnungen/Deutschland/Vertragsrecht/Finding.md")).content).toContain("test-only legal synthesis");
+      expect((await store.snapshot(wiki.id)).folders).toContain("Rechtsordnungen/Deutschland/Vertragsrecht");
     } finally { await plugin.close(); }
   } finally {
     await store.close(); await server.stop();
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s structured wiki upgrades only untouched v1 controls and seeds the country once", async language => {
+  const { root, config } = await fixture();
+  let store = new WikiStore(config);
+  try {
+    const wiki = (await store.ensureLegalResearch(language)).wiki!;
+    const legacy = JSON.parse(await readFile(new URL("./fixtures/legal-research-v1.json", import.meta.url), "utf8"));
+    for (const path of Object.keys(legalResearchWikiFiles(language).files)) await rm(join(wiki.root, path));
+    await writeFile(join(wiki.root, "Wiki.md"), legacy.homes[language]);
+    await writeFile(join(wiki.root, "AGENTS.md"), legacy.guidance);
+    await store.write(wiki.id, "User finding.md", "---\ntype: legal-research\n---\n# Keep this finding", "");
+    const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { db.run("DELETE FROM wiki_research_structure"); } finally { db.close(); }
+    await store.close(); store = new WikiStore(config);
+    expect((await store.ensureLegalResearch(language === "de" ? "en" : "de", "DE")).updated).toBe(true);
+    const snapshot = await store.snapshot(wiki.id);
+    expect(snapshot.pages.some(page => page.properties.research_scope === "DE")).toBe(true);
+    expect(snapshot.pages.some(page => page.properties.research_scope === "EU")).toBe(true);
+    expect((await store.read(wiki.id, "Wiki.md")).content).toContain("research_index: jurisdictions");
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toContain("destination.createFolders: true");
+    expect((await store.read(wiki.id, "User finding.md")).content).toContain("Keep this finding");
+    const guidance = await store.read(wiki.id, "AGENTS.md");
+    await store.write(wiki.id, "AGENTS.md", "# My own organization", guidance.revision);
+    const removed = snapshot.pages.find(page => page.properties.research_scope === "DE")!;
+    await store.remove(wiki.id, removed.path, removed.revision);
+    expect((await store.ensureLegalResearch(language === "de" ? "en" : "de", "US")).updated).toBe(false);
+    expect((await store.read(wiki.id, "AGENTS.md")).content).toBe("# My own organization");
+    expect((await store.snapshot(wiki.id)).pages.some(page => page.properties.research_scope === "US")).toBe(false);
+    await expect(store.read(wiki.id, removed.path)).rejects.toMatchObject({ status: 404 });
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("late country selection and migration preserve custom home, instructions and unrelated navigation", async () => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  try {
+    const wiki = (await store.ensureLegalResearch("en")).wiki!;
+    for (const path of ["Wiki.md", "AGENTS.md", "By area of law.md"]) {
+      const current = await store.read(wiki.id, path);
+      await store.write(wiki.id, path, "# Custom " + path, current.revision);
+    }
+    const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite"));
+    try { db.run("DELETE FROM wiki_research_structure"); } finally { db.close(); }
+    await store.ensureLegalResearch("en");
+    await store.ensureLegalResearch("de", "GB");
+    for (const path of ["Wiki.md", "AGENTS.md", "By area of law.md"]) expect((await store.read(wiki.id, path)).content).toBe("# Custom " + path);
+    const pages = (await store.snapshot(wiki.id)).pages;
+    expect(pages.some(page => page.path === "Jurisdictions/United Kingdom/Wiki.md")).toBe(true);
+    expect(pages.some(page => page.properties.research_scope === "EU")).toBe(false);
+    for (const id of ["GB-EAW", "GB-SCT", "GB-NIR"]) expect(pages.some(page => page.properties.research_scope === id)).toBe(true);
+    expect(researchIndexGroups(pages, "areas").size).toBe(0);
+  } finally { await store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("folder proposals stay outside the wiki until Save, retain revision checks and reject unsafe or unrelated destinations", async () => {
+  const { root, config } = await fixture(), store = new WikiStore(config);
+  const wiki = (await store.ensureLegalResearch("en", "US")).wiki!;
+  const ordinary = await store.create({ name: "Ordinary" });
+  const server = await startServer(config), url = `http://127.0.0.1:${server.port}`;
+  const post = async (path: string, body: unknown) => fetch(url + path, { method: "POST", headers: { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const base = "/workspace/project/wiki-suggestions";
+  const input = { title: "Synthetic finding", content: "---\ntype: legal-research\njurisdictions: [US-DE]\nprimary_area: corporate\nareas: [finance]\n---\n# Synthetic finding", destination: { wikiId: wiki.id, path: "Jurisdictions/United States/Delaware/Corporate/Finding.md", baseRevision: null, createFolders: true } };
+  try {
+    expect((await post(base, { ...input, destination: { ...input.destination, createFolders: false } })).status).toBe(400);
+    expect((await post(base, { ...input, destination: { ...input.destination, wikiId: ordinary.id } })).status).toBe(400);
+    expect((await post(base, { ...input, destination: { ...input.destination, path: "../escape.md" } })).status).toBe(400);
+    const draft = await (await post(base, input)).json();
+    expect((await store.snapshot(wiki.id)).folders).not.toContain("Jurisdictions/United States/Delaware");
+    expect((await post(`${base}/${draft.id}/save`, { revision: "stale" })).status).toBe(409);
+    expect((await post(`${base}/${draft.id}/dismiss`, { revision: draft.revision })).status).toBe(200);
+    expect((await store.snapshot(wiki.id)).folders).not.toContain("Jurisdictions/United States/Delaware");
+    const ready = await (await post(base, input)).json();
+    expect((await post(`${base}/${ready.id}/save`, { revision: ready.revision })).status).toBe(200);
+    const snapshot = await store.snapshot(wiki.id);
+    expect(researchIndexGroups(snapshot.pages, "areas").get("corporate")?.[0].path).toBe(input.destination.path);
+    expect(researchIndexGroups(snapshot.pages, "areas").get("finance")?.[0].path).toBe(input.destination.path);
+    expect(researchIndexGroups(snapshot.pages, "jurisdictions").get("US-DE")).toHaveLength(1);
+    const conflict = await (await post(base, input)).json();
+    expect((await post(`${base}/${conflict.id}/save`, { revision: conflict.revision })).status).toBe(409);
+    await symlink(root, join(wiki.root, "Unsafe"));
+    const unsafe = await (await post(base, { ...input, destination: { ...input.destination, path: "Unsafe/nested/outside.md" } })).json();
+    expect((await post(`${base}/${unsafe.id}/save`, { revision: unsafe.revision })).status).toBe(403);
+  } finally { await server.stop(); await store.close(); await rm(root, { recursive: true, force: true }); }
 });
