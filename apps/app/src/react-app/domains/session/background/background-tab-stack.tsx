@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { ArrowUpRight, ChevronDown, Globe, X } from "lucide-react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { DocumentMiniPreview, useDocumentRuntime } from "../artifacts/document-runtime";
-import { useTaskBrowserTabs, visibleTaskBrowserTabs } from "./task-browser-tabs";
+import { assistantBrowserWorkerIds, useTaskBrowserTabs, visibleTaskBrowserTabs } from "./task-browser-tabs";
 import { openBackgroundTab } from "./open-background-tab";
 import { magneticTabDock, tabThrowVelocity, type TabDock } from "./magnetic-tab-dock";
 import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
-import { emptyInteractionSessions, interactionSessionsKey, resolveInteractionLineage, type InteractionSessions } from "../sync/interaction-state";
+import { emptyInteractionSessions, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
 import type { Client } from "@/app/types";
 
 const subscribeEmpty = () => () => {};
@@ -217,17 +218,15 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
   const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
   const sessions = useQueryCacheState<InteractionSessions>(interactionSessionsKey(workspaceId), emptyInteractionSessions);
-  useEffect(() => {
-    if (!assistantChat) return;
-    let cancelled = false;
-    const owners = new Set(browsers.flatMap(tab => tab.background && !tab.dismissed && tab.taskSessionId ? [tab.taskSessionId] : []));
-    // Rehydrate ancestry after a reload. Native session IDs, unlike UI project
-    // aliases, identify the actual worker and its parent unambiguously.
-    void Promise.allSettled([...owners].map(owner => resolveInteractionLineage({
-      client, workspaceId, isCurrent: () => !cancelled, onSessionUpdated: () => {},
-    }, owner)));
-    return () => { cancelled = true; };
-  }, [assistantChat, browsers, client, workspaceId]);
+  const owners = [...new Set(browsers.flatMap(tab => tab.background && !tab.dismissed && tab.taskSessionId ? [tab.taskSessionId] : []))].sort();
+  // Browser state updates repeatedly during navigation. Cache by owner IDs so
+  // those updates cannot cancel discovery before the parent tile appears.
+  const workers = useQuery({
+    queryKey: ["assistant-browser-workers", workspaceId, sessionId, owners],
+    enabled: assistantChat && owners.length > 0,
+    queryFn: () => assistantBrowserWorkerIds(id => client.session.get({ sessionID: id }), sessionId, owners),
+    staleTime: 30_000,
+  });
   const tabs: MiniTab[] = [];
   for (const entry of runtime?.entries.values() ?? []) {
     if (!entry.tasks.has(sessionId) || entry.dismissed.has(sessionId)) continue;
@@ -235,7 +234,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
     tabs.push({ id: entry.key, label: entry.props.tab.label,
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }
-  for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions)) {
+  for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data)) {
     tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview id={tab.id} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });
