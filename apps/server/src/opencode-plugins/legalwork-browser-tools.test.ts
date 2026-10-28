@@ -12,10 +12,11 @@ const native = nativePluginTestRuntime(root), calls: Array<{ route: string; body
 const token = "b".repeat(64), bytes = Buffer.alloc(6 * 1024 * 1024, 97), png = Buffer.from("complete-image-bytes");
 let holdCapture = false;
 let rejectPasswordFill = false;
+let passwordWebsite: string | null = "https://example.com";
 const broker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const url = new URL(request.url), body: unknown = request.method === "POST" ? await request.json() : undefined;
   calls.push({ route: url.pathname, body, session: request.headers.get("x-legalwork-browser-session") });
-  if (url.pathname.endsWith("/passwords")) return Response.json({ passwords: [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", username: "user" }] });
+  if (url.pathname.endsWith("/passwords")) return Response.json({ website: passwordWebsite, passwords: passwordWebsite ? [{ id: "a8b2378c-4bf0-492a-a113-5ef80723e089", label: "Portal", username: "user" }] : [] });
   if (url.pathname.endsWith("/fill-password")) return rejectPasswordFill
     ? Response.json({ ok: false, error: "The current website does not match the saved password's website." }, { status: 400 })
     : Response.json({ filled: true });
@@ -60,6 +61,15 @@ test("registered browser tools expose typed direct results and compose with nati
     expect(advertised.safeParse({ ok: true, result: opened }).success).toBe(false);
     const listed = await runtime.tools.get("legalwork_browser_passwords")!.execute({ browser_url: output.browser_url }, nativeTestInvocation("ses_upload"));
     expect(listed.output).toMatchObject({ passwords: [{ username: "user" }] });
+    const passwordTool = runtime.tools.get("legalwork_browser_passwords")!;
+    const advertisedPasswords = z.fromJSONSchema(z.record(z.string(), z.unknown()).parse(passwordTool.output));
+    expect(advertisedPasswords.safeParse(listed.output).success).toBe(true);
+    passwordWebsite = null;
+    try {
+      const blank = await passwordTool.execute({ browser_url: output.browser_url }, nativeTestInvocation("ses_upload"));
+      expect(blank.output).toEqual({ website: null, passwords: [] });
+      expect(advertisedPasswords.safeParse(blank.output).success).toBe(true);
+    } finally { passwordWebsite = "https://example.com"; }
     for (const input of [{ tabID: output.tabID }, { tab_id: output.tabID }]) {
       expect((await connect.execute(input, nativeTestInvocation("ses_upload"))).output).toEqual(opened);
       expect(bridgeCalls.at(-1)).toMatchObject({ actionId: "browser.connection", args: { tabId: output.tabID }, callerSessionId: "ses_upload" });
@@ -75,7 +85,7 @@ function tool(name: "legalwork_browser_upload" | "legalwork_browser_capture" | "
 test("native password tools send only the ID/ref, preserve calling identity and decline manual-server forwarding", async () => {
   const password_id = "a8b2378c-4bf0-492a-a113-5ef80723e089";
   native.permissionHandler(async () => {});
-  expect((await tool("legalwork_browser_passwords").execute({ browser_url }, nativeTestInvocation("ses_upload"))).output).toEqual({ passwords: [{ id: password_id, label: "Portal", username: "user" }] });
+  expect((await tool("legalwork_browser_passwords").execute({ browser_url }, nativeTestInvocation("ses_upload"))).output).toEqual({ website: "https://example.com", passwords: [{ id: password_id, label: "Portal", username: "user" }] });
   expect((await tool("legalwork_browser_fill_password").execute({ browser_url, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).output).toEqual({ filled: true });
   expect(calls.at(-1)).toEqual({ route: `/${token}/fill-password`, body: { password_id, ref: "@e2" }, session: "ses_upload" });
   rejectPasswordFill = true;

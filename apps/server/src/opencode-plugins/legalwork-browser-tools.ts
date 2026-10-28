@@ -128,7 +128,7 @@ export const legalworkBrowserTools = {
   legalwork_browser_passwords: {
     description: "List saved password IDs, labels and usernames for the current website in this chat's local browser. Main domains and their subdomains share entries. Returns the checked website after redirects; an empty list only means no matching entry for that website. Use browser_url from legalwork_browser_open_url or legalwork_browser_connect; opening and listing can share one Code Mode execute. If sign-in is needed and the list is empty, call legalwork_browser_request_password for the inline credential card. Never request passwords in chat. No password values are returned.",
     args: { browser_url: browserUrl },
-    outputSchema: z.object({ website: z.string(), passwords: z.array(z.object({ id: z.string(), label: z.string(), username: z.string() })) }),
+    outputSchema: z.object({ website: z.string().nullable(), passwords: z.array(z.object({ id: z.string(), label: z.string(), username: z.string() })) }),
     async execute(rawArgs: unknown, context: OpenCodeContext) {
       const args = z.object({ browser_url: browserUrl }).parse(rawArgs);
       await requireBrowserNetwork(context);
