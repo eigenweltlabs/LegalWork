@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,9 +7,16 @@ import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true }); });
+let previousDatabase: string | undefined;
+beforeEach(() => { previousDatabase = process.env.OPENCODE_DB; });
+afterEach(async () => {
+  if (previousDatabase === undefined) delete process.env.OPENCODE_DB;
+  else process.env.OPENCODE_DB = previousDatabase;
+  for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true });
+});
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "main-assistant-")); roots.push(root);
+  process.env.OPENCODE_DB = join(root, "engine.sqlite");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", configPath: join(root, "server.json"), projectsDirectory: join(root, "projects"),
     workspaces: [], authorizedRoots: [], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0,
