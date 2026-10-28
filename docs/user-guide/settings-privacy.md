@@ -29,6 +29,8 @@ Open **Account** to sign in, inspect the current firm, plan and usage, and open 
 
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
 
+If your firm allows a provider that uses your own sign-in, such as OpenAI with ChatGPT, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not sign you into the provider.
+
 ## Access and secrets
 
 Authorizing a folder allows the worker to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Remote worker roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.
