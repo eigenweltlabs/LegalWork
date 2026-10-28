@@ -293,3 +293,22 @@ test("revoked project access suspends background reads and returns, including a 
     expect(sent[0]).toContain("Private project result.");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("a rejected initial delivery never appears as running work, including after restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-rejected-initial-")), path = join(root, "runtime.sqlite");
+  let reads = 0;
+  const executor: DelegationExecutor = { result: async () => { reads++; return null; }, destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true, hasMessage: async () => false, send: async () => {} };
+  try {
+    const tracker = await AssistantDelegations.open(path, executor);
+    tracker.track({ ...delegation, initialMessageId: "msg_initial" });
+    tracker.rejectInitial(delegation.sessionId, "msg_initial");
+    expect(tracker.hasPendingWork("assistant")).toBe(false);
+    const restarted = await AssistantDelegations.open(path, executor);
+    expect(restarted.hasPendingWork("assistant")).toBe(false);
+    await restarted.tick(); expect(reads).toBe(0);
+    expect(restarted.list("assistant")).toHaveLength(1); // Keep scope and routing for an explicit follow-up.
+    restarted.track({ ...delegation, authority: { scope: "owner" } });
+    expect(restarted.hasPendingWork("assistant")).toBe(true);
+    await restarted.tick(); expect(reads).toBe(1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
