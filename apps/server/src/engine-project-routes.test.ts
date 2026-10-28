@@ -45,6 +45,7 @@ test("recovery controls reject retired credentials and expose only the selected 
     expect((await request("matter/engine-project", retiredViewerToken)).status).toBe(401);
     const visible = await request("matter/engine-project", config.token);
     expect(visible.status).toBe(200);
+    expect((await request("matter/engine-project/approve", config.token, "POST")).status).toBe(404);
     expect(visible.headers.get("cache-control")).toBe("no-store");
     const state = await visible.text();
     expect(state).toContain("own-held-chat");

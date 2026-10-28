@@ -12,7 +12,6 @@ import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { nativeEngineProjectRegistrySchema } from "./native-engine-project-registry.js";
 import { engineStorageDir } from "./engine-storage.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
-import { approvedNativePluginIdentities, approveNativePluginTargets, discoverProjectPluginTargets } from "./native-project-plugins.js";
 
 const recordSchema = z.object({
   version: z.literal(1), directory: z.string(),
@@ -30,38 +29,12 @@ async function readRecord(config: ServerConfig, workspace: WorkspaceInfo, direct
   const parsed = recordSchema.safeParse((await readLegalworkWorkspaceConfig(config, workspace.id))[key]);
   return parsed.success && parsed.data.directory === directory ? parsed.data : { version: 1, directory };
 }
-async function updateRecord(config: ServerConfig, workspace: WorkspaceInfo, directory: string, update: (record: ProjectRecord) => ProjectRecord) {
-  return withProjectLock(config, workspace, async () => {
-    const record = await readRecord(config, workspace, directory);
-    await writeRecord(config, workspace, update(record));
-  });
-}
 async function withProjectLock<T>(config: ServerConfig, workspace: WorkspaceInfo, action: () => Promise<T>): Promise<T> {
   const lock = join(runtimeStorageDir(config), `native-project-${digest(workspace.id)}.lock`);
   return withFileWriteLock(lock, action);
 }
 async function writeRecord(config: ServerConfig, workspace: WorkspaceInfo, record: ProjectRecord) {
   await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, [key]: record }));
-}
-
-async function approvalScope(directory: string) {
-  const result: EngineProjectStatus["approvalScope"] = [];
-  let current = directory;
-  while (true) {
-    const candidates = [...names.map(name => join(current, name)), ...names.map(name => join(current, ".opencode", name)),
-      join(current, ".opencode", "plugin"), join(current, ".opencode", "plugins")];
-    const configPaths: string[] = [];
-    for (const path of candidates) {
-      try { await lstat(path); configPaths.push(path); }
-      catch (error) { if (!missing(error)) throw error; }
-    }
-    // Include every potential ancestor scope, even if it has no config yet:
-    // approval covers later changes, rather than promising racy hash revocation.
-    result.push({ directory: current, configPaths });
-    const parent = dirname(current);
-    if (parent === current) return result;
-    current = parent;
-  }
 }
 
 async function projectionStatus(record: ProjectRecord): Promise<EngineProjectStatus["projection"]> {
@@ -80,39 +53,17 @@ async function projectionStatus(record: ProjectRecord): Promise<EngineProjectSta
   } catch (error) { if (missing(error)) return {}; throw error; }
 }
 
-async function ownedProjectionPaths(config: ServerConfig) {
-  const paths: string[] = [];
-  for (const workspace of config.workspaces) {
-    const record = await readRecord(config, workspace, await rootFor(workspace));
-    if (record.projection) paths.push(record.projection.path);
-  }
-  return paths;
-}
-
 export async function engineProjectStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<EngineProjectStatus> {
   const directory = await rootFor(workspace);
   // A generated document and its private ownership receipt are one logical
   // publication. Admission must not compare the new file with the old receipt.
-  const { record, projection: snapshotProjection } = await withProjectLock(config, workspace, async () => {
+  const projection = await withProjectLock(config, workspace, async () => {
     const record = await readRecord(config, workspace, directory);
-    return { record, projection: await projectionStatus(record) };
+    return projectionStatus(record);
   });
-  const scope = await approvalScope(directory);
-  let projection = snapshotProjection;
-  const approved = record.approval && scope.every((item, index) => record.approval?.ancestors[index] === item.directory)
-    && scope.length === record.approval.ancestors.length;
-  const owned = new Set(await Promise.all((await ownedProjectionPaths(config)).map(canonicalFilePath)));
-  const authored = (await Promise.all(scope.flatMap(item => item.configPaths).map(async path => ({ path, canonical: await canonicalFilePath(path) }))))
-    .some(item => /\.jsonc?$/.test(item.path) && !owned.has(item.canonical));
-  // App-generated native settings have a private ownership receipt. Only
-  // actual authored configuration or executable directories need review.
-  const identities = new Set(await approvedNativePluginIdentities(config));
-  let plugins: EngineProjectStatus["plugins"] = [];
-  try { plugins = (await discoverProjectPluginTargets(directory, await ownedProjectionPaths(config), Boolean(approved))).map(item => ({
-    target: item.target, sources: item.sources, approved: identities.has(item.identity),
-  })); }
-  catch (error) { if (error instanceof ApiError && error.code === "project_engine_configuration_conflict") projection = { ...projection, diagnostic: error.message }; else throw error; }
-  const required = config.engineProjectTrustRequired === true && (authored || plugins.length > 0);
+  const scope: EngineProjectStatus["approvalScope"] = [];
+  const required = false;
+  const plugins: EngineProjectStatus["plugins"] = [];
   const recoveryState = config.managedEngineRecoveryState?.();
   let recovery: EngineProjectStatus["recovery"];
   if (recoveryState) {
@@ -121,27 +72,10 @@ export async function engineProjectStatus(config: ServerConfig, workspace: Works
     const heldSessionIds = [...new Set(own.filter(id => id !== undefined))];
     recovery = { mode: recoveryState.mode, heldSessionIds, waitingForOtherProjects: own.some(id => id === undefined),
       // Global preflight diagnostics can contain another project's path.
-      ...(recoveryState.error ? { error: { code: "engine_recovery_pending", message: "Interrupted work remains paused. Review pending project approvals and unfinished Undo, then retry recovery." } } : {}) };
+      ...(recoveryState.error ? { error: { code: "engine_recovery_pending", message: "Interrupted work remains paused. Resolve unfinished chat recovery, then retry." } } : {}) };
   }
-  return { state: projection.diagnostic ? "configuration_conflict" : required && (!approved || plugins.some(item => !item.approved)) ? "approval_required" : "ready",
-    required, directory, ...(approved ? { approvedAt: record.approval?.approvedAt } : {}), approvalScope: scope, projection, plugins, ...(recovery ? { recovery } : {}) };
-}
-
-export async function approveEngineProject(config: ServerConfig, workspace: WorkspaceInfo, selectedDirectory: string, selectedTargets: string[]): Promise<EngineProjectStatus> {
-  const directory = await rootFor(workspace);
-  if (selectedDirectory !== directory) throw new ApiError(409, "project_directory_changed", "The project folder changed. Review its automation scope again before approving.");
-  const status = await engineProjectStatus(config, workspace);
-  if (selectedTargets.some(target => !status.plugins.some(item => item.target === target)) || status.plugins.some(item => !item.approved && !selectedTargets.includes(item.target))) {
-    throw new ApiError(409, "project_plugin_approval_changed", "The project's executable plugin selections changed. Review its current plugin list before approving.", status);
-  }
-  const scope = await approvalScope(directory);
-  // Resolving a configured file/env reference can read private material. Only
-  // do so after the person explicitly approved this folder's configuration;
-  // keep the literal reference as its public review label.
-  const resolved = await discoverProjectPluginTargets(directory, await ownedProjectionPaths(config), true);
-  await approveNativePluginTargets(config, resolved.filter(item => selectedTargets.includes(item.target)).map(item => item.identity));
-  await updateRecord(config, workspace, directory, current => ({ ...current, approval: { approvedAt: Date.now(), ancestors: scope.map(item => item.directory) } }));
-  return engineProjectStatus(config, workspace);
+  return { state: projection.diagnostic ? "configuration_conflict" : "ready",
+    required, directory, approvalScope: scope, projection, plugins, ...(recovery ? { recovery } : {}) };
 }
 
 export function nativeEngineProjectRegistryPath(config: ServerConfig) {
@@ -170,15 +104,9 @@ async function publishProjectionTransition(config: ServerConfig, path: string, n
 }
 
 export async function writeNativeEngineProjectRegistry(config: ServerConfig): Promise<void> {
-  const owned = (await Promise.all(config.workspaces.map(async workspace => (await readRecord(config, workspace, await rootFor(workspace))).projection))).filter(projection => projection !== undefined);
   const projects = await Promise.all(config.workspaces.map(async workspace => {
     const status = await engineProjectStatus(config, workspace);
-    return { directory: status.directory, approved: status.state === "ready" && (!status.required || Boolean(status.approvedAt)),
-      ...(config.engineProjectTrustRequired && !status.approvedAt ? { generated: {
-        scopes: status.approvalScope.map(scope => scope.directory),
-        documents: owned.filter(document => status.approvalScope.some(scope => dirname(document.path) === scope.directory || dirname(document.path) === join(scope.directory, ".opencode"))),
-      } } : {}),
-    };
+    return { directory: status.directory, approved: status.state === "ready" };
   }));
   const path = nativeEngineProjectRegistryPath(config);
   await withFileWriteLock(path, async () => {
@@ -192,8 +120,6 @@ export async function writeNativeEngineProjectRegistry(config: ServerConfig): Pr
 export async function assertEngineProjectReady(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
   if (!config.engineProjectTrustRequired) return;
   const status = await engineProjectStatus(config, workspace);
-  if (status.state === "approval_required") throw new ApiError(409, "project_automation_approval_required",
-    "Review and approve this project's OpenCode configuration and automation before starting its agent. Approval covers later changes in this folder and the listed parent configuration folders.", status);
   if (status.state === "configuration_conflict") throw new ApiError(409, "project_engine_configuration_conflict", status.projection.diagnostic ?? "The generated OpenCode configuration conflicts with an authored file.", status);
 }
 

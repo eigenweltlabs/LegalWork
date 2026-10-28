@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { engineStorageDir } from "./engine-storage.js";
-import { approveEngineProject, engineProjectStatus, nativeEngineProjectRegistryPath } from "./engine-project.js";
+import { engineProjectStatus, nativeEngineProjectRegistryPath } from "./engine-project.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_MCP_ID, GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, managedEngineSettingsFilePath, mandatoryRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
@@ -42,7 +42,6 @@ test.skipIf(!binary)("desktop and CLI share live settings and project selections
     expect(protectedPolicy.policies).toContainEqual({ action: "tool.use", resource: "shell:*", effect: "deny" });
     const hostPolicy = JSON.parse(await readFile(join(orgPolicyEngineDir(cli), "opencode.json"), "utf8"));
     expect(hostPolicy.policies).not.toContainEqual({ action: "tool.use", resource: "shell:*", effect: "deny" });
-    await approveEngineProject(desktop, desktop.workspaces[0]!, directory, []);
     expect((await engineProjectStatus(cli, cli.workspaces[0]!)).state).toBe("ready");
     await writeRuntimeOpencodeConfig(cli, GLOBAL_MCP_ID, () => ({ mcp: { servers: { shared: { type: "remote", url: "http://127.0.0.1:7/mcp", disabled: true } } } }));
     expect((await readRuntimeOpencodeConfig(desktop, GLOBAL_MCP_ID)).mcp?.servers).toHaveProperty("shared");

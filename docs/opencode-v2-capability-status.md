@@ -1,6 +1,33 @@
 # Engine and capability acceptance status
 
-Current integration, 28 October: the branch is rebased onto dev `15b52ba2`
+Current debug follow-up, 28 October (LW-287): native project loading replaces
+shared-only reconstruction, as agreed with the user. No project-automation
+approval UI or endpoint remains. The shared capability library, native project
+settings, firm restrictions, ordinary chat/folder permissions and sandbox policy
+remain separate. PR #343 is integrated, and the OpenAI connection fix is published
+in `5350c058`; a successful real OpenAI reply was observed in the dev profile.
+
+The current local app suite passed 1,868 tests (one timezone skip), the full
+server suite passed 3,003 tests (45 environment-dependent skips), and the
+server build, app/server type checks and generated-help checks passed. Focused
+real-engine checks cover native capability loading, firm plugin restrictions,
+project isolation, recovery from actual configuration conflicts, remembered
+permissions across restart and revocation, and MCP removal/OAuth recovery. The
+first server sweep found eight obsolete approval expectations; after updating
+those tests, the full rerun passed with zero failures and 29,654 assertions.
+The final focused UI rerun passed all six checks. Fresh six-platform CI remains
+required; older platform results do not certify these changes.
+
+Windows CI at `5350c058` exposed marker publication flushing a read-only file
+handle. A portable regression enforcing Windows' write-access requirement fails
+before the fix and passes with flushing on the original writable handle. Native
+Windows execution is still required to accept that correction. New early storage
+checks run on all six hosts independently of the longer engine/package builds.
+No release or binary publication is authorized.
+
+The checkpoints below are historical and do not certify this latest source.
+
+Rebase checkpoint, 28 October: the branch is rebased onto dev `15b52ba2`
 and includes PR #329 at `c6616c77`. The final combined-source local checks pass:
 2,883 server tests (45 environment-dependent skips), 1,862 app tests (one
 host-timezone skip, separately covered by 13 passing Europe/Berlin calendar
@@ -19,7 +46,7 @@ content cap, dependency or engine patch was added for these adaptations.
 Fresh combined-source six-platform CI remains required; the matrix below is
 historical baseline evidence. The user also requested waiting for PR #343 to
 include the updated migration branch and become mergeable with passing required
-checks, then integrating it into this branch. PR #343 is not yet included.
+checks, then integrating it into this branch. PR #343 was not yet included at that checkpoint; it is now merged through `a5ebac83`.
 No release or binary publication is authorized.
 
 Direct debugging follow-up, 27 October: the user approved one shared managed

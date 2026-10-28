@@ -221,6 +221,29 @@ describe("the firm's tool permissions in the engine", () => {
       .rejects.toThrow("Organization policy changed");
   });
 
+  test.skipIf(!nativeMcpBinary).each([true, false])("native project plugins need no review but respect a firm's custom-plugin rule (%s)", async allowCustom => {
+    const { config } = await setup({ "plugins.allowCustom": { mode: "enforced", value: allowCustom } });
+    config.engineConfigurationMode = "native-project";
+    const layer = await buildOrgPolicyEngineLayerFor(config, "ws_1");
+    globalThis.fetch = realFetch;
+    let marker = "";
+    const engine = await nativeMcpEngine(async root => {
+      const plugin = join(root, "custom-plugin");
+      marker = join(root, "custom-plugin-loaded");
+      await mkdir(plugin);
+      await writeFile(join(plugin, "index.js"), `import{Plugin}from'@opencode/plugin';import{writeFileSync}from'node:fs';export default Plugin.define({id:'fixture.firm-plugin-policy',setup(){writeFileSync(${JSON.stringify(marker)},'loaded')}});`);
+      return { ...layer, plugins: [plugin] };
+    });
+    try {
+      await engine.client().model.list({ location: engine.location });
+      const loaded = await readFile(marker, "utf8").catch(error => {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      expect(loaded).toBe(allowCustom ? "loaded" : undefined);
+    } finally { await engine.close(); }
+  }, 30_000);
+
   test("enforced rules are the minimum and go to the firm's own config folder", async () => {
     const { config } = await setup({ "tools.permissions": { mode: "enforced", value: { bash: "ask", edit: "ask" } } });
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({

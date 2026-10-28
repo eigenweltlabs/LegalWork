@@ -2353,10 +2353,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/retry-recovery`, {
         token, hostToken, method: "POST",
       }),
-    approveEngineProject: (workspaceId: string, directory: string, pluginTargets: string[]) =>
-      requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/approve`, {
-        token, hostToken, method: "POST", body: { directory, pluginTargets },
-      }),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; legalwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {
         token,

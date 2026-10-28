@@ -83,8 +83,7 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
       ? Object.fromEntries((await native(workspace).mcp.list({ location: { directory: directory(workspace) } })).data.map(server => [server.name, server.status]))
       : path === "/mcp/notes/disconnect" ? native(workspace).mcp.disconnect({ location: { directory: directory(workspace) }, server: "notes" }) : (() => { throw new Error("Unsupported native fixture control"); })();
     for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
-      const status = z.object({ directory: z.string(), plugins: z.array(z.object({ target: z.string() })) }).parse(await request(`/workspace/${workspace}/engine-project`));
-      await request(`/workspace/${workspace}/engine-project/approve`, { directory: status.directory, pluginTargets: status.plugins.map(plugin => plugin.target) });
+      expect(await request(`/workspace/${workspace}/engine-project`)).toMatchObject({ state: "ready", required: false });
       await directClient.model.list({ location: { directory: directory(workspace) } });
       await waitFor(async () => statuses.parse(await direct(workspace, "/mcp")).notes?.status === "failed", "initial offline MCP state");
     }
@@ -119,8 +118,12 @@ for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSyn
     await mutation;
     // A completed mutation is the barrier: no earlier recovery can finish later.
     const after = statuses.parse(await fixture.direct("a", "/mcp"));
-    if (action === "remove") expect(after.notes).toBeUndefined();
-    else expect(after.notes?.status).toBe("disabled");
+    if (action === "remove") {
+      // Native disconnect closes the transport immediately. Its disabled
+      // catalog entry disappears when the native config watcher reloads.
+      expect(after.notes === undefined || after.notes.status === "disabled").toBe(true);
+      await waitFor(async () => statuses.parse(await fixture!.direct("a", "/mcp")).notes === undefined, "removed native MCP catalog entry");
+    } else expect(after.notes?.status).toBe("disabled");
     expect(acknowledgedBeforeRelease).toBe(false);
     if (action === "disable") expect((await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).find(item => item.name === "notes")?.config.disabled).toBe(true);
     if (action === "remove") expect(await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).toEqual([]);
