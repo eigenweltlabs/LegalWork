@@ -162,6 +162,7 @@ export type RecorderState = {
   liveTranscriptNotifiedSessions: string[];
   liveTranscriptDismissedPaths: string[];
   error: string | null;
+  transcriptionReconnecting: boolean;
   systemDictation: AudioSystemDictationStatus | null;
   meeting: AudioMeetingStatus | null;
   /** Live OS permission readiness for "Dictate anywhere" (setup wizard). */
@@ -612,6 +613,12 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         if (state.recording?.id === event.recordingId) set({ error: event.error });
         break;
       }
+      case "recording-transcription-status": {
+        if (state.recording?.id === event.recordingId || state.starting) {
+          set({ transcriptionReconnecting: event.reconnecting });
+        }
+        break;
+      }
       case "recording-updated": {
         set(current => ({ recordings: current.recordings.map(meta => meta.id === event.meta.id ? event.meta : meta) }));
         if (state.openedRecording?.meta.id === event.meta.id) {
@@ -814,6 +821,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
     liveTranscriptNotifiedSessions: [],
     liveTranscriptDismissedPaths: [],
     error: null,
+    transcriptionReconnecting: false,
     systemDictation: null,
     meeting: null,
     dictationReadiness: null,
@@ -1317,7 +1325,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
           return;
         }
 
-        set({ error: null, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
+        set({ error: null, transcriptionReconnecting: false, permissionsNeeded: [], segments: [], partials: [], copilotEntries: [], diarizing: false });
         let startedMetaId: string | null = null;
         // Speaker identification is always on for retained recordings once the
         // models are present; never a one-shot dictation.

@@ -4558,6 +4558,7 @@ export default {
   "recorder.meeting_notes_model": "Notes model",
   "recorder.meeting_notes_model_auto": "Default: OpenAI Luna (same region)",
   "recorder.meeting_notes_manual": "Summarize",
+  "recorder.meeting_notes_retry": "Retry summary",
   "recorder.meeting_notes_manual_running": "Summarizing…",
   "recorder.meeting_notes_manual_description": "Create a meeting title, summary and speaker names using your cloud notes model. Automatic post-processing stays unchanged.",
   "recorder.meeting_notes_start_failed": "Could not start the meeting summary",
@@ -5135,6 +5136,7 @@ export default {
   "recorder.transcription_cloud_description": "Transcribe with Gemini in the selected region. Audio is sent to Google for processing with zero data retention. Usage comes from your subscription allowance. Speaker identification is available with local transcription.",
   "recorder.transcription_cloud_access": "To use cloud transcription, sign in and ask your organisation’s admin to enable it in Models.",
   "recorder.transcription_not_ready": "Choose an installed local model or an available cloud transcription option.",
+  "recorder.transcription_reconnecting": "Audio is still recording. Reconnecting live transcription...",
   "recorder.models_subtitle":
     "Choose a model to transcribe on this device or with Gemini in the cloud.",
   "recorder.recordings_title": "Recordings",

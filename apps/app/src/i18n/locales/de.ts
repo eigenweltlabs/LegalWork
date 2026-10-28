@@ -4798,6 +4798,7 @@ const de = {
   "recorder.meeting_notes_model": "Modell für Notizen",
   "recorder.meeting_notes_model_auto": "Standard: OpenAI Luna (gleiche Region)",
   "recorder.meeting_notes_manual": "Zusammenfassen",
+  "recorder.meeting_notes_retry": "Zusammenfassung erneut versuchen",
   "recorder.meeting_notes_manual_running": "Wird zusammengefasst…",
   "recorder.meeting_notes_manual_description": "Besprechungstitel, Zusammenfassung und Sprechernamen mit Ihrem Cloud-Modell erstellen. Die Einstellung für automatische Nachbearbeitung bleibt unverändert.",
   "recorder.meeting_notes_start_failed": "Die Zusammenfassung konnte nicht gestartet werden",
@@ -5398,6 +5399,7 @@ const de = {
   "recorder.transcription_cloud_description": "Mit Gemini in der gewählten Region transkribieren. Ihr Audio wird bei Google ohne Datenspeicherung verarbeitet. Die Nutzung wird mit Ihrem Abo-Guthaben verrechnet. Die Sprechererkennung steht bei lokaler Transkription zur Verfügung.",
   "recorder.transcription_cloud_access": "Für Cloud-Transkription melden Sie sich an und lassen die Funktion von Ihrer Administration unter Modelle freischalten.",
   "recorder.transcription_not_ready": "Wählen Sie ein installiertes lokales Modell oder eine verfügbare Cloud-Transkription.",
+  "recorder.transcription_reconnecting": "Audio wird weiter aufgenommen. Die Live-Transkription wird erneut verbunden...",
   "recorder.models_subtitle":
     "Wählen Sie ein Modell für die Transkription auf diesem Gerät oder mit Gemini in der Cloud.",
   "recorder.recordings_title": "Aufnahmen",
