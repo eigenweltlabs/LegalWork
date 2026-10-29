@@ -22,6 +22,11 @@ test("Azure overlay is valid for the installed packager and preserves the NSIS a
   assert.equal(config.nsis.include, "build/installer.nsh");
   assert.equal(config.afterSign, "scripts/electron-after-sign.cjs");
   assert.ok(config.win.extraResources.some((resource) => resource.to === "sidecars"));
+  const sidecars = config.win.extraResources.find((resource) => resource.to === "sidecars");
+  for (const triple of ["aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"]) {
+    assert.ok(sidecars.filter.includes(`versions.json-${triple}`), "Package target metadata as data");
+    assert.ok(!sidecars.filter.includes(`versions.json-${triple}.exe`), "JSON metadata must never enter executable signing");
+  }
   assert.equal(config.win.azureSignOptions.publisherName, "Eigenwelt Labs UG (haftungsbeschränkt)");
   const local = parse(readFileSync(new URL("../../apps/desktop/electron-builder.yml", import.meta.url), "utf8"));
   assert.equal(local.win.azureSignOptions, undefined);
