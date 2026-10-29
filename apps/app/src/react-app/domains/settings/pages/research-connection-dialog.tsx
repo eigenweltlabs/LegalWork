@@ -39,16 +39,16 @@ export function ResearchConnectionDialog({ client, workspaceId, provider, connec
   };
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
     <DialogContent>
-      <DialogHeader><DialogTitle>{connection ? t("catalog.manage_connection") : t("research.connect_title", { name: provider?.name ?? t("catalog.method_website_automation") })}</DialogTitle><DialogDescription>{t("catalog.research_setup")}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{connection ? t("catalog.manage_login") : provider ? t("research.connect_title", { name: provider.name }) : t("catalog.save_browser_login")}</DialogTitle><DialogDescription>{t("catalog.research_setup")}</DialogDescription></DialogHeader>
       <form id="research-connection" data-private data-ph-mask className="space-y-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
-        <label className="block space-y-2 text-sm"><span className="block">{t("catalog.connection_name")}</span><Input value={name} required maxLength={80} disabled={busy} onChange={event => setName(event.target.value)} /></label>
+        <label className="block space-y-2 text-sm"><span className="block">{t("catalog.login_name")}</span><Input value={name} required maxLength={80} disabled={busy} onChange={event => setName(event.target.value)} /></label>
         {!provider && !connection ? <label className="block space-y-2 text-sm"><span className="block">{t("catalog.website_url")}</span><Input value={researchUrl} type="url" required disabled={busy} onChange={event => setResearchUrl(event.target.value)} /></label> : null}
         {!connection && !provider?.loginUrl ? <label className="block space-y-2 text-sm"><span className="block">{t("research.login_url")}</span><Input value={loginUrl} type="url" disabled={busy} onChange={event => setLoginUrl(event.target.value)} /></label> : null}
         <label className="block space-y-2 text-sm"><span className="block">{t("settings.browser_passwords.username")}</span><Input value={username} autoComplete="username" maxLength={500} disabled={busy} onChange={event => setUsername(event.target.value)} /></label>
         <label className="block space-y-2 text-sm"><span className="block">{t("settings.browser_passwords.password")}</span><Input type="password" value={password} autoComplete="new-password" required={!savedId.current} maxLength={10000} disabled={busy} placeholder={connection ? t("catalog.keep_password") : undefined} onChange={event => setPassword(event.target.value)} /></label>
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       </form>
-      <DialogFooter><Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button><Button type="submit" form="research-connection" disabled={busy || !client.canApprove}>{t(busy ? "settings.environment.saving" : "common.save")}</Button></DialogFooter>
+      <DialogFooter><Button variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button><Button type="submit" form="research-connection" disabled={busy || !client.canApprove}>{t(busy ? "settings.environment.saving" : "research.set_up")}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }

@@ -71,12 +71,12 @@ test("browse categories show providers and counts while named connections stay i
 
 test("legal database details expose saved accounts without showing credentials", () => {
   const html = render("research:beck-online");
-  expect(html).toContain("Your connections");
+  expect(html).toContain("Your saved logins");
   expect(html).toContain("Beck personal");
   expect(html).toContain("Visit website");
   expect(html).not.toContain('type="password"');
   expect(html).toContain("Website Automation");
-  expect(render("saved-research:beck-personal")).not.toContain("Your connections");
+  expect(render("saved-research:beck-personal")).not.toContain("Your saved logins");
 });
 
 test("an expired native account remains installed and shows its sign-in state", () => {
@@ -135,8 +135,8 @@ test("imported connections display both methods from their installed components"
 test("catalogue and detail pages show saved connection counts without claiming a verified website sign-in", () => {
   expect(render()).toContain("2 connections");
   const connected = render("research:beck-online");
-  expect(connected).toContain("1 connection");
-  expect(connected).not.toContain("No connections yet");
-  expect(render("research:juris")).toContain("No connections yet");
+  expect(connected).toContain("1 saved login");
+  expect(connected).not.toContain("No saved logins yet");
+  expect(render("research:juris")).toContain("No saved logins yet");
   expect(render("native:gmail")).toContain("1 connection");
 });
