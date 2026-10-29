@@ -1,4 +1,5 @@
-import { automaticAssistantBrowserModel, type AssistantSettings } from "@legalwork/types/main-assistant";
+import type { AssistantSettings } from "@legalwork/types/main-assistant";
+import { automaticAssistantBrowserModel } from "./native-shared-values.js";
 
 export const ASSISTANT_BROWSER_AGENT = "assistant-browser";
 export const ASSISTANT_BROWSER_INSTRUCTIONS = "In the main Assistant coordinator, delegate ALL browser work, including web search, web fetch, a single page lookup or a short website action, using the native subagent tool with agent=assistant-browser. Include the task, relevant URLs or file references, the user's language and authorization boundaries. The app selects the separate browser model; do not set a model yourself or browse from this coordinator. Use background=true so you remain available, then return the verified result when the worker finishes. Reuse that child's sessionID for follow-ups. If a general research worker discovers it needs a browser, it should return that need to the coordinator for a browser handoff. Never replace a failed browser handoff with coordinator browsing or a cheaper model.";
