@@ -76,6 +76,6 @@ Disconnecting does not delete mailbox messages, previously downloaded attachment
 
 ## Firm-provided mail connectors
 
-A firm can also supply a custom MCP connector. Open **Settings > Integrations > Add > Plugins**, then choose **Custom** in the catalogue to create a plugin with that connector. Use the supplied MCP address and authentication details. A Gmail or Outlook webmail address is not an MCP endpoint. Custom connectors determine their own account support and actions; check their actual tools rather than assuming the built-in connector's behavior.
+A firm can also supply a custom MCP connector. Open **Settings > Integrations**, then choose **Custom** in the catalogue to create a plugin with that connector. Use the supplied MCP address and authentication details. A Gmail or Outlook webmail address is not an MCP endpoint. Custom connectors determine their own account support and actions; check their actual tools rather than assuming the built-in connector's behavior.
 
 Related: [Integrations](integrations.md), [Settings and privacy](settings-privacy.md), [Troubleshooting](troubleshooting.md).

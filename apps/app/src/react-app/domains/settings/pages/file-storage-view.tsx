@@ -343,7 +343,7 @@ export function FileStorageView({
   );
 }
 
-function StorageConnectionDialog({
+export function StorageConnectionDialog({
   client,
   workspaceId,
   kind,
@@ -433,9 +433,9 @@ function StorageConnectionDialog({
       <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 border-b border-border p-6 pr-12">
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-            {onBack ? <Button variant="link" size="xs" className="px-0 text-muted-foreground" onClick={onBack}>{t("integrations.change_provider")}</Button> : <span>{t("storage.tab")}</span>}
+            {onBack ? <Button variant="link" size="xs" className="px-0 text-muted-foreground" onClick={onBack}>{t("integrations.change_provider")}</Button> : <span>{t("extensions.eyebrow_integrations")}</span>}
             <ChevronRight className="size-3" />
-            <span>{t("firm_hub.scope_local")}</span>
+            <span>{t("catalog.category_files")}</span>
             <ChevronRight className="size-3" />
             <span>{providerName}</span>
           </div>

@@ -50,7 +50,6 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
-import { configuredConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
@@ -92,14 +91,12 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { captureAnalyticsEvent, discardPendingAnalytics } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
-import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
-import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
@@ -185,6 +182,7 @@ const SETTINGS_HIDE_TITLEBAR_KEY = "legalwork.react.settings.hide-titlebar";
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
+  workflowsSection?: "workflows" | "prompts" | "skills";
   extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
   benchmarkRunId?: string;
   benchmarkTaskId?: string;
@@ -220,9 +218,11 @@ function parseSettingsPath(pathname: string): {
     case "office-addins":
     case "recorder":
     case "debug":
-    case "skills":
-    case "workflows":
       return { tab: head, redirectPath: null };
+    case "skills":
+      return { tab: "workflows", redirectPath: "workflows/skills", workflowsSection: "skills" };
+    case "workflows":
+      return { tab: "workflows", redirectPath: null, workflowsSection: tail === "skills" ? "skills" : tail === "prompts" ? "prompts" : "workflows" };
     case "benchmark": {
       const segments = trimmed.split("/");
       if (tail === "runs" && third) {
@@ -244,7 +244,7 @@ function parseSettingsPath(pathname: string): {
     case "extensions":
       if (tail === "storage") return { tab: "extensions", redirectPath: null, extensionsSection: "storage" };
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
-      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
+      if (tail === "skills") return { tab: "workflows", redirectPath: "workflows/skills", workflowsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
       return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
     default:
@@ -1608,7 +1608,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       configurationReadOnly: provider.configurationReadOnly === true,
     }];
   });
-  const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;
 
   // Build enablement context from all available runtime state.
   const enablementContext = useMemo<EnablementContext>(() => {
@@ -2114,7 +2113,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return <ShellCustomizationView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "skills":
       case "workflows": {
-        const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
+        const View = WorkflowsView;
         return (
           <View
             active={props.active}
@@ -2122,7 +2121,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
             onShareReviewSet={shareReviewSetWithFirm}
+            initialSection={route.workflowsSection}
+            onSectionChange={section => navigateSettingsPath(section === "workflows" ? "workflows" : `workflows/${section}`)}
             onManagePlugins={() => navigate(composerSettingsPath("plugins"))}
+            firmSkillsView={<HubDownloadSection legalworkClient={legalworkClient} workspaceId={hubWorkspaceId} kind="skill" readSkill={extensionsStore.readFirmSkill} onConfigApplied={() => { void extensionsStore.refreshSkills({ force: true }); void reloadWorkspaceEngineFromUi(); }} />}
             onOpenReviewSetShare={canShareWithFirm ? () => {
               setTeamShareKinds(["review_set"]);
               setTeamShareInitial(null);
@@ -2228,9 +2230,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             isExtensionConnected={extensionController.isConnected}
             authorizeMcp={connectionsStore.authorizeMcp}
             logoutMcpAuth={(name) => connectionsStore.logoutMcpAuth(name)}
-            removeMcp={(name) => {
-              void connectionsStore.removeMcp(name);
-            }}
+            removeMcp={name => connectionsStore.removeMcp(name)}
             setMcpEnabled={
               routeLegalworkStatus === "connected" && routeLegalworkCapabilities?.mcp?.write
                 ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
@@ -2250,9 +2250,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
         return (
           <ExtensionsView
+            client={legalworkClient}
+            storageWorkspaceId={runtimeWorkspaceId || selectedWorkspaceId || null}
             busy={busy}
             workspaceKey={selectedWorkspace?.id}
-            showHeader
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={false}
             developerMode={developerMode}
@@ -2262,24 +2263,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             pluginImports={extensionsStore}
-            pluginCreation={extensionsStore}
-            onAuthorizeConnector={name => {
-              const entry = connectionsStore.mcpServers.find(server => server.name === name);
-              if (entry) void connectionsStore.authorizeMcp(entry);
-            }}
-            skillImports={extensionsStore}
             skillTools={extensionsStore}
             libraryConnection={selectedWorkspaceEndpoint?.client ?? legalworkClient}
-            canImportSkills={canWriteWorkspaceSkills}
-            canAddConnector={true}
             canAddSkill={canWriteWorkspaceSkills}
-            canAddStorage={Boolean(legalworkClient && (runtimeWorkspaceId || selectedWorkspaceId))}
-            mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
-            setSectionRoute={(section) => {
-              const path = `extensions/${section}`;
-              navigateSettingsPath(path);
-            }}
             onRefresh={() => {
               window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
               void extensionController.refreshConnections();
@@ -2288,46 +2275,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshSkills({ force: true });
               void getReactQueryClient().invalidateQueries({ queryKey: ["firm-hub"] });
             }}
-            storageView={<FileStorageView client={legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
             mcpView={mcpView}
             skillDetails={extensionsStore}
             renderPluginConnector={(name, onClose, pluginName) => cloneElement(mcpView, { detailsOnly: true, pluginName, selectedMcp: name, setSelectedMcp: next => { if (next === null) onClose(); } })}
-            connectorState={name => {
-              const entry = connectionsSnapshot.mcpServers.find(entry => entry.name === name);
-              if (entry) return configuredConnectorState(entry, connectionsSnapshot.mcpStatuses[name]);
-              return connectionsSnapshot.mcpLastUpdatedAt === null ? undefined : "disconnected";
-            }}
-            skillsView={
-              <SkillsView
-                workspaceName={selectedWorkspaceName}
-                busy={busy}
-                showHeader={false}
-                canInstallSkillCreator={canWriteWorkspaceSkills}
-                canUseDesktopTools={true}
-                accessHint={skillsAccessHint}
-                extensions={extensionsStore}
-                canShareWithFirm={canShareWithFirm}
-                onShareWithFirm={shareWorkflowWithFirm}
-                firmDownloadView={hubWorkspaceId ?
-                  <HubDownloadSection
-                    legalworkClient={legalworkClient}
-                    workspaceId={hubWorkspaceId}
-                    kind="skill"
-                    readSkill={extensionsStore.readFirmSkill}
-                    onConfigApplied={() => {
-                      void extensionsStore.refreshSkills({ force: true });
-                      void reloadWorkspaceEngineFromUi();
-                    }}
-                  /> : undefined
-                }
-                onOpenLink={(url) => platform.openLink(url)}
-                createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
-                  props.onClose?.();
-                  navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
-                  return undefined;
-                }}
-              />
-            }
           />
         );
       }

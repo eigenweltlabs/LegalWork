@@ -154,7 +154,7 @@ without your answer or a decision is time-sensitive.
 While LegalWork is running, it checks new or changed tasks, project calendar
 entries, and newly received mail and calendar changes from activated Gmail,
 Outlook, Google Calendar and Outlook Calendar accounts about every three minutes.
-To connect an account, open **Add > Plugins**, select the connector and connect
+To connect an account, open the connector’s **+** button, select the connector and connect
 it. Account-wide mail and calendar checks require **Settings > Assistant >
 Project access > All projects**. Project checks follow the Assistant's project
 access settings.

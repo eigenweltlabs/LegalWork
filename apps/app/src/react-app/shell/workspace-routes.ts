@@ -9,7 +9,7 @@ export function composerSettingsPath(section: ComposerSettingsSection) {
     case "workflows": return "/workflows";
     case "plugins": return "/settings/extensions/plugins";
     case "connectors": return "/settings/extensions/mcp";
-    case "skills": return "/settings/extensions/skills";
+    case "skills": return "/settings/workflows/skills";
     case "providers": return "/settings/ai";
   }
 }

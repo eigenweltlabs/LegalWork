@@ -19,7 +19,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Tasks / Inbox and Project Tasks | Work with an owner, status, due date and attachments | [Tasks](tasks-intake.md) |
 | Calendar and Project Calendar | See dated tasks and deadlines; create and review deadline records | [Calendar](calendar.md) |
 | Scheduled | Run a prompt at a chosen time or repeatedly | [Scheduled tasks](scheduled-tasks.md) |
-| Workflows | Maintain reusable instructions and templates and review prompt sets | [Workflows](skills-workflows.md) |
+| Workflows | Maintain workflows, review prompt sets and skills | [Workflows](skills-workflows.md) |
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
 | Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
 | Wiki, Settings > Agent access, source file tabs | Maintain reusable knowledge; control agent approval; open source documents in separate viewer tabs | [Wiki](wiki.md) |
@@ -41,9 +41,9 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Dictate anywhere | How do I set the shortcut, microphone, activation mode and startup behavior? | [Recorder settings](recorder-settings.md) |
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
-| Integrations: Connectors | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
-| Integrations: File storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
-| Integrations: Skills / Plugins | How do I install, inspect or share reusable agent capabilities? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
+| Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
+| Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |
 | Notifications | Which task events produce notifications or badges? | [Tasks](tasks-intake.md) |
 | Tool Permissions | What can the assistant do automatically? | [Settings](settings-privacy.md) |

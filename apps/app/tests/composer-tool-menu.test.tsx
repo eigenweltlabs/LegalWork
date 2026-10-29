@@ -22,7 +22,7 @@ describe("chat library menu", () => {
     expect(categories).toEqual(["Workflows", "Plugins", "Connectors", "Skills"]);
     expect(composerSettingsPath("plugins")).toBe("/settings/extensions/plugins");
     expect(composerSettingsPath("connectors")).toBe("/settings/extensions/mcp");
-    expect(composerSettingsPath("skills")).toBe("/settings/extensions/skills");
+    expect(composerSettingsPath("skills")).toBe("/settings/workflows/skills");
     expect(sessionMainPage(composerSettingsPath("workflows"))).toBe("workflows");
     expect(composerSettingsPath("providers")).toBe("/settings/ai");
   });

@@ -114,7 +114,7 @@ export type McpViewProps = {
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
-  removeMcp: (name: string) => void;
+  removeMcp: (name: string) => void | Promise<void>;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   /** Return extension-specific config UI for the detail modal. */
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;

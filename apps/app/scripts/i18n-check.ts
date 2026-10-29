@@ -37,6 +37,7 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "catalog.method_skill", "catalog.method_mcp", "catalog.website_url", // Shared technical terms and loanwords.
   // The shared browser-login card uses the same German words and loanword.
   "browser_password_request.optional", "settings.browser_passwords.label", "settings.browser_passwords.website",
   "plugin_create.kind", "plugin_create.name",
