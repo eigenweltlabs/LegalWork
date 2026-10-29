@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { startServer } from "./server.js";
@@ -8,6 +8,7 @@ import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { markdownWithData } from "./wiki/markdown.js";
 
 type Served = { port: number; stop: (closeActiveConnections?: boolean) => void | Promise<void> };
 
@@ -72,6 +73,7 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
 
 async function startLegalworkServer(workspaceRoot: string, opencodeBaseUrl: string) {
   const config: ServerConfig = {
+    configPath: join(workspaceRoot, "server.json"),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -114,6 +116,7 @@ const POSTHOG_CONFIG = {
 
 async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseUrl: string) {
   const config: ServerConfig = {
+    configPath: join(roots[0]!, "server.json"),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -142,6 +145,30 @@ async function startLegalworkServerWithWorkspaces(roots: string[], opencodeBaseU
 }
 
 describe("runtime MCP engine sync", () => {
+  test("fixture servers ignore wikis registered in the default host profile", async () => {
+    // The preload substitutes this home; never seed the installed app's registry.
+    expect(homedir().split("/").at(-1)?.startsWith("legalwork-server-test-home-")).toBe(true);
+    const root = await createWorkspaceRoot(), foreign = await createWorkspaceRoot();
+    const registry = join(homedir(), ".config", "legalwork", "wikis.md");
+    const previous = await readFile(registry, "utf8").catch(() => undefined);
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+    await mkdir(dirname(registry), { recursive: true });
+    await writeFile(registry, markdownWithData("# Wikis", { wikis: [{ id: crypto.randomUUID(), name: "Foreign wiki", root: foreign, workspaceId: "foreign-wiki", allowInProjects: true, sync: null }] }));
+    try {
+      const mock = startMockOpencode(), engine = `http://127.0.0.1:${mock.server.port}`;
+      for (const run of [() => startLegalworkServer(root, engine), () => startLegalworkServerWithWorkspaces([root], engine)]) {
+        const server = await run();
+        const response = await fetch(`${server.base}/wikis`, { headers: { "X-LegalWork-Host-Token": "owt_host_token" } });
+        expect(response.status).toBe(200);
+        expect(JSON.stringify(await response.json())).not.toContain("foreign-wiki");
+      }
+    } finally {
+      if (previous === undefined) await rm(registry); else await writeFile(registry, previous);
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
   test("a shared connector is hot-added into every local workspace's engine instance, and dropped from all on removal", async () => {
     const rootA = await createWorkspaceRoot();
     const rootB = await createWorkspaceRoot();
