@@ -84,6 +84,7 @@ type ArtifactPanelViewProps = {
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
   sourcePage?: number;
+  loadFile?: () => Promise<{ data: ArrayBuffer; contentType: string | null }>;
   localReadOnly?: boolean;
   saveActions?: (persist: () => Promise<boolean>, busy: boolean) => ReactNode;
   onClose: () => void;
@@ -116,7 +117,7 @@ function isTextContent(target: OpenTarget): boolean {
 
 export function ArtifactPanel(input: ArtifactPanelProps) {
   const props = input.tab.source ? { ...input, workspaceId: input.tab.source.workspaceId, workspaceRoot: input.tab.source.workspaceRoot, isRemoteWorkspace: false } : input;
-  if (props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
+  if (props.tab.wikiSource || props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
   return <PersistentArtifactPanel {...props} />;
 }
 
@@ -138,6 +139,11 @@ export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, work
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
 
+  if (tab.wikiSource && target && client) {
+    const source = tab.wikiSource;
+    return <ArtifactPanelView key={tab.id} sessionId={sessionId} client={client} workspaceId={source.workspaceId} workspaceRoot="" isRemoteWorkspace localReadOnly target={target} onClose={onClose}
+      loadFile={() => client.downloadWikiSuggestionAttachment(source.workspaceId, source.suggestionId, source.sha256, source.revision)} />;
+  }
   if (tab.pendingImportId) return <FileCopyPanel id={tab.pendingImportId} />;
   if (tab.sourceProject) return <ProjectFilePanel key={tab.id} source={tab.sourceProject} tab={tab} sessionId={sessionId} onClose={onClose} />;
 
@@ -208,7 +214,7 @@ function stringProperty(value: Record<string, unknown>, key: string) {
   return typeof property === "string" ? property : "";
 }
 
-export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const taskActive = useDocumentTaskActive();
   const runtimeEntry = useDocumentRuntimeEntry();
   const controlSessionIds = useDocumentControlSessions(sessionId);
@@ -279,6 +285,12 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
     queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
     queryFn: async () => {
+      if (loadFile) {
+        const result = await loadFile();
+        return isTextContent(target)
+          ? { kind: "text", data: new TextDecoder().decode(result.data), updatedAt: null }
+          : { kind: "binary", ...result, updatedAt: null, revision: nextBinaryRevision(null) };
+      }
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
       }
@@ -310,7 +322,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         revision: nextBinaryRevision(result.updatedAt),
       };
     },
-    refetchInterval: localReadOnly ? 2000 : false,
+    refetchInterval: localReadOnly && !loadFile ? 2000 : false,
     refetchOnMount: "always",
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

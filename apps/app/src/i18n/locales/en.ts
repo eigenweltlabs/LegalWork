@@ -7133,6 +7133,8 @@ export default {
   "wiki.open_in_wiki": "Open in wiki",
   "wiki.empty_title": "Your knowledge, in one place",
   "wiki.settings_general": "General",
+  "wiki.agent_approval": "Require human approval from agents",
+  "wiki.agent_approval_hint": "Agents in other projects prepare drafts for your review. Turn off to let them save pages and sources in the background. Chats inside this wiki can edit directly.",
   "wiki.settings_agents": "Agent access",
   "wiki.settings_hint": "Name, sharing and project access.",
   "wiki.personal_label": "Personal",

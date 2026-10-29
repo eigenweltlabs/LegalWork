@@ -5,7 +5,7 @@ description: Research through the Libra by Wolters Kluwer agent chat at app.libr
 
 # Research with Libra
 
-Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and consent-before-wiki-staging instructions. Saving a Libra login does not require loading either skill.
+Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and automatic source preservation and wiki contribution instructions. Saving a Libra login does not require loading either skill.
 
 ## Access
 
@@ -36,6 +36,6 @@ For a completed answer, inspect its cited sources and relevant passages where ac
 
 Use legalwork_research_experience with name "legal-research" and the saved Libra connectionId and websiteUrl to read and update this site's persistent operational notes. Record observed problems and attempted fixes; mark a fix verified only after observed success. Keep those notes generic, with no prompts, legal findings, conversation URLs, credentials or client details. A timeout is unresolved unless a later observation establishes the outcome. These notes survive skill updates; do not edit the bundled skill file at runtime.
 
-For useful legal findings, follow legal-research: ask whether the user wants them prepared for the knowledge base, then stage LEGAL KNOWLEDGE ONLY after consent. Browser procedures and waiting/debugging notes never go into the wiki. The user still reviews and selects Save to wiki.
+For useful legal findings, follow legal-research: download relevant primary source documents and contribute LEGAL KNOWLEDGE ONLY without a separate request to prepare a wiki entry. The destination wiki's approval setting determines whether the contribution waits for human Save or publishes in the background. Browser procedures and waiting/debugging notes never go into the wiki.
 
 Provider evidence checked 2026-10-28: [official app entry](https://libratech.ai/), [source collections and add-ons](https://libratech.ai/product/legal-content), [Wolters Kluwer acquisition](https://www.wolterskluwer.com/en/news/wolters-kluwer-completes-acquisition-of-libra-technology-gmbh). Only the public sign-in flow was observed during implementation; authenticated chat controls must be inspected live.

@@ -7482,6 +7482,8 @@ const de = {
   "wiki.open_in_wiki": "Im Wiki öffnen",
   "wiki.empty_title": "Ihr Wissen an einem Ort",
   "wiki.settings_general": "Allgemein",
+  "wiki.agent_approval": "Menschliche Freigabe für Agenten verlangen",
+  "wiki.agent_approval_hint": "Agenten in anderen Projekten bereiten Entwürfe zur Prüfung vor. Ausschalten, damit sie Seiten und Quellen im Hintergrund speichern können. Chats in diesem Wiki können direkt bearbeiten.",
   "wiki.settings_agents": "Agentenzugriff",
   "wiki.settings_hint": "Name, Freigabe und Projektzugriff.",
   "wiki.personal_label": "Persönlich",
