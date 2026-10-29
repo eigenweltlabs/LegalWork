@@ -38,7 +38,7 @@ const de = {
   "catalog.method_skill": "Skill",
   "catalog.method_mcp": "MCP",
   "catalog.method_api": "Integrations-API",
-  "catalog.method_website_automation": "Website-Automatisierung",
+  "catalog.method_website_automation": "Website-Login",
   "catalog.browser_login_website": "Browser-Anmeldung · {website}",
   "catalog.saved_login_count_one": "{count} gespeicherte Anmeldung",
   "catalog.saved_login_count_other": "{count} gespeicherte Anmeldungen",

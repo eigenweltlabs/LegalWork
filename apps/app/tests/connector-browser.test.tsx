@@ -75,7 +75,7 @@ test("legal database details expose saved accounts without showing credentials",
   expect(html).toContain("Beck personal");
   expect(html).toContain("Visit website");
   expect(html).not.toContain('type="password"');
-  expect(html).toContain("Website Automation");
+  expect(html).toContain("Website Login");
   expect(render("saved-research:beck-personal")).not.toContain("Your saved logins");
 });
 

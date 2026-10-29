@@ -28,7 +28,7 @@ export default {
   "catalog.method_skill": "Skill",
   "catalog.method_mcp": "MCP",
   "catalog.method_api": "Integration API",
-  "catalog.method_website_automation": "Website Automation",
+  "catalog.method_website_automation": "Website Login",
   "catalog.browser_login_website": "Browser login · {website}",
   "catalog.saved_login_count_one": "{count} saved login",
   "catalog.saved_login_count_other": "{count} saved logins",
