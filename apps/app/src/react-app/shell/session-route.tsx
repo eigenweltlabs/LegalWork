@@ -142,6 +142,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useChatModelPreferences } from "@/react-app/kernel/use-chat-model-preferences";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
@@ -2454,6 +2455,9 @@ export function SessionRoute() {
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
+  const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
+  const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
   const homeSending = useRef(false);
   const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
   useEffect(() => {
@@ -2464,14 +2468,14 @@ export function SessionRoute() {
 
   const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
-    if ((!homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant") && !assistantIncluded) {
+    if (homeAssistant && !assistantIncluded) {
       setAssistantUpgrade("intro");
       throw new Error(t("assistant.upgrade_included"));
     }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
-    const model = local.prefs.defaultModel;
+    const model = homeModel.model;
     if (!model) throw new Error(t("session_route.no_model"));
-    if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+    if (homeModel.unavailable) throw new Error(t("session_route.model_unavailable"));
     homeSending.current = true;
     try {
       const files = attachments.flatMap(({ source }) => source instanceof File ? [source] : []);
@@ -2532,7 +2536,7 @@ export function SessionRoute() {
             parts: [{ id: message.partId, type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
             model,
             agent: selectedAgent ?? undefined,
-            ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+            ...(homeModelBehavior.modelVariantValue ? { variant: homeModelBehavior.modelVariantValue } : {}),
           });
           seedSubmittedMessage(endpoint.workspaceId, sessionId, {
             id: message.id,
@@ -2883,13 +2887,13 @@ export function SessionRoute() {
             disabled={effectiveLoading || createWorkspaceBusy || !client}
             providerConnectedCount={usableProviderCount}
             onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
-            selectedModel={local.prefs.defaultModel}
+            selectedModel={homeModel.model}
             modelLocked={soloEigenweltModel}
-            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
-            modelVariant={modelVariantValue}
-            modelVariantLabel={modelVariantLabel}
-            modelBehaviorOptions={modelBehaviorOptions}
-            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
+            onModelChange={homeModel.onModelChange}
+            modelVariant={homeModelBehavior.modelVariantValue}
+            modelVariantLabel={homeModelBehavior.modelVariantLabel}
+            modelBehaviorOptions={homeModelBehavior.modelBehaviorOptions}
+            onModelVariantChange={homeModel.onVariantChange}
           />
         ) : showWorkflows ? (
           workflowLibraryView
