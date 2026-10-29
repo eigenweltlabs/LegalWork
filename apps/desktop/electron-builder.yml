@@ -14,6 +14,8 @@ files:
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json
+  # Build downloads are not runtime files; the installed engine ships below.
+  - "!node_modules/@legalwork/opencode-release/generated/archive-cache{,/**/*}"
 extraResources:
   # Cloud dictation detects silence locally before opening a paid session.
   - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
