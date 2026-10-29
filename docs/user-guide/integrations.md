@@ -18,7 +18,7 @@ Reusable instructions live under **Workflows > Skills**. The Workflows page also
 
 ## Research databases
 
-The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. Browser use can help you navigate the websites faster. The Website Automation entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
+The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. Browser use allows your agent to use these websites too. The Website Automation entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
 
 1. Open **Settings > Integrations > Legal databases**. Search for your provider, including **beck-online**, **juris**, **Libra**, **Lexis** or **Westlaw**.
 2. Select the website and choose **Save login**. Give the login a name, enter your username and password, then choose **Save login**. If the provider has no preset sign-in address, enter its current sign-in website.
