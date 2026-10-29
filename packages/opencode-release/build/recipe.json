@@ -72,7 +72,7 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-migration-times.patch",
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
       "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c"
     },
     "lockfile": {
@@ -85,12 +85,12 @@
     },
     "testReceipt": {
       "path": "docs/patches/opencode-2.1.4-migration-times.receipt.json",
-      "sha256": "2568452337c6ee79292ec2c6cb1df07a4e73659409a358cf4a5e452e4dcaba71"
+      "sha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "2568452337c6ee79292ec2c6cb1df07a4e73659409a358cf4a5e452e4dcaba71",
+    "receiptSha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
     "patchSha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c",
     "bun": "1.4.4",
