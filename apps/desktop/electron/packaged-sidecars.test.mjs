@@ -70,13 +70,15 @@ for (const kind of ["official", "derivative"]) test(`normal afterPack preserves 
         await writeFile(join(directory, alias), "stale alias");
         if (bases.includes(base)) expected.push(target, alias);
       }
-      const metadata = `versions.json-${triple}${suffix}`;
+      const metadata = `versions.json-${triple}`;
       await writeFile(join(directory, metadata), JSON.stringify({ target: triple }));
+      if (platform === "win32") await writeFile(join(directory, `${metadata}.exe`), "stale JSON with executable suffix");
       await writeFile(join(directory, "wrong-architecture-binary"), "must be pruned");
       await writeFile(join(directory, `legalwork-server${suffix}`), "retired");
       const pinned = engineDirectory && await readFile(join(engineDirectory, `opencode${suffix}`));
       await afterPack({ ...context, arch: architecture });
       assert.deepEqual((await readdir(directory)).sort(), [...expected, metadata, "versions.json"].sort(), `${platform}/${architecture}`);
+      if (platform === "win32") assert.deepEqual((await readdir(directory)).filter(name => name.endsWith(".exe")).sort(), expected.sort(), "Only actual sidecar binaries may enter Windows signing");
       for (const base of bases) assert.equal(await readFile(join(directory, `${base}${suffix}`), "utf8"), `${base}-${triple}${suffix}`);
       assert.deepEqual(JSON.parse(await readFile(join(directory, "versions.json"), "utf8")), { target: triple });
       if (engineDirectory) {
