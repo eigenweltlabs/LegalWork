@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode/plugin";
 import { OpenCode } from "@opencode/client";
+import { Form } from "@opencode/schema/form";
 import { z } from "zod";
 import { browserPasswordRequestSchema, legalResearchProviders, websiteConnectionUrl } from "../native-shared-values.js";
 import { browserUrl, requestBrowser, websiteConnections } from "./legalwork-browser-tools.js";
@@ -58,19 +59,23 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
       const request = parsed.data;
       const stream = new AbortController();
       const events = native.event.subscribe({ signal: AbortSignal.any([signal, stream.signal]) })[Symbol.asyncIterator]();
-      let formID: string | undefined;
+      let formID: Form.ID | undefined;
       let resolved = false;
       try {
         // Unlike the plugin's live-only stream, native HTTP SSE starts with
         // server.connected. It confirms subscription before form
         // creation. Immediate replies and reloads cannot fall into an SSE gap.
         if ((await events.next()).done) throw new Error("The chat's input connection is unavailable.");
-        const form = await forms.create({ sessionID, title: `Save login for ${new URL(request.website).hostname}`,
+        signal.throwIfAborted();
+        // Keep the ID before sending and let bounded creation finish, so Stop
+        // cannot discard the response and leave a newly created card behind.
+        formID = Form.ID.create();
+        await forms.create({ sessionID, id: formID, title: `Save login for ${new URL(request.website).hostname}`,
           metadata: { legalworkBrowserPassword: request }, fields: [
             { key: "password_id", type: "string", hidden: true },
             { key: "cancelled", type: "boolean", hidden: true, default: false },
-          ] }, { signal });
-        formID = form.id;
+          ] }, { signal: AbortSignal.timeout(10_000) });
+        signal.throwIfAborted();
         while (true) {
           const detail = await forms.get({ sessionID, formID }, { signal });
           resolved = detail.state.status !== "pending";
@@ -114,7 +119,7 @@ export function browserPasswordRequestTool(ctx: Plugin.Context) {
         stream.abort();
         await events.return?.().catch(() => {});
         // Cancellation/Stop must not leave an orphaned credential card.
-        if (formID && !resolved) await forms.cancel({ sessionID, formID }).catch(() => {});
+        if (formID && !resolved) await forms.cancel({ sessionID, formID }, { signal: AbortSignal.timeout(5000) }).catch(() => {});
       }
     },
   });

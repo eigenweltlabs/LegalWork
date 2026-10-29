@@ -30,6 +30,8 @@ The welcome screen offers country suggestions and lets you save logins for sever
 
 You can also ask in any chat: “Set up CourtListener for your legal research.” For a known provider, the assistant opens the same **Sign-in details needed** card directly, with the saved provider address. Enter your credentials or choose **Continue with saved login**. It then checks access in the browser. This also works for any other website: provide its sign-in URL, or the assistant asks you for it, then shows the same card directly.
 
+Press **Stop** in the chat to cancel a pending sign-in card, including one that is still opening.
+
 Website logins use LegalWork's existing encrypted vault. Onboarding, the chat sign-in card and **Settings > Secrets > Browser passwords** all save to this same store, available across your chats on this installation. Manage these logins from their integration detail pages or from Secrets. Each entry has its sign-in website and can link several destinations, for example two services using the same sign-in account. Destination URLs do not expand where a password can be filled.
 
 Saving a login does not install a plugin or create a site-specific skill. The built-in **legal-research** skill is available in every project. For legal research, the assistant discovers saved websites, selects suitable research sources, and uses a site-specific skill if one is installed. Otherwise it uses the observed website controls. The country list only helps fill in provider URLs. A normal website and a research database use exactly the same login mechanism.
