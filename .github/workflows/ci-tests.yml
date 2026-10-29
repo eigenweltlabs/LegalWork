@@ -269,12 +269,15 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node --test scripts/gen-core-skills.test.mjs
       - run: pnpm docs:check
-  legalwork-tests:
-    needs: [changes, opencode-derivative]
+  unit-tests:
+    needs: changes
+    # No engine installation here: real-engine fixtures run in the gated job.
+    env:
+      LEGALWORK_TEST_OPENCODE_BIN: ''
+      LEGALWORK_TEST_OPENCODE_CACHE: ''
     if: >-
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
-      !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) &&
-      (needs.opencode-derivative.result == 'success' || (needs.changes.outputs.engine != 'true' && needs.opencode-derivative.result == 'skipped'))
+      !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -295,18 +298,6 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
-
-      - uses: actions/download-artifact@v4
-        if: needs.opencode-derivative.result == 'success'
-        with:
-          name: opencode-derivative-ci
-          path: ${{ runner.temp }}/opencode-derivative
-      - uses: ./.github/actions/setup-opencode
-        if: needs.changes.outputs.engine == 'true'
-        with:
-          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
-          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -357,21 +348,109 @@ jobs:
         if: needs.changes.outputs.server == 'true'
         run: pnpm --filter legalwork-server test
 
+      - name: Verify built draft routes load in Node
+        if: needs.changes.outputs.server == 'true'
+        run: pnpm test:drafts:build
+
+      - name: Verify report source evidence checks
+        if: needs.changes.outputs.server == 'true'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -I -S apps/server/resources/agent-sandbox/bootstrap-pip.py
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -m pip install python-docx==1.2.0
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-evidence.py
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-from-reviews.py
+
+      - name: Run release tooling tests
+        if: needs.changes.outputs.tooling == 'true'
+        run: node --test scripts/release/*.test.mjs scripts/ci/*.test.mjs
+
+      - name: Typecheck Electron main against the IPC contract
+        if: needs.changes.outputs.desktop == 'true'
+        run: pnpm --filter @legalwork/desktop typecheck:electron
+
+  legalwork-tests:
+    needs: [changes, unit-tests, opencode-derivative]
+    if: >-
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.units == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    steps:
+      - name: Require selected unit and engine checks
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          ENGINE_REQUIRED: ${{ needs.changes.outputs.engine }}
+          ENGINE_RESULT: ${{ needs.opencode-derivative.result }}
+        shell: bash
+        run: |
+          test "$UNIT_RESULT" = success
+          if [ "$ENGINE_REQUIRED" = true ]; then test "$ENGINE_RESULT" = success; fi
+
+      - name: Checkout
+        if: needs.changes.outputs.engine == 'true'
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        if: needs.changes.outputs.engine == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Setup pnpm
+        if: needs.changes.outputs.engine == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - uses: actions/download-artifact@v4
+        if: needs.opencode-derivative.result == 'success'
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-opencode
+        if: needs.changes.outputs.engine == 'true'
+        with:
+          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
+
+      - name: Setup Bun
+        if: needs.changes.outputs.engine == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        if: needs.changes.outputs.engine == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare checksum-pinned Node for worker tests
+        if: needs.changes.outputs.server == 'true' || needs.changes.outputs.desktop == 'true'
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
+
+      - name: Build server and native plugins
+        if: needs.changes.outputs.engine == 'true'
+        run: pnpm --filter legalwork-server build
+
+      - name: Run desktop unit tests
+        if: needs.changes.outputs.desktop == 'true'
+        run: pnpm --filter @legalwork/desktop test
+
       - name: Verify released engine authentication, native plugin modules, and shutdown
         if: needs.changes.outputs.engine == 'true'
         run: |
           node --test apps/desktop/electron/opencode-release.test.mjs
           bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
 
-      - name: Verify scheduling, file search and PDF reads with the shipped engine
+      - name: Run server engine integration tests
         if: needs.changes.outputs.server == 'true'
-        run: |
-          pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts apps/server/src/managed-opencode.search.e2e.test.ts apps/server/src/opencode-plugins/pdf-reading.integration.test.ts
-
-      - name: Verify built draft routes load in Node
-        if: needs.changes.outputs.server == 'true'
-        run: pnpm test:drafts:build
+        run: node scripts/ci/run-engine-tests.mjs
 
       - name: Verify Node development-server history and restart
         if: needs.changes.outputs.server == 'true'
@@ -389,19 +468,6 @@ jobs:
         with:
           name: prompt-cache-${{ runner.os }}
           path: ${{ runner.temp }}/prompt-cache-capture.json
-
-      - name: Verify report source evidence checks
-        if: needs.changes.outputs.server == 'true'
-        run: |
-          python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"
-          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -I -S apps/server/resources/agent-sandbox/bootstrap-pip.py
-          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -m pip install python-docx==1.2.0
-          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-evidence.py
-          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-from-reviews.py
-
-      - name: Run desktop unit tests
-        if: needs.changes.outputs.desktop == 'true'
-        run: pnpm --filter @legalwork/desktop test
 
       - name: Verify HTML preview isolation in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
@@ -427,14 +493,6 @@ jobs:
         with:
           name: browser-workflow-evidence
           path: ${{ runner.temp }}/browser-workflow.png
-
-      - name: Run release tooling tests
-        if: needs.changes.outputs.tooling == 'true'
-        run: node --test scripts/release/*.test.mjs scripts/ci/*.test.mjs
-
-      - name: Typecheck Electron main against the IPC contract
-        if: needs.changes.outputs.desktop == 'true'
-        run: pnpm --filter @legalwork/desktop typecheck:electron
 
       - name: Run e2e tests
         if: needs.changes.outputs.engine == 'true' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true')
@@ -493,7 +551,7 @@ jobs:
   ci-result:
     name: Selected checks passed
     if: always()
-    needs: [changes, documentation, opencode-derivative, legalwork-tests, windows-meetings, windows-drafts, sandbox-runtime, sandbox-engine, signing-inputs, unit-inputs, windows-archive-inputs, windows-archive-acceptance, windows-protected-runtime, windows-desktop-acceptance, mac-signing-acceptance, engine-source-build, desktop-packaging]
+    needs: [changes, documentation, opencode-derivative, unit-tests, legalwork-tests, windows-meetings, windows-drafts, sandbox-runtime, sandbox-engine, signing-inputs, unit-inputs, windows-archive-inputs, windows-archive-acceptance, windows-protected-runtime, windows-desktop-acceptance, mac-signing-acceptance, engine-source-build, desktop-packaging]
     runs-on: ubuntu-latest
     steps:
       - name: Require every selected check to succeed
