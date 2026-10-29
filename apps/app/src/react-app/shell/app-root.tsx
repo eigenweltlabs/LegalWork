@@ -14,6 +14,7 @@ import { NewProvidersListener } from "./new-providers-listener";
 import { OrgPolicyRoot } from "../domains/connections/org-policy-ui";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
+import { useEngineStartup } from "./engine-startup";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { AppMenuProvider } from "./app-menu";
@@ -34,6 +35,7 @@ export function AppRoot() {
   // `t()` reads a module variable, so subscribing here is what makes a language
   // change in Settings repaint the app instead of waiting for a reload.
   useLocale();
+  const startup = useEngineStartup();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {
@@ -56,6 +58,7 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      {startup.status === "ready" ? <>
       <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
@@ -171,7 +174,6 @@ export function AppRoot() {
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>
-        <LoadingOverlay />
       </DevProfiler>
       {/*
         DevProfilerOverlay sits OUTSIDE the AppRoot <Profiler> zone on
@@ -189,6 +191,8 @@ export function AppRoot() {
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
+      </> : null}
+      <LoadingOverlay startup={startup} />
     </>
     </AppErrorBoundary>
   );
