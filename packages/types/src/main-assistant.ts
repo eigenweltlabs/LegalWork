@@ -17,6 +17,31 @@ export const AssistantSettingsSchema = z.object({
   browserModel: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).nullable().optional(),
 }).strict();
 export type AssistantSettings = z.infer<typeof AssistantSettingsSchema>;
+const browserDefaults = [
+  /^gpt[- ]6[.-]1[- ]terra(?:[- ]fast)?$/i,
+  /^claude[- ]sonnet[- ]5[.-]5$/i,
+  /^gemini[- ]3[.-]8[- ]flash$/i,
+  /^gpt[- ]6[.-]1[- ]sol$/i,
+  /^claude[- ]opus[- ]5[.-]5$/i,
+  /^gemini[- ]4[- ]argon$/i,
+  /^gpt[- ]6[- ]luna$/i,
+  /^deepseek[- ]v?4[.-]1[- ]flash$/i,
+  /^glm[- ]5[.-]3[- ]flash$/i,
+  /^mistral[- ]large[- ]4$/i,
+];
+
+/** Shared by native dispatch and the settings label so Automatic shows its actual model. */
+export function automaticAssistantBrowserModel<Model extends { providerID: string; id: string; name?: string; modelID?: string }>(models: readonly Model[]): Model | undefined {
+  // Native catalogs and UI options already apply provider availability and firm policy.
+  const subscription = models.filter(model => model.providerID === "eigenwelt");
+  for (const pattern of browserDefaults) {
+    const candidates = subscription.filter(model => [model.id, model.name, model.modelID].some(value => value && pattern.test(value.trim().replace(/\s+\([^()]+\)$/, ""))));
+    // Prefer EU when both variants are permitted; never add an unavailable region.
+    const model = candidates.find(model => /\(EU\)$/i.test(model.name?.trim() ?? "") || /^Eigenwelt Europe /i.test(model.id)) ?? candidates[0];
+    if (model) return model;
+  }
+}
+
 export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   systemPromptAddition: "", resourceIds: [], projectAccess: { mode: "all", projectIds: [] },
 };

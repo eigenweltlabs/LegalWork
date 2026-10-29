@@ -10,8 +10,11 @@ import { parseEigenweltEntitlements } from "../eigenwelt-auth.js";
 
 // The controlled model deliberately requests the cheap model and foreground
 // browsing. Exercise native subagent execution and nested Code Mode tool hooks.
-test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine resolves the EU Terra alias and keeps worker tabs in the background", async () => {
-  const browser = { providerID: "eigenwelt", id: "Eigenwelt Europe GPT Terra", name: "GPT-6.1 Terra (EU)" };
+for (const browser of [
+  { providerID: "eigenwelt", id: "Eigenwelt Europe GPT Terra", name: "GPT-6.1 Terra (EU)" },
+  { providerID: "eigenwelt", id: "Eigenwelt Europe Claude Sonnet", name: "Claude Sonnet 5.5 (EU)" },
+  { providerID: "eigenwelt", id: "Eigenwelt Europe Gemini", name: "Gemini 3.8 Flash (EU)" },
+]) test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)(`released engine selects available ${browser.name} and keeps worker tabs in the background`, async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-browser-fixture-"));
   const source = join(root, "fixture.ts");
   await writeFile(source, `import {Plugin} from "@opencode/plugin";

@@ -1,4 +1,4 @@
-import type { AssistantSettings } from "@legalwork/types/main-assistant";
+import { automaticAssistantBrowserModel, type AssistantSettings } from "@legalwork/types/main-assistant";
 
 export const ASSISTANT_BROWSER_AGENT = "assistant-browser";
 export const ASSISTANT_BROWSER_INSTRUCTIONS = "In the main Assistant coordinator, delegate ALL browser work, including web search, web fetch, a single page lookup or a short website action, using the native subagent tool with agent=assistant-browser. Include the task, relevant URLs or file references, the user's language and authorization boundaries. The app selects the separate browser model; do not set a model yourself or browse from this coordinator. Use background=true so you remain available, then return the verified result when the worker finishes. Reuse that child's sessionID for follow-ups. If a general research worker discovers it needs a browser, it should return that need to the coordinator for a browser handoff. Never replace a failed browser handoff with coordinator browsing or a cheaper model.";
@@ -6,18 +6,14 @@ export const ASSISTANT_BROWSER_WORKER_INSTRUCTIONS = "You are the Assistant's br
 
 type BrowserModel = { providerID: string; id: string; name?: string; modelID?: string };
 
-/** Resolve only an explicit selection or Terra 6.1, never the coordinator's model. */
+/** Explicit selections win; automatic defaults use the available subscription catalog. */
 export function assistantBrowserModel(models: readonly BrowserModel[], selected: AssistantSettings["browserModel"]) {
   if (selected) {
     const model = models.find(model => model.providerID === selected.providerID && model.id === selected.modelID);
     if (!model) throw new Error("The selected browser model is unavailable. Connect it or change Browser model in Assistant settings. No other model was used.");
     return model;
   }
-  // Provider IDs can be aliases (e.g. "Eigenwelt Europe GPT Terra"). Match the
-  // model's catalog name too, allowing service/region labels without changing
-  // its identity. Return the original provider and ID for native dispatch.
-  const candidates = models.filter(model => [model.id, model.name, model.modelID].some(value => value && /^gpt[- ]6\.1[- ]terra(?:[- ]fast)?(?:\s+\([^()]+\))?$/i.test(value.trim())));
-  const model = candidates.find(model => model.providerID === "openai") ?? candidates.find(model => model.providerID === "eigenwelt") ?? candidates[0];
-  if (!model) throw new Error("Browser work requires GPT-6.1 Terra. Connect it or select another capable Browser model in Assistant settings. No cheaper model was used.");
-  return model;
+  const model = automaticAssistantBrowserModel(models);
+  if (model) return model;
+  throw new Error("No default browser model is available in your subscription. Refresh your models or choose a connected Browser model in Assistant settings.");
 }

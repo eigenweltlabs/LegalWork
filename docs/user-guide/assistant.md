@@ -90,15 +90,22 @@ open until the work returns a final result.
 
 The Assistant delegates all browser work, including short website tasks, to a
 browser worker. This keeps the conversation available while the worker uses a
-separate model. The default is **GPT-6.1 Terra**, independent of the model you
-choose for the Assistant. Connected variants such as **GPT-6.1 Terra (EU)** and
-**GPT-6.1 Terra Fast** are recognized automatically; no separate selection is
-needed. If Terra is unavailable, browsing waits for you to connect
-it or select another browser model. It never silently uses the Assistant's model.
+separate model, independent of the model you choose for the Assistant.
+The **Automatic** default chooses the first available model in your Eigenwelt
+subscription in this order: **GPT-6.1 Terra**, **Claude Sonnet 5.5**,
+**Gemini 3.8 Flash**, **GPT-6.1 Sol**, **Claude Opus 5.5**, **Gemini 4 Argon**,
+**GPT-6 Luna**, **DeepSeek V4.1 Flash**, **GLM 5.3 Flash**, then **Mistral Large 4**.
+Models disabled by your firm are skipped. When both EU and US variants of the
+same model are available, EU is preferred; unavailable regions are never added.
+Terra Fast is also recognized. If none is available, browsing waits for you to
+refresh your models or choose a connected browser model explicitly.
+The setting shows the model chosen from this order, with an **Automatic** label.
 
 Click the Assistant at the top of the chat, expand **Advanced**, and choose
 **Browser model**. You can also change it under **Settings > Assistant**. Changes
-save automatically.
+save automatically. An explicit choice takes precedence over Automatic. If that
+model becomes unavailable, LegalWork asks you to change it instead of substituting
+another model. Use **Use automatic browser model** to return to the default order.
 
 The worker's browser appears as a small preview tile in the main Assistant chat,
 including when the worker started in an earlier daily chat. Its own chat stays

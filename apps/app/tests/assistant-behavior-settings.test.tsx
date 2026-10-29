@@ -6,6 +6,7 @@ import { AssistantResourceOptions } from "../src/react-app/domains/settings/page
 import { AssistantSettingsEditor } from "../src/react-app/domains/settings/pages/assistant-view";
 import { AssistantProjectOptions } from "../src/react-app/domains/settings/pages/assistant-project-picker";
 import { AssistantBehaviorFields } from "../src/react-app/domains/settings/pages/assistant-behavior-settings";
+import { AssistantBrowserModelField } from "../src/react-app/domains/settings/pages/assistant-browser-model";
 import type { ModelOption } from "../src/app/types";
 import type { AssistantSettings, AssistantSettingsCatalog } from "@legalwork/types/main-assistant";
 
@@ -67,7 +68,8 @@ test("Assistant settings render without workspace context and autosave without S
   const html = renderToStaticMarkup(<QueryClientProvider client={query}><AssistantSettingsEditor profile={{ name: "Johannes", icon: "bird" }} settings={settings} catalog={catalog} browserModelPicker={{ options: [], open: false, onOpenChange: () => {} }} notifications onModels={() => {}} onSave={async () => {}} /></QueryClientProvider>);
   query.clear();
   expect(html).toContain("Browser model");
-  expect(html).toContain("GPT-6.1 Terra");
+  expect(html).toContain("Automatic");
+  expect(html).toContain("Terra, Sonnet, Gemini Flash, Sol, Opus, Argon, Luna, DeepSeek, GLM, then Mistral");
   expect(html).toContain("independently of your chat model");
   expect(html).not.toContain('type="submit"');
   expect(html).not.toContain("<form");
@@ -85,6 +87,27 @@ test("Assistant settings use supplied model names without workspace context", ()
     settings={{ ...settings, browserModel: { providerID: option.providerID, modelID: option.modelID } }} catalog={catalog}
     browserModelPicker={{ options: [option], open: false, onOpenChange: () => {} }} notifications onModels={() => {}} onSave={async () => {}} />);
   expect(html).toContain("Connected browser model");
+});
+
+test("automatic browser settings show the resolved subscription model and preserve manual choices", () => {
+  const option = (modelID: string, title: string, providerID = "eigenwelt"): ModelOption => ({
+    providerID, modelID, title, behaviorTitle: "Reasoning", behaviorLabel: "Default", behaviorDescription: "", behaviorValue: null, isFree: false, isConnected: true,
+  });
+  const own = option("gpt-6.1-terra", "GPT-6.1 Terra (own account)", "openai");
+  const terra = option("terra", "GPT-6.1 Terra (EU)");
+  const sonnet = option("sonnet", "Claude Sonnet 5.5 (EU)");
+  const flash = option("flash", "Gemini 3.8 Flash (EU)");
+  const render = (options: ModelOption[], value?: AssistantSettings["browserModel"]) => renderToStaticMarkup(<AssistantBrowserModelField
+    value={value} onChange={() => {}} picker={{ options, open: false, onOpenChange: () => {} }} />);
+  expect(render([flash, sonnet, own])).toContain("Claude Sonnet 5.5 (EU)");
+  expect(render([flash, sonnet, own])).toContain(">Automatic<");
+  expect(render([sonnet, terra])).toContain("GPT-6.1 Terra (EU)");
+  expect(render([{ ...terra, disabled: true }, { ...sonnet, isConnected: false }, flash])).toContain("Gemini 3.8 Flash (EU)");
+  expect(render([own])).toContain("No available default");
+  const manual = render([sonnet, terra], { providerID: sonnet.providerID, modelID: sonnet.modelID });
+  expect(manual).toContain("Claude Sonnet 5.5 (EU)");
+  expect(manual).not.toContain(">Automatic<");
+  expect(manual).toContain("Use automatic browser model");
 });
 
 test("the project picker presents selected state and an empty-search state", () => {

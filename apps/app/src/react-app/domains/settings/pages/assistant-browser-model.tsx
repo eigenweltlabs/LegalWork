@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AssistantSettings } from "@legalwork/types/main-assistant";
+import { automaticAssistantBrowserModel, type AssistantSettings } from "@legalwork/types/main-assistant";
 import type { ModelOption } from "@/app/types";
-import { ModelSelect } from "@/components/model-select";
+import { ModelSelect, useModelOptions } from "@/components/model-select";
 import { Button } from "@/components/ui/button";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -13,15 +13,28 @@ export type AssistantBrowserModelPicker = {
   onOpenChange: (open: boolean) => void;
 };
 
-export function AssistantBrowserModelField({ value, onChange, disabled, picker }: {
+type AssistantBrowserModelFieldProps = {
   value: AssistantSettings["browserModel"]; onChange: (value: AssistantSettings["browserModel"]) => void; disabled?: boolean;
   picker?: AssistantBrowserModelPicker;
-}) {
+};
+
+function WorkspaceAssistantBrowserModelField(props: AssistantBrowserModelFieldProps) {
   const [open, setOpen] = useState(false);
+  const options = useModelOptions(open);
+  return <AssistantBrowserModelField {...props} picker={{ options, open, onOpenChange: setOpen }} />;
+}
+
+export function AssistantBrowserModelField({ value, onChange, disabled, picker }: AssistantBrowserModelFieldProps) {
+  if (!picker) return <WorkspaceAssistantBrowserModelField value={value} onChange={onChange} disabled={disabled} />;
+  const automatic = automaticAssistantBrowserModel(picker.options.filter(option => option.isConnected && !option.disabled).map(option => ({ ...option, id: option.modelID, name: option.title })));
+  const resolved = value ?? (automatic ? { providerID: automatic.providerID, modelID: automatic.id } : { providerID: "", modelID: t("assistant.browser_model_unavailable") });
   return <div className="space-y-2" data-assistant-browser-model="">
     <div className="flex items-center justify-between gap-3">
       <span className="shrink-0 text-xs text-muted-foreground">{t("assistant.browser_model")}</span>
-      <ModelSelect open={picker?.open ?? open} onOpenChange={picker?.onOpenChange ?? setOpen} modelOptions={picker?.options} value={value ?? { providerID: "", modelID: "GPT-6.1 Terra" }} onChange={onChange} disabled={disabled} />
+      <div className="flex min-w-0 items-center gap-2">
+        {!value && <span className="text-xs text-muted-foreground">{t("assistant.browser_model_automatic")}</span>}
+        <ModelSelect open={picker.open} onOpenChange={picker.onOpenChange} modelOptions={picker.options} value={resolved} onChange={onChange} disabled={disabled} />
+      </div>
     </div>
     <p className="text-xs leading-relaxed text-muted-foreground">{t("assistant.browser_model_hint")}</p>
     {value && <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => onChange(null)}>{t("assistant.browser_model_default")}</Button>}
