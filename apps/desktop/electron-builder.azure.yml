@@ -2,6 +2,10 @@
 extends: ./electron-builder.yml
 forceCodeSigning: true
 win:
+  # OpenCode's exact bytes are pinned by the independent build manifest and
+  # checked again at startup. Authenticode would invalidate those pins.
+  signExts:
+    - "!opencode.exe"
   azureSignOptions:
     publisherName: Eigenwelt Labs UG (haftungsbeschränkt)
     endpoint: https://neu.codesigning.azure.net/

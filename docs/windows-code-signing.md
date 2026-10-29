@@ -8,6 +8,14 @@ It signs the app and selected bundled executables, the NSIS uninstaller, and
 the installer before blockmaps and updater metadata are generated. Signing
 is mandatory in CI; local packaging still uses `electron-builder.yml`.
 
+The packaged `opencode.exe` is excluded from re-signing. Its exact bytes are
+independently pinned by the engine distribution manifest and verified during
+packaging and startup. Authenticode changes those bytes, so re-signing it would
+invalidate the engine's integrity checks. This internal executable retains its
+producer's bytes and signing state; the app, installer, uninstaller and other
+selected bundled executables still use Azure signing. Signing the engine itself
+would need to happen before generating the distribution's hashes and provenance.
+
 ## Company resources
 
 | Setting | Value |
