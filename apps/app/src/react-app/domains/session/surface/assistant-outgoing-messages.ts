@@ -1,4 +1,4 @@
-import type { SessionQueue } from "@legalwork/types/session-queue";
+import type { QueuedDraftSnapshot, SessionQueue } from "@legalwork/types/session-queue";
 import type { UIMessage } from "ai";
 import { create } from "zustand";
 import type { ComposerDraft } from "@/app/types";
@@ -14,6 +14,11 @@ export const useAssistantOutgoingMessages = create<{ entries: OutgoingMessage[] 
 export function addAssistantOutgoingMessage(scope: string, queueId: string, draft: ComposerDraft) {
   removeAssistantOutgoingMessage(queueId);
   const urls = draft.attachments.map(attachment => URL.createObjectURL(attachment.file));
+  const message = outgoingMessage(queueId, draft, urls);
+  useAssistantOutgoingMessages.setState(state => ({ entries: [...state.entries, { scope, queueId, message, urls }] }));
+}
+
+function outgoingMessage(queueId: string, draft: Pick<QueuedDraftSnapshot, "parts"> & { attachments: { name: string; mimeType: string }[] }, urls: string[]): UIMessage {
   const text = draft.parts.map(part => {
     if (part.type === "text") return part.text;
     if (part.type === "paste") return `[pasted text ${part.label}]`;
@@ -21,7 +26,7 @@ export function addAssistantOutgoingMessage(scope: string, queueId: string, draf
     if (part.type === "plugin") return `@${part.label}`;
     return `@${part.name}`;
   }).join("");
-  const message: UIMessage = {
+  return {
     id: outgoingMessageId(queueId), role: "user",
     metadata: { localOutgoing: true, opencode: { created: Date.now() } },
     parts: [
@@ -29,7 +34,25 @@ export function addAssistantOutgoingMessage(scope: string, queueId: string, draf
       ...(text ? [{ type: "text", text } satisfies UIMessage["parts"][number]] : []),
     ],
   };
-  useAssistantOutgoingMessages.setState(state => ({ entries: [...state.entries, { scope, queueId, message, urls }] }));
+}
+
+// Admission precedes history while a tool is running. Use the durable queue's
+// visible draft, never its prepared execution text (which has hidden context).
+function acceptedSteeringMessages(scope: string, queue?: SessionQueue): OutgoingMessage[] {
+  return queue?.entries.flatMap(entry => {
+    if (entry.delivery !== "steer" || entry.status !== "accepted" || entry.execution.kind !== "prompt") return [];
+    const message = outgoingMessage(entry.id, entry.draft, entry.draft.attachments.map(file => file.data));
+    if (entry.execution.id) message.id = entry.execution.id;
+    return [{ scope, queueId: entry.id, message, urls: [] }];
+  }) ?? [];
+}
+
+export function rememberAcceptedSteeringMessages(scope: string, queue: SessionQueue | undefined, confirmed: Set<string>) {
+  useAssistantOutgoingMessages.setState(state => {
+    const existing = new Set(state.entries.filter(entry => entry.scope === scope).map(entry => entry.message.id));
+    const added = acceptedSteeringMessages(scope, queue).filter(entry => !existing.has(entry.message.id) && !confirmed.has(entry.message.id));
+    return added.length ? { entries: [...state.entries, ...added] } : state;
+  });
 }
 
 export function removeAssistantOutgoingMessage(queueId: string) {
@@ -46,7 +69,11 @@ export function moveAssistantOutgoingMessage(queueId: string, scope: string) {
 
 export function mergeAssistantOutgoingMessages(messages: UIMessage[], entries: OutgoingMessage[], scope: string, queue?: SessionQueue) {
   const ids = new Set(messages.map(message => message.id));
-  const pending = entries.filter(entry => entry.scope === scope && !ids.has(entry.message.id) && !assistantOutgoingIsQueued(entry.queueId, queue));
+  const pending = [...entries, ...acceptedSteeringMessages(scope, queue)].filter(entry => {
+    if (entry.scope !== scope || ids.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, queue)) return false;
+    ids.add(entry.message.id);
+    return true;
+  });
   return pending.length ? [...messages, ...pending.map(entry => entry.message)] : messages;
 }
 

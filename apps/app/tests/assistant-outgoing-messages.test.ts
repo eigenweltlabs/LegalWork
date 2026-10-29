@@ -6,7 +6,7 @@ import { assistantBubbleMessages } from "../src/react-app/domains/session/surfac
 import {
   canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, isLocalOutgoingMessage,
   mergeAssistantOutgoingMessages, moveAssistantOutgoingMessage, outgoingMessageId,
-  removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
+  rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages,
 } from "../src/react-app/domains/session/surface/assistant-outgoing-messages";
 
 const scope = assistantOutgoingScope("http://server", "assistant", "today");
@@ -25,6 +25,46 @@ test("a local bubble is available synchronously, then the canonical ID replaces 
   const confirmed = mergeAssistantOutgoingMessages([canonical], entries(), scope);
   expect(confirmed).toEqual([canonical]);
   expect(isLocalOutgoingMessage(confirmed[0])).toBe(false);
+});
+
+test("accepted steering renders from the shared queue before history, including after a window reload", () => {
+  const queue: SessionQueue = { ...emptyQueue, paused: true, entries: [{
+    id: "steered", delivery: "steer", status: "accepted",
+    draft: { ...draft, attachments: [{ id: "file", name: "source.txt", mimeType: "text/plain", size: 3, kind: "file", data: "data:text/plain;base64,YWJj" }], editor: { mentions: {}, pasteParts: [] } },
+    execution: { kind: "prompt", id: "msg_native_identity", text: "Hello\nPrivate execution context" },
+  }] };
+  // No local submit state is required in this window. Render immediately.
+  const visible = mergeAssistantOutgoingMessages([], [], scope, queue);
+  expect(visible).toHaveLength(1);
+  expect(visible[0].parts).toEqual([
+    { type: "file", filename: "source.txt", mediaType: "text/plain", url: "data:text/plain;base64,YWJj" },
+    { type: "text", text: "Hello" },
+  ]);
+  expect(JSON.stringify(visible)).not.toContain("Private");
+  rememberAcceptedSteeringMessages(scope, queue, new Set());
+  rememberAcceptedSteeringMessages(scope, queue, new Set());
+  expect(entries()).toHaveLength(1);
+  // The queue can observe delivery before this window receives history.
+  const settled = { ...queue, entries: [], completedIds: ["steered"] };
+  expect(mergeAssistantOutgoingMessages([], entries(), scope, settled)).toHaveLength(1);
+  const confirmed: UIMessage = { id: "msg_native_identity", role: "user", parts: [{ type: "text", text: "Hello" }] };
+  expect(mergeAssistantOutgoingMessages([confirmed], entries(), scope, queue)).toEqual([confirmed]);
+  removeAssistantOutgoingMessage("steered");
+  rememberAcceptedSteeringMessages(scope, queue, new Set([confirmed.id]));
+  expect(entries()).toHaveLength(0);
+});
+
+test("steering is not shown as sent before acceptance or on failure", () => {
+  for (const status of ["queued", "sending", "uncertain", "failed"] satisfies SessionQueue["entries"][number]["status"][]) {
+    const queue: SessionQueue = { ...emptyQueue, entries: [{
+      id: "steered", delivery: "steer", status,
+      draft: { ...draft, attachments: [], editor: { mentions: {}, pasteParts: [] } },
+      execution: { kind: "prompt", text: "Hello" },
+    }] };
+    expect(mergeAssistantOutgoingMessages([], [], scope, queue)).toEqual([]);
+    rememberAcceptedSteeringMessages(scope, queue, new Set());
+    expect(entries()).toEqual([]);
+  }
 });
 
 test("retry replaces the same bubble, while intentionally repeated messages remain distinct", () => {

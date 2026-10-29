@@ -15,6 +15,8 @@ Libra is a Wolters Kluwer legal AI workspace. Available source collections depen
 
 ## Delegate the research
 
+First follow legal-research's wiki lookup and reuse instructions. If the saved findings answer the question, use them without starting another Libra run unless the user requests fresh Libra research. Otherwise send Libra the remaining gaps or required updates, with relevant source references, rather than repeating work already saved.
+
 1. Open or reuse a Libra conversation for this task. Inspect the visible chat, input and research/source controls; never assume selectors or button labels. Use a new conversation for an unrelated question so prior matters do not contaminate the answer. For follow-ups, keep the existing task conversation.
 2. Put the research question into Libra's agent chatbox. Include the jurisdiction, relevant date, necessary facts, requested depth, and required output: conclusions, exceptions, competing authorities and precise source citations with links. Use Wolters Kluwer sources when relevant and available. Submit only information the user authorized for this research; do not upload unrelated matter files or credentials.
 3. Send once, then confirm that the user message appears in the conversation or that a run visibly starts. If the send call times out or the page reloads, inspect the conversation before doing anything else. Never resubmit merely because the tool response was lost. If submission remains ambiguous, report it and preserve the conversation.

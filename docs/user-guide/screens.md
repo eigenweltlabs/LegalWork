@@ -10,6 +10,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Your legal research | Choose your country and set up database accounts in the existing secure login card | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
 | Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |

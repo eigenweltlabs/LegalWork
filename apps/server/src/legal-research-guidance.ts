@@ -1,5 +1,11 @@
 /** Fixed instructions shared by the general research skill and wiki tools. */
-export const legalResearchCaptureGuidance = `## Filing legal research
+export const legalResearchCaptureGuidance = `## Reuse saved legal research first
+
+For every substantive legal research question, check the research wiki before starting external research. Use wiki_list to identify accessible wikis with purpose legal-research, regardless of their names. Use wiki_search for the issue, jurisdiction, citations and related terms, then wiki_read to read relevant pages and their linked saved primary sources. Search beyond the exact wording of the user's question. Inspect the actual pages, not just search snippets.
+
+Reuse applicable findings, analysis and saved documents instead of repeating completed searches or downloading the same sources again. Check the question's jurisdiction and relevant date against law_as_of, researched_on, authority status and stated limits. If the saved material answers the question and is appropriate for that date, answer from it and cite the wiki page and underlying sources. Research externally only for gaps, conflicts, material changes or currency checks the question needs, or when the user explicitly requests fresh research. Do not treat a recently saved page as proof that its law is current. Update the canonical page with genuinely new findings instead of creating a duplicate. If no relevant wiki is accessible or no matching knowledge exists, continue with external research without blocking the task.
+
+## Filing legal research
 
 As part of legal research, automatically preserve useful, source-backed legal findings and their relevant primary sources. Do not wait for a separate request to download judgments or legislation, or ask whether to prepare a wiki entry. Respect an explicit request not to save, a declined contribution, and existing duplicates. This applies to legal research through connected databases and public sources, not ordinary factual questions or non-legal research. Keep website mechanics, account details, task logs and confidential client/matter records out of the legal knowledge base.
 

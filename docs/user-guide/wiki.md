@@ -12,6 +12,8 @@ Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the 
 
 ## Your legal research knowledge base
 
+For a legal research question, the agent first searches this wiki and reads relevant findings and saved sources. When they answer the question for the relevant jurisdiction and date, it reuses them instead of repeating the research. It searches external sources for missing information, conflicts or changes that need checking, then updates the existing page with new findings. Ask for fresh research when you want the sources checked again.
+
 When you open this release with your local LegalWork server connected, LegalWork automatically creates a personal wiki named **Legal Research**, or **Rechtliche Recherche** when the app uses German. This applies to existing users and new installations, even if you have not connected a research database. Find it under **Wiki**. It starts without research findings and is not shared automatically.
 
 To create another research wiki, choose **Add wiki > Create > Starter structure > Legal Research** (or **Rechtliche Recherche** in German). Give it your preferred name and choose **Create**. This uses the same research structure and legal-only filing guidance, with your app language and the country saved during research setup. Your existing research wiki is preserved. If you have not selected a country, the wiki starts with the general research indexes; jurisdiction folders can be added as you file findings.

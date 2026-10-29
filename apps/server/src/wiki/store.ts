@@ -235,13 +235,14 @@ export class WikiStore {
       const db = await this.db();
       const state = z.object({ version: z.number(), language: z.enum(["en", "de"]), country: z.string().nullable() }).optional().parse(db.all("SELECT version,language,country FROM wiki_research_structure WHERE wiki=?", [wiki.id])[0]);
       const selectedCountry = state?.country ?? (country && country !== "OTHER" ? country : null);
-      if (state?.version === 3 && state.country === selectedCountry) return false;
+      if (state?.version === 4 && state.country === selectedCountry) return false;
       let home: string | null = null;
       try { home = (await this.fileBytes(wiki, "Wiki.md", WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
       catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
       const oldHome = { en: "4f8b851fde89c08760989429feb234110591eff9fec8411f9159c9c03422811d", de: "1118b349f315c6d29145b1604a97bcb468cc6ea8c167d4caaf573eeec99661cd" };
       const v2Homes = ["9b78dfe1fc86986db1fb92a5560e11ce012810259dadb5c3a3b9e497533183dd", "f5a01b52b4912cb939bc28dcfa16dd85964e72f4c5e1d288b86119c29ce4a1c9"];
       const oldGuidance = ["013136d4667fbe48c934248d60d4dd6754e2b037d8657c55bd6e7d54040ba595", "a38a59365f2b6d2617319c1769e9f70d8d8f4ce3cd8e5e75f317e0700df74e4e", "ff10dee3f9a6e874f208c0aba57ac4a6cf78177b2239b71e283e31751e12f590", "788f0b91014493602655583b7e84feb41124f6bc1856414836bb4a53f7156b1c", "5c1ee4ad003553434edb7db9e95686e543c09604a672fda1a8867b6424d15087"];
+      oldGuidance.push("21ed39fe63f7ef8e75f3ee81899cae8e954e22271f65f9a9744d81cde7ea5c29", "00cfce34e240ed11f8eae77e8b07775171ec6047d1088027cb362ec433d58b57");
       const seededLanguage = home ? markdownData(home).data.research_language : undefined;
       const locale = state?.language ?? (home && hash(home) === oldHome.de || seededLanguage === "de" ? "de" : home && hash(home) === oldHome.en || seededLanguage === "en" ? "en" : language);
       const seed = legalResearchWikiFiles(locale, selectedCountry ?? undefined);
@@ -249,7 +250,7 @@ export class WikiStore {
       let changed = false;
       for (const [path, source] of Object.entries(seed.files)) {
         // A country chosen after first launch adds its landing pages only.
-        if (state && state.version >= 2 && Object.hasOwn(initialFiles, path) && (state.version === 3 || !["Wiki.md", "AGENTS.md"].includes(path))) continue;
+        if (state && state.version >= 2 && Object.hasOwn(initialFiles, path) && (state.version === 4 || !["Wiki.md", "AGENTS.md"].includes(path))) continue;
         let current: string | null = null;
         try { current = (await this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES)).toString("utf8"); }
         catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; }
@@ -261,7 +262,7 @@ export class WikiStore {
         await this.writePage(wiki.id, path, content, current === null ? "" : hash(current), "write");
         changed = true;
       }
-      db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,3,?,?)", [wiki.id, locale, selectedCountry]);
+      db.run("INSERT OR REPLACE INTO wiki_research_structure(wiki,version,language,country) VALUES(?,4,?,?)", [wiki.id, locale, selectedCountry]);
       return changed;
     });
   }

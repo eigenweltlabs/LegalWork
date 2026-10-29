@@ -20,6 +20,16 @@ The composer accepts a task, file attachments, `@` references and available slas
 
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
+### Steer with a queued message
+
+While a chat is working, normal sends stay in the editable queue above the composer. To have a pending message considered sooner, choose **Steer** beside it. The agent receives it at the next model step, without stopping the current task or cancelling its tools. If the task has just finished, the message becomes the next input instead.
+
+Steer keeps the active chat's model and agent, even if you selected different ones when saving that queued message. Its attachments, references and context are included. Other queued messages keep their order. You can Steer one message while the queue is paused; the rest remain paused.
+
+Once accepted, your message appears in the conversation immediately, even while a tool is still finishing. The agent incorporates it at the next model step.
+
+Steer is available for ordinary prompts, including prompts with attachments. Shell and slash commands cannot be steered. Finish or cancel editing before steering. Messages reserved for editing in another window, sending, or awaiting delivery confirmation cannot be steered again. If delivery is uncertain, LegalWork keeps the message and checks the engine automatically. Do not send another copy. A definite failure displays its reason and leaves the draft available to edit or retry.
+
 If a message is rejected, its draft stays available with the reason. An unconfirmed delivery can already have reached the engine; inspect the chat before resuming it. Assistant follow-ups pause after a definite rejection or three unsuccessful delivery checks. Resume them explicitly after resolving the cause.
 
 Use a conversation's action menu to rename, pin, archive or delete it. Archiving preserves the conversation; deletion is a different action. Sidebar groups organize conversations, and moving a chat into a group does not move its underlying documents. Search can locate earlier chats by title or message text. Opening a previous chat is the way to resume its context; a new chat is not an assurance that the assistant remembers every prior conversation.
