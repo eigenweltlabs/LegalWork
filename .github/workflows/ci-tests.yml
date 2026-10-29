@@ -251,6 +251,8 @@ jobs:
         run: node --test apps/desktop/electron/technical-support-bundle.test.mjs
       - name: Test packaged server archive imports on Windows
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
+      - name: Test Windows signing verification
+        run: node --test scripts/release/windows-signing.test.mjs
 
   documentation:
     needs: changes
