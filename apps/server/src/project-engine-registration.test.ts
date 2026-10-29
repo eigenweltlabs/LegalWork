@@ -10,15 +10,16 @@ import { nativeEngineLocationApproved } from "./native-engine-project-registry.j
 import { managedEngineSettingsFilePath } from "./legalwork-runtime-config.js";
 import { WikiStore } from "./wiki/store.js";
 
-async function fixture() {
+const engineModes = ["managed", "native-project"] satisfies Array<NonNullable<ServerConfig["engineConfigurationMode"]>>;
+async function fixture(engineConfigurationMode: NonNullable<ServerConfig["engineConfigurationMode"]>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-registration-")));
   const previous = process.env.LEGALWORK_RUNTIME_DB; process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
-  const config: ServerConfig = { configPath: join(root, "server.json"), host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host-fixture", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, engineConfigurationMode: "managed", opencodeBaseUrl: "http://127.0.0.1:1" };
+  const config: ServerConfig = { configPath: join(root, "server.json"), host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host-fixture", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, engineConfigurationMode, opencodeBaseUrl: "http://127.0.0.1:1" };
   return { root, config, close: async () => { if (previous === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous; await rm(root, { recursive: true, force: true }); } };
 }
 
-test("new local projects and wikis publish native settings and admission before returning", async () => {
-  const run = await fixture(), wiki = new WikiStore(run.config);
+test.each(engineModes)("%s new local projects and wikis publish native settings and admission before returning", async mode => {
+  const run = await fixture(mode), wiki = new WikiStore(run.config);
   try {
     const project = await registerLocalProject(run.config, { folderPath: join(run.root, "matter"), name: "Matter", preset: "starter" });
     expect(project.persisted).toBe(true);
@@ -34,8 +35,8 @@ test("new local projects and wikis publish native settings and admission before 
   } finally { await wiki.close(); await run.close(); }
 });
 
-test("first execution waits for persistence; failed publication blocks until an explicit retry", async () => {
-  const run = await fixture();
+test.each(engineModes)("%s first execution waits for persistence; failed publication blocks until an explicit retry", async mode => {
+  const run = await fixture(mode);
   let release = () => {}, started = false, admitted = false;
   const wait = new Promise<void>(resolve => { release = resolve; });
   try {

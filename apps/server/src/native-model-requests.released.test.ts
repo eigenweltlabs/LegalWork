@@ -9,10 +9,12 @@ import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { nativeMcpEngine } from "./native-mcp-engine.test-support.js";
 import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
-import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import { engineProjectStatus } from "./engine-project.js";
 import type { ServerConfig } from "./types.js";
+import { registerLocalProject } from "./routes/workspaces.js";
+import { workspaceIdForPath } from "./workspaces.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 const requestBody = z.object({ model: z.string(), messages: z.array(z.unknown()) }).passthrough();
@@ -105,6 +107,20 @@ async function prompt(client: OpenCodeClient, directory: string, modelID: string
   const diagnostic = completed.outcome === "failed" ? JSON.stringify(await client.message.list({ sessionID: session.id })) : undefined;
   expect(completed.outcome, diagnostic).toBe("succeeded");
 }
+
+test.skipIf(!binary)("a project registered after native engine startup admits its first new chat", async () => {
+  await fixture(async ({ client, config, captures }) => {
+    const existing = config.workspaces[0];
+    await prompt(client(), existing.path, "temperature-unsupported");
+    const directory = join(existing.path, "..", "created-after-startup");
+    const settings = await readRuntimeOpencodeConfig(config, existing.id);
+    await writeRuntimeOpencodeConfig(config, workspaceIdForPath(directory), () => settings);
+    const { workspace } = await registerLocalProject(config, { folderPath: directory, name: "New project", preset: "starter" });
+    const before = captures.filter(capture => capture.primary).length;
+    await prompt(client(), workspace.path, "temperature-unsupported");
+    expect(captures.filter(capture => capture.primary).length).toBeGreaterThan(before);
+  });
+}, 60_000);
 
 test.skipIf(!binary)("released native defaults omit temperature and explicit model body settings reach the provider unchanged", async () => {
   const captures: Array<z.infer<typeof requestBody>> = [];

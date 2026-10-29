@@ -11,7 +11,7 @@ export function commitRegisteredEngineProjects<T>(config: ServerConfig, save: ()
   const operation = (async () => {
     await previous?.catch(() => {});
     const result = await save();
-    try { if (config.engineConfigurationMode === "managed" && config.opencodeBaseUrl) await writeLegalworkRuntimeConfigFile(config, config.workspaces[0]?.id ?? ""); }
+    try { if (config.engineConfigurationMode && config.opencodeBaseUrl) await writeLegalworkRuntimeConfigFile(config, config.workspaces[0]?.id ?? ""); }
     catch (cause) {
       const error = new ApiError(503, "project_engine_setup_failed", "The project was saved, but its AI configuration could not be applied. Retry project setup before sending a task.");
       error.cause = cause;
