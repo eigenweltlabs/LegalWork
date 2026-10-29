@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { startEmbeddedServer } from "./embedded.js";
 import { OpenCode } from "@opencode/client";
-import { beginNativeMcpOAuth, waitForNativeMcpOAuth } from "./native-mcp.test-support.js";
+import { beginNativeMcpOAuth, waitForNativeFixture, waitForNativeMcpOAuth } from "./native-mcp.test-support.js";
 import { addMcp, listMcp } from "./mcp.js";
 import type { ServerConfig } from "./types.js";
 
@@ -33,7 +33,7 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function setup(url: string, oauth: false | { callbackPort: number }) {
+async function setup(url: string, oauth: false | { callbackPort: number }, activationDelayMs = 0) {
   const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/native-recovery-lifecycle-"));
   const previous = { ...process.env };
   for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE", "LEGALWORK_STORAGE_STORE"]) process.env[key] = join(root, key);
@@ -45,6 +45,11 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
   const directories = [join(root, "a"), join(root, "b")];
   const remote = { type: "remote", url, oauth: oauth === false ? false : { callback_port: oauth.callbackPort }, disabled: false, timeout: { startup: 2000, catalog: 2000, execution: 2000 } };
   for (const directory of directories) await mkdir(directory);
+  if (activationDelayMs) {
+    const plugin = join(root, "slow-plugin"); await mkdir(plugin);
+    await writeFile(join(plugin, "index.js"), `import {Plugin} from '@opencode/plugin';export default Plugin.define({id:'legalwork.slow-lifecycle-fixture',async setup(){await new Promise(resolve=>setTimeout(resolve,${activationDelayMs}))}});`);
+    for (const directory of directories) await writeFile(join(directory, "opencode.jsonc"), JSON.stringify({ plugins: [plugin] }));
+  }
   let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "local-lifecycle", hostToken: "local-lifecycle-host",
@@ -84,12 +89,22 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
       : path === "/mcp/notes/disconnect" ? native(workspace).mcp.disconnect({ location: { directory: directory(workspace) }, server: "notes" }) : (() => { throw new Error("Unsupported native fixture control"); })();
     for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
       expect(await request(`/workspace/${workspace}/engine-project`)).toMatchObject({ state: "ready", required: false });
-      await directClient.model.list({ location: { directory: directory(workspace) } });
+      await waitForNativeFixture(() => directClient.model.list({ location: { directory: directory(workspace) } }), () => true, `initial plugin activation in workspace ${workspace}`);
       await waitFor(async () => statuses.parse(await direct(workspace, "/mcp")).notes?.status === "failed", "initial offline MCP state");
     }
     return { config, app: request, proxy, direct, native, directory, close };
   } catch (error) { await close(); throw error; }
 }
+
+test.skipIf(!existsSync(binary))("fixture waits for native plugins before checking connector recovery", async () => {
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Synthetic outage", { status: 503 }) });
+  let fixture: Awaited<ReturnType<typeof setup>> | undefined;
+  try {
+    // Deliberately exceed the native API's five-second activation response deadline.
+    fixture = await setup(provider.url.origin + "/mcp", false, 6000);
+    for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) expect(statuses.parse(await fixture.direct(workspace, "/mcp")).notes?.status).toBe("failed");
+  } finally { await fixture?.close(); provider.stop(true); }
+}, 45_000);
 
 for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSync(binary))(`an in-flight recovery cannot undo ${action}`, async () => {
   let offline = true, hold = false;
