@@ -1,14 +1,15 @@
 /** @jsxImportSource react */
 import type { UIMessage } from "ai";
+import { textPartProviderMetadata } from "./assistant-message-sender";
 import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
-import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { FilePart, Part, ToolPart } from "@/app/lib/opencode-view";
 
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import {
-  parseDynamicToolUIPart,
+  parseDynamicToolUIParts,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -50,7 +51,7 @@ function defaultErrorMessage(name: string | null, fallback: string) {
 }
 
 export function isSessionAbortError(error: unknown) {
-  return recordValue(error, "name") === "MessageAbortedError";
+  return recordValue(error, "name") === "MessageAbortedError" || ["aborted","interrupted","MessageAbortedError","AbortError"].includes(String(recordValue(error,"type") ?? ""));
 }
 
 /**
@@ -138,10 +139,7 @@ export function createSessionErrorUIMessage(turnKey: string, text: string, optio
 }
 
 function fileProviderMetadata(part: FilePart) {
-  if (part.source) {
-    return { opencode: { partId: part.id, source: part.source } };
-  }
-  return { opencode: { partId: part.id } };
+  return {opencode:{partId:part.id,...(part.source ? {source:part.source}:{}),...(part.history ? {historicalAttachment:part.history}:{})}};
 }
 
 function getTextPartValue(part: Part) {
@@ -200,14 +198,13 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
     return mapped ? [mapped] : [];
   }
 
-  const mapped = parseDynamicToolUIPart(part);
-  if (!mapped) return [];
+  const mapped = parseDynamicToolUIParts(part);
 
   if (part.state.status === "completed" && part.state.attachments) {
-    return [mapped, ...part.state.attachments.flatMap(mapFileParts)];
+    return [...mapped, ...part.state.attachments.flatMap(mapFileParts)];
   }
 
-  return [mapped];
+  return mapped;
 }
 
 /** Internal stop notes stay hidden; their structured reason explains the
@@ -224,6 +221,10 @@ export function toolRecoveryStop(part: Part): { messageID?: string } | null {
 
 function toolRecoveryStoppedTurns(snapshot: LegalworkSessionSnapshot) {
   const turns = new Set<string>();
+  const saved = snapshot.session.metadata?.legalworkToolStops;
+  for (const message of snapshot.messages) {
+    if (message.info.role === "assistant" && recordValue(recordValue(saved, message.info.id), "reason") === "repeated-invalid-tool-calls") turns.add(message.info.id);
+  }
   for (const [index, note] of snapshot.messages.entries()) {
     if (note.info.role !== "user") continue;
     for (const part of note.parts) {
@@ -231,15 +232,19 @@ function toolRecoveryStoppedTurns(snapshot: LegalworkSessionSnapshot) {
       if (!stop) continue;
       const failed = stop.messageID ? snapshot.messages.findIndex((message) => message.info.id === stop.messageID) : -1;
       if (stop.messageID && (failed < 0 || failed >= index)) continue;
-      const failedInfo = snapshot.messages[failed]?.info;
+      if (stop.messageID && snapshot.messages.slice(failed + 1, index).some(message => message.info.role === "user" && message.parts.some(part => part.type === "text" && !part.synthetic))) continue;
+      let explained = false;
       for (let previous = index - 1; previous >= Math.max(0, failed); previous--) {
         const info = snapshot.messages[previous].info;
-        if (info.role === "user" && !stop.messageID) break;
+        if (info.role === "user" && snapshot.messages[previous].parts.some(part => part.type === "text" && !part.synthetic)) break;
         if (info.role !== "assistant" || !isSessionAbortError(info.error)) continue;
-        if (failedInfo?.role === "assistant" && info.parentID !== failedInfo.parentID) continue;
         turns.add(info.id);
+        explained = true;
         break;
       }
+      // V2 can stop between steps; then its idle marker records the interruption
+      // without attaching an error to the last assistant message.
+      if (!explained && stop.messageID && snapshot.messages[failed]?.info.role === "assistant") turns.add(stop.messageID);
     }
   }
   return turns;
@@ -253,7 +258,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     const uiMessage = {
       id: message.info.id,
       role: message.info.role,
-      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}) } },
+      metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), ...(summary ? { summary: true } : {}), ...(message.info.role === "assistant" && (message.info.time.completed || message.info.error) ? { completed: true } : {}) } },
       parts: message.parts.flatMap<UIMessage["parts"][number]>((part) => {
         if (part.type === "text") {
           if (part.synthetic || part.ignored) return [];
@@ -261,7 +266,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
             type: "text",
             text: getTextPartValue(part),
             state: "done" as const,
-            providerMetadata: scheduledTextMetadata(part),
+            providerMetadata: { opencode: { ...scheduledTextMetadata(part).opencode, ...textPartProviderMetadata(part).opencode } },
           }];
         }
         if (part.type === "reasoning") {
@@ -300,11 +305,11 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     // error still gets its own message. An empty assistant carcass for the
     // errored turn is dropped so the error reads as that turn's outcome.
     const error = message.info.role === "assistant" && "error" in message.info ? message.info.error : undefined;
-    if (!error) return [uiMessage];
+    if (!error && !recoveryStops.has(message.info.id)) return [uiMessage];
 
     const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
     const text = recoveryStops.has(message.info.id) ? t("chat.stopped_invalid_tool_calls") : describeOpencodeSessionError(error, "Session failed", providerId);
-    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: isSessionAbortError(error) });
+    const errorMessage = createSessionErrorUIMessage(message.info.id, text, { created, stopped: recoveryStops.has(message.info.id) || isSessionAbortError(error) });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }

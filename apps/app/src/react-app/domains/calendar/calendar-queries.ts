@@ -9,7 +9,11 @@ export type CalendarContext = { client: LegalworkServerClient | null; workspaceI
 
 export function useCalendarRefresh() {
   const cache = useQueryClient();
-  useEffect(() => onSyncPoke(() => { void cache.invalidateQueries({ queryKey: ["calendar"] }); }), [cache]);
+  useEffect(() => onSyncPoke(poke => {
+    if (poke.resync || poke.projects || poke.tasks || poke.policy || poke.hub || poke.sessions || poke.approvals || poke.reload) {
+      void cache.invalidateQueries({ queryKey: ["calendar"] });
+    }
+  }), [cache]);
   return () => { void cache.invalidateQueries({ queryKey: ["calendar"] }); };
 }
 

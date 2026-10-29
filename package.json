@@ -27,7 +27,7 @@
     "test:session-switch": "pnpm --filter @legalwork/app test:session-switch",
     "test:fs-engine": "pnpm --filter @legalwork/app test:fs-engine",
     "test:e2e": "pnpm --filter @legalwork/app test:e2e",
-    "test:orchestrator": "pnpm --filter legalwork-orchestrator test:router",
+    "test:orchestrator": "pnpm --filter legalwork-orchestrator test:cli",
     "release:review": "node scripts/release/review.mjs",
     "release:prepare": "node scripts/release/prepare.mjs",
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
@@ -36,7 +36,10 @@
     "office:sideload": "pnpm --filter @legalwork/desktop office:sideload",
     "test:drafts:build": "node --test scripts/test-draft-build.mjs",
     "docs:generate": "node scripts/gen-core-skills.mjs",
-    "docs:check": "node scripts/gen-core-skills.mjs --check"
+    "docs:check": "node scripts/gen-core-skills.mjs --check",
+    "engine:prepare": "node packages/opencode-release/prepare.mjs --mode development",
+    "engine:prepare:production": "node packages/opencode-release/prepare.mjs --mode production",
+    "engine:check": "node packages/opencode-release/prepare.mjs --mode development --check"
   },
   "packageManager": "pnpm@11.4.0"
 }

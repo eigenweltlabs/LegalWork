@@ -1,3 +1,5 @@
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "./store.js";
 import { z } from "zod";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
@@ -36,6 +38,8 @@ beforeEach(async () => {
   config = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"),
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   requests = [];
   respond = (url) => url.pathname.endsWith("/token")
     ? Response.json({ access_token: access, refresh_token: refresh, expires_in: 3600 })
@@ -440,9 +444,11 @@ test("every connector defaults to blocked writes before credentials; preferences
   expect((await connectorSettings(config)).writeAccess["outlook-calendar"]).toBe(false);
   expect((await stat(connectorSettingsPath(config))).mode & 0o777).toBe(0o600);
   await writeFile(connectorSettingsPath(config), JSON.stringify({ writeAccess: true }));
-  expect(Object.values((await connectorSettings(config)).writeAccess).every((value) => !value)).toBe(true);
+  await expect(connectorSettings(config)).rejects.toMatchObject({ code: "connector_settings_unreadable" });
+  await expect(prepareConnectorStorage(config)).rejects.toMatchObject({ code: "connector_settings_unreadable" });
+  await writeFile(connectorSettingsPath(config), JSON.stringify({ writeAccess: { outlook: true, "google-drive": true } }));
   await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
-  expect((await connectorSettings(config)).writeAccess["google-drive"]).toBe(false);
+  expect((await connectorSettings(config)).writeAccess["google-drive"]).toBe(true);
   await expect(saveConnectorWriteSetting(config, "unknown", { writeAccess: true })).rejects.toMatchObject({ code: "connector_not_found" });
   await expect(saveConnectorWriteSetting(config, "gmail", { writeAccess: "true" })).rejects.toMatchObject({ code: "invalid_payload" });
   await writeFile(connectorSettingsPath(config), "broken");

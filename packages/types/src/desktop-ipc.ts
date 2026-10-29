@@ -130,6 +130,7 @@ export type EngineDoctorResult = {
 };
 
 export type WorkspaceList = {
+  warnings?: string[];
   selectedId?: string;
   watchedId?: string | null;
   activeId?: string | null;
@@ -302,6 +303,7 @@ export type CacheResetResult = {
 };
 
 export type DesktopFetchInit = {
+  requestId?: string;
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -319,26 +321,6 @@ export type WorkspaceCreateInput = {
   folderPath: string;
   name?: string | null;
   preset?: string | null;
-};
-
-export type WorkspaceCreateRemoteInput = {
-  baseUrl: string;
-  remoteType?: "legalwork" | "opencode" | null;
-  directory?: string | null;
-  displayName?: string | null;
-  legalworkHostUrl?: string | null;
-  legalworkToken?: string | null;
-  legalworkClientToken?: string | null;
-  legalworkHostToken?: string | null;
-  legalworkWorkspaceId?: string | null;
-  legalworkWorkspaceName?: string | null;
-  sandboxBackend?: string | null;
-  sandboxRunId?: string | null;
-  sandboxContainerName?: string | null;
-};
-
-export type WorkspaceUpdateRemoteInput = WorkspaceCreateRemoteInput & {
-  workspaceId: string;
 };
 
 export type UiControlBridgeInfo = {
@@ -436,8 +418,6 @@ export type DesktopCommandMap = {
     args: [input: { workspaceId: string; paths: string[]; folder?: string }];
     result: WorkspaceCopyFilesResult;
   };
-  workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
-  workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {
     args: [input: { workspaceId: string; displayName?: string | null }];
     result: WorkspaceList;
@@ -648,7 +628,7 @@ export type DesktopCommandMap = {
   };
   mcpOAuthWait: {
     args: [options: { listenerId: string; state: string }];
-    result: { code: string };
+    result: { code: string; iss?: string };
   };
   mcpOAuthCancel: { args: [listenerId: string]; result: void };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
@@ -832,7 +812,7 @@ export type DesktopCommandMap = {
    * with the notification's id. Resolves false where the system cannot show one.
    */
   desktopNotificationShow: {
-    args: [notification: { id: string; title: string; body?: string }];
+    args: [notification: { id: string; title: string; body?: string; backgroundOnly?: boolean; iconDataUrl?: string; conversationId?: string }];
     result: boolean;
   };
   /**
@@ -854,6 +834,7 @@ export type DesktopCommandMap = {
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  __fetchCancel: { args: [id: string]; result: void };
   __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
   __streamRead: { args: [id: string]; result: Uint8Array | null };
   __streamCancel: { args: [id: string]; result: void };
@@ -916,5 +897,8 @@ export interface HostApprovalRequest {
     body: string;
     bodyFormat: "text" | "base64";
     bodyBytes: number;
+    /** Raw HTTP requests expose a complete expandable review, without summary truncation. */
+    complete?: boolean;
+    sha256?: string;
   };
 }

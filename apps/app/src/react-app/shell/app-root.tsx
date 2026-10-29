@@ -1,3 +1,4 @@
+import { LegalMemoryPermissions } from "../domains/connections/legalmemory-permissions";
 import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
@@ -22,6 +23,7 @@ import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
+import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -61,6 +63,7 @@ export function AppRoot() {
         <LegalworkControlProvider>
           <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
+          <LegalMemoryPermissions />
           <Routes>
               <Route
                 path="/welcome"
@@ -182,6 +185,7 @@ export function AppRoot() {
       <NewProvidersListener />
       <TaskNotificationsListener />
       <OrgPolicyRoot />
+      <AssistantNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

@@ -1,6 +1,6 @@
 name: Alpha Channel (macOS arm64)
 
-# Every merged dev commit builds an alpha immediately. Required PR checks
+# Each dev merge affecting the app builds an alpha. Required PR checks
 # already ran before merge; packaging does not rerun the sandbox suite.
 on:
   push:
@@ -20,13 +20,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      alpha: ${{ steps.scope.outputs.alpha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
+  opencode-engine:
+    needs: changes
+    if: needs.changes.outputs.alpha == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: production
+      ref: ${{ github.sha }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
+    needs: changes
+    if: needs.changes.outputs.alpha == 'true'
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: darwin-arm64
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-engine]
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
     timeout-minutes: 180
@@ -53,6 +78,19 @@ jobs:
         with:
           node-version: 24.22.1
 
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -61,7 +99,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -165,7 +203,7 @@ jobs:
           # since the editors and media viewers joined it; the 7 GB runner has
           # room for this.
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron alpha (macOS, signed + notarized)
         if: env.MACOS_NOTARIZE == 'true'

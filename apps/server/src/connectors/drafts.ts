@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { EmailDraftInputSchema, EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "../email-drafts/schema.js";
+import { EmailDraftInputSchema, EmailDraftAccountSchema, EmailDraftSchema, emailAddressSpecs, type EmailDraft } from "../email-drafts/schema.js";
 import { CalendarEventDraftInputSchema, CalendarEventDraftSchema, type CalendarEventDraft } from "../calendar-event-drafts/schema.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
@@ -9,8 +9,8 @@ import { withFileWriteLocks } from "../file-write-lock.js";
 import { draftPaths, readDraft, saveDraftFiles, saveEmailDraft, readEmailDraftMime, prepareEmailDraftReload } from "../email-drafts/store.js";
 import { eventDraftTimes, renderEventDraft } from "../calendar-event-drafts/ics.js";
 import { savedConnectorConnections } from "./broker.js";
-import { requireConnectorConnectSlot } from "./single-connection.js";
-import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
+import { requireConnectorConnectSlot, requireSingleConnectorAccount } from "./single-connection.js";
+import { connectorIsActivated, ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
 import { requireLocalOAuthSendAccess } from "./local-oauth.js";
 import { createConnectorRequest } from "./request.js";
 import { calendarCreateInput, calendarEventInput, googleCalendarUpdateInput, googleCalendarAdapter, outlookCalendarAdapter } from "./calendar.js";
@@ -26,6 +26,15 @@ export const connectorCalendarDraftInput = calendarCreateInput.safeExtend({ time
 export const connectorGoogleCalendarDraftInput = connectorCalendarDraftInput.safeExtend({ googleMeet: z.boolean().default(false) });
 export const connectorSendDraftInput = z.object({ draftId: z.uuid(), revision: z.uuid() }).strict();
 
+function parseDraftInput<T>(schema: z.ZodType<T>, args: unknown): T {
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map(issue => `args${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
+    throw new ApiError(400, "invalid_payload", `Invalid draft arguments. ${fields.join("; ")}. Correct args using the action's inputSchema and retry.`);
+  }
+  return parsed.data;
+}
+
 async function connectedAccount(config: ServerConfig, id: string, requested?: string) {
   await ensureConnectorWritesAllowed(config, id);
   const connections = await savedConnectorConnections(config, id);
@@ -36,9 +45,30 @@ async function connectedAccount(config: ServerConfig, id: string, requested?: st
   return selected;
 }
 
+/** Bind a local preview using saved account metadata; never contact a mailbox. */
+export async function emailDraftTarget(config: ServerConfig, account: z.infer<typeof EmailDraftAccountSchema>) {
+  if (account === "local") return undefined;
+  const targets: (NonNullable<EmailDraft["connectorTarget"]> & { needsReconnect: boolean })[] = [];
+  for (const connectorId of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
+    if (account !== "auto" && account !== connectorId) continue;
+    const connections = await savedConnectorConnections(config, connectorId);
+    requireSingleConnectorAccount(connections);
+    const connection = connections[0];
+    if (!connection || !await connectorIsActivated(config, connectorId, connection.id)) continue;
+    targets.push({ connectorId, connectionId: connection.id, needsReconnect: connection.needsReconnect });
+  }
+  if (targets.length > 1) throw new ApiError(409, "email_draft_account_required", "Both Gmail and Outlook Email are connected. Ask the user which account to use, then retry with account set to gmail or outlook. No draft has been created.");
+  const target = targets[0];
+  if (!target && account !== "auto") throw new ApiError(409, "connector_not_connected", `Connect and activate ${account === "outlook" ? "Outlook Email" : "Gmail"} in Integrations, or ask whether the user wants a local draft.`);
+  if (!target) return undefined;
+  if (target.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${target.connectorId === "outlook" ? "Outlook Email" : "Gmail"} in Integrations before preparing its draft. Do not substitute a local draft unless the user requests one.`);
+  await ensureConnectorWritesAllowed(config, target.connectorId);
+  return { connectorId: target.connectorId, connectionId: target.connectionId };
+}
+
 export async function prepareConnectorEmailDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "gmail" && id !== "outlook") throw new ApiError(400, "connector_draft_provider", "Choose an email connector.");
-  const input = connectorEmailDraftInput.parse(args);
+  const input = parseDraftInput(connectorEmailDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorWorkspace(config, context);
   const draft = await saveEmailDraft(workspace.path, workspace.id, EmailDraftInputSchema.parse({ ...input, to: input.to.join(", "), cc: input.cc.join(", "), bcc: input.bcc.join(", ") }), undefined, { connectorId: id, connectionId });
@@ -47,7 +77,7 @@ export async function prepareConnectorEmailDraft(config: ServerConfig, id: strin
 
 export async function prepareConnectorCalendarDraft(config: ServerConfig, id: string, args: Record<string, unknown>, context: Record<string, unknown>) {
   if (id !== "google-calendar" && id !== "outlook-calendar") throw new ApiError(400, "connector_draft_provider", "Choose a calendar connector.");
-  const input = (id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput).parse(args);
+  const input = parseDraftInput(id === "google-calendar" ? connectorGoogleCalendarDraftInput : connectorCalendarDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorWorkspace(config, context);
   const event = CalendarEventDraftInputSchema.parse(input);
@@ -61,7 +91,7 @@ export async function prepareConnectorCalendarDraft(config: ServerConfig, id: st
 }
 
 export async function prepareConnectorCalendarUpdate(config: ServerConfig, args: Record<string, unknown>, context: Record<string, unknown>) {
-  const input = googleCalendarUpdateInput.parse(args);
+  const input = parseDraftInput(googleCalendarUpdateInput, args);
   const connectionId = await connectedAccount(config, "google-calendar", input.connectionId);
   const workspace = await connectorWorkspace(config, context);
   const request = await createConnectorRequest(config, "google-calendar", connectionId);

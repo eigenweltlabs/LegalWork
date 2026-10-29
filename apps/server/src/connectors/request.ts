@@ -10,6 +10,7 @@ export type ConnectorRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
   headers?: Record<string, string>; onResponseHeaders?: (headers: Headers) => void;
   send?: boolean; organize?: boolean; empty?: boolean; incomplete?: boolean;
+  signal?: AbortSignal;
 };
 export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
 export type StreamingConnectorRequest = ConnectorRequest & {
@@ -84,7 +85,8 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
         }
       }
       try {
-        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000),
+        const timeout = AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000);
+        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
           headers: { ...options.headers, Authorization: `Bearer ${accessToken}`, Accept: options.bytes ? "*/*" : "application/json", ...(options.rawBody || options.body === undefined ? {} : { "Content-Type": "application/json" }) },
           ...(options.rawBody ? { body: options.rawBody } : options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         });

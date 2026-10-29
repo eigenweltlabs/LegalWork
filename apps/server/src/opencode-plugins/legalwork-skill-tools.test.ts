@@ -1,5 +1,7 @@
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkSkillTools = (context = {}) => nativePluginTools(LegalWorkSkillToolsDefinition, context);
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import LegalWorkSkillToolsDefinition from "./legalwork-skill-tools.js";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,10 +155,10 @@ describe("SKILL.md content", () => {
     await expect(createSkill({ name: "Lease terms", description: "Reusable questions", instructions: "Rent, term, break clause", kind: "workflow", workflowType: "tabular" })).rejects.toThrow();
     expect(requests).toHaveLength(0);
     const plugin = await LegalWorkSkillTools();
-    const guidance: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, guidance);
-    expect(guidance.system.join(" ")).toContain("author-review-prompts");
-    expect(guidance.system.join(" ")).toContain("legalwork_review_library_save");
+    const guidance: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", guidance);
+    expect(guidance.system.map((item: {text:string})=>item.text).join(" ")).toContain("author-review-prompts");
+    expect(guidance.system.map((item: {text:string})=>item.text).join(" ")).toContain("legalwork_review_library_save");
   });
 });
 
@@ -240,11 +242,11 @@ describe("legalwork_skill_create", () => {
 describe("system prompt", () => {
   test("treats workflows as automatically discoverable user-facing skills", async () => {
     const plugin = await LegalWorkSkillTools();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"](null, output);
-    expect(output.system.join("\n")).toContain("legalwork_skill_create");
-    expect(output.system.join("\n")).toContain("Both kinds can be loaded automatically");
-    expect(output.system.join("\n")).toContain("kind=workflow, lesson=");
+    const output: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", output);
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("legalwork_skill_create");
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("Both kinds can be loaded automatically");
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("kind=workflow, lesson=");
   });
 });
 
@@ -253,4 +255,18 @@ test("editing an existing tabular workflow keeps its original callable name", as
   const result = await createSkill({ name: "workflow-tabular-lease-terms", description: "Use when reviewing leases.", instructions: "Keep these exact existing instructions.", kind: "workflow", overwrite: true });
   expect(result).toMatchObject({ ok: true, name: "workflow-tabular-lease-terms", workflowType: "assistant" });
   expect(requests.find(request => request.method === "POST")?.body).toMatchObject({ name: "workflow-tabular-lease-terms" });
+});
+
+
+test("configured skill resources are used without speculative template reconfirmation", async () => {
+  const plugin = await LegalWorkSkillTools();
+  try {
+    const context: { system: Array<{ type: "text"; text: string }> } = { system: [] };
+    await plugin.runtime.hook("session", "context", context);
+    const guidance = context.system.map(item => item.text).join("\n");
+    expect(guidance).toContain("load and use its configured resources, templates and defaults");
+    expect(guidance).toContain("Do not ask the user to reconfirm the firm name");
+    expect(guidance).toContain("an approval the skill or tool explicitly requires");
+    expect(guidance).toContain("missing facts about a future case do not block recording its condition");
+  } finally { await plugin.close(); }
 });

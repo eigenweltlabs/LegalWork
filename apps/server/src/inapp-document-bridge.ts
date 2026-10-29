@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 type UiBridge = { baseUrl: string; token: string };
 let cachedBridge: UiBridge | null = null;
 let cachedBridgeAt = 0;
+let cachedDiscoveryPaths = "";
 const BRIDGE_CACHE_MS = 2_000;
 const BRIDGE_TIMEOUT_MS = 5_000;
 
@@ -27,14 +28,17 @@ function uiControlDiscoveryPaths(): string[] {
 }
 
 async function discoverUiBridge(): Promise<UiBridge | null> {
-  if (cachedBridge && Date.now() - cachedBridgeAt < BRIDGE_CACHE_MS) return cachedBridge;
-  for (const candidate of uiControlDiscoveryPaths()) {
+  const paths = uiControlDiscoveryPaths();
+  const discoveryPaths = JSON.stringify(paths);
+  if (cachedBridge && cachedDiscoveryPaths === discoveryPaths && Date.now() - cachedBridgeAt < BRIDGE_CACHE_MS) return cachedBridge;
+  for (const candidate of paths) {
     try {
       const raw = await readFile(candidate, "utf8");
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (typeof parsed.baseUrl === "string" && typeof parsed.token === "string") {
         cachedBridge = { baseUrl: parsed.baseUrl, token: parsed.token };
         cachedBridgeAt = Date.now();
+        cachedDiscoveryPaths = discoveryPaths;
         return cachedBridge;
       }
     } catch {
@@ -51,6 +55,7 @@ export async function cancelUiBridgeRequests(sessionId: string) {
 }
 
 export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
+  options.signal?.throwIfAborted();
   const bridge = await discoverUiBridge();
   if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
   const timeout = options.timeoutMs ?? BRIDGE_TIMEOUT_MS;
@@ -74,6 +79,7 @@ export async function uiBridgeRequest(path: string, options: { method?: string; 
     const text = await response.text();
     try { return JSON.parse(text); } catch { return { ok: false, error: text || `HTTP ${response.status}` }; }
   } catch (error) {
+    options.signal?.throwIfAborted();
     cachedBridge = null;
     cachedBridgeAt = 0;
     return { ok: false, ...(signal.aborted ? { code: options.signal?.aborted ? "operation_cancelled" : "operation_timeout" } : {}), error: `UI bridge unreachable: ${error instanceof Error ? error.message : String(error)}` };

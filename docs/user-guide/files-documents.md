@@ -6,6 +6,8 @@ Use **Memory Drive** to browse workspace files and configured storage roots. Ope
 
 Give an exact filename or attach the document when several copies exist. "This document" should mean the document actually open beside the chat. Check that the assistant is working on that version. Save pending edits before switching to a conflicting copy or accepting a discard prompt.
 
+File cards in chat show the filename without its folder path. Select a card to open the referenced file.
+
 ## Supported work
 
 | File type | What to use |
@@ -35,3 +37,5 @@ Ask to annotate, fill a form, stamp a signature or read a PDF; the assistant can
 ## Saving and source files
 
 Check the returned output path and open the saved file. Local editor saves update workspace files or working copies. A connected-storage working copy requires **Save to [connection]** to publish changes back; automatic local saving does not publish it. See [Connected storage](connected-storage.md). Files created for a task can also be attached back to that task so they are discoverable from the work list.
+
+Markdown files can include saved report and dashboard blocks. The chart renders within the document, and its **Open in tab** control opens a larger view. Assistant document cards open the file only when selected. See [Dashboards and reports](dashboards.md).
