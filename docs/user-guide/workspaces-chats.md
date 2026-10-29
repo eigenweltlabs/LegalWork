@@ -10,7 +10,7 @@ Workspace settings include authorized folders. Global settings include model pro
 
 **Projects** and **Project Home** provide matter details, linked folders and separate pages for files, chats, tasks, calendar, reviews and dashboards. See [Projects and sharing](projects-sharing.md). Sharing a project through the firm is different from the remote-worker connection described below.
 
-Folder/workspace menus provide the actions available in this context, including renaming and opening another window. Removing a workspace connection is different from deleting files; read the confirmation for the specific action. A workspace export is not a backup of every cloud account, secret or remote source.
+Project menus provide the actions available in this context, including renaming and opening another window. Choose **Remove project** and confirm to take a project out of the sidebar. Its saved chats and files on disk remain preserved. A workspace export is not a backup of every cloud account, secret or remote source.
 
 ## Conversations
 

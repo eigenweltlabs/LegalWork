@@ -4783,8 +4783,8 @@ const de = {
   "workspace_list.hide_child_sessions": "Untergeordnete Sessions ausblenden",
   "workspace_list.recover": "Wiederherstellen",
   "workspace_list.remove_confirm":
-    "Diesen Workspace aus der Seitenleiste entfernen? Sessions und Dateien auf der Festplatte bleiben erhalten.",
-  "workspace_list.remove_workspace": "Workspace entfernen",
+    "Dieses Projekt aus der Seitenleiste entfernen? Chats und Dateien auf der Festplatte bleiben erhalten.",
+  "workspace_list.remove_workspace": "Projekt entfernen",
   "workspace_list.rename_session": "Session umbenennen",
   "workspace_list.remote_worker_unavailable": "Remote-Worker nicht verfügbar",
   "workspace_list.remote_worker_unavailable_hint":
@@ -7084,7 +7084,7 @@ const de = {
   "model_picker.disable_provider": "Diesen Anbieter deaktivieren",
   "model_picker.enable_provider": "Diesen Anbieter aktivieren",
   "workspace.remove_failed": "Dieses Projekt konnte nicht entfernt werden.",
-  "workspace.remove_confirm": "Diesen Workspace aus der Seitenleiste entfernen?",
+  "workspace.remove_confirm": "Dieses Projekt aus der Seitenleiste entfernen?",
   "ext.composer_computer_use": "Computer Use verwenden, um ",
   "ext.composer_google_workspace": "Google Workspace verwenden, um ",
   "advanced.load_status_failed": "Der Status der Laufzeitkonfiguration konnte nicht geladen werden.",
