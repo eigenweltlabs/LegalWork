@@ -20,6 +20,8 @@ The composer accepts a task, file attachments, `@` references and available slas
 
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
+In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
+
 ### Steer with a queued message
 
 While a chat is working, normal sends stay in the editable queue above the composer. To have a pending message considered sooner, choose **Steer** beside it. The agent receives it at the next model step, without stopping the current task or cancelling its tools. If the task has just finished, the message becomes the next input instead.
