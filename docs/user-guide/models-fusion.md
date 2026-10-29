@@ -10,6 +10,11 @@ For ChatGPT, choose **Add provider > Continue with ChatGPT**, complete sign-in i
 
 Select a connected model using the chat's model picker. Search by model or provider. Disabling a provider in the picker hides its models from selection; disconnecting its credentials is a separate settings action. A model listed by a provider may still be unavailable to your account, region or quota. Use the actual provider error to diagnose this.
 
+Choosing a model in a regular chat also sets the default for new regular chats.
+Existing chats keep their own selections. The personal Assistant has its own
+model and thinking effort under **Customize assistant > Advanced**; regular chat
+choices do not change them. See [Personal Assistant](assistant.md).
+
 When upgrading from the earlier engine, LegalWork keeps custom providers and their selected models. You do not need to recreate a provider. Models you excluded from that provider stay excluded from the project's model selection.
 
 Keys can originate from a settings connection, environment variables or managed configuration. The AI Providers page identifies their source. An environment-managed connection may not be removable through the ordinary disconnect button; change it at the source instead. Store service secrets under **Settings > Secrets** when the relevant integration needs environment variables. Never paste a secret into a prompt as a setup shortcut.

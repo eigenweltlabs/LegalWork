@@ -32,6 +32,14 @@ To change its name or avatar, click the assistant at the top of its conversation
 During first setup, saving the name shows the appearance picker in the conversation.
 Renaming later keeps the current appearance.
 
+To choose the Assistant's model, click its name or avatar at the top of the
+conversation, expand **Advanced**, and change **Model** or **Thinking effort**.
+These preferences save automatically and apply to the next message. They stay
+with the Assistant across daily chats and app restarts. Changing a model in a
+regular chat does not change the Assistant's preferences, and changing the
+Assistant's model does not change the default for regular chats. The home
+screen uses the Assistant's preferences when no project is selected.
+
 The Assistant uses one conversation tab. Subagents work in the background until
 you open the small subagent toggle at the top of the chat and choose one. Their
 tabs keep their own titles and close when the run finishes. You can reopen a
