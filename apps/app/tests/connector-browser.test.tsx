@@ -52,6 +52,21 @@ test("direct links open the exact named storage instance with manage, remove and
   expect(article).toContain("Add another connection");
   expect(article).not.toContain("Matter documents");
   expect(article).not.toContain("Your connections");
+  expect(article).toContain("1 connection");
+  expect(article).not.toContain("2 connections");
+});
+
+test("browse categories show providers and counts while named connections stay in Installed", () => {
+  const html = render(undefined, { initialSection: "storage" });
+  const sidebar = html.slice(html.indexOf("<aside"), html.indexOf("</aside>"));
+  const catalog = html.slice(html.indexOf("<section"));
+  for (const name of ["Matter documents", "Archive documents", "Beck personal"]) {
+    expect(sidebar).toContain(name);
+    expect(catalog).not.toContain(name);
+  }
+  expect(catalog).toContain("WebDAV");
+  expect(catalog).toContain("S3-compatible storage");
+  expect(catalog).toContain("2 connections");
 });
 
 test("legal database details expose saved accounts without showing credentials", () => {
@@ -96,6 +111,7 @@ test("provider pages list saved instances while individual connections stay inde
   expect(article).toContain("Matter documents");
   expect(article).toContain("Archive documents");
   expect(article).toContain("Integration API");
+  expect(article).toContain("2 connections");
 });
 
 
@@ -113,4 +129,14 @@ test("imported connections display both methods from their installed components"
   expect(article).toContain(">Skill<");
   expect(article).toContain(">MCP<");
   expect(article).not.toContain("Integration API");
+});
+
+
+test("catalogue and detail pages show saved connection counts without claiming a verified website sign-in", () => {
+  expect(render()).toContain("2 connections");
+  const connected = render("research:beck-online");
+  expect(connected).toContain("1 connection");
+  expect(connected).not.toContain("No connections yet");
+  expect(render("research:juris")).toContain("No connections yet");
+  expect(render("native:gmail")).toContain("1 connection");
 });

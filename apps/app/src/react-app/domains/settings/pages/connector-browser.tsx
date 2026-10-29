@@ -70,9 +70,12 @@ function connectionMethods(target: Target): ConnectionMethod[] {
   if (!methods.length && target.kind === "service" && target.entry.kind === "extension") methods.push("api");
   return methods;
 }
-function MethodTags({ target }: { target: Target }) {
+function ConnectionTags({ target, count, showEmpty = false }: { target: Target; count: number; showEmpty?: boolean }) {
   const methods = connectionMethods(target);
-  return methods.length ? <span role="group" aria-label={t("catalog.how_it_works")} className="mt-2 flex flex-wrap gap-1.5">{methods.map(method => <span key={method} className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-normal leading-4 text-muted-foreground">{t(`catalog.method_${method}`)}</span>)}</span> : null;
+  return <span className="mt-2 flex flex-wrap items-center gap-2">
+    {methods.length ? <span role="group" aria-label={t("catalog.how_it_works")} className="flex flex-wrap gap-1.5">{methods.map(method => <span key={method} className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-normal leading-4 text-muted-foreground">{t(`catalog.method_${method}`)}</span>)}</span> : null}
+    {count > 0 ? <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground/75"><Check className="size-3" />{t("catalog.connection_count", { count })}</span> : showEmpty ? <span className="text-xs text-muted-foreground">{t("catalog.none_added")}</span> : null}
+  </span>;
 }
 
 function Brand({ name, slug, src }: { name: string; slug?: string; src?: string }) {
@@ -92,6 +95,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const [researchEditor, setResearchEditor] = useState<{ provider?: ResearchProvider; connection?: LegalworkBrowserPassword; template?: LegalworkBrowserPassword } | null>(null);
   const [sharing, setSharing] = useState<StorageConnection | null>(null);
   const [setup, setSetup] = useState<McpDirectoryInfo | null>(null);
+  const [quickSetupId, setQuickSetupId] = useState<string | null>(null);
   const [managedServer, setManagedServer] = useState<string | null>(null);
   const [managedPackage, setManagedPackage] = useState<ImportedPlugin | null>(null);
   const [remove, setRemove] = useState<Item | null>(null);
@@ -180,16 +184,33 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
     catalog.push(value); if (value.installed) installed.push(value);
   }
   const selected = [...catalog, ...installed].find(item => item.id === selectedId);
+  const quickSetup = [...catalog, ...installed].find(item => item.id === quickSetupId);
   const related = selected ? installed.filter(item => item.id !== selected.id && (
     selected.target.kind === "research" && !selected.target.connection && item.target.kind === "research" && selected.target.provider?.id === item.target.provider?.id && Boolean(selected.target.provider)
     || selected.target.kind === "storage" && !selected.target.connection && item.target.kind === "storage" && selected.target.storageKind === item.target.storageKind && selected.target.provider?.id === item.target.provider?.id
     || selected.target.kind === "native" && item.target.kind === "storage" && item.target.connection?.config.kind === "oauth" && item.target.connection.config.provider === selected.target.id)) : [];
-  const disabled = (item: Item) => props.busy ||  item.target.kind === "storage" && (storageForbidden || !workspaceId || !client) || item.target.kind === "research" && (!client?.canApprove || !workspaceId) || item.target.kind === "service" && (mcp.builtInExtensionDisabled?.(item.target.entry) || connectorsForbidden && !isBuiltInLegalWorkExtension(item.target.entry));
+  const connectionCount = (item: Item) => {
+    const target = item.target;
+    if (target.kind === "native") return accounts.data?.connectors.find(value => value.id === target.id)?.connections.length ?? 0;
+    if (target.kind === "research" && !target.connection) return installed.filter(value => value.target.kind === "research" && value.target.connection && target.provider?.id === value.target.provider?.id).length;
+    if (target.kind === "storage" && !target.connection) return installed.filter(value => value.target.kind === "storage" && value.target.storageKind === target.storageKind && value.target.provider?.id === target.provider?.id).length;
+    return item.installed ? 1 : 0;
+  };
+  const nativeIsBlocked = (id: string) => {
+    const entry = mcp.quickConnect.find(value => value.id === id);
+    return Boolean(entry && mcp.builtInExtensionDisabled?.(entry)) || storageForbidden && connectorDefinitions.some(value => value.id === id && value.kind === "files");
+  };
+  const disabled = (item: Item) => props.busy || item.target.kind === "native" && nativeIsBlocked(item.target.id) || item.target.kind === "storage" && (storageForbidden || !workspaceId || !client) || item.target.kind === "research" && (!client?.canApprove || !workspaceId) || item.target.kind === "service" && (mcp.builtInExtensionDisabled?.(item.target.entry) || connectorsForbidden && !isBuiltInLegalWorkExtension(item.target.entry));
   const openStorage = async (editor: StorageEditor) => { if (!storageForbidden && await orgPolicyAllows("storage.allowPersonal")) setStorageEditor(editor); };
   const manage = (item: Item) => {
     if (disabled(item)) return;
     const target = item.target;
-    if (target.kind === "storage") { if (!target.connection?.team) void openStorage({ kind: target.storageKind, provider: target.provider, connection: target.connection }); }
+    if (target.kind === "storage") {
+      if (target.connection?.team) {
+        if (client && workspaceId && target.connection.teamInstallation === "optional") void client.setTeamStorageInstalled(workspaceId, target.connection.id, true).then(refresh).catch(error => toast.error(error.message));
+      } else void openStorage({ kind: target.storageKind, provider: target.provider, connection: target.connection });
+    }
+    else if (target.kind === "native" || target.kind === "team") setQuickSetupId(item.id);
     else if (target.kind === "research") setResearchEditor(target);
     else if (target.kind === "server") setManagedServer(target.name);
     else if (target.kind === "package") setManagedPackage(target.plugin);
@@ -198,7 +219,8 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
       if (server) setManagedServer(server.name);
       else if (toggleOnly(target.entry)) { setLegalWorkExtensionEnabled(target.entry, true); refresh(); }
       else if (target.entry.requestAccessUrl) void platform.openLink(target.entry.requestAccessUrl);
-      else if (!mcp.configSlotForEntry?.(target.entry)) {
+      else if (mcp.configSlotForEntry?.(target.entry)) setQuickSetupId(item.id);
+      else {
         if (target.entry.requiresOauthClient || target.entry.requiresToken || /\{[^}]+\}/.test(target.entry.url ?? "")) setSetup(target.entry);
         else void Promise.resolve(mcp.connectMcp(target.entry)).catch(error => toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")));
       }
@@ -225,17 +247,17 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
   const detailsAccess: PluginDetailsAccess | undefined = props.skillDetails && props.renderPluginConnector ? { skills: props.skillDetails.skills, skillStore: props.skillDetails, canEditSkills: props.canAddSkill !== false, renderConnector: props.renderPluginConnector, readComponent: props.skillDetails.readPackageComponent } : undefined;
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: Item) => `${item.name} ${item.description} ${categoryLabel(item.category)}`.toLocaleLowerCase().includes(query);
-  const visibleCatalog = [...catalog, ...installed.filter(item => !catalog.some(value => value.id === item.id))].filter(matches);
+  const visibleCatalog = catalog.filter(matches);
   const sections = category ? [category] : query ? connectorCategories.filter(value => value !== "popular") : connectorCategories;
   const row = (item: Item) => <div key={item.id} className="group flex min-w-0 items-center gap-2 rounded-xl p-2.5 transition-colors hover:bg-muted/40">
-    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => select(item.id)}>{item.icon}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span><MethodTags target={item.target} /></span></button>
-    <Button variant="ghost" size="icon-sm" disabled={disabled(item)} aria-label={t(item.installed ? "catalog.manage_named" : "catalog.add_named", { name: item.name })} onClick={() => { select(item.id); if (!item.installed) manage(item); }}>{item.installed ? <MoreHorizontal className="size-4" /> : <Plus className="size-4" />}</Button>
+    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => select(item.id)}>{item.icon}<span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.name}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.description}</span><ConnectionTags target={item.target} count={connectionCount(item)} /></span></button>
+    <Button variant="ghost" size="icon-sm" disabled={disabled(item)} aria-label={t(item.installed ? "catalog.manage_named" : "catalog.add_named", { name: item.name })} onClick={() => { if (item.installed) select(item.id); else manage(item); }}>{item.installed ? <MoreHorizontal className="size-4" /> : <Plus className="size-4" />}</Button>
   </div>;
   const target = selected?.target;
   const nativeId = target?.kind === "native" ? target.id : undefined;
-  const nativeEntry = nativeId ? mcp.quickConnect.find(entry => entry.id === nativeId) : undefined;
-  const nativeBlocked = Boolean(nativeEntry && mcp.builtInExtensionDisabled?.(nativeEntry)) || Boolean(nativeId && storageForbidden && connectorDefinitions.some(value => value.id === nativeId && value.kind === "files"));
   const extensionConfig = target?.kind === "service" && !mcp.builtInExtensionDisabled?.(target.entry) ? mcp.configSlotForEntry?.(target.entry) : null;
+  const nativeConfig = (id: string) => nativeIsBlocked(id) ? <p className="text-sm text-muted-foreground">{t("mcp.builtins_blocked")}</p> : <ConnectorConfig key={id} id={id} legalworkServerClient={client} presentation="dialog" onExtensionConnectionChange={() => { void cache.invalidateQueries({ queryKey: ["settings", "connector-accounts"] }); void cache.invalidateQueries({ queryKey: ["storage-connections"] }); }} />;
+  const teamConfig = (item: FirmHubItem) => client ? <FirmConnectorRow inline item={item} client={client} statuses={mcp.mcpStatuses} busy={props.busy} onChanged={refresh} onSignIn={(name, url) => { const entry = mcp.mcpServers.find(value => value.name === name); if (entry) mcp.authorizeMcp(entry); else void mcp.connectMcp({ name, serverName: name, description: item.description, type: "remote", url, oauth: true }); }} /> : null;
   const loading = accounts.isLoading || storage.isLoading || passwords.isLoading || packages.isLoading;
   const errors = [accounts.error, storage.error, providers.error, passwords.error, packages.error, team.error].filter(Boolean);
 
@@ -255,10 +277,10 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
           {!selectedId ? <div className="flex items-center gap-2"><div className="w-56"><IntegrationSearch value={search} onChange={setSearch} label={t("catalog.search")} /></div><Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} onClick={refresh}><RefreshCw className="size-4" /></Button><DropdownMenu><DropdownMenuTrigger render={<Button size="sm" />}><Plus className="size-4" />{t("common.add")}</DropdownMenuTrigger><DropdownMenuContent align="end" className="w-max min-w-64 max-w-(--available-width)"><DropdownMenuItem disabled={connectorsForbidden || props.busy} onClick={async () => { if (await orgPolicyAllows("connectors.allowCustom")) setCustomOpen(true); }}><Plug />{t("catalog.custom_connection")}</DropdownMenuItem><DropdownMenuItem disabled={!client?.canApprove || !workspaceId} onClick={() => setResearchEditor({})}><Globe />{t("catalog.method_website_automation")}</DropdownMenuItem><DropdownMenuItem disabled={!props.pluginImports || !props.canEditPlugins || !props.canUseGlobalScope || pluginsForbidden} onClick={() => setImportOpen(true)}><Download />{t("catalog.import")}</DropdownMenuItem>{props.developerMode ? <DropdownMenuItem onClick={() => setEngineOpen(true)}><Settings2 />{t("extensions.engine_plugins")}</DropdownMenuItem> : null}</DropdownMenuContent></DropdownMenu></div> : null}
         </header>
         {errors.length ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-destructive/5 p-4 text-sm"><p>{t("catalog.load_failed")}</p><Button variant="outline" size="sm" onClick={refresh}>{t("common.refresh")}</Button></div> : null}
-        {selected ? <article className="mx-auto max-w-2xl space-y-8">
-          <div className="space-y-5"><div className="[&>span]:size-16 [&_img]:size-10 [&_svg]:size-8 [&>span]:text-2xl">{selected.icon}</div><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h1 className="break-words text-2xl font-semibold tracking-tight">{selected.name}</h1><p className="mt-2 text-sm text-muted-foreground">{categoryLabel(selected.category)}{selected.team ? ` · ${t("firm_hub.scope_team")}` : ""}</p><MethodTags target={selected.target} /></div><div className="flex flex-wrap gap-2">{canRemove(selected) ? <Button variant="ghost" size="icon-sm" aria-label={t("catalog.remove_named", { name: selected.name })} disabled={props.busy} onClick={() => setRemove(selected)}><Trash2 className="size-4" /></Button> : null}{target?.kind !== "native" && target?.kind !== "team" && !extensionConfig && !selected.team ? <Button disabled={disabled(selected)} onClick={() => manage(selected)}>{selected.installed ? <Settings2 className="size-4" /> : <Plus className="size-4" />}{t(selected.installed ? "catalog.manage" : "catalog.connect")}</Button> : null}</div></div></div>
+        {selected ? <article className="w-full space-y-8">
+          <div className="space-y-5"><div className="[&>span]:size-16 [&_img]:size-10 [&_svg]:size-8 [&>span]:text-2xl">{selected.icon}</div><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h1 className="break-words text-2xl font-semibold tracking-tight">{selected.name}</h1><p className="mt-2 text-sm text-muted-foreground">{categoryLabel(selected.category)}{selected.team ? ` · ${t("firm_hub.scope_team")}` : ""}</p><ConnectionTags target={selected.target} count={connectionCount(selected)} showEmpty={!loading} /></div><div className="flex flex-wrap gap-2">{canRemove(selected) ? <Button variant="ghost" size="icon-sm" aria-label={t("catalog.remove_named", { name: selected.name })} disabled={props.busy} onClick={() => setRemove(selected)}><Trash2 className="size-4" /></Button> : null}{target?.kind !== "native" && target?.kind !== "team" && !extensionConfig && !selected.team ? <Button disabled={disabled(selected)} onClick={() => manage(selected)}>{selected.installed ? <Settings2 className="size-4" /> : <Plus className="size-4" />}{t(selected.installed ? "catalog.manage" : "catalog.connect")}</Button> : null}</div></div></div>
           <div className="rounded-2xl bg-muted/40 p-6"><p className="text-sm leading-7">{selected.description}</p>{selected.status ? <div className="mt-4"><ConnectorStatus state={selected.status} /></div> : selected.installed ? <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><Check className="size-3.5" />{t("catalog.installed")}</p> : null}</div>
-          {nativeBlocked ? <p className="text-sm text-muted-foreground">{t("mcp.builtins_blocked")}</p> : nativeId ? <ConnectorConfig key={nativeId} id={nativeId} legalworkServerClient={client} presentation="dialog" onExtensionConnectionChange={() => { void cache.invalidateQueries({ queryKey: ["settings", "connector-accounts"] }); void cache.invalidateQueries({ queryKey: ["storage-connections"] }); }} /> : null}
+          {nativeId ? nativeConfig(nativeId) : null}
           {target?.kind === "service" && mcp.builtInExtensionDisabled?.(target.entry) ? <p className="text-sm text-muted-foreground">{t("mcp.builtins_blocked")}</p> : null}
           {extensionConfig}
           {target?.kind === "service" && target.entry.setupNote ? <p className="text-sm leading-6 text-muted-foreground">{target.entry.setupNote}</p> : null}
@@ -266,7 +288,7 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
           {target?.kind === "research" ? <div className="space-y-4"><p className="text-sm leading-6 text-muted-foreground">{t(target.provider ? "catalog.research_description" : "catalog.website_description")}</p><Button variant="link" className="px-0" onClick={() => { const url = target.provider?.researchUrl ?? target.connection?.websites[0]?.url; if (url) void platform.openLink(url); }}>{t("catalog.website")}<ArrowUpRight className="size-3.5" /></Button>{target.connection ? <Button className="ml-3" variant="outline" disabled={!client?.canApprove} onClick={() => setResearchEditor({ provider: target.provider, ...(target.provider ? {} : { template: target.connection }) })}><Plus className="size-4" />{t("catalog.add_another")}</Button> : null}</div> : null}
           {target?.kind === "storage" && target.connection && client && workspaceId ? <div className="space-y-4">{target.connection.team ? <p className="text-sm text-muted-foreground">{t(target.connection.teamInstallation === "optional" ? "integrations.team_optional" : "integrations.team_managed")}</p> : null}<p className="text-sm text-muted-foreground">{t(target.connection.readOnly ? "storage.read_only" : "storage.read_write")} · {t(target.connection.enabled ? "storage.enabled" : "storage.paused")}</p>{target.connection.config.kind === "oauth" && !target.connection.config.accountId ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={target.connection.id} revision={target.connection.updatedAt} onChanged={refresh} /> : null}{target.connection.team?.installed !== undefined && target.connection.teamInstallation === "optional" ? <Button variant="outline" onClick={() => { if (target.connection) void client.setTeamStorageInstalled(workspaceId, target.connection.id, !target.connection.team?.installed).then(refresh).catch(error => toast.error(error.message)); }}>{t(target.connection.team.installed ? "storage.remove_local" : "storage.install")}</Button> : null}{!target.connection.team ? <><Button variant="outline" disabled={storageForbidden} onClick={() => void openStorage({ kind: target.storageKind, provider: target.provider, ...(target.connection?.config.kind === "oauth" && target.connection.config.accountId ? { account: target.connection } : {}) })}><Plus className="size-4" />{t("catalog.add_another")}</Button>{target.provider && storage.data?.team?.canManage ? <Button variant="ghost" onClick={() => setSharing(target.connection ?? null)}>{t("storage.share_team")}</Button> : null}</> : null}</div> : null}
           {nativeId && connectorDefinitions.some(value => value.id === nativeId && value.kind === "files") && storage.data?.connections.some(value => value.id.startsWith(`connector:${nativeId}:`)) ? <Button variant="outline" disabled={storageForbidden} onClick={() => { const account = storage.data?.connections.find(value => value.id.startsWith(`connector:${nativeId}:`)); const definition = connectorDefinitions.find(value => value.id === nativeId); if (account && definition) void openStorage({ kind: "oauth", account, provider: cloudProvider(definition) }); }}><FolderOpen className="size-4" />{t("storage.add_folder_view")}</Button> : null}
-          {target?.kind === "team" && client ? <FirmConnectorRow inline item={target.item} client={client} statuses={mcp.mcpStatuses} busy={props.busy} onChanged={refresh} onSignIn={(name, url) => { const entry = mcp.mcpServers.find(value => value.name === name); if (entry) mcp.authorizeMcp(entry); else void mcp.connectMcp({ name, serverName: name, description: target.item.description, type: "remote", url, oauth: true }); }} /> : null}
+          {target?.kind === "team" ? teamConfig(target.item) : null}
           {related.length ? <section className="space-y-3 border-t border-border/60 pt-6"><h2 className="text-sm font-medium">{t("catalog.your_connections")}</h2>{related.map(row)}</section> : null}
         </article> : selectedId ? <p role="status" className="text-sm text-muted-foreground">{t(loading ? "common.loading" : "catalog.not_found")}</p> : <>
           <nav aria-label={t("catalog.categories")} className="flex flex-wrap gap-2"><Button size="sm" variant={category === null ? "secondary" : "ghost"} className="rounded-full" onClick={() => setCategory(null)}>{t("catalog.all")}</Button>{connectorCategories.map(value => <Button key={value} size="sm" variant={category === value ? "secondary" : "ghost"} className="rounded-full" onClick={() => setCategory(value)}>{categoryLabel(value)}</Button>)}</nav>
@@ -276,6 +298,9 @@ export function ConnectorBrowser(props: ExtensionsViewProps) {
         </>}
       </div>
     </main>
+    {quickSetup ? <Dialog open onOpenChange={open => { if (!open) setQuickSetupId(null); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{t("research.connect_title", { name: quickSetup.name })}</DialogTitle><DialogDescription>{quickSetup.description}</DialogDescription></DialogHeader>
+      {quickSetup.target.kind === "native" ? nativeConfig(quickSetup.target.id) : quickSetup.target.kind === "service" && !disabled(quickSetup) ? mcp.configSlotForEntry?.(quickSetup.target.entry) : quickSetup.target.kind === "team" ? teamConfig(quickSetup.target.item) : null}
+    </DialogContent></Dialog> : null}
     {storageEditor && client && workspaceId ? <StorageConnectionDialog {...storageEditor} client={client} workspaceId={workspaceId} onClose={() => setStorageEditor(null)} onSaved={refresh} /> : null}
     {researchEditor && client && workspaceId ? <ResearchConnectionDialog {...researchEditor} client={client} workspaceId={workspaceId} onClose={() => setResearchEditor(null)} onSaved={refresh} /> : null}
     {sharing && client && workspaceId ? <ShareCloudStorageDialog client={client} workspaceId={workspaceId} connection={sharing} onClose={() => setSharing(null)} onSaved={refresh} /> : null}
