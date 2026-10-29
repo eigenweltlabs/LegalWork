@@ -13,7 +13,7 @@ import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { AssistantHistory } from "./assistant-history";
 import { assistantBubbleMessages, assistantIsWriting } from "./assistant-bubbles";
-import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
+import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
@@ -966,11 +966,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
       message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
   const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
   const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
-  const displayedMessages = useMemo(() => props.assistantDate
-    ? mergeAssistantOutgoingMessages(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), outgoingMessages, outgoingScope, sharedQueue.state)
-    : renderedMessages, [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
+  const displayedMessages = useMemo(() => mergeAssistantOutgoingMessages(
+    props.assistantDate ? assistantBubbleMessages(renderedMessages, snapshot, chatStreaming) : renderedMessages,
+    outgoingMessages, outgoingScope, sharedQueue.state,
+  ), [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
   useEffect(() => {
     const confirmed = new Set(renderedMessages.map(message => message.id));
+    rememberAcceptedSteeringMessages(outgoingScope, sharedQueue.state, confirmed);
     for (const entry of outgoingMessages) {
       if (entry.scope === outgoingScope && (confirmed.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, sharedQueue.state))) removeAssistantOutgoingMessage(entry.queueId);
     }
@@ -1198,6 +1200,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleQueue = () => queueDraft(draft.trim());
   const handleSend = handleQueue;
   const removeQueuedDraft = (id: string) => { void sharedQueue.remove(id).then(() => removeAssistantOutgoingMessage(id)).catch(queueFailure); };
+  const steerQueuedDraft = async (id: string) => { await sharedQueue.steer(id).catch(queueFailure); };
   const editQueuedDraft = (id: string) => { void sharedQueue.edit(id).then(() => window.dispatchEvent(new Event("legalwork:focusPrompt"))).catch(queueFailure); };
   const cancelQueuedEdit = () => { void sharedQueue.cancelEdit().then(clearComposer).catch(queueFailure); };
   const reorderQueuedDrafts = async (ids: string[]) => { await sharedQueue.reorder(ids).catch(queueFailure); };
@@ -2219,7 +2222,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onToggleRealtimeVoice={() => props.onRealtimeVoiceActiveChange?.(!props.realtimeVoiceActive)}
           onUploadInboxFiles={props.onUploadInboxFiles ?? handleUploadInboxFiles}
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
-            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
+            <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onSteer={steerQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
           compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || composerQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={

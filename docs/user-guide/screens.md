@@ -10,6 +10,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Your legal research | Choose your country and set up database accounts in the existing secure login card | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
 | Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |
@@ -21,8 +22,8 @@ Use this map when you know what you want to do but not where to start. The assis
 | Workflows | Maintain reusable instructions and templates and review prompt sets | [Workflows](skills-workflows.md) |
 | Project Tabular Review | Ask the same questions across documents and inspect cited answers | [Tabular Review](reviews.md) |
 | Project Dashboards and dashboard files | Save previews, copy to projects or wikis, rename, export and reopen dashboards | [Dashboards](dashboards.md) |
-| Wiki | Maintain reusable firm knowledge with pages, links, properties and a graph | [Wiki](wiki.md) |
-| Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; review research drafts before saving | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
+| Wiki, Settings > Agent access, source file tabs | Maintain reusable knowledge; control agent approval; open source documents in separate viewer tabs | [Wiki](wiki.md) |
+| Wiki: Legal Research / Rechtliche Recherche, starter picker, area and jurisdiction indexes | Create a research wiki automatically or through Add wiki; automatically prepare legal findings and sources; review drafts or allow background filing | [Legal research knowledge base](wiki.md#your-legal-research-knowledge-base) |
 | Recorder / Recordings | Capture audio, import recordings and inspect transcripts | [Audio](audio.md) |
 | Evaluations | Compare model performance against benchmark tasks and judging criteria | [Evaluations](evaluations.md) |
 

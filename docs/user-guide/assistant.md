@@ -43,6 +43,9 @@ When the Assistant is idle, your message appears in the chat as soon as you pres
 background. While it is busy, new messages stay in the editable queue above the
 composer until their turn starts; they do not also appear as sent bubbles. If sending
 fails, your draft stays available and the chat shows the delivery error.
+Choose **Steer** beside a queued message to have it considered at the next model
+step without stopping the current work. Other messages and the queue's pause
+state stay unchanged. See [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message).
 
 Use the microphone button beside **Send** to dictate a message. Stop dictation
 to review the text, or use its **Send** button to send it directly.

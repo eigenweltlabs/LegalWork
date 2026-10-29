@@ -25,6 +25,8 @@ export type QueuedComposerDraft = ComposerDraft & {
   status?: "queued" | "sending" | "accepted" | "failed" | "uncertain";
   error?: string;
   locked?: boolean;
+  canSteer?: boolean;
+  steering?: boolean;
   editor: ComposerSessionState;
 };
 
