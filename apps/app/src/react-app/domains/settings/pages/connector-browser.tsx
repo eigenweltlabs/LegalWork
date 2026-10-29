@@ -54,7 +54,14 @@ type Target =
 type Item = { id: string; name: string; description: string; category: ConnectorCategory; popular?: boolean; icon: ReactNode; target: Target; installed: boolean; status?: ConnectorState; team?: boolean };
 type StorageEditor = { kind: StorageKind; provider?: StorageOAuthProvider; connection?: StorageConnection; account?: StorageConnection };
 const cloudProvider = (provider: { id: string; name: string }): StorageOAuthProvider => ({ ...provider, rootHint: t(provider.id === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") });
-const categoryLabel = (category: ConnectorCategory) => t(`catalog.category_${category}`);
+const categoryLabel = (category: ConnectorCategory) => ({
+  popular: t("catalog.category_popular"),
+  communication: t("catalog.category_communication"),
+  files: t("catalog.category_files"),
+  legal: t("catalog.category_legal"),
+  practice: t("catalog.category_practice"),
+  productivity: t("catalog.category_productivity"),
+})[category];
 
 type ConnectionMethod = "skill" | "mcp" | "api" | "website_automation";
 function connectionMethods(target: Target): ConnectionMethod[] {
@@ -72,8 +79,14 @@ function connectionMethods(target: Target): ConnectionMethod[] {
 }
 function ConnectionTags({ target, count, showEmpty = false }: { target: Target; count: number; showEmpty?: boolean }) {
   const methods = connectionMethods(target);
+  const methodLabels: Record<ConnectionMethod, string> = {
+    skill: t("catalog.method_skill"),
+    mcp: t("catalog.method_mcp"),
+    api: t("catalog.method_api"),
+    website_automation: t("catalog.method_website_automation"),
+  };
   return <span className="mt-2 flex flex-wrap items-center gap-2">
-    {methods.length ? <span role="group" aria-label={t("catalog.how_it_works")} className="flex flex-wrap gap-1.5">{methods.map(method => <span key={method} className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-normal leading-4 text-muted-foreground">{t(`catalog.method_${method}`)}</span>)}</span> : null}
+    {methods.length ? <span role="group" aria-label={t("catalog.how_it_works")} className="flex flex-wrap gap-1.5">{methods.map(method => <span key={method} className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-normal leading-4 text-muted-foreground">{methodLabels[method]}</span>)}</span> : null}
     {count > 0 ? <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground/75"><Check className="size-3" />{t("catalog.connection_count", { count })}</span> : showEmpty ? <span className="text-xs text-muted-foreground">{t("catalog.none_added")}</span> : null}
   </span>;
 }
