@@ -1779,7 +1779,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     syncWiki: (id: string) => requestJson<WikiSyncStatus>(baseUrl, `/wikis/${encodeURIComponent(id)}/sync`, { token, hostToken, method: "POST", timeoutMs: 300_000 }),
     searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
-      requestJson<{ ok: boolean; version: string; uptimeMs: number }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+      requestJson<{ ok: boolean; version: string; uptimeMs: number; engine?: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
