@@ -28,6 +28,8 @@ In a writable folder, upload or drop files and create folders using the availabl
 
 Google Drive files and folders can be renamed in My Drive and shared drives when your account has permission. A rename keeps the same file or folder and its contents; it does not create a copy. LegalWork checks for intervening changes and refuses an existing destination. If a conflict is reported, refresh the parent folder and review its current contents before trying again.
 
+Cloud file locations in search results, tooltips, and rename or delete dialogs show readable folder names. Before confirming a deletion, check both the connection name and the folder path. LegalWork keeps the provider's file identity internally so duplicate names still refer to the exact item you selected.
+
 ## Edit and save back
 
 Opening a connected file downloads a working copy into the selected workspace. Editor and agent saves update that copy. **Save…** provides **Save to [connection]** to publish back and **Save local copy…** to keep a separate workspace file. A read-only source can still be used for a local edited copy if workspace writing is allowed.
