@@ -34,6 +34,6 @@ If another person changes the source, a save can report a conflict. Keep your lo
 
 ## Team storage
 
-Connections shared by your firm appear alongside your other connections and are marked **Team** on their detail page. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
+Connections shared by your firm appear alongside your other connections and are marked **Firm managed** on their detail page. Personal connections are marked **My own**. The detail page shows status, ownership and access together, with **File Storage Integration** identifying the connection type. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
 
 Related: [Files](files-documents.md), [Integrations and LegalMemory](integrations.md), [Permissions](settings-privacy.md).

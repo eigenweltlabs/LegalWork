@@ -228,3 +228,5 @@ load the resources when doing the work.
 Under project access, choose all projects, no projects, only selected projects,
 or all except selected projects. These restrictions also apply to delegated
 and scheduled Assistant work. Use **AI Providers** to configure its models.
+
+The conversation shows date dividers only for days with visible messages, shared files or setup content. Empty days and days containing only background activity are skipped. Today’s divider appears once today has content.
