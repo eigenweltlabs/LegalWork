@@ -21,7 +21,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat } from "./assistant-navigation";
+import { resolveAssistantChat, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -586,6 +586,14 @@ export function SessionRoute() {
     queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
+  const savedAssistant = useQuery({
+    queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
+    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantProfile(); },
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (client && savedAssistant.data) seedSavedAssistant(getReactQueryClient(), client.baseUrl, savedAssistant.data);
+  }, [client, savedAssistant.data]);
   const interactionKey = useMemo(() => interactionSessionsKey(selectedWorkspaceId), [selectedWorkspaceId]);
   const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
   const selectedSessionInfo = selectedSessionId ? interactionSessions[selectedSessionId]
@@ -639,9 +647,9 @@ export function SessionRoute() {
   }, [assistant.data, assistantActive, selectedSessionId, navigate, setWorkspaces]);
   const openAssistant = useCallback(async () => {
     if (!client) return;
-    if (!assistantIncluded) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
+    if (!assistantIncluded && !assistant.data) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
-      const current = await resolveAssistantChat(client, getReactQueryClient());
+      const current = assistant.data ?? await resolveAssistantChat(client, getReactQueryClient());
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       const panels = usePanelTabStore.getState();
       panels.setAssistantWorkspace(current.workspace.id);
@@ -649,7 +657,7 @@ export function SessionRoute() {
       setWorkspaces(previous => previous.some(item => item.id === current.workspace.id) ? previous : [...previous, { ...current.workspace, displayNameResolved: current.profile.name ?? t("assistant.title") }]);
       navigate(workspaceSessionRoute(current.workspace.id, current.day.sessionId));
     } catch (error) { toast.error(error instanceof Error ? error.message : t("assistant.unavailable")); }
-  }, [client, assistantIncluded, navigate, setWorkspaces]);
+  }, [client, assistantIncluded, assistant.data, navigate, setWorkspaces]);
   useEffect(() => {
     if (!assistantIncluded || assistantUpgrade === "closed") return;
     setAssistantUpgrade("closed");
@@ -2961,7 +2969,7 @@ export function SessionRoute() {
         assistantWorkspaceId: assistant.data?.workspace.id,
         assistantDay: assistant.data?.day,
         onSaveAssistantProfile: saveAssistantProfile,
-        assistantDisabled: !client || (eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
+        assistantDisabled: !client || (!assistant.data && eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
         onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),

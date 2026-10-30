@@ -19,6 +19,11 @@ Open **Assistant** in the sidebar to coordinate work across your projects. On
 first use, choose a name and appearance. Each calendar day has its own chat;
 earlier conversations remain available in Assistant history.
 
+After reopening the app, your saved Assistant conversation loads while account
+and model updates continue in the background. If a new day has started, the app
+shows your previous conversation until today's chat is ready. Sending a message
+still checks your current access and uses today's chat.
+
 The Assistant receives your name, email address and organization from your
 signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
