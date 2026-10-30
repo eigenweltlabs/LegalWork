@@ -6,6 +6,8 @@ import { createIntegrationMention, parseIntegrationMention, type IntegrationSele
 import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
 import { encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 import { installedConnections } from "../src/react-app/domains/session/surface/composer/installed-connections";
+import { integrationMessageMetadata, splitIntegrationMessage } from "../src/react-app/domains/session/surface/composer/integration-message";
+import { nativePrompt, systemReminderPart } from "../src/app/lib/system-reminder";
 
 const kinds: IntegrationSelection["kind"][] = ["mcp", "account", "storage", "website"];
 for (const kind of kinds) test(`${kind} chip preserves identity through draft restoration, sending and durable queue editing`, () => {
@@ -17,10 +19,25 @@ for (const kind of kinds) test(`${kind} chip preserves identity through draft re
   expect(draft.resolvedText).toBe(`Please use @${selection.label} for this request`);
   expect(draft.modelContext).toContain(JSON.stringify(selection));
   expect(draft.modelContext).not.toContain("legalwork-integration://");
+  expect(draft.parts).toEqual([{ type: "text", text: draft.resolvedText }]);
   const stored = queuedDraftSchema.parse({ ...draft, editor: { mentions: { [value]: "integration" }, pasteParts: [] } });
+  const sent = nativePrompt({ sessionID: "chat", parts: [{ type: "text", text: draft.resolvedText ?? "" }, systemReminderPart(draft.modelContext ?? "")], draft: stored });
+  expect(sent.metadata.legalworkPrompt.visibleText).toBe(draft.resolvedText);
+  expect(integrationMessageMetadata(sent.metadata.legalworkPrompt).integrations).toEqual([selection]);
   expect(buildComposerDraft(stored.text, [], stored.editor.mentions, []).modelContext).toBe(draft.modelContext);
   expect(buildComposerDraft(`/review @${encodeComposerMentionValue(value)}`, [], {}, []).command).toBeUndefined();
   expect(buildComposerDraft("/review file", [], { [value]: "integration" }, []).command?.name).toBe("review");
+});
+
+test("integration chips keep inline spacing and deliberate line breaks without styling unrelated @text", () => {
+  const reference: IntegrationSelection = { kind: "website", id: "beck", label: "beck-online" };
+  expect(splitIntegrationMessage("@beck-online open", [reference])).toEqual(["", reference, " open"]);
+  expect(splitIntegrationMessage("@beck-online\n\nNeue Zeile", [reference])).toEqual(["", reference, "\n\nNeue Zeile"]);
+  expect(splitIntegrationMessage("@beck-online-extra and email@beck-online", [reference])).toEqual(["@beck-online-extra and email@beck-online"]);
+  expect(splitIntegrationMessage("@beck-online open", [])).toEqual(["@beck-online open"]);
+  const legacy = integrationMessageMetadata({ reminders: [systemReminderPart(buildComposerDraft(`@${encodeComposerMentionValue(createIntegrationMention(reference))}`, [], {}, []).modelContext ?? "").text] });
+  expect(legacy).toEqual({ integrations: [reference], legacyIntegrationSpacing: true });
+  expect(splitIntegrationMessage("Use \n@beck-online\n open", legacy.integrations, legacy.legacyIntegrationSpacing)).toEqual(["Use ", reference, " open"]);
 });
 
 test("invalid integration references cannot become hidden instructions", () => {

@@ -105,9 +105,17 @@ export function buildComposerDraft(
     );
   }
   const slashCommand = (parts.some(part => part.type === "plugin") || hasIntegrationSelection) ? null : parseSlashCommandInvocation(resolved);
+  // Inline references are text fragments, not separate paragraphs. Keep their
+  // original whitespace when the native transport joins prompt text parts.
+  const mergedParts: ComposerPart[] = [];
+  for (const part of parts) {
+    const previous = mergedParts.at(-1);
+    if (previous?.type === "text" && part.type === "text") previous.text += part.text;
+    else mergedParts.push(part);
+  }
   return {
     mode: "prompt",
-    parts,
+    parts: mergedParts,
     attachments: nextAttachments,
     text,
     resolvedText: resolved,

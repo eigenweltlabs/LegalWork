@@ -1708,7 +1708,7 @@ export function SessionRoute() {
             const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
             parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
           }
-          await enqueue(queuedNativePrompt({sessionID:targetSessionId,parts,model:sendModel,agent:selectedAgent ?? undefined,variant:sendVariant ?? undefined}));
+          await enqueue(queuedNativePrompt({sessionID:targetSessionId,parts,draft:options.queue.draft,model:sendModel,agent:selectedAgent ?? undefined,variant:sendVariant ?? undefined}));
           return;
         }
         if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
