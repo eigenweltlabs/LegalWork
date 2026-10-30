@@ -10,7 +10,7 @@ afterEach(() => {
   if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token;
 });
 const saved = { id: "218d2173-2e4b-4ef2-98e6-52e0367d1d7b", label: "Portal", username: "lawyer" };
-async function fixture(expectedOrigin = "https://www.courtlistener.com") {
+async function fixture(expectedOrigin = "https://www.courtlistener.com", onFormCreated?: () => void) {
   const runtime = nativePluginTestRuntime("/fixture/matter"), calls: Array<{ path: string; body: unknown }> = [];
   let passwords: typeof saved[] = [], website = "https://www.example.org", form: FormDetail | undefined, cancelled = 0, connectionChanged = false;
   let connections: Array<{ id: string; label: string; origin: string; websites: Array<{ name: string; url: string }> }> = [];
@@ -37,13 +37,14 @@ async function fixture(expectedOrigin = "https://www.courtlistener.com") {
     }
     if (path === "/workspace/matter/opencode/api/session/chat/form" && request.method === "POST") {
       expect(request.headers.get("authorization")).toBe("Bearer fixture-only");
-      const data = z.object({ title: z.string(), metadata: z.record(z.string(), z.json()), fields: z.array(z.json()) }).parse(body);
-      form = { id: "form_fixture", sessionID: "chat", title: data.title, metadata: data.metadata,
+      const data = z.object({ id: z.string().optional(), title: z.string(), metadata: z.record(z.string(), z.json()), fields: z.array(z.json()) }).parse(body);
+      form = { id: data.id ?? "form_fixture", sessionID: "chat", title: data.title, metadata: data.metadata,
         fields: [{ key: "password_id", type: "string", hidden: true }, { key: "cancelled", type: "boolean", hidden: true, default: false }], state: { status: "pending" } };
       expect(data.fields).toEqual(form.fields);
+      onFormCreated?.();
       return Response.json({ data: form });
     }
-    if (path === "/workspace/matter/opencode/api/session/chat/form/form_fixture" && form) {
+    if (form && path === `/workspace/matter/opencode/api/session/chat/form/${form.id}`) {
       if (request.method === "DELETE") { cancelled++; form = { ...form, state: { status: "cancelled" } }; return new Response(null, { status: 204 }); }
       return Response.json({ data: form });
     }
@@ -194,6 +195,17 @@ test("Stop cancels the pending native card instead of leaving an orphaned reques
     controller.abort(new Error("Stopped"));
     await expect(pending).rejects.toThrow();
     expect(f.cancelled).toBe(1);
+  } finally { await f.close(); }
+});
+
+test("Stop during form creation cancels the card even before its response reaches the caller", async () => {
+  const controller = new AbortController();
+  const f = await fixture(undefined, () => controller.abort(new Error("Stopped during creation")));
+  try {
+    await expect(f.tool.execute(f.input, nativeTestInvocation("chat", controller.signal))).rejects.toThrow();
+    expect(f.form).toBeDefined();
+    expect(f.cancelled).toBe(1);
+    expect(f.form?.state.status).toBe("cancelled");
   } finally { await f.close(); }
 });
 
