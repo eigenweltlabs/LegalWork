@@ -154,6 +154,8 @@ async function applyElectronUpdaterFeed(app, updater) {
 // redirect. Outages and stale manifests retry the SAME release on GitHub.
 export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFeed = resolveReleaseFeed, analyticsEnabled = false } = {}) {
   const channelState = await applyElectronUpdaterFeed(app, updater);
+  // The updater keeps its installation ID for gradual rollouts, including
+  // when analytics is off. This flag controls website analytics capture only.
   updater.requestHeaders = {
     ...updater.requestHeaders,
     "x-legalwork-analytics": analyticsEnabled === true ? "1" : "0",

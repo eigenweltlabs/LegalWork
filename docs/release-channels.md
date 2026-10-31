@@ -23,12 +23,20 @@ app retries the same selected release directly on GitHub. The answering feed
 remains applied for downloads. Deploy the website route before releasing this
 client; older websites safely trigger the direct GitHub fallback.
 
-When usage analytics is enabled, the website records update checks and downloads
-under a SHA-256 hash of electron-updater's persistent `.updaterId`. It does not
+For gradual updates, electron-updater creates a random installation ID on the
+first update check, stores it locally as `.updaterId`, and reuses it to keep an
+installation in a consistent rollout group. The updater includes this ID as
+`x-user-staging-id` in update-check requests, including when usage analytics is
+disabled. This existing update behavior is unchanged.
+
+When usage analytics is enabled, the website additionally records update checks
+and downloads under a SHA-256 hash of that installation ID. It does not
 send the raw installation ID to PostHog or link this ID to an account or the
 app's per-launch event identity. The app forwards its current analytics choice
 on checks and downloads; pending, disabled, and firm-disabled analytics suppress
 website capture. Legacy requests without that choice retain request-only IDs.
+The app adds the ID to installer-download requests only when usage analytics is
+enabled; update-check requests continue to carry the updater's rollout ID.
 
 Automatic checks run at startup and at most hourly while the main app is visible,
 including a due check after focus/resume. They honor automatic-update settings
