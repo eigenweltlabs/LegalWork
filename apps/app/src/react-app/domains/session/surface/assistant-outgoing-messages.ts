@@ -83,9 +83,9 @@ export function isLocalOutgoingMessage(message: UIMessage) {
   return Boolean(message.metadata && typeof message.metadata === "object" && "localOutgoing" in message.metadata && message.metadata.localOutgoing === true);
 }
 
-/** Only an idle chat with an empty, running queue can preview an immediate send. */
-export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean) {
-  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing);
+/** Any idle chat can preview an ordinary prompt with a durable message ID. */
+export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean, draft: Pick<ComposerDraft, "mode" | "command">) {
+  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing && draft.mode === "prompt" && !draft.command);
 }
 
 /** The server can discover work that the submitting window has not seen yet. */

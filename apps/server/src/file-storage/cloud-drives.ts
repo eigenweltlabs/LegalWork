@@ -64,12 +64,6 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
       parent = await tree.writeParent(parent);
       await request(`/drive/v3/files?supportsAllDrives=true&fields=id`, { method: "POST", body: { name, mimeType: googleFolder, parents: [parent.id] } });
     },
-    async rename(item, parent, name) {
-      parent = await tree.writeParent(parent);
-      const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
-      if (!item.parents.includes(parent.id)) { query.set("addParents", parent.id); query.set("removeParents", item.parents.join(",")); }
-      await request(`/drive/v3/files/${encodeURIComponent(item.id)}?${query}`, { method: "PATCH", body: { name }, headers: { "If-Match": item.version } });
-    },
     async remove(item, version) {
       await request(`/drive/v3/files/${encodeURIComponent(item.id)}?supportsAllDrives=true`, { method: "PATCH", body: { trashed: true }, headers: { "If-Match": version ?? item.version } });
     },

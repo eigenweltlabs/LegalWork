@@ -10,7 +10,7 @@ Workspace settings include authorized folders. Global settings include model pro
 
 **Projects** and **Project Home** provide matter details, linked folders and separate pages for files, chats, tasks, calendar, reviews and dashboards. See [Projects and sharing](projects-sharing.md). Sharing a project through the firm is different from the remote-worker connection described below.
 
-Folder/workspace menus provide the actions available in this context, including renaming and opening another window. Removing a workspace connection is different from deleting files; read the confirmation for the specific action. A workspace export is not a backup of every cloud account, secret or remote source.
+Project menus provide the actions available in this context, including renaming and opening another window. Choose **Remove project** and confirm to take a project out of the sidebar. Its saved chats and files on disk remain preserved. A workspace export is not a backup of every cloud account, secret or remote source.
 
 ## Conversations
 
@@ -19,6 +19,8 @@ In a project, **New Chat** starts a conversation in that project. From the Perso
 The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them. Stopping also cancels document requests that are still waiting to run. An edit already applied may finish saving; Stop does not undo that edit.
 
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
+
+In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
 
 ### Steer with a queued message
 

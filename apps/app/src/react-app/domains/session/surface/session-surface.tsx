@@ -1169,13 +1169,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const editor = useComposerStateStore.getState().sessions[props.sessionId];
     let outgoingId: string | undefined;
     try {
-      if (props.assistantDate) {
-        const localDraft = buildDraft(text, attachments);
-        outgoingId = sharedQueue.reserve(localDraft, editor);
-        if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope))) {
-          addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
-          sessionScroll.scrollToBottom("auto");
-        }
+      const localDraft = buildDraft(text, attachments);
+      outgoingId = sharedQueue.reserve(localDraft, editor);
+      if (canPreviewAssistantSend(sharedQueue.state, chatStreaming, Boolean(editor?.queuedDraftId), outgoingMessages.some(item => item.scope === outgoingScope), localDraft)) {
+        addAssistantOutgoingMessage(outgoingScope, outgoingId, localDraft);
+        sessionScroll.scrollToBottom("auto");
       }
       const prepared = await prepareProjectAttachments(text, attachments);
       await sharedQueue.enqueue(prepared.draft, async queue => { await props.onSendDraft(prepared.draft, props.sessionId, { queue }); }, { ...editor, mentions: prepared.mentions }, outgoingId);

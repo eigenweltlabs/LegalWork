@@ -203,6 +203,7 @@ import {
 import { AssistantIntroDialog } from "./assistant-intro";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
+import { removeProjectFromSidebar } from "./project-removal";
 import {
   forgetWorkspaceMemory,
   readActiveWorkspaceId,
@@ -1945,9 +1946,6 @@ export function SessionRoute() {
   // wins the merge.
   const forgetWorkspaceHere = useCallback(
     async (workspaceId: string) => {
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId);
-      }
       if (selectedWorkspaceId === workspaceId) {
         setLegacySelectedWorkspaceId("");
         writeActiveWorkspaceId(null);
@@ -1955,6 +1953,9 @@ export function SessionRoute() {
       }
       forgetWorkspaceMemory(workspaceId);
       sessionManagementStore.getState().forgetWorkspace(workspaceId);
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId);
+      }
     },
     [navigate, selectedWorkspaceId],
   );
@@ -1964,22 +1965,20 @@ export function SessionRoute() {
       if (typeof window !== "undefined") {
         const message =
           t("workspace_list.remove_confirm") ||
-          "Remove this workspace from the sidebar?";
+          "Remove this project from the sidebar?";
         if (!window.confirm(message)) return;
       }
       try {
         if (!client) throw new Error(t("session_route.create_server_unavailable"));
-        await client.deleteWorkspace(workspaceId).catch(error => {
-          if (!(error instanceof LegalworkServerError && error.status === 404 && error.code === "workspace_not_found")) throw error;
-        });
-
-        await forgetWorkspaceHere(workspaceId);
-        await refreshRouteState();
+        await removeProjectFromSidebar(client, workspaceId, () => {
+          workspacesRef.current = workspacesRef.current.filter(workspace => workspace.id !== workspaceId);
+          setWorkspaces(workspacesRef.current);
+        }, () => forgetWorkspaceHere(workspaceId), refreshRouteState);
       } catch (error) {
         toast.error(t("workspace.remove_failed"), { description: describeRouteError(error) });
       }
     },
-    [client, workspaces, forgetWorkspaceHere, refreshRouteState],
+    [client, workspacesRef, setWorkspaces, forgetWorkspaceHere, refreshRouteState],
   );
 
 
