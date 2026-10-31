@@ -112,6 +112,23 @@ export function isVersionNewer(candidate, current) {
   return comparison !== null && comparison > 0;
 }
 
+// electron-updater adds its UUID to manifest requests only. Reuse the ID it
+// persisted during the check for installer requests, without minting another.
+export async function updaterDownloadHeaders(app, currentHeaders, analyticsEnabled) {
+  const headers = { ...currentHeaders, "x-legalwork-analytics": analyticsEnabled === true ? "1" : "0" };
+  delete headers["x-user-staging-id"];
+  if (analyticsEnabled !== true) return headers;
+  try {
+    const id = await readFile(path.join(app.getPath("userData"), ".updaterId"), "utf8");
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      headers["x-user-staging-id"] = id;
+    }
+  } catch {
+    // Missing identity or inaccessible storage must never block an update.
+  }
+  return headers;
+}
+
 function updaterChannelState(app, channel) {
   const normalized = normalizeElectronUpdaterChannel(channel);
   return {
@@ -504,6 +521,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // Clear any stuck ShipIt state from a prior aborted install so this
       // download applies cleanly on quit.
       await cleanStaleUpdaterState(app);
+      updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, analyticsEnabled);
       await downloadUpdateReady(updater, nativeMacUpdater);
       updateReady = true;
       updater.autoInstallOnAppQuit = true;
@@ -529,6 +547,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
+        updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, analyticsEnabled);
         await downloadUpdateReady(updater, nativeMacUpdater);
         updateReady = true;
         updater.autoInstallOnAppQuit = true;

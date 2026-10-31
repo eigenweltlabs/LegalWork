@@ -15,6 +15,7 @@ import {
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
   downloadUpdateReady,
+  updaterDownloadHeaders,
 } from "./updater.mjs";
 
 const checkForUpdatesWithFeedFallback = (app, updater) => checkUpdates(app, updater, { resolveFeed: async () => { throw new Error("Simulated API outage"); } });
@@ -50,6 +51,16 @@ it("the real updater sends its persistent installation UUID and current analytic
       const { channelState, result } = await checkUpdates(app, updater, { resolveFeed: async () => selected, analyticsEnabled });
       assert.equal(channelState.feedFallback, false);
       assert.equal(result.updateInfo.version, "4.0.0");
+      // Cached downloads do not inherit the provider's staging header. Use
+      // the same persisted ID and the CURRENT choice, including a later opt-out.
+      updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, true);
+      const downloadHeaders = updater.computeRequestHeaders(updater.updateInfoAndProvider.provider);
+      assert.equal(downloadHeaders["x-user-staging-id"], await readFile(path.join(root, ".updaterId"), "utf8"));
+      assert.equal(downloadHeaders["x-legalwork-analytics"], "1");
+      updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, false);
+      const optedOutHeaders = updater.computeRequestHeaders(updater.updateInfoAndProvider.provider);
+      assert.equal(optedOutHeaders["x-user-staging-id"], undefined);
+      assert.equal(optedOutHeaders["x-legalwork-analytics"], "0");
     }
     const persisted = await readFile(path.join(root, ".updaterId"), "utf8");
     assert.equal(requests.length, 3);
@@ -59,6 +70,20 @@ it("the real updater sends its persistent installation UUID and current analytic
       assert.equal(req.headers["x-user-staging-id"], persisted);
     }
     assert.deepEqual(requests.map((req) => req.headers["x-legalwork-analytics"]), ["1", "1", "0"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("missing or corrupt updater identities never block downloads or create a new tracking ID", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-missing-updater-id-"));
+  try {
+    const app = { getPath: () => root };
+    const currentHeaders = { existing: "retained" };
+    assert.deepEqual(await updaterDownloadHeaders(app, currentHeaders, true), { existing: "retained", "x-legalwork-analytics": "1" });
+    await assert.rejects(readFile(path.join(root, ".updaterId")), { code: "ENOENT" });
+    await writeFile(path.join(root, ".updaterId"), "not-an-installation-uuid");
+    assert.deepEqual(await updaterDownloadHeaders(app, currentHeaders, true), { existing: "retained", "x-legalwork-analytics": "1" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
