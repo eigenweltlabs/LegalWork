@@ -112,6 +112,23 @@ export function isVersionNewer(candidate, current) {
   return comparison !== null && comparison > 0;
 }
 
+// electron-updater adds its UUID to manifest requests only. Reuse the ID it
+// persisted during the check for installer requests, without minting another.
+export async function updaterDownloadHeaders(app, currentHeaders, analyticsEnabled) {
+  const headers = { ...currentHeaders, "x-legalwork-analytics": analyticsEnabled === true ? "1" : "0" };
+  delete headers["x-user-staging-id"];
+  if (analyticsEnabled !== true) return headers;
+  try {
+    const id = await readFile(path.join(app.getPath("userData"), ".updaterId"), "utf8");
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      headers["x-user-staging-id"] = id;
+    }
+  } catch {
+    // Missing identity or inaccessible storage must never block an update.
+  }
+  return headers;
+}
+
 function updaterChannelState(app, channel) {
   const normalized = normalizeElectronUpdaterChannel(channel);
   return {
@@ -133,10 +150,18 @@ async function applyElectronUpdaterFeed(app, updater) {
   return state;
 }
 
-// Resolve labels and versions first, then pin both the manifest and installer
-// to that release. The website's Latest redirect remains an outage fallback.
-export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFeed = resolveReleaseFeed } = {}) {
+// Resolve channel eligibility first, then check the website's exact-release
+// redirect. Outages and stale manifests retry the SAME release on GitHub.
+export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFeed = resolveReleaseFeed, analyticsEnabled = false } = {}) {
   const channelState = await applyElectronUpdaterFeed(app, updater);
+  // The updater keeps its installation ID for gradual rollouts, including
+  // when analytics is off. This flag controls website analytics capture only.
+  updater.requestHeaders = {
+    ...updater.requestHeaders,
+    "x-legalwork-analytics": analyticsEnabled === true ? "1" : "0",
+    "x-legalwork-update-channel": channelState.channel,
+    "x-legalwork-version": resolveAppVersion(app),
+  };
   let selected;
   try {
     selected = await resolveFeed(channelState.channel);
@@ -148,18 +173,24 @@ export async function checkForUpdatesWithFeedFallback(app, updater, { resolveFee
   // GitHub metadata already determined channel eligibility, including a
   // manually promoted release whose version still has a prerelease suffix.
   updater.allowPrerelease = true;
-  updater.setFeedURL(electronUpdaterFeedConfig(selected.feedUrl));
-  try {
-    const result = await updater.checkForUpdates();
-    if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
-      throw new Error("The release manifest does not match the selected version.");
+  const websiteFeed = `https://eigenweltlabs.com/legalwork/update/releases/${encodeURIComponent(selected.tag)}`;
+  for (const feedUrl of [websiteFeed, selected.feedUrl]) {
+    updater.setFeedURL(electronUpdaterFeedConfig(feedUrl));
+    try {
+      const result = await updater.checkForUpdates();
+      if (compareVersions(result?.updateInfo?.version, selected.version) !== 0) {
+        throw new Error("The release manifest does not match the selected version.");
+      }
+      return { channelState: { ...channelState, feedUrl, feedFallback: feedUrl !== websiteFeed }, result };
+    } catch (error) {
+      if (feedUrl === websiteFeed) {
+        console.warn("[updater] website feed unavailable, retrying selected release on GitHub", error?.message ?? error);
+        continue;
+      }
+      // Never replace an authoritative selection with another version/channel.
+      if (error && typeof error === "object") error.githubFallbackAttempted = true;
+      throw error;
     }
-    return { channelState: { ...channelState, feedUrl: selected.feedUrl, feedFallback: false }, result };
-  } catch (error) {
-    // An authoritative selection must not be replaced by a different version
-    // merely because its manifest is broken or unavailable.
-    if (error && typeof error === "object") error.githubFallbackAttempted = true;
-    throw error;
   }
 }
 
@@ -326,6 +357,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   let checkedUpdateVersion = null;
   let nativeMacUpdater = null;
   let updateReady = false;
+  let analyticsEnabled = false;
   const runTask = serializeUpdaterTasks();
   const handleUpdater = (name, handler) => ipcMain.handle(name, (...args) => runTask(() => handler(...args)));
   async function changeChannel(rawChannel) {
@@ -411,7 +443,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     return updaterChannelState(app, channel);
   });
 
-  handleUpdater("legalwork:updater:check", async (_event, rawChannel) => {
+  handleUpdater("legalwork:updater:check", async (_event, rawChannel, rawAnalyticsEnabled) => {
+    analyticsEnabled = rawAnalyticsEnabled === true;
     if (rawChannel !== undefined) {
       await changeChannel(rawChannel);
     }
@@ -434,7 +467,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       };
     };
     try {
-      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
+      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, { analyticsEnabled });
       return shapeCheckResult(result?.updateInfo ?? null, channelState);
     } catch (error) {
       /* Last-ditch recovery, deliberately dumb: if anything above threw before
@@ -466,9 +499,11 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     }
   });
 
-  handleUpdater("legalwork:updater:download", async () => {
+  handleUpdater("legalwork:updater:download", async (_event, rawAnalyticsEnabled) => {
+    analyticsEnabled = rawAnalyticsEnabled === true;
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
+    updater.requestHeaders = { ...updater.requestHeaders, "x-legalwork-analytics": analyticsEnabled ? "1" : "0" };
     updateReady = false;
     try {
       // No unconditional feed re-apply here: the feed left active by the last
@@ -476,7 +511,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // update info came from, and channel switches clear the cache below.
       const currentVersion = resolveAppVersion(app);
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
-        const { result } = await checkForUpdatesWithFeedFallback(app, updater);
+        const { result } = await checkForUpdatesWithFeedFallback(app, updater, { analyticsEnabled });
         const info = result?.updateInfo ?? null;
         checkedUpdateVersion = info?.version && isVersionNewer(info.version, currentVersion)
           ? info.version
@@ -488,6 +523,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // Clear any stuck ShipIt state from a prior aborted install so this
       // download applies cleanly on quit.
       await cleanStaleUpdaterState(app);
+      updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, analyticsEnabled);
       await downloadUpdateReady(updater, nativeMacUpdater);
       updateReady = true;
       updater.autoInstallOnAppQuit = true;
@@ -513,6 +549,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
+        updater.requestHeaders = await updaterDownloadHeaders(app, updater.requestHeaders, analyticsEnabled);
         await downloadUpdateReady(updater, nativeMacUpdater);
         updateReady = true;
         updater.autoInstallOnAppQuit = true;
