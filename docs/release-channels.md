@@ -15,6 +15,34 @@ them as prereleases. GitHub's Latest badge, API order, and publication date do
 not decide version precedence. A selected feed is pinned to that release for
 both the update check and download. Channel changes never permit downgrades.
 
+After selecting the release from GitHub metadata, the app checks
+`https://eigenweltlabs.com/legalwork/update/releases/<tag>/<manifest>`.
+The website redirects to that exact GitHub release; it never substitutes
+Latest. If the website fails or returns a manifest for another version, the
+app retries the same selected release directly on GitHub. The answering feed
+remains applied for downloads. Deploy the website route before releasing this
+client; older websites safely trigger the direct GitHub fallback.
+
+When usage analytics is enabled, the website records update checks and downloads
+under a SHA-256 hash of electron-updater's persistent `.updaterId`. It does not
+send the raw installation ID to PostHog or link this ID to an account or the
+app's per-launch event identity. The app forwards its current analytics choice
+on checks and downloads; pending, disabled, and firm-disabled analytics suppress
+website capture. Legacy requests without that choice retain request-only IDs.
+
+Automatic checks run at startup and at most hourly while the main app is visible,
+including a due check after focus/resume. They honor automatic-update settings
+and firm policy, and leave downloading or ready-to-install updates alone.
+These events measure installations that check for updates, rather than named
+people or completed tasks. Offline use, disabled checks/analytics, hidden apps,
+and direct GitHub fallback are not represented in website activity counts.
+
+For installation DAU/WAU, filter `update_check` by
+`source = website-update-feed` and `identity_type = installation`. Use unique
+IDs per day for DAU and unique IDs over the rolling last seven days for WAU;
+do not sum daily uniques. Filter `channel` if stable and alpha populations
+should be separate. Historical random request IDs cannot be backfilled.
+
 For example, Pre-release users receive v4.0.0 when v3.0.0 remains marked
 Pre-release and v4.0.0 is a regular release. Publishing v5.0.0 as Pre-release
 offers it to Pre-release and Alpha users. Removing the flag later offers the

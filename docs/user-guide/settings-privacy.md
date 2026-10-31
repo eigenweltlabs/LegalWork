@@ -91,6 +91,10 @@ Workspace files and local processing remain on the selected worker, but provider
 
 Official builds can send content-free usage telemetry when enabled. **Settings > Privacy** controls the analytics preference; development builds do not send it. Where offered, online model-catalog updates control refreshing provider/model metadata, not downloading a local transcription model. These settings are separate from network access needed for a provider or connector. App-hiding controls live under Recorder > Meetings. They affect visibility, not provider data handling.
 
+When usage analytics is enabled, update checks and downloads also help count active installations across days and weeks. Their events use a hashed identifier derived from the updater's existing installation ID, without your account details or work content. Other app usage events continue to use an identifier that changes at each app start. Turning off usage analytics stops collection of update analytics while keeping update checks available.
+
+Under **Settings > Updates**, automatic checks run at startup and periodically while the app is visible. They can check again after you return to a long-running app. Turning automatic checks off also stops these periodic checks. A download in progress or an update ready to install is left alone. Website outages fall back to GitHub for the same selected release.
+
 Related: [Localization](localization.md), [Audio](audio.md), [Troubleshooting](troubleshooting.md).
 
 Opening a project does not require a separate project-automation approval. Chat permissions, added-folder access, command approvals and sandbox settings still apply to the agent's operations.

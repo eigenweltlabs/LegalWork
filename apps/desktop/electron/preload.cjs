@@ -118,11 +118,11 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     setChannel(channel) {
       return ipcRenderer.invoke("legalwork:updater:setChannel", channel);
     },
-    check(channel) {
-      return ipcRenderer.invoke("legalwork:updater:check", channel);
+    check(channel, analyticsEnabled) {
+      return ipcRenderer.invoke("legalwork:updater:check", channel, analyticsEnabled);
     },
-    download() {
-      return ipcRenderer.invoke("legalwork:updater:download");
+    download(analyticsEnabled) {
+      return ipcRenderer.invoke("legalwork:updater:download", analyticsEnabled);
     },
     installAndRestart() {
       return ipcRenderer.invoke("legalwork:updater:installAndRestart");
